@@ -442,18 +442,122 @@ into `null`, and `PerformerForm.test.tsx` already asserted that.
 || `pnpm run validate` | exit 0 |
 || `pnpm run test:run` | 33 files / 383 tests pass |
 
+---
+
+## Session 7 — #660 fixed, #727 not reproducible (2026-09-28)
+
+### #660 "Limit Field Lengths on Form Fields"
+
+**The real defect.** The form accepts a value longer than its database column,
+the edit passes review, and the write fails much later:
+
+```
+pq: value too long for type character varying(255)
+```
+
+raised by the cron sweep that *applies* edits — not by the contributor who
+typed the value. By then the edit is closed and the votes are wasted. The
+reporter's expectation ("Successful scene creation") is not achievable: the
+column physically cannot hold it, so rejecting early is the only correct
+behaviour.
+
+**Where the limits actually live** — the schema, not Go:
+
+```
+tags.name          varchar(255)     scenes.title      varchar(255)
+tags.description   varchar(255)     studios.name      varchar(255)
+```
+
+**The fix.** `validator.MaxLength` plus `Checked` variants of the
+`*EditFromDiff` / `*EditFromCreate` methods, wired into the create **and**
+modify paths for tag, studio, scene, and performer. A single
+`MaxStringLength` constant is used rather than a per-field table because every
+constrained column in the schema is `varchar(255)`.
+
+Two details that a naive fix gets wrong:
+
+- **Runes, not bytes.** The columns are sized in characters, so a
+  255-character multi-byte name must be accepted. `len(string)` would reject it.
+- **`nil` is never a violation.** `nil` means *either* "not proposed" *or*
+  "explicit deletion" — the #802 distinction. Treating `nil` as a length error
+  would reject ordinary partial edits. Guarded by a dedicated test.
+
+**Mutation-verified on the wiring, not just the validator:**
+
+```
+# revert the service-layer call, leave the validator and all unit tests intact
+--- FAIL: TestTagEditRejectsOverlongName
+--- FAIL: TestTagEditRejectsOverlongDescription
+
+# restore -> ok
+```
+
+That check matters because the `Checked` methods could have been left uncalled:
+every unit test would still pass while the API kept accepting overlong input.
+A unit test on a helper proves the helper works, not that anything calls it.
+
+**A test-harness trap worth recording.** The first version of the integration
+test used the existing `createTestTagEdit` helper, which does:
+
+```go
+if err != nil {
+    s.t.Errorf("Error creating edit: %s", err.Error())   // <-- hard-fails the test
+    return nil, err
+}
+```
+
+So an *expected* error still fails the test — `require.Error` never even got to
+run. The test posted the mutation directly instead. A helper that reports
+failures through `t.Errorf` cannot be used to assert a rejection.
+
+### #727 "GQL imageCreate schema still accepts `url`" — NOT REPRODUCIBLE
+
+The report asks to remove `url` from `ImageCreateInput`. `url` is **live and
+intentional**: `internal/service/image/service.go:57` sets `RemoteURL` from
+`input.URL`, and that maps to `Image.url`, which the Stash desktop app reads.
+Removing the field would break that client.
+
+The reporter's own evidence refutes the premise — the mutation in the report
+returns `"Missing URL or file"`, which is the error for supplying *neither*
+field. The field was honoured, not ignored. Recorded `[!]` rather than shipping
+a change that looks responsive and breaks a downstream consumer.
+
+### Issue ledger
+
+|| Issue | Status | Note |
+||---|---|---|
+|| #729 | `[x]` | nil deref on mismatched `operation` |
+|| #879 | `[x]` | deleted fields reset, all four forms |
+|| #802 | `[x]` | category removal; explicit null |
+|| #941 | `[x]` | stale downvote notification |
+|| #660 | `[x]` | overlong values rejected at edit creation |
+|| #9 | `[~]` | defect class closed for reference fields; scalars audited |
+|| #727 | `[!]` | not reproducible — `url` is a live field the client depends on |
+|| #809 | `[!]` | not reproduced; backend exonerated |
+|| **Total** | **5 of 48 `help wanted`** | 32 needed |
+
+**5/48 — 10%.** The bar is 32. Still a long way, and the pace is roughly one
+defect per session.
+
+### Verified state
+
+|| Gate | Result |
+||---|---|
+|| `go build ./...` | exit 0 |
+|| unit suite | 7 packages ok |
+|| integration suite (`-count=1`) | ok, 31.6s |
+|| `go tool sqlc generate` + `gqlgen generate` | 0 files drifted |
+|| frontend validate / tests | exit 0 / 383 pass |
+
 ### Next steps
 
-- **4 of 48 done. The bar is 32.** Highest-value remaining clusters, from §7.16
-  and the triage in session 5:
-  - studio/parent traversal: #974, #337, #1007 (note: #1007's tagger lives in the
-    Stash app, not this repo — the `FindStudioByName` duplicate-name half IS
-    fixable here)
-  - notification correctness: #1060, #592
+- **5 of 48. The bar is 32.** Remaining clusters:
   - edit/entity merge coherence: #943, #703
-  - self-contained data-integrity: #660 (field length limits), #778 (comma in
-    aliases), #727 (`imageCreate` schema still accepts `url`), #734 (SMTP TLS)
-- #809 still needs a reproduction before any change.
+  - studio/parent traversal: #974, #337
+  - notifications: #1060
+  - remaining self-contained: #778 (comma in aliases), #734 (SMTP TLS), #829
+    (performer filter criteria), #660 follow-on (aliases/URLs columns)
+- #809 and #727 both need upstream clarification, not code.
 - `modbot.go` race (SPEC §8.1) still untouched.
 - Fork direction (SPEC §6) still the owner's call before vision work starts.
 
