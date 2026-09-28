@@ -12,6 +12,14 @@ import (
 
 type Querier interface {
 	CancelUserEdits(ctx context.Context, userID uuid.NullUUID) error
+	// Only clear once NO reject votes remain on the edit.
+	//
+	// A DOWNVOTE_OWN_EDIT notification is per (author, edit), not per vote, so it
+	// must survive as long as ANY voter is still rejecting. Deleting it whenever
+	// one voter flips to accept would silently hide a live rejection from the
+	// author (issue #941 is the single-voter case; this guards the multi-voter
+	// one).
+	ClearDownvoteEditNotifications(ctx context.Context, id uuid.UUID) error
 	ClearScenePerformerAlias(ctx context.Context, arg ClearScenePerformerAliasParams) error
 	CountNotificationsByUser(ctx context.Context, arg CountNotificationsByUserParams) (int64, error)
 	CountPerformerSearchMatches(ctx context.Context, arg CountPerformerSearchMatchesParams) (interface{}, error)

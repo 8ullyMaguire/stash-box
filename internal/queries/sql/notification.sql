@@ -80,6 +80,21 @@ FROM edits E
 JOIN user_notifications N ON E.user_id = N.user_id AND N.type = 'DOWNVOTE_OWN_EDIT'
 WHERE E.id = $1;
 
+-- name: ClearDownvoteEditNotifications :exec
+-- Only clear once NO reject votes remain on the edit.
+--
+-- A DOWNVOTE_OWN_EDIT notification is per (author, edit), not per vote, so it
+-- must survive as long as ANY voter is still rejecting. Deleting it whenever
+-- one voter flips to accept would silently hide a live rejection from the
+-- author (issue #941 is the single-voter case; this guards the multi-voter
+-- one).
+DELETE FROM notifications
+WHERE id = $1
+  AND type = 'DOWNVOTE_OWN_EDIT'
+  AND NOT EXISTS (
+      SELECT 1 FROM edit_votes WHERE edit_id = $1 AND vote = 'REJECT'
+  );
+
 -- name: TriggerFailedEditNotifications :exec
 INSERT INTO notifications (user_id, type, id)
 SELECT N.user_id, N.type, $1

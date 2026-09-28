@@ -11,6 +11,27 @@ import (
 	"github.com/gofrs/uuid"
 )
 
+const clearDownvoteEditNotifications = `-- name: ClearDownvoteEditNotifications :exec
+DELETE FROM notifications
+WHERE id = $1
+  AND type = 'DOWNVOTE_OWN_EDIT'
+  AND NOT EXISTS (
+      SELECT 1 FROM edit_votes WHERE edit_id = $1 AND vote = 'REJECT'
+  )
+`
+
+// Only clear once NO reject votes remain on the edit.
+//
+// A DOWNVOTE_OWN_EDIT notification is per (author, edit), not per vote, so it
+// must survive as long as ANY voter is still rejecting. Deleting it whenever
+// one voter flips to accept would silently hide a live rejection from the
+// author (issue #941 is the single-voter case; this guards the multi-voter
+// one).
+func (q *Queries) ClearDownvoteEditNotifications(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, clearDownvoteEditNotifications, id)
+	return err
+}
+
 const countNotificationsByUser = `-- name: CountNotificationsByUser :one
 SELECT COUNT(*) FROM notifications WHERE user_id = $1 AND ($2::boolean = FALSE OR read_at IS NULL) AND ($3::notification_type IS NULL OR type = $3::notification_type)
 `

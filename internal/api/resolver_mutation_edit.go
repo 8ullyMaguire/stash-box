@@ -95,6 +95,12 @@ func (r *mutationResolver) EditVote(ctx context.Context, input models.EditVoteIn
 		clearEditVotes(ctx, input.ID)
 		if input.Vote == models.VoteTypeEnumReject {
 			go r.services.Notification().OnEditDownvote(context.Background(), edit)
+		} else {
+			// The voter is no longer rejecting this edit, so any downvote
+			// notification already raised for it is stale — otherwise the author
+			// is told their edit was downvoted when the tally shows no reject
+			// votes at all (issue #941).
+			go r.services.Notification().OnEditDownvoteCleared(context.Background(), edit)
 		}
 		// Check if the edit was closed due to reaching the voting threshold
 		if edit.Status != models.VoteStatusEnumPending.String() {

@@ -241,6 +241,22 @@ func (s *Notification) OnEditDownvote(ctx context.Context, edit *models.Edit) {
 	}
 }
 
+// OnEditDownvoteCleared retracts the DOWNVOTE_OWN_EDIT notifications raised
+// for an edit.
+//
+// A voter who rejects an edit and then changes their vote to accept still
+// leaves the notification behind, so the edit author is told their edit was
+// downvoted when the tally shows no reject votes at all (issue #941). The
+// downvote is no longer true, so the notification has to go.
+//
+// Scoped to the DOWNVOTE_OWN_EDIT type so the other notifications attached to
+// the same edit (comments, favourites, fingerprints) are untouched.
+func (s *Notification) OnEditDownvoteCleared(ctx context.Context, edit *models.Edit) {
+	if err := s.queries.ClearDownvoteEditNotifications(ctx, edit.ID); err != nil {
+		logger.Errorf("Failed to clear downvote edit notifications: %v", err)
+	}
+}
+
 func (s *Notification) OnEditComment(ctx context.Context, comment *models.EditComment) {
 	if err := s.TriggerEditCommentNotifications(ctx, comment.ID); err != nil {
 		logger.Errorf("Failed to trigger edit comment notifications: %v", err)

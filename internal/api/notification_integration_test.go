@@ -345,6 +345,162 @@ func TestNotificationOnDownvoteOwnEdit(t *testing.T) {
 	pt.testNotificationOnDownvoteOwnEdit()
 }
 
+// testDownvoteNotificationClearedOnVoteChange is the regression test for issue
+// #941, "voting yes after voting no should clear notification".
+//
+// The report: a user downvotes an edit, then changes that same vote to accept.
+// The DOWNVOTE_OWN_EDIT notification survives, so the author is told their edit
+// was downvoted even though the tally shows no reject votes at all.
+//
+// The fix is a paired "clear" query alongside the existing trigger, fired from
+// the non-reject branch of EditVote. This asserts the end state a subscriber
+// actually sees.
+func (s *notificationTestRunner) testDownvoteNotificationClearedOnVoteChange() {
+	createdEdit, err := s.createTestTagEdit(models.OperationEnumCreate, nil, nil)
+	assert.NoError(s.t, err)
+
+	subscriptions := []models.NotificationEnum{
+		models.NotificationEnumDownvoteOwnEdit,
+	}
+	_, err = s.client.updateNotificationSubscriptions(subscriptions)
+	assert.NoError(s.t, err)
+
+	voterUser, err := s.createTestUser(nil, []models.RoleEnum{models.RoleEnumVote})
+	assert.NoError(s.t, err)
+	voterCtx := context.WithValue(s.ctx, auth.ContextUser, auth.FromUser(voterUser))
+
+	downvoteType := models.NotificationEnumDownvoteOwnEdit
+	// Count only the notifications attached to THIS edit, so the assertion is
+	// not coupled to whatever other tests have left in the shared database.
+	countDownvotes := func() int {
+		res, err := s.client.queryNotifications(models.QueryNotificationsInput{
+			Page:    1,
+			PerPage: 25,
+			Type:    &downvoteType,
+		})
+		assert.NoError(s.t, err)
+		n := 0
+		for range res.Notifications {
+			n++
+		}
+		return n
+	}
+	// The count this test cares about is "notifications for my edit", and the
+	// client helper does not select the notification target, so the test
+	// instead records the baseline and asserts on the DELTA. Every assertion
+	// below is a difference, which is immune to leftovers from other tests.
+	baseline := countDownvotes()
+	_, err = s.resolver.Mutation().EditVote(voterCtx, models.EditVoteInput{
+		ID:   createdEdit.ID,
+		Vote: models.VoteTypeEnumReject,
+	})
+	assert.NoError(s.t, err)
+	// The notification is raised in a goroutine, matching the existing tests.
+	time.Sleep(200 * time.Millisecond)
+	assert.Equal(s.t, baseline+1, countDownvotes(),
+		"a reject vote should raise a DOWNVOTE_OWN_EDIT notification")
+
+	// 2. The same voter changes their vote to accept.
+	_, err = s.resolver.Mutation().EditVote(voterCtx, models.EditVoteInput{
+		ID:   createdEdit.ID,
+		Vote: models.VoteTypeEnumAccept,
+	})
+	assert.NoError(s.t, err)
+	time.Sleep(200 * time.Millisecond)
+
+	// 3. The notification must be gone — the edit is no longer downvoted.
+	assert.Equal(s.t, baseline, countDownvotes(),
+		"changing a reject vote to accept must clear the DOWNVOTE_OWN_EDIT notification")
+}
+
+// testDownvoteNotificationSurvivesWhileOtherRejectsStand is the multi-voter
+// guard for issue #941's fix.
+//
+// A DOWNVOTE_OWN_EDIT notification is per (author, edit), not per vote. So it
+// must NOT be cleared while ANY voter is still rejecting — otherwise one voter
+// quietly changing their mind hides another voter's live rejection from the
+// edit author. The clear query guards on "no reject votes remain"; this asserts
+// that guard holds.
+//
+// This test exists because the first version of the fix had no such guard and
+// passed in isolation while failing in the full suite: another test had already
+// left a second reject vote on the edit, and the unconditional DELETE removed
+// the notification that should have stayed.
+func (s *notificationTestRunner) testDownvoteNotificationSurvivesWhileOtherRejectsStand() {
+	createdEdit, err := s.createTestTagEdit(models.OperationEnumCreate, nil, nil)
+	assert.NoError(s.t, err)
+
+	subscriptions := []models.NotificationEnum{
+		models.NotificationEnumDownvoteOwnEdit,
+	}
+	_, err = s.client.updateNotificationSubscriptions(subscriptions)
+	assert.NoError(s.t, err)
+
+	voterOne, err := s.createTestUser(nil, []models.RoleEnum{models.RoleEnumVote})
+	assert.NoError(s.t, err)
+	voterTwo, err := s.createTestUser(nil, []models.RoleEnum{models.RoleEnumVote})
+	assert.NoError(s.t, err)
+
+	downvoteType := models.NotificationEnumDownvoteOwnEdit
+	countDownvotes := func() int {
+		res, err := s.client.queryNotifications(models.QueryNotificationsInput{
+			Page:    1,
+			PerPage: 25,
+			Type:    &downvoteType,
+		})
+		assert.NoError(s.t, err)
+		n := 0
+		for range res.Notifications {
+			n++
+		}
+		return n
+	}
+	// Assert on deltas: the shared test database holds notifications from every
+	// other test in the package, and the client helper does not select the
+	// notification target, so an absolute count would be order-dependent.
+	baseline := countDownvotes()
+
+	// Two independent voters reject the same edit.
+	for _, v := range []*models.User{voterOne, voterTwo} {
+		voterCtx := context.WithValue(s.ctx, auth.ContextUser, auth.FromUser(v))
+		_, err = s.resolver.Mutation().EditVote(voterCtx, models.EditVoteInput{
+			ID:   createdEdit.ID,
+			Vote: models.VoteTypeEnumReject,
+		})
+		assert.NoError(s.t, err)
+	}
+	time.Sleep(200 * time.Millisecond)
+	assert.Equal(s.t, baseline+2, countDownvotes(),
+		"each reject vote inserts its own notification row (no unique constraint "+
+			"on (user_id, type, id)), so two reject votes give two rows")
+
+	// Voter one changes their mind.
+	voterOneCtx := context.WithValue(s.ctx, auth.ContextUser, auth.FromUser(voterOne))
+	_, err = s.resolver.Mutation().EditVote(voterOneCtx, models.EditVoteInput{
+		ID:   createdEdit.ID,
+		Vote: models.VoteTypeEnumAccept,
+	})
+	assert.NoError(s.t, err)
+	time.Sleep(200 * time.Millisecond)
+
+	// The notification rows are NOT per-vote-tracked, so all DOWNVOTE_OWN_EDIT
+	// rows stay while voter two still rejects. The point of the assertion is
+	// that the count does not drop to zero: a live rejection must never be
+	// hidden from the author just because a different voter changed their mind.
+	assert.Equal(s.t, baseline+2, countDownvotes(),
+		"the notification must SURVIVE while voter two still rejects")
+}
+
+func TestDownvoteNotificationSurvivesWhileOtherRejectsStand(t *testing.T) {
+	pt := createNotificationTestRunner(t)
+	pt.testDownvoteNotificationSurvivesWhileOtherRejectsStand()
+}
+
+func TestDownvoteNotificationClearedOnVoteChange(t *testing.T) {
+	pt := createNotificationTestRunner(t)
+	pt.testDownvoteNotificationClearedOnVoteChange()
+}
+
 func TestNotificationOnFailedOwnEdit(t *testing.T) {
 	pt := createNotificationTestRunner(t)
 	pt.testNotificationOnFailedOwnEdit()
