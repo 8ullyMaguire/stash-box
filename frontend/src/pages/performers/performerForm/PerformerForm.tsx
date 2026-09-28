@@ -36,6 +36,7 @@ import {
   ValidSiteTypeEnum,
 } from "src/graphql";
 import { useBeforeUnload } from "src/hooks/useBeforeUnload";
+import { proposedOrCurrent } from "src/utils";
 import DiffPerformer from "./diff";
 import ExistingPerformerAlert from "./ExistingPerformerAlert";
 import type { PerformerMergeConflict } from "./merge";
@@ -153,10 +154,10 @@ const PerformerForm: FC<PerformerProps> = ({
     mode: "onBlur",
     defaultValues: {
       name: initial?.name ?? performer?.name ?? "",
-      disambiguation:
-        initial?.disambiguation !== undefined
-          ? initial?.disambiguation
-          : performer?.disambiguation,
+      disambiguation: proposedOrCurrent(
+        initial?.disambiguation,
+        performer?.disambiguation,
+      ),
       aliases: initialAliases,
       gender: initial?.gender ?? performer?.gender ?? "",
       birthdate: initial?.birthdate ?? performer?.birth_date ?? undefined,
@@ -169,8 +170,7 @@ const PerformerForm: FC<PerformerProps> = ({
         HAIR,
         initial?.hair_color ?? performer?.hair_color ?? null,
       ),
-      height:
-        initial?.height !== undefined ? initial?.height : performer?.height,
+      height: proposedOrCurrent(initial?.height, performer?.height),
       breastType: getEnumValue(
         BREAST,
         initial?.breast_type ?? performer?.breast_type ?? null,

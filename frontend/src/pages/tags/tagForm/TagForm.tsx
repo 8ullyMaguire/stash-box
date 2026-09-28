@@ -15,6 +15,7 @@ import {
   useCategories,
 } from "src/graphql";
 import { useBeforeUnload } from "src/hooks/useBeforeUnload";
+import { proposedOrCurrent } from "src/utils";
 import type { TagMergeConflict } from "./merge";
 import { type TagFormData, TagSchema } from "./schema";
 import type { InitialTag } from "./types";
@@ -46,10 +47,11 @@ const TagForm: FC<TagProps> = ({
   } = useForm({
     resolver: yupResolver(TagSchema),
     defaultValues: {
-      name: initial?.name ?? tag?.name ?? "",
-      description: initial?.description ?? tag?.description ?? "",
+      name: proposedOrCurrent(initial?.name, tag?.name) ?? "",
+      description:
+        proposedOrCurrent(initial?.description, tag?.description) ?? "",
       aliases: initialAliases,
-      category: initial?.category ?? tag?.category,
+      category: proposedOrCurrent(initial?.category, tag?.category),
     },
   });
 

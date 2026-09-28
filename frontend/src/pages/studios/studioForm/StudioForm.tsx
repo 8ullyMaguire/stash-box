@@ -20,6 +20,7 @@ import {
   ValidSiteTypeEnum,
 } from "src/graphql";
 import { useBeforeUnload } from "src/hooks/useBeforeUnload";
+import { proposedOrCurrent } from "src/utils";
 import DiffStudio from "./diff";
 import { type StudioFormData, StudioSchema } from "./schema";
 import type { InitialStudio } from "./types";
@@ -50,11 +51,11 @@ const StudioForm: FC<StudioProps> = ({
   } = useForm({
     resolver: yupResolver(StudioSchema),
     defaultValues: {
-      name: initial?.name ?? studio?.name,
+      name: proposedOrCurrent(initial?.name, studio?.name) ?? "",
       aliases: initialAliases,
       images: initial?.images ?? studio?.images ?? [],
       urls: initial?.urls ?? studio?.urls ?? [],
-      parent: initial?.parent ?? studio?.parent,
+      parent: proposedOrCurrent(initial?.parent, studio?.parent),
     },
   });
 

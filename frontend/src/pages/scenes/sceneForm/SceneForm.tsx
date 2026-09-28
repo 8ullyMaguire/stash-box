@@ -30,7 +30,12 @@ import {
   ValidSiteTypeEnum,
 } from "src/graphql";
 import { useBeforeUnload } from "src/hooks/useBeforeUnload";
-import { formatDuration, parseDuration, performerHref } from "src/utils";
+import {
+  formatDuration,
+  parseDuration,
+  performerHref,
+  proposedOrCurrent,
+} from "src/utils";
 import DiffScene from "./diff";
 import ExistingSceneAlert from "./ExistingSceneAlert";
 import { type SceneFormData, SceneSchema } from "./schema";
@@ -71,14 +76,20 @@ const SceneForm: FC<SceneProps> = ({
     resolver: yupResolver(SceneSchema),
     mode: "onBlur",
     defaultValues: {
-      title: initial?.title ?? scene?.title ?? undefined,
-      details: initial?.details ?? scene?.details ?? undefined,
-      date: initial?.date ?? scene?.release_date ?? undefined,
-      production_date:
-        initial?.production_date ?? scene?.production_date ?? undefined,
-      duration: formatDuration(initial?.duration ?? scene?.duration),
-      director: initial?.director ?? scene?.director,
-      code: initial?.code ?? scene?.code,
+      title: proposedOrCurrent(initial?.title, scene?.title) ?? "",
+      details: proposedOrCurrent(initial?.details, scene?.details) ?? "",
+      // `date` is required by the schema, so the cleared value is the empty
+      // string rather than null.
+      date: proposedOrCurrent(initial?.date, scene?.release_date) ?? "",
+      production_date: proposedOrCurrent(
+        initial?.production_date,
+        scene?.production_date,
+      ),
+      duration: formatDuration(
+        proposedOrCurrent(initial?.duration, scene?.duration),
+      ),
+      director: proposedOrCurrent(initial?.director, scene?.director),
+      code: proposedOrCurrent(initial?.code, scene?.code),
       urls: initial?.urls ?? scene?.urls ?? [],
       images: initial?.images ?? scene?.images ?? [],
       studio: initial?.studio ?? scene?.studio ?? undefined,
