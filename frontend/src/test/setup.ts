@@ -7,6 +7,28 @@ afterEach(() => {
 });
 
 if (typeof window !== "undefined") {
+  // utils/user.ts reads localStorage at module scope, and that module is
+  // imported by nearly every page via src/utils. jsdom only provides
+  // localStorage when a test opts into it per-environment, so without this the
+  // import throws "Cannot read properties of undefined (reading 'getItem')"
+  // and every test file that transitively imports src/utils fails to load.
+  if (!window.localStorage) {
+    const store = new Map<string, string>();
+    Object.defineProperty(window, "localStorage", {
+      writable: true,
+      value: {
+        getItem: (key: string) => store.get(key) ?? null,
+        setItem: (key: string, value: string) => void store.set(key, value),
+        removeItem: (key: string) => void store.delete(key),
+        clear: () => store.clear(),
+        key: (index: number) => [...store.keys()][index] ?? null,
+        get length() {
+          return store.size;
+        },
+      },
+    });
+  }
+
   if (!window.matchMedia) {
     Object.defineProperty(window, "matchMedia", {
       writable: true,
