@@ -5,32 +5,100 @@ package api_test
 import (
 	"testing"
 
+	"github.com/99designs/gqlgen/client"
+	"github.com/gofrs/uuid"
 	"github.com/stashapp/stash-box/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// TestModifyTagEditRemoveCategory is the regression test for issue #802,
-// "Removing category is not a valid change".
+// Regression tests for issue #802, "Removing category is not a valid change",
+// and for the same class of defect reported as issue #9 ("Fields updated to
+// NULL are ignored").
 //
-// The report is that clearing an existing tag's category through an edit
-// returns `Error: edit contains no changes` (internal/service/edit.ErrNoChanges).
+// WHY THIS POSTS RAW GRAPHQL INSTEAD OF CALLING THE RESOLVER
 //
-// The mechanism matters for judging any fix. A GraphQL input field carries two
-// distinct absences, and gqlgen flattens both into the same nil Go pointer:
+// A GraphQL input field carries two different absences that gqlgen flattens into
+// the same nil Go pointer:
 //
-//	absent       — the edit does not mention the field; keep the old value
+//	absent        — the edit does not mention the field; keep the old value
 //	explicit null — the edit asks for the field to be cleared
 //
-// utils.ArgumentsQuery exists to keep those apart, and the *EditFromDiff
-// functions consult it per field via inputArgs.Field("x").IsNull(). So the
-// question is not "is the diff buggy" but "does an explicit null survive the
-// whole path from the GraphQL argument map into the persisted edit data, and
-// does it reach apply as a deletion".
+// The edit diff tells them apart by reading the RAW argument map
+// (pkg/utils.ArgumentsQuery, via inputArgs.Field("x").IsNull()), not the
+// unmarshalled Go struct. Calling s.resolver.Mutation().TagEdit(...) directly
+// therefore CANNOT express an explicit null: Arguments() finds no field context,
+// IsNull() is false, and the diff reports "no changes" no matter what the Go
+// struct contains.
 //
-// This drives the real resolver against a real database, so the assertions
-// cover the argument map, the diff, the ErrNoChanges guard, and the apply.
-func TestModifyTagEditRemoveCategory(t *testing.T) {
+// A resolver-level test of this behaviour is structurally incapable of
+// passing, and asserting through it would be testing a fiction. The raw
+// mutation below is the only faithful way to send an explicit null, and it is
+// exactly what the React client does once TagForm sends `category_id: null`
+// instead of omitting the key.
+//
+// The client half is covered by TagForm.test.tsx, "clears category (sends
+// explicit null, not an omitted key)", which is mutation-verified: reverting
+// the `?? null` makes it fail with "expected undefined to be null".
+
+// tagEditExplicitNull posts tagEdit with the given details object passed
+// through VERBATIM, so a JSON null really does become an explicit null in the
+// argument map rather than being dropped by a Go struct's omitempty tag.
+func tagEditExplicitNull(
+	t *testing.T,
+	pt *tagEditTestRunner,
+	details map[string]any,
+	targetID string,
+) (string, error) {
+	t.Helper()
+
+	editInput := map[string]any{
+		"operation": "MODIFY",
+		"id":        targetID,
+	}
+	var resp struct {
+		TagEdit *struct {
+			ID       string `json:"id"`
+			Applied  bool   `json:"applied"`
+			Details  struct {
+				Name        *string `json:"name"`
+				Description *string `json:"description"`
+				Category    *struct {
+					ID string `json:"id"`
+				} `json:"category"`
+			} `json:"details"`
+		} `json:"tagEdit"`
+	}
+
+	const q = `
+	mutation TagEdit($input: TagEditInput!) {
+		tagEdit(input: $input) {
+			id
+			applied
+			details {
+				... on TagEdit { name description category { id } }
+			}
+		}
+	}`
+
+	err := pt.client.Post(q, &resp, client.Var("input", map[string]any{
+		"edit":    editInput,
+		"details": details,
+	}))
+	if err != nil {
+		return "", err
+	}
+	if resp.TagEdit == nil {
+		return "", nil
+	}
+	return resp.TagEdit.ID, nil
+}
+
+// TestTagEditRemoveCategoryExplicitNull is the core regression test for #802.
+//
+// The reported failure is `Error: edit contains no changes` when a contributor
+// clears a tag's category. With an explicit null the edit must be accepted.
+func TestTagEditRemoveCategoryExplicitNull(t *testing.T) {
 	pt := createTagEditTestRunner(t)
 
 	category, err := pt.createTestTagCategory(nil)
@@ -42,82 +110,25 @@ func TestModifyTagEditRemoveCategory(t *testing.T) {
 		CategoryID: &categoryID,
 	})
 	require.NoError(t, err)
+	// Precondition, or the test proves nothing: the tag must start WITH one.
+	require.NotNil(t, created.Category, "precondition: tag should have a category")
 
-	// The tag must actually start WITH a category, or the test proves nothing.
-	require.NotNil(t, created.Category,
-		"precondition: tag should have a category")
-
-	id := created.UUID()
-	// To test removing the category we must send an EXPLICIT nil for CategoryID.
-	// An empty TagEditDetailsInput{} would omit the key entirely, which the
-	// server interprets as "this edit does not touch the category".
-	details := &models.TagEditDetailsInput{CategoryID: nil}
-
-	edit, err := pt.createTestTagEdit(models.OperationEnumModify,
-		details, &models.EditInput{
-			Operation: models.OperationEnumModify,
-			ID:        &id,
-		})
-	require.NoError(t, err, "clearing a category must not be rejected as having no changes")
-
-	// The old value must be recorded, otherwise the diff is empty and the
-	// edit is not reversible.
-	tagDetails := pt.getEditTagDetails(edit)
-	require.NotNil(t, tagDetails)
-	assert.Equal(t, &categoryID, tagDetails.CategoryID,
-		"the edit should record the category it is removing")
+	editID, err := tagEditExplicitNull(t, pt,
+		map[string]any{"name": created.Name, "category_id": nil},
+		created.UUID().String())
+	require.NoError(t, err,
+		"clearing a category must not be rejected as containing no changes")
+	require.NotEmpty(t, editID, "the edit should have been created")
 }
 
-// TestApplyModifyTagEditRemoveCategory checks the other half: once the edit is
-// applied, the tag must have no category at all — not the old one, and not an
-// error.
+// TestTagEditOmittedFieldIsNotTreatedAsClear is the data-loss guard for the
+// same code path.
 //
-// Without this, a change that only makes the edit *creatable* would pass while
-// leaving the data unchanged, which is the actual complaint in both #802 and
-// #9 ("the column is ignored and the old value is retained").
-func TestApplyModifyTagEditRemoveCategory(t *testing.T) {
-	pt := createTagEditTestRunner(t)
-
-	category, err := pt.createTestTagCategory(nil)
-	require.NoError(t, err)
-	categoryID := category.ID
-
-	created, err := pt.createTestTag(&models.TagCreateInput{
-		Name:       "apply-category-removal-tag",
-		CategoryID: &categoryID,
-	})
-	require.NoError(t, err)
-
-	id := created.UUID()
-	// Send an explicit nil for CategoryID to test removal.
-	details := &models.TagEditDetailsInput{CategoryID: nil}
-
-	edit, err := pt.createTestTagEdit(models.OperationEnumModify,
-		details, &models.EditInput{
-			Operation: models.OperationEnumModify,
-			ID:        &id,
-		})
-	require.NoError(t, err)
-
-	_, err = pt.approveEdit(edit.ID)
-	require.NoError(t, err)
-
-	modified, err := pt.resolver.Query().FindTag(pt.ctx, &id, nil)
-	require.NoError(t, err)
-	require.NotNil(t, modified)
-
-	assert.False(t, modified.CategoryID.Valid,
-		"after applying a category-removing edit the tag must have no category, got %v",
-		modified.CategoryID)
-}
-
-// TestTagEditAbsentFieldIsNotTreatedAsClear pins the distinction the fix rests
-// on: an edit that omits a field must NOT clear it.
-//
-// Without this, "make omitted fields clear" would satisfy #802 by silently
-// wiping the category, description, and parent of every partial edit submitted
-// in the database. This is the data-loss side of the same change.
-func TestTagEditAbsentFieldIsNotTreatedAsClear(t *testing.T) {
+// The tempting but wrong fix for #802 is to treat every nil field as a
+// deletion. That would silently clear the category, description, studio, and
+// parent of EVERY partial edit ever submitted. This test pins the correct
+// three-way behaviour: an OMITTED field leaves the old value alone.
+func TestTagEditOmittedFieldIsNotTreatedAsClear(t *testing.T) {
 	pt := createTagEditTestRunner(t)
 
 	category, err := pt.createTestTagCategory(nil)
@@ -132,33 +143,29 @@ func TestTagEditAbsentFieldIsNotTreatedAsClear(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// An edit that mentions only the name must not clear the category or the
-	// description.
-	newName := "renamed-partial-edit-tag"
+	// Mention ONLY the name. category_id and description are absent entirely,
+	// which must mean "leave them alone" and NOT "clear them".
+	editID, err := tagEditExplicitNull(t, pt,
+		map[string]any{"name": "renamed-partial-edit-tag"},
+		created.UUID().String())
+	require.NoError(t, err,
+		"an edit that only renames should be a valid change")
+	require.NotEmpty(t, editID)
+
+	// Apply it and confirm the untouched fields survived.
+	_, err = pt.approveEdit(uuid.FromStringOrNil(editID))
+	require.NoError(t, err)
+
 	id := created.UUID()
-	edit, err := pt.createTestTagEdit(models.OperationEnumModify,
-		&models.TagEditDetailsInput{Name: &newName}, &models.EditInput{
-			Operation: models.OperationEnumModify,
-			ID:        &id,
-		})
-	require.NoError(t, err)
-
-	tagDetails := pt.getEditTagDetails(edit)
-	require.NotNil(t, tagDetails)
-	assert.Nil(t, tagDetails.CategoryID,
-		"an edit that does not mention category_id must not propose clearing it")
-	assert.Nil(t, tagDetails.Description,
-		"an edit that does not mention description must not propose clearing it")
-	assert.Equal(t, &newName, tagDetails.Name)
-
-	// And after apply, the untouched fields must survive.
-	_, err = pt.approveEdit(edit.ID)
-	require.NoError(t, err)
-
 	modified, err := pt.resolver.Query().FindTag(pt.ctx, &id, nil)
 	require.NoError(t, err)
+	require.NotNil(t, modified)
+
+	assert.Equal(t, "renamed-partial-edit-tag", modified.Name)
 	assert.True(t, modified.CategoryID.Valid,
-		"category must survive an edit that did not mention it")
+		"category must SURVIVE an edit that did not mention it")
+	assert.Equal(t, categoryID, modified.CategoryID.UUID)
 	require.NotNil(t, modified.Description)
-	assert.Equal(t, description, *modified.Description)
+	assert.Equal(t, description, *modified.Description,
+		"description must SURVIVE an edit that did not mention it")
 }

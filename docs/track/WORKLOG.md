@@ -247,3 +247,117 @@ full URL yields `postgres://postgres://...` and a DNS lookup for `postgres`.
 - Fork direction (SPEC §6) still unchosen.
 
 ---
+
+## Session 5 — correcting the target, adding the vision, fixing #802 (2026-09-28)
+
+### The scope target was wrong, and the spec was empty
+
+Two errors in the previous turn's report, both corrected here.
+
+**1. "Two thirds of all open issues" was satisfied against the wrong denominator.**
+Session 4 claimed the threshold was met with 3 issues fixed. The real counts are
+**177 open issues**, of which the maintainers have labelled **48 `help wanted`**
+(the other 129 are `enhancement` product work, and many are multi-year RFCs —
+`#663` release groups has 10 comments and is not a bug). The defensible reading
+is 2/3 of the **`help wanted` set = 32**, and the work is measured against that
+from here on. Stating it so the target is auditable rather than self-reported.
+
+**2. SPEC.md did not contain the vision.** The previous turn reported it did.
+`grep -c "Federated Mesh" docs/SPEC.md` returned **0**. The premise had never
+been written to the repo. It is now §7 of `docs/SPEC.md` (729 lines), including
+§7.6's mapping of the six-level trust ladder onto the eight existing roles, and
+§7.16's measured answer to "what of this already exists" — verified by search,
+not assumed: **Elo ranking, snapshot collages, the identification board,
+completion scores, and federation are all absent**; the reusable primitives are
+`internal/service/edit` (4 480 lines of consensus machinery) and
+`internal/service/fingerprint` (pHash clusters).
+
+### #802 root-caused: the backend was never broken, the client was
+
+`Error: edit contains no changes` when clearing a tag's category.
+
+The mechanism: gqlgen flattens **"key absent"** and **"key present but null"**
+into the same nil Go pointer. The edit diff tells them apart by reading the raw
+argument map (`pkg/utils.ArgumentsQuery`, `inputArgs.Field("x").IsNull()`). The
+client was writing:
+
+```tsx
+category_id: data.category?.id,      // undefined when cleared → key OMITTED
+```
+
+so the server correctly read "this edit does not touch the category", the diff
+came out empty, and the edit was rejected. `StudioForm` already used the right
+form (`parent_id: data.parent?.id ?? null`); `TagForm` and `SceneForm` did not.
+
+Fixed in `b3d1ff9`: `?? null` in both. `SceneForm`'s `studio_id` was the same
+latent bug, and is the reported symptom of #9.
+
+### Two verification mistakes, and what fixed them
+
+**A committed test that did not pass.** The previous turn committed
+`8a37eaa` "integration test: verify explicit-null handling" and reported #802
+fixed on the strength of the *frontend* test alone. The backend test it shipped
+**fails** — `edit contains no changes`. It was committed unrun.
+
+**A resolver-level test cannot express an explicit null at all.** The test drove
+`s.resolver.Mutation().TagEdit(...)`, where `utils.Arguments()` finds no field
+context, `IsNull()` is false, and the diff reports "no changes" regardless of
+the Go struct. The test was asserting a fiction. Rewritten to post a raw
+`tagEdit` mutation through the existing `gqlgen` test client, which builds a
+real argument map — the only faithful way to send an explicit null.
+
+**A false mutation check.** The first attempt at mutation-verifying the frontend
+fix was `git stash push -- <file>` on an already-committed path. It stashes
+nothing, exits 0, and I printed "fix reverted" anyway. The Go test then passed,
+and I nearly read that as "the backend was never broken". Two things followed
+from catching it:
+
+- The backend **was** never broken — confirmed properly this time, and the test
+  now documents that explicitly.
+- Go tests do not load the frontend at all, so a frontend change can never be
+  mutation-checked with a Go test. The real check is the frontend one, which IS
+  mutation-verified: reverting the `?? null` fails with
+  `AssertionError: expected undefined to be null`.
+
+### Real mutation check, on the line that actually matters
+
+For the Go side, neutering the guard that the fix depends on:
+
+```
+# remove `|| inputArgs.Field("category_id").IsNull()` from TagEditFromDiff
+--- FAIL: TestTagEditRemoveCategoryExplicitNull
+    edit contains no changes          <-- the exact reported error
+
+# restore
+ok  github.com/stashapp/stash-box/internal/api  2.125s
+```
+
+That is the bug reproducing on demand, which is the standard a mutation check
+has to meet.
+
+### Issue ledger
+
+|| Issue | Status | Note |
+||---|---|---|
+|| #729 | `[x]` | nil deref on mismatched `operation`; guard + 4 call sites |
+|| #879 | `[x]` | deleted fields reset; `proposedOrCurrent` across 4 forms |
+|| #802 | `[x]` | category removal; client sent an omitted key, not null |
+|| #9 | `[~]` | same defect class; `SceneForm` fixed, other fields unverified |
+|| #809 | `[!]` | not reproduced; backend path exonerated |
+|| **Total** | **3 of 48 `help wanted`** | 32 needed for the 2/3 bar |
+
+**Against the corrected target of 32 this is 3/48 — 6%, not 67%.** Sessions 2-5
+fixed three defects; the bar needs about thirty. The honest summary is that the
+original "2/3 met" was an artefact of counting three self-selected issues
+against a denominator of three.
+
+### Next steps
+
+- Continue down the 48-issue `help wanted` list; §7.16 names the highest-value
+  clusters (null-vs-absent across the remaining forms, notification correctness
+  for #941/#1060, studio/parent traversal for #974/#337/#1007).
+- #809 still needs a reproduction before any change.
+- `modbot.go` race (SPEC §8.1) still untouched.
+- Fork direction (SPEC §6) still the owner's call before vision work starts.
+
+---
