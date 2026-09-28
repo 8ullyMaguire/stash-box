@@ -90,6 +90,14 @@ mkdir -p frontend/build && echo placeholder > frontend/build/index.html
 go list ./... | wc -l   # -> 41
 ```
 
+**The placeholder moves the failure, it does not fix it.** With it in place the
+embed error is gone (verified: zero occurrences of `pattern build: no matching
+files`) and `go build ./...` proceeds past module load — only to fail at the cgo
+link stage on the libvips/OpenEXR skew in §2.4. Still no binary, still exit 1.
+The two blockers are sequential, not alternatives: the placeholder exists so
+`go list`, `go test`, and codegen can run against a real package set while the
+system-library problem is unresolved.
+
 ### 2.3 Unit tests pass with that one line
 
 ```
@@ -424,9 +432,22 @@ None is diagnosed to root cause; none is fixed.
    for the same fact. Worth auditing whether they can disagree, and whether
    `VoteCount` is ever authoritative.
 
-5. **`passing` without a body boundary.** `package.json` pins
-   `packageManager` to `pnpm@11.21.0`; host has 12.4.1. Low severity, but
-   codegen and lockfile resolution should use the pinned version.
+5. **pnpm version drift.** `package.json` pins `packageManager` to
+   `pnpm@11.21.0`; host has 12.4.1. Low severity, but codegen and lockfile
+   resolution should use the pinned version.
+
+6. **A piped `go build` reports the exit code of the pipe's LAST command, not
+   the build's.** A verification harness written as
+
+   ```bash
+   go build ./... 2>&1 | tail -20; echo "BUILD_EXIT=$?"
+   ```
+
+   prints `BUILD_EXIT=0` on a build that failed, because `$?` is `tail`'s status.
+   Measured on this tree: the same build gives `0` via `$?` and `1` via
+   `${PIPESTATUS[0]}`. It is easy to mistake for a passing build in a scrollback
+   and conclude §2.2 is wrong. Any command here that pipes a build or test into
+   a pager must use `${PIPESTATUS[0]}`, or run unpiped.
 
 ---
 
