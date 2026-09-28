@@ -143,7 +143,12 @@ const SceneForm: FC<SceneProps> = ({
       director: data.director,
       code: data.code,
       details: data.details,
-      studio_id: data.studio?.id,
+      // `?? null` on the clearable reference fields: see the note in TagForm.
+      // An omitted key is indistinguishable from an explicit null once gqlgen
+      // flattens the argument map, and the server reads "omitted" as "this
+      // edit does not touch the field" — so a cleared studio silently keeps
+      // the old one (issue #9).
+      studio_id: data.studio?.id ?? null,
       performers: (data.performers ?? []).map((performance) => ({
         performer_id: performance.performerId,
         as: performance.alias,

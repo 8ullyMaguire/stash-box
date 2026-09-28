@@ -186,6 +186,43 @@ describe("TagForm", () => {
       await waitFor(() => expect(callback).toHaveBeenCalledTimes(1));
       expect(callback.mock.calls[0][0].aliases).toEqual([]);
     });
+
+    // Regression test for issue #802, "Removing category is not a valid
+    // change". Clearing the select must produce an EXPLICIT null.
+    //
+    // The distinction is not cosmetic. gqlgen collapses "key absent" and
+    // "key present but null" into the same nil Go pointer on the server; the
+    // edit diff tells them apart by reading the raw GraphQL argument map
+    // (utils.ArgumentsQuery). If the client omits category_id entirely, the
+    // server reads it as "this edit does not touch the category", the diff
+    // comes out empty, and the edit is rejected with
+    // "edit contains no changes".
+    //
+    // So the assertion is on the KEY being present with a null value, not
+    // merely on the value being falsy. `toMatchObject({category_id: null})`
+    // would also pass if the key were absent under some matcher
+    // configurations, hence the explicit hasOwnProperty check too.
+    it("clears category (sends explicit null, not an omitted key)", async () => {
+      const { callback, user } = await setupEdit();
+      const categoryGroup = (() => {
+        const labels = screen.getAllByText("Category");
+        const labelEl =
+          labels.find((el) => el.tagName === "LABEL") ?? labels[0];
+        return labelEl.closest(".mb-3") as HTMLElement;
+      })();
+      await selectReactSelect(user, "Activity", categoryGroup);
+      // Clear the selection.
+      await user.click(
+        categoryGroup.querySelector(".react-select__clear-indicator")!,
+      );
+      await fillNote(user);
+      await user.click(screen.getByRole("button", { name: "Submit Edit" }));
+
+      await waitFor(() => expect(callback).toHaveBeenCalledTimes(1));
+      const payload = callback.mock.calls[0][0] as Record<string, unknown>;
+      expect(Object.hasOwn(payload, "category_id")).toBe(true);
+      expect(payload.category_id).toBeNull();
+    });
   });
 
   describe("validation", () => {

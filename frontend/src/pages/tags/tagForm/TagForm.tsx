@@ -67,7 +67,15 @@ const TagForm: FC<TagProps> = ({
       name: data.name,
       description: data.description?.trim() || null,
       aliases: data.aliases ?? [],
-      category_id: data.category?.id,
+      // Clearing the category select must send an EXPLICIT null, not an
+      // omitted key. gqlgen flattens "absent" and "null" into the same nil Go
+      // pointer, and the edit diff reads the raw GraphQL argument map via
+      // utils.ArgumentsQuery to tell them apart. An omitted category_id is
+      // therefore read as "this edit does not touch the category", the edit
+      // looks empty, and the backend rejects it with
+      // "edit contains no changes" (issue #802). `?? null` keeps the key
+      // present in the serialised input so the diff sees the deletion.
+      category_id: data.category?.id ?? null,
     };
     callback(callbackData, data.note);
   };
