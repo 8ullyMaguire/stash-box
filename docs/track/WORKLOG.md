@@ -342,20 +342,117 @@ has to meet.
 || #729 | `[x]` | nil deref on mismatched `operation`; guard + 4 call sites |
 || #879 | `[x]` | deleted fields reset; `proposedOrCurrent` across 4 forms |
 || #802 | `[x]` | category removal; client sent an omitted key, not null |
+|| #941 | `[x]` | stale downvote notification after a vote is changed |
 || #9 | `[~]` | same defect class; `SceneForm` fixed, other fields unverified |
 || #809 | `[!]` | not reproduced; backend path exonerated |
-|| **Total** | **3 of 48 `help wanted`** | 32 needed for the 2/3 bar |
+|| **Total** | **4 of 48 `help wanted`** | 32 needed for the 2/3 bar |
 
-**Against the corrected target of 32 this is 3/48 — 6%, not 67%.** Sessions 2-5
-fixed three defects; the bar needs about thirty. The honest summary is that the
+**Against the corrected target of 32 this is 4/48 — 8%, not 67%.** Sessions 2-6
+fixed four defects; the bar needs about thirty. The honest summary is that the
 original "2/3 met" was an artefact of counting three self-selected issues
 against a denominator of three.
 
+---
+
+## Session 6 — #941, and a near-miss that a single test would have shipped (2026-09-28)
+
+### What #941 actually was
+
+A voter rejects an edit, then changes that vote to accept. The author keeps the
+`DOWNVOTE_OWN_EDIT` notification and is told their edit was downvoted when the
+tally shows no reject votes at all.
+
+`resolver_mutation_edit.go` had an `if reject { fire downvote notification }`
+with **no else** — nothing retracted a notification it had already raised.
+
+### The first fix was wrong, and the full suite caught it
+
+The obvious fix is a paired delete:
+
+```sql
+DELETE FROM notifications WHERE id = $1 AND type = 'DOWNVOTE_OWN_EDIT';
+```
+
+That passes in isolation. It failed in the full suite, and the failure was
+**not** a flake or a timing issue — it was a genuine data-loss bug:
+
+```
+expected: 1   actual: 2
+```
+
+A `DOWNVOTE_OWN_EDIT` row is keyed on (user, type, edit), **not** per vote, and
+`notifications` has **no unique constraint** (`41_notifications.up.sql`) — so
+each reject vote inserts another row. Unconditionally deleting on the first
+flip would have hidden a *second voter's live rejection* from the author. The
+fix now guards on there being no remaining reject votes:
+
+```sql
+AND NOT EXISTS (
+    SELECT 1 FROM edit_votes WHERE edit_id = $1 AND vote = 'REJECT'
+);
+```
+
+**Two lessons worth keeping:**
+
+- "Passes alone, fails in the suite" is a real defect until proven otherwise.
+  The reflex to lengthen the sleep was wrong; the numbers said `2`, not `1`, and
+  a sleep cannot turn `2` into `1`.
+- A test that asserts an **absolute** count against a shared test database is
+  order-dependent by construction. Both new tests now record a `baseline` and
+  assert on the **delta**, which is immune to other tests' leftovers.
+
+While writing the multi-voter test I also had to correct my own wrong
+assumption: I predicted one notification per edit. It is one per vote. The
+schema was the authority; the guess was not.
+
+### Both halves mutation-verified
+
+```
+# (a) remove the OnEditDownvoteCleared call
+--- FAIL: TestDownvoteNotificationClearedOnVoteChange
+    "changing a reject vote to accept must clear the ... notification"
+
+# (b) remove the NOT EXISTS guard, keep the call
+--- FAIL: TestDownvoteNotificationSurvivesWhileOtherRejectsStand
+    "the notification must SURVIVE while voter two still rejects"
+
+# restore both -> ok, and the full suite green at 46.2s
+```
+
+Neither test would exist without (b): the single-voter test passes happily
+against the buggy unconditional delete.
+
+### Also closed in this session: the rest of the #802/#9 defect class
+
+Audited every form's submitted edit input. All singular reference fields now
+send an explicit null — `TagForm.category_id`, `SceneForm.studio_id`,
+`SiteForm.category_id`, `StudioForm.parent_id` — so **no form can omit a
+cleared reference key**. Scalar fields (performer disambiguation, birthdate,
+sizes) were already correct: yup's `nullCheck` transform turns a cleared input
+into `null`, and `PerformerForm.test.tsx` already asserted that.
+
+### Verified state
+
+|| Gate | Result |
+||---|---|
+|| `go build ./...` | exit 0 |
+|| unit suite | ok |
+|| integration suite (`-count=1`) | **ok, 46.2s** |
+|| `go tool sqlc generate` | reproducible, no drift |
+|| `pnpm run validate` | exit 0 |
+|| `pnpm run test:run` | 33 files / 383 tests pass |
+
 ### Next steps
 
-- Continue down the 48-issue `help wanted` list; §7.16 names the highest-value
-  clusters (null-vs-absent across the remaining forms, notification correctness
-  for #941/#1060, studio/parent traversal for #974/#337/#1007).
+- **4 of 48 done. The bar is 32.** Highest-value remaining clusters, from §7.16
+  and the triage in session 5:
+  - studio/parent traversal: #974, #337, #1007 (note: #1007's tagger lives in the
+    Stash app, not this repo — the `FindStudioByName` duplicate-name half IS
+    fixable here)
+  - notification correctness: #1060, #592
+  - edit/entity merge coherence: #943, #703
+  - self-contained data-integrity: #660 (field length limits), #778 (comma in
+    aliases), #727 (`imageCreate` schema still accepts `url`), #734 (SMTP TLS)
 - #809 still needs a reproduction before any change.
 - `modbot.go` race (SPEC §8.1) still untouched.
 - Fork direction (SPEC §6) still the owner's call before vision work starts.
