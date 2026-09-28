@@ -748,6 +748,9 @@ func (s *Edit) UpdateSceneEdit(ctx context.Context, id uuid.UUID, input models.S
 		if err = validateEditUpdate(*edit, currentUser.ID); err != nil {
 			return err
 		}
+		if err = validateEditTargetID(edit, input.Edit); err != nil {
+			return err
+		}
 
 		p := Scene(ctx, tx, edit)
 		inputArgs := utils.Arguments(ctx).Field("input")
@@ -814,6 +817,9 @@ func (s *Edit) UpdateStudioEdit(ctx context.Context, id uuid.UUID, input models.
 
 		edit = converter.EditToModelPtr(dbEdit)
 		if err = validateEditUpdate(*edit, currentUser.ID); err != nil {
+			return err
+		}
+		if err = validateEditTargetID(edit, input.Edit); err != nil {
 			return err
 		}
 
@@ -890,6 +896,9 @@ func (s *Edit) UpdateTagEdit(ctx context.Context, id uuid.UUID, input models.Tag
 		if err = validateEditUpdate(*edit, currentUser.ID); err != nil {
 			return err
 		}
+		if err = validateEditTargetID(edit, input.Edit); err != nil {
+			return err
+		}
 
 		p := Tag(ctx, tx, edit)
 		inputArgs := utils.Arguments(ctx).Field("input")
@@ -962,6 +971,9 @@ func (s *Edit) UpdatePerformerEdit(ctx context.Context, id uuid.UUID, input mode
 
 		edit = converter.EditToModelPtr(dbEdit)
 		if err = validateEditUpdate(*edit, currentUser.ID); err != nil {
+			return err
+		}
+		if err = validateEditTargetID(edit, input.Edit); err != nil {
 			return err
 		}
 

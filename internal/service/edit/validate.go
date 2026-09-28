@@ -24,6 +24,10 @@ var ErrInvalidPerformer = errors.New("invalid performer id")
 var ErrInvalidTag = errors.New("invalid tag id")
 var ErrInvalidSite = errors.New("invalid url site id")
 
+// The operation supplied on an edit update does not match the operation the
+// edit was created with (issue #729).
+var ErrEditOperationMismatch = errors.New("edit operation mismatch")
+
 type editEntity interface {
 	IsDeleted() bool
 }

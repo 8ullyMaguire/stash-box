@@ -153,7 +153,7 @@ const PerformerForm: FC<PerformerProps> = ({
     mode: "onBlur",
     defaultValues: {
       name: initial?.name ?? performer?.name ?? "",
-      disambiguation: initial?.disambiguation ?? performer?.disambiguation,
+      disambiguation: initial?.disambiguation !== undefined ? initial?.disambiguation : performer?.disambiguation,
       aliases: initialAliases,
       gender: initial?.gender ?? performer?.gender ?? "",
       birthdate: initial?.birthdate ?? performer?.birth_date ?? undefined,
@@ -166,7 +166,7 @@ const PerformerForm: FC<PerformerProps> = ({
         HAIR,
         initial?.hair_color ?? performer?.hair_color ?? null,
       ),
-      height: initial?.height || performer?.height,
+      height: initial?.height !== undefined ? initial?.height : performer?.height,
       breastType: getEnumValue(
         BREAST,
         initial?.breast_type ?? performer?.breast_type ?? null,
