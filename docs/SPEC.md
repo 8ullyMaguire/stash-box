@@ -408,7 +408,254 @@ prerequisites rather than leaving them as ambient risk.
 
 ---
 
-## 7. Defects observed while reading (candidates, not findings)
+## 7. Product vision — the federated discovery mesh
+
+The owner's premise, recorded here in full because it is the destination this
+fork is being built toward. Nothing below is implemented yet; §6 (direction) is
+still open and no code is written against this until it is answered.
+
+**Tagline:** *Catalog everything. Curate together. Discover everywhere.
+Preserve forever.*
+
+Stash Box is a federated mesh of independently operated instances that together
+form the world's most complete, community-curated archive and discovery engine
+for adult content. It is metadata-first, discovery-first, and
+preservation-first. Every instance is its own portal, community, and archive —
+but instances see each other, peer with each other based on taste-profile
+similarity, and automatically help each other preserve content.
+
+### 7.1 Core vision
+
+Each instance has its own operator, theme, community, trust thresholds,
+content-access rules, storage budget, and replication policy. The mesh shares
+metadata, Elo rankings, reviews, snapshots, identification boards, curation
+quests, and preservation coordination.
+
+Discovery is first-class: every performer, scene, studio, site, tag, list, and
+instance gets recommendations, similar entities, and "because you liked…"
+surfaces. Gravity pulls toward the instance theme — operators or a high-trust
+subset of users set the instance's taste gravity, and recommendations, trending
+lists, curation priorities, and preservation preferences bend toward it while
+still respecting each user's personal taste.
+
+Preservation is automatic by default: a scene should exist on at least three
+instances unless configured otherwise. Each instance can opt out, set
+minimum/maximum replication counts, and define which peers it trusts for
+storage. Trust unlocks content: low-trust users see metadata and collages,
+high-trust users who opt in can watch, stream, and manage content.
+
+The result is a self-reinforcing archive — discovery brings users, users bring
+curation, curation completes metadata, metadata improves discovery, trust unlocks
+content, and federation keeps everything alive.
+
+### 7.2 Federated mesh and taste-based peering
+
+Every instance publishes a **taste profile** (from Elo votes, reviews, tags,
+curation history, opt-in viewing signals, search behaviour, instance gravity)
+and a **capability profile** (storage, bandwidth, uptime, content policies,
+replication limits, trust thresholds, supported federation features).
+
+Instances peer more closely with instances whose taste profiles are similar;
+those peers share recommendations, cross-instance trending, joint curation
+quests, and preservation priorities. Cross-mesh discovery ranks by **local
+gravity + peer similarity + personal taste**, so a vintage-focused instance and
+a VR-focused instance can both federate yet each see the mesh through its own
+lens. Users may join multiple instances and carry a portable taste fingerprint.
+Trust and reputation can be attested across instances while each operator keeps
+local permissions.
+
+### 7.3 Preservation by default
+
+Every content object — scene, snapshot set, collage, metadata record — has a
+preservation policy. The default is **a scene is hosted on at least three
+instances**. Each instance configures minimum/maximum replicas it will host,
+which scenes/studios/tags/performers it opts out of, preferred peers, and
+storage/bandwidth/retention budgets.
+
+The mesh schedules replication to trusted peers with capacity and similar taste
+profiles. Health checks, manifest verification, and automatic repair keep
+replicas alive; if an instance goes offline, peers detect missing replicas and
+restore them. **Metadata is always replicated; content replication follows
+per-instance policy.** Operators set global defaults, per-scene overrides, and
+emergency rules. Users earn badges and reputation for contributing storage,
+bandwidth, or curation that keeps rare content alive.
+
+### 7.4 First-class discovery
+
+Discovery is the default experience, not a search box. Recommendations for
+everything; a personal taste fingerprint; an instance **gravity slider** that
+lets a user bias results toward local theme or toward personal/mesh results; a
+home feed of personalized recommendations, mesh trending, instance spotlight, new
+curation quests, identification highlights, and awards.
+
+Every entity page gains "similar to", "users like you also liked", "appears in",
+"curated by", and "preservation status". Community-made discovery boards carry
+lists, rankings, collections, and guides, and a **recommendation API** lets
+developers build their own experiences on top.
+
+### 7.5 Identification board — "Which Was That…?"
+
+A dedicated community board for identifying actors, scenes, studios, sites, or
+tags from half-remembered context. Users post a query with a description,
+collage, snapshot, frame, quote, or context; the community suggests matches,
+votes on candidates, and links solved queries to metadata. Solved
+identifications become canonical links that improve search and recommendations.
+
+Gamification: "Detective" reputation, solve streaks, badges, leaderboards, and
+bounties for hard cases. It integrates with Elo, the directory, curation quests,
+and preservation — identifying an orphan scene can trigger metadata creation
+and replication. The board turns collective memory into structured archive data.
+
+### 7.6 Trust and access model
+
+Stash Box separates **metadata** from **media** across six levels:
+
+|| Level | Grants |
+||---|---|
+|| 0 — Public / Anonymous | Browse directory, rankings, reviews, basic metadata, snapshot collages |
+|| 1 — Registered | Vote in Elo matchups, submit edits, write reviews, flag duplicates, post on the identification board |
+|| 2 — Contributor | Trusted edits auto-approve; expanded collages and storyboards; XP and badges |
+|| 3 — Curator | Merge duplicates, approve edits, manage tags, claim curation quests, full snapshot sets |
+|| 4 — Archivist | Opt-in content viewing, streaming, download, upload; host replicas for the mesh |
+|| 5 — Steward | Governance, API keys, awards voting, instance gravity tuning, preservation policy input |
+
+Trust is earned through approved edits, peer verification, voting consistency,
+identification solves, curation quests, and preservation contributions.
+High-trust users **explicitly opt in** to view content. Low-trust users still get
+enough visual context — collages, storyboards, snapshots — to identify and
+curate accurately.
+
+**Mapping onto the existing role enum** (`internal/models`, eight roles: `READ`,
+`VOTE`, `EDIT`, `MODIFY`, `MODERATE`, `ADMIN`, `INVITE`, `MANAGE_INVITES`): the
+fork's trust ladder must be layered **on top of** these rather than replacing
+them, or it breaks the public GraphQL compatibility surface the Stash desktop
+app depends on (§4.3). Concretely: Level 0 = anonymous + `READ`; Level 1 =
+`READ`+`VOTE`+`EDIT`; Levels 2–3 = `MODIFY`/`MODERATE`; Levels 4–5 = new
+capabilities gated on an opt-in flag, not on new roles.
+
+### 7.7 Curation engine and completion
+
+Every entity gets a **completion score** from missing metadata, snapshot
+coverage, performer links, studio links, tag coverage, source links, review
+coverage, and duplicate confidence.
+
+- **Curation quests:** "Add missing birthdates for 5 performers", "Link 10
+  unlinked scenes", "Verify studio catalog", "Resolve duplicate suspicion".
+- **Bounties:** high-impact gaps earn bonus XP; rare performers, lost studios,
+  and obscure scenes become community missions.
+- **Federated quests:** instances with similar taste run joint campaigns.
+- **Duplicate detection and merge:** perceptual hashing, metadata similarity, and
+  community voting together.
+- **Multi-user verification:** important edits need several trusted confirmations.
+- **Progress bars everywhere:** every entity shows completion and missing fields.
+- **Preservation quests:** "This scene has only 2 replicas. Help it reach 3."
+
+### 7.8 Snapshot collages and scene identification
+
+Every scene generates a **snapshot collage** — a storyboard of 12–24 evenly
+spaced frames, hover-scrubbable, with optional silent previews.
+
+Low-trust users see collages to identify scenes, match metadata, detect
+duplicates, and curate accurately; high-trust users who opt in unlock playback,
+streaming, and download. Collages power curation: vote "match"/"mismatch", flag
+wrong covers, add tags, link performers, suggest merges. **Collages are
+replicated across the mesh even when full content is not**, so identification and
+curation work everywhere. Every collage interaction feeds the completion engine
+and earns XP.
+
+### 7.9 Elo ranking and taste profiles
+
+Pairwise Elo voting — Glicko-2 or TrueSkill — ranks performers, scenes, studios,
+sites, tags, lists, and even instances.
+
+Performer battles present two performers side by side ("who do you prefer?").
+Leaderboards exist overall and by genre, era, studio, country, instance, and
+personal taste. Each user's votes form a taste fingerprint; each instance has a
+taste vector shaped by its community and gravity. Rankings decay so they reflect
+current relevance, and federated rankings show local, peer-mesh, and global
+views. Gamification adds streaks, badges, "Taste Maker" reputation, daily
+matchups, weekly tournaments, and bracket challenges, feeding annual Stash Box
+Awards determined by community votes plus Elo plus reviews.
+
+### 7.10 Directory, sites, studios and reviews
+
+A community-curated directory in the spirit of ThePornDude, but open,
+scalable, federated, and integrated with metadata: site and network profiles
+(URL, description, categories, pricing, payment methods, features, pros/cons,
+alternatives), studio profiles (history, owned sites, roster, notable scenes,
+completion score), performer profiles (bio, aliases, scene credits, official
+links, Elo rank, reviews), and structured user reviews with verified-usage flags.
+Studios and performers can claim and confirm profiles to earn verified badges.
+Search and filters cover niche, price, rating, features, ethical labels, and
+payment methods; users publish lists. An **SEO engine** emits public pages for
+every site, performer, studio, scene, and tag to bring mainstream traffic into
+the mesh.
+
+### 7.11 Ecosystem
+
+Stash App integration (two-way sync: pull metadata, push edits, see rankings,
+launch playback, contribute to preservation), a public API (GraphQL and REST,
+SDKs for Python/JavaScript/Go, webhooks), a browser extension (overlay scores
+and reviews on any site, one-click "Add to Stash Box", vote without leaving the
+page), a mobile app (vote, quests, reviews, identification, notifications), a
+developer sandbox, and a published **federation protocol** covering instance
+peering, taste sharing, replication coordination, and cross-instance discovery.
+
+### 7.12 Gamification and community
+
+XP, levels, badges, and streaks for every contribution; leaderboards for top
+curators, voters, reviewers, identifiers, and preservationists (local, mesh, and
+global); guilds for niche- or studio-specific teams; "adopt a site/performer"
+stewardship; mentorship; a public roadmap voted on by the community; annual
+awards; and preservation badges for hosting replicas and seeding rare content.
+
+### 7.13 Governance and operator controls
+
+Each operator controls instance theme and gravity, trust thresholds for content
+access, replication policy (minimum replicas, opt-outs, preferred peers, storage
+budgets), federation agreements (which instances to peer with, which taste
+profiles to trust), content access rules and opt-in requirements, local
+moderation and curation priorities, and delegation of gravity tuning and policy
+input to a high-trust subset. Users can move their taste fingerprint between
+instances and see the mesh through different lenses.
+
+### 7.14 The flywheel
+
+More discovery → more users → more curation → better metadata → better
+recommendations → more trust → more content access → more preservation → more
+availability → more discovery. The mesh makes the archive resilient, personal,
+and alive; every instance contributes to the whole and every user helps complete
+the archive.
+
+### 7.15 MVP roadmap
+
+|| Phase | Scope |
+||---|---|
+|| 1 | Single-instance public metadata portal + snapshot collages + Elo voting + identification board |
+|| 2 | Trust levels + opt-in content viewing + gamification + curation quests + completion scores |
+|| 3 | Directory for sites/studios + user reviews + Stash app integration + public API + browser extension |
+|| 4 | Federation protocol + taste-based peering + preservation replication + cross-instance discovery |
+|| 5 | Mobile app + annual awards + advanced recommendation engine + mesh-wide curation campaigns |
+
+### 7.16 What the vision needs from the existing codebase
+
+The three capabilities the fork must *build* rather than extend, because nothing
+like them exists here today — verified by search, not assumed:
+
+|| Vision item | Present in this repo? |
+||---|---|
+|| Elo / Glicko / TrueSkill ranking | **No.** No rating code anywhere outside test fixtures. The existing `edit`/`edit_votes` machinery is *consensus on facts*, which is a different problem from *pairwise preference ranking*. |
+|| Snapshot collages / storyboards | **No.** Images exist as opaque `width`/`height` metadata; there is no frame-extraction, scrub, or storyboard concept. |
+|| Identification board | **No.** Nothing in the schema, service layer, or `frontend/src/pages/` (18 page dirs, none of them an ID board). |
+|| Completion scores | **No.** No per-entity completeness notion. |
+|| Federation / replication | **No.** Single-instance only. |
+|| Reviews, directories, XP/badges | **No.** |
+|| Edit/vote consensus | **Yes** — `internal/service/edit`, 4 480 lines. The nearest reusable primitive. |
+|| Perceptual hashing / fingerprinting | **Yes** — `internal/service/fingerprint`, and pHash clusters already exist (see issues #814, #1177). The substrate for duplicate detection (§7.7). |
+
+---
+
+## 8. Defects observed while reading (candidates, not findings)
 
 Recorded because they were seen in passing and would be expensive to rediscover.
 None is diagnosed to root cause; none is fixed.
@@ -451,7 +698,7 @@ None is diagnosed to root cause; none is fixed.
 
 ---
 
-## 8. Verification commands
+## 9. Verification commands
 
 Every claim in §2 is reproducible from the clone. The two that must be re-run
 after the §2.4/§2.6 blockers clear:
