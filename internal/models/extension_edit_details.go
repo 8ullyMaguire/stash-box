@@ -2,8 +2,33 @@ package models
 
 import (
 	"github.com/gofrs/uuid"
+	"github.com/stashapp/stash-box/internal/models/validator"
 	"github.com/stashapp/stash-box/pkg/utils"
 )
+
+// validateTagEditLengths rejects values that would overflow their column.
+//
+// Without this the failure surfaces at apply time as
+// `pq: value too long for type character varying(255)` from a background cron
+// sweep, far from the contributor who typed the value (issue #660).
+func (e TagEditDetailsInput) validateTagEditLengths() error {
+	if err := validator.MaxLength("name", e.Name); err != nil {
+		return err
+	}
+	return validator.MaxLength("description", e.Description)
+}
+
+// TagEditFromDiffChecked is TagEditFromDiff with input length validation.
+//
+// It exists alongside TagEditFromDiff rather than changing that function's
+// signature so the existing call sites and their tests keep their shape; the
+// service layer calls the Checked variant.
+func (e TagEditDetailsInput) TagEditFromDiffChecked(orig Tag, inputArgs utils.ArgumentsQuery) (TagEditData, error) {
+	if err := e.validateTagEditLengths(); err != nil {
+		return TagEditData{}, err
+	}
+	return e.TagEditFromDiff(orig, inputArgs), nil
+}
 
 func (e TagEditDetailsInput) TagEditFromDiff(orig Tag, inputArgs utils.ArgumentsQuery) TagEditData {
 	newData := &TagEdit{}
@@ -34,12 +59,32 @@ func (e TagEditDetailsInput) TagEditFromMerge(orig Tag, sources []uuid.UUID, inp
 	return data
 }
 
+// TagEditFromCreateChecked is TagEditFromCreate with input length validation.
+func (e TagEditDetailsInput) TagEditFromCreateChecked(inputArgs utils.ArgumentsQuery) (TagEditData, error) {
+	if err := e.validateTagEditLengths(); err != nil {
+		return TagEditData{}, err
+	}
+	return e.TagEditFromCreate(inputArgs), nil
+}
+
 func (e TagEditDetailsInput) TagEditFromCreate(inputArgs utils.ArgumentsQuery) TagEditData {
 	ret := e.TagEditFromDiff(Tag{}, inputArgs)
 
 	return TagEditData{
 		New: ret.New,
 	}
+}
+
+// PerformerEditFromDiffChecked is PerformerEditFromDiff with input length
+// validation.
+func (e PerformerEditDetailsInput) PerformerEditFromDiffChecked(orig Performer, inputArgs utils.ArgumentsQuery) (*PerformerEditData, error) {
+	if err := validator.MaxLength("name", e.Name); err != nil {
+		return nil, err
+	}
+	if err := validator.MaxLength("disambiguation", e.Disambiguation); err != nil {
+		return nil, err
+	}
+	return e.PerformerEditFromDiff(orig, inputArgs)
 }
 
 func (e PerformerEditDetailsInput) PerformerEditFromDiff(orig Performer, inputArgs utils.ArgumentsQuery) (*PerformerEditData, error) {
@@ -136,6 +181,14 @@ func (e PerformerEditDetailsInput) PerformerEditFromCreate(inputArgs utils.Argum
 	}, nil
 }
 
+// StudioEditFromDiffChecked is StudioEditFromDiff with input length validation.
+func (e StudioEditDetailsInput) StudioEditFromDiffChecked(orig Studio, inputArgs utils.ArgumentsQuery) (*StudioEditData, error) {
+	if err := validator.MaxLength("name", e.Name); err != nil {
+		return nil, err
+	}
+	return e.StudioEditFromDiff(orig, inputArgs)
+}
+
 func (e StudioEditDetailsInput) StudioEditFromDiff(orig Studio, inputArgs utils.ArgumentsQuery) (*StudioEditData, error) {
 	newData := &StudioEdit{}
 	oldData := &StudioEdit{}
@@ -162,6 +215,15 @@ func (e StudioEditDetailsInput) StudioEditFromMerge(orig Studio, sources []uuid.
 	return data, err
 }
 
+// StudioEditFromCreateChecked is StudioEditFromCreate with input length
+// validation.
+func (e StudioEditDetailsInput) StudioEditFromCreateChecked() (StudioEditData, error) {
+	if err := validator.MaxLength("name", e.Name); err != nil {
+		return StudioEditData{}, err
+	}
+	return e.StudioEditFromCreate(), nil
+}
+
 func (e StudioEditDetailsInput) StudioEditFromCreate() StudioEditData {
 	newData := &StudioEdit{}
 
@@ -172,6 +234,14 @@ func (e StudioEditDetailsInput) StudioEditFromCreate() StudioEditData {
 	return StudioEditData{
 		New: newData,
 	}
+}
+
+// SceneEditFromDiffChecked is SceneEditFromDiff with input length validation.
+func (e SceneEditDetailsInput) SceneEditFromDiffChecked(orig Scene, inputArgs utils.ArgumentsQuery) (*SceneEditData, error) {
+	if err := validator.MaxLength("title", e.Title); err != nil {
+		return nil, err
+	}
+	return e.SceneEditFromDiff(orig, inputArgs)
 }
 
 func (e SceneEditDetailsInput) SceneEditFromDiff(orig Scene, inputArgs utils.ArgumentsQuery) (*SceneEditData, error) {

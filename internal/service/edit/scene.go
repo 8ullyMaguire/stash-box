@@ -66,7 +66,7 @@ func (m *SceneEditProcessor) modifyEdit(input models.SceneEditInput, inputArgs u
 
 	// perform a diff against the input and the current object
 	detailArgs := inputArgs.Field("details")
-	sceneEdit, err := input.Details.SceneEditFromDiff(scene, detailArgs)
+	sceneEdit, err := input.Details.SceneEditFromDiffChecked(scene, detailArgs)
 	if err != nil {
 		return err
 	}

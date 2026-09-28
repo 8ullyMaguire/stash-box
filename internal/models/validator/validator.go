@@ -87,3 +87,42 @@ func EnumPtr[T StringEnum](field string, old *string, current *T) error {
 	}
 	return nil
 }
+
+// ErrFieldTooLong is returned when a submitted value exceeds the length of the
+// database column it will be written to.
+type ErrFieldTooLong struct {
+	Field    string
+	Length   int
+	Max      int
+}
+
+func (e *ErrFieldTooLong) Error() string {
+	return fmt.Sprintf("%s is %d characters; the maximum is %d", e.Field, e.Length, e.Max)
+}
+
+// MaxStringLength is the length of the varchar(255) columns that hold these
+// fields (see internal/database/migrations/postgres/01_initial.up.sql).
+//
+// It is a single constant rather than a per-field table because every
+// constrained column in the schema is declared varchar(255); if a future
+// migration narrows one of them, this constant is the single place to revisit
+// and the tests will fail loudly rather than the change passing silently.
+const MaxStringLength = 255
+
+// MaxLength validates that a submitted string field fits its column.
+//
+// A nil value is accepted: it means the edit does not propose a value for the
+// field, which is the same wire representation as an explicit deletion. Neither
+// is a length violation, and conflating them here would reject ordinary edits
+// (see issue #802 on why null and absent must stay distinct).
+func MaxLength(field string, value *string) error {
+	if value == nil {
+		return nil
+	}
+	// Count runes, not bytes: the columns are sized in characters, so a
+	// 255-character name of multi-byte text must be accepted.
+	if n := len([]rune(*value)); n > MaxStringLength {
+		return &ErrFieldTooLong{Field: field, Length: n, Max: MaxStringLength}
+	}
+	return nil
+}

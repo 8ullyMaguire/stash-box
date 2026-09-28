@@ -65,7 +65,7 @@ func (m *StudioEditProcessor) modifyEdit(input models.StudioEditInput, inputArgs
 
 	// perform a diff against the input and the current object
 	detailArgs := inputArgs.Field("details")
-	studioEdit, err := input.Details.StudioEditFromDiff(studio, detailArgs)
+	studioEdit, err := input.Details.StudioEditFromDiffChecked(studio, detailArgs)
 	if err != nil {
 		return err
 	}
@@ -168,7 +168,10 @@ func (m *StudioEditProcessor) mergeEdit(input models.StudioEditInput, inputArgs 
 }
 
 func (m *StudioEditProcessor) createEdit(input models.StudioEditInput) error {
-	studioEdit := input.Details.StudioEditFromCreate()
+	studioEdit, err := input.Details.StudioEditFromCreateChecked()
+	if err != nil {
+		return err
+	}
 
 	studioEdit.New.AddedUrls = input.Details.Urls
 	studioEdit.New.AddedImages = input.Details.ImageIds
