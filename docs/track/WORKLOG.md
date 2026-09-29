@@ -675,3 +675,138 @@ remaining clusters are the studio/parent traversal pair and notifications.
 - Fork direction (SPEC §6) still the owner's call before vision work starts.
 
 ---
+
+## Session 9 — performer filters #829, alias commas #778 (2026-09-29)
+
+### #829 `[x]` — eleven filters accepted by the schema and dropped by the builder
+
+`PerformerQueryInput` declares ~24 filter fields and GraphQL accepts all of
+them. `buildPerformerQuery` handled 13. The other 11 were read from the input
+and **never used**:
+
+`eye_color` `hair_color` `height` `cup_size` `band_size` `waist_size`
+`hip_size` `breast_type` `career_start_year` `career_end_year` `tattoos`
+`piercings`
+
+The failure mode is a silent wrong answer, not an error — a caller setting
+`breast_type` got back every performer, in the same shape as a correct
+response. That is precisely what the reporter describes: "some work, some
+don't", with no error to explain the difference.
+
+Two helpers added:
+
+- `ApplyEnumCriterion` — generic over `~string`, so eye/hair/breast share one
+  implementation and cannot drift. `NOT_EQUALS` excludes NULLs: a performer
+  with no recorded eye color is *unknown*, not "some other colour".
+- `ApplyBodyModificationCriterion` — EXISTS semi-join over
+  `performer_tattoos` / `performer_piercings`.
+
+**A wrong assumption I had to correct mid-task:** I first wrote the body-mod
+helper against `performers.tattoos` as a jsonb array, because that is how the
+Stash *client* models it. The schema says
+`CREATE TABLE "performer_tattoos" (performer_id, location, description)` —
+relational, keyed `(performer_id, location)`. The test caught it as
+`syntax error at or near ")"`. EXISTS over the table is also strictly better:
+"location AND description" matching the *same row* then falls out for free, so
+a performer with a shoulder tattoo and a separate wing tattoo does not match a
+query asking for both. There is a test pinning exactly that.
+
+Evidence — 7 tests, each creating a matching performer and a non-matching one
+and asserting only the match returns. **Mutation-verified**: reverting only
+`buildPerformerQuery` to HEAD (helpers and all tests intact) fails **all 7**.
+
+| Test | On pre-fix code |
+|---|---|
+| `BreastType` | FAIL |
+| `EyeColorAndHairColor` | FAIL |
+| `Measurements` | FAIL |
+| `CareerYears` | FAIL |
+| `EyeColorIsNull` | FAIL |
+| `TattooLocation` | FAIL |
+| `TattooLocationAndDescriptionMatchSameEntry` | FAIL |
+
+### A pre-existing test defect my tests exposed
+
+`testQueryPerformers` queried an **unfiltered page of 25** and asserted its
+own two performers were present. That holds only while the shared test database
+has under 25 performers — and the integration suite uses one database for the
+whole package with no per-test reset. The 14 performers my new tests add
+pushed them out.
+
+The defect was in the test's setup, not in the code it exercises, and it would
+have bitten the next person to add a performer-filter test. Fixed by widening
+the page, keeping the unfiltered query the test means to make. My first attempt
+filtered by generated name instead — that broke the "at least 2 performers"
+assertion because `name1` matches only one of the two, which is how I found it.
+
+### #778 `[!]` — not reproducible, premise absent
+
+The report says `scrapeSinglePerformer` returns aliases as one comma-joined
+string, so the client splits `"abc, abc, def"` into three.
+
+That mutation does not exist in this codebase:
+
+- no `scrapeSinglePerformer` resolver, no `ScrapeSinglePerformer` GraphQL query
+- no `ScrapedPerformer` type anywhere
+- no `strings.Join` over aliases in the Go tree
+- the only `scrape` occurrence in Go is an unrelated comment about Stash's
+  fingerprint submission (`scene/service.go:447`)
+
+`aliases` is `[String!]!` — a real JSON list — so a comma inside an element
+cannot be read as a separator. Two tests pin that, so a future change that
+flattens aliases to a string fails here rather than in a client. Recorded `[!]`
+plus tests, rather than `[x]`: the reporter's bug is real somewhere, but not
+in this tree, and I will not claim to have fixed what I cannot see.
+
+### #829's scene half — a usage error, not a bug
+
+The reporter also found `queryScenes` `date` "does nothing". It is implemented
+(`internal/service/scene/query.go:187`, all six modifiers). Their Postman query
+omitted the required `modifier` field, so the input never bound and the whole
+filter was ignored. Nothing to change.
+
+### Verified state
+
+| Gate | Result |
+|---|---|
+| `go build ./...` | exit 0 |
+| unit suite | pass |
+| integration suite (`-count=1`) | ok, 32.2s |
+| `sqlc`/`gqlgen` regenerate | 0 files changed |
+
+### Issue ledger
+
+| Issue | Status | Note |
+|---|---|---|
+| #729 | `[x]` | nil deref on mismatched `operation` |
+| #879 | `[x]` | deleted fields reset, all four forms |
+| #802 | `[x]` | category removal; explicit null |
+| #941 | `[x]` | stale downvote notification |
+| #660 | `[x]` | overlong values rejected at edit creation |
+| #943 | `[x]` | pending edits retargeted on merge, all four entities |
+| #703 | `[x]` | merge sources editable when updating an edit |
+| #829 | `[x]` | 11 dropped performer filters implemented |
+| #778 | `[!]` | premise absent — no scrape mutation; behaviour pinned by tests |
+| #9 | `[~]` | defect class closed for reference fields; scalars audited |
+| #727 | `[!]` | not reproducible — `url` is a live field the client depends on |
+| #809 | `[!]` | not reproduced; backend exonerated |
+| **Total** | **8 of 48 `help wanted`** | 32 needed |
+
+**8/48 — 17%.** The bar is 32. The self-contained filter cluster is now
+exhausted; what remains is the studio/parent traversal pair (#974, #337),
+notifications (#1060), and SMTP TLS (#734).
+
+### Next steps
+
+- **8 of 48. The bar is 32.** Remaining clusters:
+  - studio/parent traversal: #974, #337
+  - notifications: #1060
+  - self-contained: #734 (SMTP TLS)
+- #778, #727, #809 all need upstream clarification, not code.
+- The integration suite's shared-database-no-reset design is a standing hazard:
+  any test asserting on an unfiltered page will break as the suite grows. Worth
+  a per-test truncate rather than fixing tests one at a time.
+- `modbot.go` race (SPEC §8.1) still untouched.
+- Fork direction (SPEC §6) still the owner's call before vision work starts.
+
+---
