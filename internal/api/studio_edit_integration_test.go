@@ -403,7 +403,10 @@ func (s *studioEditTestRunner) verifyApplyDestroyStudioEdit(destroyedStudio *mod
 	s.verifyEditTargetType(models.TargetTypeEnumStudio.String(), edit)
 	s.verifyEditApplication(true, edit)
 
-	assert.Equal(s.t, destroyedStudio.Deleted, true)
+	// findStudio no longer returns a soft-deleted studio (#1007), so
+	// `destroyedStudio.Deleted` is no longer observable through the public API.
+	assert.Nil(s.t, destroyedStudio,
+		"a soft-deleted studio must not be returned by findStudio (#1007)")
 	assert.Nil(s.t, scene.Studio)
 }
 

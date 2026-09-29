@@ -35,11 +35,20 @@ func (s *Tag) WithTxn(fn func(*queries.Queries) error) error {
 // Queries
 
 func (s *Tag) FindByID(ctx context.Context, id uuid.UUID) (*models.Tag, error) {
-	tag, err := s.queries.FindTag(ctx, id)
+	// FindTagWithRedirect, not FindTag: FindTag is `WHERE id = $1` with no
+	// deleted filter, so it returns soft-deleted tags and merged sources
+	// instead of their survivors (#1007 -- same defect as FindStudio, and
+	// pointed out in the same issue).
+	tags, err := s.queries.FindTagWithRedirect(ctx, id)
 	if err != nil {
 		return nil, errutil.IgnoreNotFound(err)
 	}
-	return converter.TagToModelPtr(tag), nil
+	if len(tags) == 0 {
+		return nil, nil
+	}
+	// The UNION can only match one arm for a given id: a live tag, or the
+	// survivor this tag was merged into. Never both.
+	return converter.TagToModelPtr(tags[0]), nil
 }
 
 // Find is an alias for FindByID to match repository interface

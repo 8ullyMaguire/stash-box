@@ -37,7 +37,19 @@ func (s *Studio) WithTxn(fn func(*queries.Queries) error) error {
 // Queries
 
 func (s *Studio) FindByID(ctx context.Context, id uuid.UUID) (*models.Studio, error) {
-	studio, err := s.queries.FindStudio(ctx, id)
+	// FindStudioWithRedirect, not FindStudio: FindStudio is `WHERE id = $1`
+	// with no deleted filter, so it happily returns a soft-deleted studio --
+	// and a merged source instead of its surviving target. That is what the
+	// Stash tagger hit (#1007): it queries by name, and with two studios
+	// sharing a name the deleted one could win, so the tagger linked images to
+	// a record nobody can see.
+	//
+	// FindStudioWithRedirect is the query that was already written to do the
+	// right thing (`AND deleted = FALSE`, plus the redirect hop); only the
+	// drafts path was using it. Now the public findStudio query does too, so
+	// a merged id resolves to the survivor and a deleted id resolves to
+	// nothing.
+	studio, err := s.queries.FindStudioWithRedirect(ctx, id)
 	if err != nil {
 		return nil, errutil.IgnoreNotFound(err)
 	}

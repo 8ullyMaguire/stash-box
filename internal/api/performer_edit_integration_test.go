@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/gofrs/uuid"
+	"github.com/stashapp/stash-box/internal/dataloader"
 	"github.com/stashapp/stash-box/internal/models"
 	"github.com/stretchr/testify/assert"
 )
@@ -680,7 +681,12 @@ func (s *performerEditTestRunner) verifyApplyDestroyPerformerEdit(destroyedPerfo
 	s.verifyEditTargetType(models.TargetTypeEnumPerformer.String(), edit)
 	s.verifyEditApplication(true, edit)
 
-	assert.True(s.t, destroyedPerformer.Deleted, true)
+	// findPerformer no longer returns a soft-deleted performer (#1007), so
+	// `destroyedPerformer.Deleted` is no longer observable through the public
+	// API -- which is the point of the fix. Assert the guarantee that replaced
+	// it: the destroyed performer does not resolve at all.
+	assert.Nil(s.t, destroyedPerformer,
+		"a soft-deleted performer must not be returned by findPerformer (#1007)")
 
 	scenePerformers := scene.Performers
 	assert.True(s.t, len(scenePerformers) == 0)
@@ -774,17 +780,22 @@ func (s *performerEditTestRunner) testApplyMergePerformerEdit() {
 	assert.NoError(s.t, err)
 	assert.Nil(s.t, mergedIntoID, "Target performer should not be merged into anything")
 
-	source1Performer, err := s.resolver.Query().FindPerformer(s.ctx, mergeSource1.UUID())
+	// A merged source is now resolved THROUGH the redirect (#1007), so this
+	// lookup returns the survivor -- the merge target -- rather than the
+	// deleted source row. That is the fix working, not a regression.
+	//
+	// The redirect record itself is the source row, so it has to be read
+	// without going through findPerformer, which now follows the redirect by
+	// design. queries.PerformerMergedInto is the same generated lookup the
+	// MergedIntoID resolver uses, called directly with the source id.
+	// PerformerMergeIDsByID is the same dataloader the MergedIntoID resolver
+	// uses; loading it by the source id bypasses the redirect that
+	// findPerformer now follows, so it observes the actual merge record.
+	source1MergedIntoIDs, err := dataloader.For(s.ctx).PerformerMergeIDsByID.Load(mergeSource1.UUID())
 	assert.NoError(s.t, err)
+	assert.Equal(s.t, 1, len(source1MergedIntoIDs), "Source performer should be merged into exactly one target")
+	assert.Equal(s.t, mergeTarget.UUID(), source1MergedIntoIDs[0], "Source should be merged into target")
 
-	source1MergedIds, err := s.resolver.Performer().MergedIds(s.ctx, source1Performer)
-	assert.NoError(s.t, err)
-	assert.Equal(s.t, 0, len(source1MergedIds), "Source performer should have no performers merged into it")
-
-	source1MergedIntoID, err := s.resolver.Performer().MergedIntoID(s.ctx, source1Performer)
-	assert.NoError(s.t, err)
-	assert.NotNil(s.t, source1MergedIntoID, "Source performer should be merged into target")
-	assert.Equal(s.t, mergeTarget.UUID(), *source1MergedIntoID, "Source should be merged into target")
 }
 
 func (s *performerEditTestRunner) verifyAppliedMergePerformerEdit(input models.PerformerEditDetailsInput, edit *models.Edit, scene1 *sceneOutput, scene2 *sceneOutput) {

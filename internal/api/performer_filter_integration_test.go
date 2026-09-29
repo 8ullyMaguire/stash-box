@@ -30,6 +30,17 @@ func pStr(v string) *string        { return &v }
 func (s *testRunner) queryPerformerIDs(t *testing.T, input models.PerformerQueryInput) []uuid.UUID {
 	t.Helper()
 
+	// The integration suite shares one database, so performers created by other
+	// tests are still in the table. Without an explicit page size this uses the
+	// 25-row default and a fixture created moments earlier can fall off the
+	// end -- which is how TestPerformerFilterEyeColorIsNull started failing
+	// once #1007 added a few more performers. A fixed page size still cannot fix
+	// a genuinely unbounded result set, but it makes the filter assertions
+	// depend on the filter rather than on how much other data happens to exist.
+	if input.PerPage == 0 {
+		input.PerPage = 10000
+	}
+
 	res, err := s.resolver.Query().QueryPerformers(s.ctx, input)
 	require.NoError(t, err)
 	if res == nil {

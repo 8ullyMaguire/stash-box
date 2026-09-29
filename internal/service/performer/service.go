@@ -42,11 +42,19 @@ func (s *Performer) RefreshPopularityAllTime(ctx context.Context) error {
 // Queries
 
 func (s *Performer) FindByID(ctx context.Context, id uuid.UUID) (*models.Performer, error) {
-	performer, err := s.queries.FindPerformer(ctx, id)
+	// FindPerformerWithRedirect, not FindPerformer: FindPerformer is
+	// `WHERE id = $1` with no deleted filter, so it returns soft-deleted
+	// performers and merged sources instead of their survivors (#1007).
+	performers, err := s.queries.FindPerformerWithRedirect(ctx, id)
 	if err != nil {
 		return nil, errutil.IgnoreNotFound(err)
 	}
-	return converter.PerformerToModelPtr(performer), nil
+	if len(performers) == 0 {
+		return nil, nil
+	}
+	// The UNION can only match one arm for a given id: a live performer, or the
+	// survivor this one was merged into. Never both.
+	return converter.PerformerToModelPtr(performers[0]), nil
 }
 
 func (s *Performer) FindByName(ctx context.Context, name string) (*models.Performer, error) {

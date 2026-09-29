@@ -353,7 +353,10 @@ func (s *tagEditTestRunner) verifyApplyDestroyTagEdit(destroyedTag *models.Tag, 
 	s.verifyEditTargetType(models.TargetTypeEnumTag.String(), edit)
 	s.verifyEditApplication(true, edit)
 
-	assert.Equal(s.t, destroyedTag.Deleted, true)
+	// findTag no longer returns a soft-deleted tag (#1007), so
+	// `destroyedTag.Deleted` is no longer observable through the public API.
+	assert.Nil(s.t, destroyedTag,
+		"a soft-deleted tag must not be returned by findTag (#1007)")
 
 	sceneTags := scene.Tags
 	assert.True(s.t, len(sceneTags) == 0)
