@@ -1015,6 +1015,48 @@ func (c *graphqlClient) destroyDraft(id uuid.UUID) (bool, error) {
 	return resp.DestroyDraft, nil
 }
 
+// submitSceneEdit posts the SceneEdit mutation through the GraphQL handler.
+//
+// createTestSceneEdit calls resolver.Mutation().SceneEdit directly, skipping the
+// handler wrapper that fires `go Notification().OnCreateEdit(...)`. Any test that
+// asserts on a notification has to go through the handler, and the service is
+// unexported from the api_test package, so this is the only route.
+func (c *graphqlClient) submitSceneEdit(input models.SceneEditInput) (*models.Edit, error) {
+	q := `
+	mutation SubmitSceneEdit($input: SceneEditInput!) {
+		sceneEdit(input: $input) {
+			id
+			target_type
+			operation
+			status
+		}
+	}`
+
+	// GraphQL returns ID as a string; models.Edit.ID is a uuid.UUID, so decode
+	// into the string shape and convert.
+	var resp struct {
+		SceneEdit *struct {
+			ID         string `json:"id"`
+			TargetType string `json:"target_type"`
+			Operation  string `json:"operation"`
+			Status     string `json:"status"`
+		}
+	}
+	if err := c.Post(q, &resp, client.Var("input", input)); err != nil {
+		return nil, err
+	}
+	if resp.SceneEdit == nil {
+		return nil, nil
+	}
+
+	return &models.Edit{
+		ID:         uuid.FromStringOrNil(resp.SceneEdit.ID),
+		TargetType: resp.SceneEdit.TargetType,
+		Operation:  resp.SceneEdit.Operation,
+		Status:     resp.SceneEdit.Status,
+	}, nil
+}
+
 func (c *graphqlClient) queryNotifications(input models.QueryNotificationsInput) (*queryNotificationsResultType, error) {
 	q := `
 	query QueryNotifications($input: QueryNotificationsInput!) {

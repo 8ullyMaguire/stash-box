@@ -111,8 +111,25 @@ JOIN user_notifications N ON EV.user_id = N.user_id AND N.type = 'UPDATED_EDIT'
 WHERE E.id = $1;
 
 -- name: TriggerSceneEditNotifications :exec
+--
+-- One notification row per (user, type), NOT one per user.
+--
+-- Each arm below is an independent reason this user should hear about this
+-- edit, and the reader filters on the stored type
+-- (FindNotificationsByUser: type = $n). Collapsing to a single row per user
+-- with DISTINCT ON (user_id) therefore did not just pick a type, it DELETED
+-- the others: a user who both favorited the scene's performer and had
+-- submitted a fingerprint for the scene kept only whichever arm came first
+-- out of an unordered set, so filtering by FINGERPRINTED_SCENE_EDIT returned
+-- nothing (#1060).
+--
+-- The arm without an ORDER BY made it worse -- which arm won was undefined,
+-- so the bug appeared and disappeared with the query plan.
+--
+-- DISTINCT ON (user_id, type) still collapses a user who qualifies twice for
+-- the same type, which is the dedup that was actually wanted.
 INSERT INTO notifications (user_id, type, id)
-SELECT DISTINCT ON (user_id) user_id, type, $1 FROM (
+SELECT DISTINCT ON (user_id, type) user_id, type, $1 FROM (
     SELECT N.user_id, N.type
     FROM edits E JOIN studio_favorites SF ON (E.data->'new_data'->>'studio_id')::uuid = SF.studio_id
     JOIN user_notifications N ON SF.user_id = N.user_id AND N.type = 'FAVORITE_STUDIO_EDIT' AND N.user_id != E.user_id

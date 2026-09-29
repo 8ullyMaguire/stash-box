@@ -365,6 +365,23 @@ type Querier interface {
 	TriggerFingerprintMovedNotifications(ctx context.Context, arg TriggerFingerprintMovedNotificationsParams) error
 	TriggerPerformerEditNotifications(ctx context.Context, id uuid.UUID) error
 	TriggerSceneCreationNotifications(ctx context.Context, id uuid.UUID) error
+	//
+	// One notification row per (user, type), NOT one per user.
+	//
+	// Each arm below is an independent reason this user should hear about this
+	// edit, and the reader filters on the stored type
+	// (FindNotificationsByUser: type = $n). Collapsing to a single row per user
+	// with DISTINCT ON (user_id) therefore did not just pick a type, it DELETED
+	// the others: a user who both favorited the scene's performer and had
+	// submitted a fingerprint for the scene kept only whichever arm came first
+	// out of an unordered set, so filtering by FINGERPRINTED_SCENE_EDIT returned
+	// nothing (#1060).
+	//
+	// The arm without an ORDER BY made it worse -- which arm won was undefined,
+	// so the bug appeared and disappeared with the query plan.
+	//
+	// DISTINCT ON (user_id, type) still collapses a user who qualifies twice for
+	// the same type, which is the dedup that was actually wanted.
 	TriggerSceneEditNotifications(ctx context.Context, id uuid.UUID) error
 	TriggerStudioEditNotifications(ctx context.Context, id uuid.UUID) error
 	TriggerUpdatedEditNotifications(ctx context.Context, id uuid.UUID) error
