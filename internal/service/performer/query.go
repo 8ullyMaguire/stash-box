@@ -59,6 +59,24 @@ func (s *Performer) buildPerformerQuery(psql sq.StatementBuilderType, input mode
 	var query sq.SelectBuilder
 	needsStudioJoin := input.StudioID != nil
 
+	// A network/parent studio holds no scenes of its own -- its content lives
+	// on its sub-studios. Matching studio_id exactly therefore returns nothing
+	// for a network page (#974), while the sibling "All Scenes" tab does show
+	// content because it filters on studios.parent_studio_id.
+	//
+	// So the studio filter covers the studio itself AND its direct children,
+	// mirroring the scene query's ParentStudio filter exactly, so the two tabs
+	// on a network page cannot disagree about what belongs to the network.
+	//
+	// Deliberately one level, matching that scene filter. A recursive walk
+	// would make the two paths disagree in the other direction, and the data
+	// model treats networks as a single level (search triggers join
+	// TP ON T.parent_studio_id = TP.id).
+	//
+	// scenes holds studio_id; studios holds its own id and parent_studio_id.
+	// Both are bound to the same studio id.
+	studioFilter := "(scenes.studio_id = ? OR studios.parent_studio_id = ?)"
+
 	// Build base query with studio join if needed
 	if forCount {
 		if needsStudioJoin {
@@ -66,9 +84,11 @@ func (s *Performer) buildPerformerQuery(psql sq.StatementBuilderType, input mode
 				Join(`(
 					SELECT performer_id, MIN(date) as debut, MAX(date) AS last_scene, COUNT(*) as scene_count
 					FROM scene_performers
-					JOIN scenes ON scene_id = id AND studio_id = ?
+					JOIN scenes ON scene_id = id
+					JOIN studios ON scenes.studio_id = studios.id
+					WHERE `+studioFilter+`
 					GROUP BY performer_id
-				) D ON performers.id = D.performer_id`, input.StudioID)
+				) D ON performers.id = D.performer_id`, input.StudioID, input.StudioID)
 		} else {
 			query = psql.Select("COUNT(*)").From("performers")
 		}
@@ -78,9 +98,11 @@ func (s *Performer) buildPerformerQuery(psql sq.StatementBuilderType, input mode
 				Join(`(
 					SELECT performer_id, MIN(date) as debut, MAX(date) AS last_scene, COUNT(*) as scene_count
 					FROM scene_performers
-					JOIN scenes ON scene_id = id AND studio_id = ?
+					JOIN scenes ON scene_id = id
+					JOIN studios ON scenes.studio_id = studios.id
+					WHERE `+studioFilter+`
 					GROUP BY performer_id
-				) D ON performers.id = D.performer_id`, input.StudioID)
+				) D ON performers.id = D.performer_id`, input.StudioID, input.StudioID)
 		} else {
 			query = psql.Select("performers.id").From("performers")
 		}
