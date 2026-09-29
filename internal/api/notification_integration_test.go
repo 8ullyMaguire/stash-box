@@ -16,10 +16,56 @@ type notificationTestRunner struct {
 	testRunner
 }
 
+// Polling bounds for the async notification dispatch. The mutations fire their
+// notification with a bare `go`, so a read immediately after the mutation
+// returns is a race. The interval keeps the poll cheap; the timeout is
+// generous enough that a loaded CI box still sees a slow goroutine land, while
+// still failing fast if the notification genuinely never arrives.
+const (
+	notificationPollInterval = 10 * time.Millisecond
+	notificationPollTimeout  = 5 * time.Second
+)
+
 func createNotificationTestRunner(t *testing.T) *notificationTestRunner {
 	return &notificationTestRunner{
 		testRunner: *asEdit(t),
 	}
+}
+
+// awaitUnreadCountsAbove polls the unread notification counts until both
+// totals exceed baseline, or the deadline passes.
+//
+// The edit mutations (EditComment, EditVote, CancelEdit) all fire their
+// notification with a bare `go`, so the row is written by a background
+// goroutine that has not necessarily committed when the mutation returns.
+// Sleeping a fixed interval is a race that passes most of the time and fails
+// under load; polling observes the actual condition instead of guessing at its
+// latency.
+//
+// Both Total AND Urgent must rise. Every caller asserts both, and a lingering
+// goroutine from an earlier step can raise Total on its own — waiting on
+// Total alone returns early and leaves the Urgent assertion to race the very
+// write we are waiting for.
+//
+// Returns the last observed counts so the caller's own assertions still report
+// the real problem when the notification genuinely never arrives.
+func (s *notificationTestRunner) awaitUnreadCountsAbove(baseline models.UnreadNotificationCount) (models.UnreadNotificationCount, error) {
+	var last models.UnreadNotificationCount
+	var lastErr error
+
+	deadline := time.Now().Add(notificationPollTimeout)
+	for time.Now().Before(deadline) {
+		last, lastErr = s.client.getUnreadNotificationCount()
+		if lastErr != nil {
+			return last, lastErr
+		}
+		if last.Total > baseline.Total && last.Urgent > baseline.Urgent {
+			return last, nil
+		}
+		time.Sleep(notificationPollInterval)
+	}
+
+	return last, lastErr
 }
 
 // testNotificationOnCommentOwnEdit tests that a notification is created when someone comments on the user's own edit
@@ -51,11 +97,11 @@ func (s *notificationTestRunner) testNotificationOnCommentOwnEdit() {
 	})
 	assert.NoError(s.t, err)
 
-	// Small delay to ensure notification is created
-	time.Sleep(100 * time.Millisecond)
-
-	// Verify unread count increased
-	newUnreadCount, err := s.client.getUnreadNotificationCount()
+	// EditComment dispatches the notification with `go ...OnEditComment(...)`,
+	// so it lands in a background goroutine and the mutation can return first.
+	// A fixed sleep races that goroutine: with the sleep removed this test fails
+	// 8/8 runs, and 100ms only masked it most of the time. Poll instead.
+	newUnreadCount, err := s.awaitUnreadCountsAbove(initialUnreadCount)
 	assert.NoError(s.t, err)
 	assert.True(s.t, newUnreadCount.Total > initialUnreadCount.Total, "Unread count should have increased after comment")
 	assert.True(s.t, newUnreadCount.Urgent > initialUnreadCount.Urgent, "Urgent count should have increased after comment on own edit")
@@ -108,11 +154,8 @@ func (s *notificationTestRunner) testNotificationOnDownvoteOwnEdit() {
 	})
 	assert.NoError(s.t, err)
 
-	// Small delay to ensure notification is created
-	time.Sleep(100 * time.Millisecond)
-
-	// Verify unread count increased
-	newUnreadCount, err := s.client.getUnreadNotificationCount()
+	// EditVote likewise notifies from a goroutine; poll rather than sleep.
+	newUnreadCount, err := s.awaitUnreadCountsAbove(initialUnreadCount)
 	assert.NoError(s.t, err)
 	assert.True(s.t, newUnreadCount.Total > initialUnreadCount.Total, "Unread count should have increased after downvote")
 	assert.True(s.t, newUnreadCount.Urgent > initialUnreadCount.Urgent, "Urgent count should have increased after downvote on own edit")
@@ -185,11 +228,8 @@ func (s *notificationTestRunner) testNotificationOnAdminCancelEdit() {
 	})
 	assert.NoError(s.t, err)
 
-	// Small delay to ensure notification is created
-	time.Sleep(100 * time.Millisecond)
-
-	// Verify unread count increased
-	newUnreadCount, err := s.client.getUnreadNotificationCount()
+	// CancelEdit likewise notifies from a goroutine; poll rather than sleep.
+	newUnreadCount, err := s.awaitUnreadCountsAbove(initialUnreadCount)
 	assert.NoError(s.t, err)
 	assert.True(s.t, newUnreadCount.Total > initialUnreadCount.Total, "Unread count should have increased after admin cancellation")
 	assert.True(s.t, newUnreadCount.Urgent > initialUnreadCount.Urgent, "Urgent count should have increased after admin cancellation of own edit")

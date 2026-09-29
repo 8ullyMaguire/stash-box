@@ -117,6 +117,44 @@ export type CommentVotedEdit = {
   comment: EditComment;
 };
 
+/**
+ * How complete an entity is, and what is missing.
+ *
+ * The `score` is for a progress bar and `missing` is for the quest that fills it.
+ * They come from one pass so they can never disagree, and `missing` is not optional
+ * nicety: a bare number tells a curator THAT something is missing and not WHAT, and
+ * "improve this performer" is not a task anyone can act on.
+ */
+export type Completion = {
+  __typename: 'Completion';
+  earned: Scalars['Int']['output'];
+  /** What kind of entity this is a score for. */
+  entityType: EntityType;
+  /**
+   * The fields that are absent, most valuable first.
+   *
+   * A field that is present but UNCERTAIN counts as absent: a specific wrong claim
+   * reads as an answer, so nobody goes looking for the real value. A performer whose
+   * birthdate is recorded as "1990" is in this list.
+   */
+  missing: Array<Scalars['String']['output']>;
+  /**
+   * 0-100.
+   *
+   * Rounded, and the same for every reader of the same row. A score that differed
+   * between two clients looking at one performer would be a bug nobody could
+   * reproduce.
+   */
+  score: Scalars['Int']['output'];
+  /**
+   * The weight of every scored field, and the weight earned so far.
+   *
+   * Exposed so a client can render "55 of 110" without keeping its own copy of the
+   * weights, which would be a second source of truth for the same numbers.
+   */
+  total: Scalars['Int']['output'];
+};
+
 export enum CriterionModifier {
   /** = */
   EQUALS = 'EQUALS',
@@ -314,6 +352,133 @@ export type EditVoteInput = {
   id: Scalars['ID']['input'];
   vote: VoteTypeEnum;
 };
+
+/** What kind of entity a rating is for. */
+export enum EloEntityType {
+  INSTANCE = 'instance',
+  LIST = 'list',
+  PERFORMER = 'performer',
+  SCENE = 'scene',
+  SITE = 'site',
+  STUDIO = 'studio',
+  TAG = 'tag'
+}
+
+/** A ranked list of entities of one kind. */
+export type EloLeaderboard = {
+  __typename: 'EloLeaderboard';
+  entityType: EloEntityType;
+  entries: Array<EloLeaderboardEntry>;
+};
+
+/** One row of a ranked list. */
+export type EloLeaderboardEntry = {
+  __typename: 'EloLeaderboardEntry';
+  deviation: Scalars['Float']['output'];
+  entityId: Scalars['ID']['output'];
+  /** Populated only for performer leaderboards. */
+  performer?: Maybe<Performer>;
+  rating: Scalars['Int']['output'];
+  voteCount: Scalars['Int']['output'];
+};
+
+/**
+ * A proposed pair to vote on.
+ *
+ * The two sides are returned IN DISPLAY ORDER and that order is part of the data,
+ * not an accident of the query. Position bias -- a tendency to pick whichever
+ * candidate is shown first -- is the easiest way to game a pairwise vote, and it is
+ * only measurable if the order the user actually saw survives into the vote record.
+ * The client must render them in this order and echo it back as `pickedSide`.
+ */
+export type EloMatchup = {
+  __typename: 'EloMatchup';
+  entityType: EloEntityType;
+  /** The candidate shown on the left, and shown first. */
+  left?: Maybe<Performer>;
+  /** The candidate shown on the right, and shown second. */
+  right?: Maybe<Performer>;
+  /**
+   * How many times this exact pair has been shown to this user.
+   *
+   * Repetition is not a bug: SPEC §9 wants streaks and a reason to come back daily,
+   * and a user who has seen a pair before and votes the same way is the strongest
+   * possible signal available. The client can use this to label a repeat matchup.
+   */
+  timesOffered: Scalars['Int']['output'];
+};
+
+export type EloMatchupInput = {
+  entityType: EloEntityType;
+  left: Scalars['ID']['input'];
+  right: Scalars['ID']['input'];
+};
+
+/** A stored rating for one entity. */
+export type EloRating = {
+  __typename: 'EloRating';
+  /**
+   * How much this rating tends to swing. Lower means more settled.
+   *
+   * This is not a confidence score in the ordinary sense and must not be shown as
+   * a percentage. It is Glickman's deviation, and it is the quantity the ranking
+   * rule uses to decide whether two ratings are distinguishable at all.
+   */
+  deviation: Scalars['Float']['output'];
+  entityId: Scalars['ID']['output'];
+  entityType: EloEntityType;
+  /** The Glicko rating, on the usual 1500-centred scale. */
+  rating: Scalars['Int']['output'];
+  /**
+   * How many results this rating is built from.
+   *
+   * A three-vote rating is not a settled opinion and a UI that shows it as though
+   * it were one is misleading the user. The leaderboard exposes this for exactly
+   * that reason.
+   */
+  voteCount: Scalars['Int']['output'];
+};
+
+export type EloVoteInput = {
+  matchup: EloMatchupInput;
+  /**
+   * Which side the user chose: 0 for `left`, 1 for `right`.
+   *
+   * An Int rather than an enum because the stored column is a smallint and an enum
+   * would add a second, always-valid-at-the-schema-level way to spell the same
+   * thing. The service validates the range.
+   */
+  pickedSide: Scalars['Int']['input'];
+};
+
+/** What one vote changed. */
+export type EloVoteResult = {
+  __typename: 'EloVoteResult';
+  /** The matchup that was voted on, echoed back for the client's own bookkeeping. */
+  matchup: EloMatchup;
+  /**
+   * The rating of the side the user CHOSE, after the vote.
+   *
+   * Only the chosen side is returned, because that is the one a "your vote
+   * counted" display wants. Both sides did move; reading the other is a separate
+   * query, and a client that wants both can ask for both ratings.
+   */
+  rating: EloRating;
+};
+
+/**
+ * What kind of entity a completion score is for.
+ *
+ * The five types SPEC §7.7 names. Closed in the schema rather than a free string so
+ * a client cannot ask for a score of a kind that does not exist.
+ */
+export enum EntityType {
+  PERFORMER = 'performer',
+  SCENE = 'scene',
+  SITE = 'site',
+  STUDIO = 'studio',
+  TAG = 'tag'
+}
 
 export enum EthnicityEnum {
   ASIAN = 'ASIAN',
@@ -571,6 +736,147 @@ export type IdCriterionInput = {
   value: Array<Scalars['ID']['input']>;
 };
 
+/** One suggested answer to a query. */
+export type IdentificationCandidate = {
+  __typename: 'IdentificationCandidate';
+  createdAt: Scalars['Time']['output'];
+  /**
+   * The suggested entity, resolved. Null when the entity has been deleted since the
+   * suggestion was made, which is a real possibility on a board that outlives its
+   * questions.
+   */
+  entity?: Maybe<Performer>;
+  entityId: Scalars['ID']['output'];
+  entityType: IdentificationTargetType;
+  id: Scalars['ID']['output'];
+  /**
+   * Why this was suggested. Free text and usually null.
+   *
+   * A candidate with a reason -- "the studio watermark is visible in frame 3" -- is
+   * far more useful to someone reading the thread than the bare entity, and it is
+   * the difference between a suggestion and a guess. Not exposed as a mutation input
+   * yet: no caller in this version has a way to supply one.
+   */
+  note?: Maybe<Scalars['String']['output']>;
+  queryId: Scalars['ID']['output'];
+  suggestedBy?: Maybe<User>;
+  /**
+   * How many people have voted for this.
+   *
+   * This is a tally of PEOPLE, which is what §5's leaderboards are built from.
+   */
+  voteCount: Scalars['Int']['output'];
+  /**
+   * Whether the VIEWING user has voted for this.
+   *
+   * Rendered as a state rather than an action: a vote button that silently does
+   * nothing on a second tap is worse than one that shows it is already cast.
+   */
+  votedByMe: Scalars['Boolean']['output'];
+};
+
+/** A ranked list of identifiers, for §5's "Detective" leaderboard. */
+export type IdentificationDetective = {
+  __typename: 'IdentificationDetective';
+  /** How many candidates this user has voted on across OPEN queries. */
+  score: Scalars['Int']['output'];
+  user: User;
+};
+
+export type IdentificationPostInput = {
+  description: Scalars['String']['input'];
+  snapshotId?: InputMaybe<Scalars['ID']['input']>;
+  targetId?: InputMaybe<Scalars['ID']['input']>;
+  targetType: IdentificationTargetType;
+};
+
+/** A question about something half-remembered. */
+export type IdentificationQuery = {
+  __typename: 'IdentificationQuery';
+  /**
+   * The suggested answers, most-voted first.
+   *
+   * A candidate with zero votes still appears: it is exactly when someone needs to
+   * see it.
+   */
+  candidates: Array<IdentificationCandidate>;
+  createdAt: Scalars['Time']['output'];
+  /**
+   * What the asker remembers. The only required field -- SPEC §5 lists
+   * description, collage, snapshot, frame and quote as ALTERNATIVES, not as a form
+   * with required inputs, and a user with a half-formed memory should be able to
+   * post it and let the community ask for more.
+   */
+  description: Scalars['String']['output'];
+  id: Scalars['ID']['output'];
+  resolvedAt?: Maybe<Scalars['Time']['output']>;
+  resolvedBy?: Maybe<User>;
+  resolvedId?: Maybe<Scalars['ID']['output']>;
+  /**
+   * What it was resolved to, and by whom. Null unless status is `solved`.
+   *
+   * `resolvedType` is not necessarily `targetType`: a user asking "who is this
+   * performer" with a target of `scene` resolves to a performer. The board is
+   * explicit about which of the two it is.
+   */
+  resolvedType?: Maybe<IdentificationTargetType>;
+  /** The visual evidence, when there is any. */
+  snapshotId?: Maybe<Scalars['ID']['output']>;
+  status: IdentificationStatus;
+  /**
+   * The entity the question is about, when the asker has it.
+   *
+   * Optional: a user often has the scene and wants the performer identified within
+   * it. The description is the question either way.
+   */
+  targetId?: Maybe<Scalars['ID']['output']>;
+  targetType: IdentificationTargetType;
+};
+
+export type IdentificationResolveInput = {
+  queryId: Scalars['ID']['input'];
+  resolvedId: Scalars['ID']['input'];
+  /**
+   * What it turned out to be.
+   *
+   * Must be the same type the query asked about: suggesting and resolving across
+   * types is a category error, and the service refuses it rather than tolerating a
+   * performer in a list of possible scenes.
+   */
+  resolvedType: IdentificationTargetType;
+};
+
+/** A query's state. */
+export enum IdentificationStatus {
+  /**
+   * The community gave up.
+   *
+   * Distinct from `open` because "nobody will ever solve this" and "nobody has
+   * solved this yet" want different handling: an abandoned query re-surfacing in the
+   * queue forever is how a board fills with questions nobody wants.
+   */
+  ABANDONED = 'abandoned',
+  /** Nobody has resolved it yet. The only state the board's queue shows. */
+  OPEN = 'open',
+  /** A human accepted a resolution. Always names what it resolved to. */
+  SOLVED = 'solved'
+}
+
+export type IdentificationSuggestInput = {
+  entityId: Scalars['ID']['input'];
+  entityType: IdentificationTargetType;
+  queryId: Scalars['ID']['input'];
+};
+
+/** What kind of entity a query is trying to identify. */
+export enum IdentificationTargetType {
+  PERFORMER = 'performer',
+  SCENE = 'scene',
+  SITE = 'site',
+  STUDIO = 'studio',
+  TAG = 'tag'
+}
+
 export type Image = {
   __typename: 'Image';
   height: Scalars['Int']['output'];
@@ -662,6 +968,8 @@ export type MultiStringCriterionInput = {
 
 export type Mutation = {
   __typename: 'Mutation';
+  /** Mark a query dead, so it leaves the queue. */
+  abandonIdentificationQuery: IdentificationQuery;
   activateNewUser?: Maybe<User>;
   /** Amend a closed edit by removing fields - moderator only */
   amendEdit: Edit;
@@ -704,6 +1012,14 @@ export type Mutation = {
   /** Update a pending performer edit */
   performerEditUpdate: Edit;
   performerUpdate?: Maybe<Performer>;
+  /**
+   * Post a question about something half-remembered.
+   *
+   * Requires VOTE, not READ: posting is a contribution, and §6 level 1 (Registered)
+   * is where the board begins. Anonymous users can read it and see what is being
+   * looked for, which is most of the value of a public board.
+   */
+  postIdentificationQuery: IdentificationQuery;
   /** Regenerates the api key for the given user, or the current user if id not provided */
   regenerateAPIKey: Scalars['String']['output'];
   /** Request an email change for the current user */
@@ -712,6 +1028,15 @@ export type Mutation = {
   rescindInviteCode: Scalars['Boolean']['output'];
   /** Generates an email to reset a user password */
   resetPassword: Scalars['Boolean']['output'];
+  /**
+   * Record what a query turned out to be.
+   *
+   * This requires a named human and records who they were. There is deliberately NO
+   * vote-threshold variant of this mutation: a plurality is not authority, and one
+   * that silently created metadata would be the single most damaging thing this
+   * board could do to the archive.
+   */
+  resolveIdentificationQuery: IdentificationQuery;
   /** Removes invite tokens from a user */
   revokeInvite: Scalars['Int']['output'];
   sceneCreate?: Maybe<Scene>;
@@ -756,6 +1081,14 @@ export type Mutation = {
   submitPerformerDraft: DraftSubmissionStatus;
   /** Draft submissions */
   submitSceneDraft: DraftSubmissionStatus;
+  /**
+   * Suggest a candidate answer.
+   *
+   * One suggestion per entity per query, enforced by the database: re-suggesting is
+   * not more signal, and allowing it would let one person suggest a candidate and
+   * then vote it.
+   */
+  suggestIdentificationCandidate: IdentificationCandidate;
   tagCategoryCreate?: Maybe<TagCategory>;
   tagCategoryDestroy: Scalars['Boolean']['output'];
   tagCategoryUpdate?: Maybe<TagCategory>;
@@ -766,6 +1099,11 @@ export type Mutation = {
   /** Update a pending tag edit */
   tagEditUpdate: Edit;
   tagUpdate?: Maybe<Tag>;
+  /**
+   * Take a vote back. An accidental tap should be undoable, and a vote the user
+   * cannot withdraw is a vote they will not make.
+   */
+  unvoteIdentificationCandidate: IdentificationCandidate;
   /** Edit a comment's text - moderator only */
   updateEditComment: EditComment;
   /** Update notification subscriptions for current user. */
@@ -774,6 +1112,18 @@ export type Mutation = {
   userDestroy: Scalars['Boolean']['output'];
   userUpdate?: Maybe<User>;
   validateChangeEmail: UserChangeEmailStatus;
+  /** Record a vote on a matchup and move both participants' ratings. */
+  voteElo: EloVoteResult;
+  /**
+   * Vote for a candidate. Voting twice is a constraint violation, not a doubled
+   * tally.
+   */
+  voteIdentificationCandidate: IdentificationCandidate;
+};
+
+
+export type MutationAbandonIdentificationQueryArgs = {
+  id: Scalars['ID']['input'];
 };
 
 
@@ -900,6 +1250,11 @@ export type MutationPerformerUpdateArgs = {
 };
 
 
+export type MutationPostIdentificationQueryArgs = {
+  input: IdentificationPostInput;
+};
+
+
 export type MutationRegenerateApiKeyArgs = {
   userID?: InputMaybe<Scalars['ID']['input']>;
 };
@@ -912,6 +1267,11 @@ export type MutationRescindInviteCodeArgs = {
 
 export type MutationResetPasswordArgs = {
   input: ResetPasswordInput;
+};
+
+
+export type MutationResolveIdentificationQueryArgs = {
+  input: IdentificationResolveInput;
 };
 
 
@@ -1037,6 +1397,11 @@ export type MutationSubmitSceneDraftArgs = {
 };
 
 
+export type MutationSuggestIdentificationCandidateArgs = {
+  input: IdentificationSuggestInput;
+};
+
+
 export type MutationTagCategoryCreateArgs = {
   input: TagCategoryCreateInput;
 };
@@ -1078,6 +1443,11 @@ export type MutationTagUpdateArgs = {
 };
 
 
+export type MutationUnvoteIdentificationCandidateArgs = {
+  candidateId: Scalars['ID']['input'];
+};
+
+
 export type MutationUpdateEditCommentArgs = {
   input: UpdateEditCommentInput;
 };
@@ -1106,6 +1476,16 @@ export type MutationUserUpdateArgs = {
 export type MutationValidateChangeEmailArgs = {
   email: Scalars['String']['input'];
   token: Scalars['ID']['input'];
+};
+
+
+export type MutationVoteEloArgs = {
+  input: EloVoteInput;
+};
+
+
+export type MutationVoteIdentificationCandidateArgs = {
+  candidateId: Scalars['ID']['input'];
 };
 
 export type NewUserInput = {
@@ -1161,6 +1541,13 @@ export type Performer = {
   breast_type?: Maybe<BreastTypeEnum>;
   career_end_year?: Maybe<Scalars['Int']['output']>;
   career_start_year?: Maybe<Scalars['Int']['output']>;
+  /**
+   * How complete this performer is.
+   *
+   * Reads the database on demand rather than being stored, so it is correct the
+   * moment an edit lands rather than whenever something remembered to refresh it.
+   */
+  completion?: Maybe<Completion>;
   country?: Maybe<Scalars['String']['output']>;
   created: Scalars['Time']['output'];
   cup_size?: Maybe<Scalars['String']['output']>;
@@ -1498,6 +1885,31 @@ export type PerformerUpdateInput = {
 /** The query root for this schema */
 export type Query = {
   __typename: 'Query';
+  /**
+   * How many entities of a type are below a completion threshold.
+   *
+   * This is the number a generated quest is sized from, and it is why the score is
+   * not stored: the count is recomputed from the same inputs, so a quest can never
+   * claim there are 500 incomplete performers when three were fixed an hour ago.
+   */
+  countIncompleteEntities: Scalars['Int']['output'];
+  /**
+   * Get a ranked list.
+   *
+   * Ordered by rating with near-ties broken in favour of the better-observed
+   * entity, NOT by rating alone -- a three-vote rating must not outrank a
+   * three-hundred-vote one just because it is numerically higher.
+   */
+  eloLeaderboard?: Maybe<EloLeaderboard>;
+  /**
+   * Get a proposed matchup to vote on.
+   *
+   * Requires the VOTE role, matching SPEC §6 level 1 (Registered): voting is the
+   * first thing trust is spent on, and it is the only ranking input in the system.
+   */
+  eloMatchup?: Maybe<EloMatchup>;
+  /** Get a stored rating. Unrated entities return the 1500 default, not null. */
+  eloRating?: Maybe<EloRating>;
   /** Discover favicon candidates for a URL, returned as base64 data URLs */
   fetchSiteFavicons: Array<SiteFavicon>;
   findDraft?: Maybe<Draft>;
@@ -1554,8 +1966,25 @@ export type Query = {
   fingerprintClusters: FingerprintClustersResult;
   getConfig: StashBoxConfig;
   getUnreadNotificationCount: UnreadNotificationCount;
+  /** Read one query, with its candidates. */
+  identificationQuery?: Maybe<IdentificationQuery>;
+  /**
+   * The board's queue: open queries, newest first.
+   *
+   * Open to any reader. A question with no answer is not sensitive, and hiding the
+   * board behind registration would defeat its purpose, which is to be looked at.
+   */
+  listOpenIdentificationQueries: Array<IdentificationQuery>;
   /** Returns currently authenticated user */
   me?: Maybe<User>;
+  /**
+   * §5's "Detective" leaderboard, for the current user.
+   *
+   * Scores count votes on OPEN queries only. A vote on a query that was resolved
+   * without you stops counting, because it was evidence about a question that no
+   * longer exists.
+   */
+  myIdentificationDetectiveScore?: Maybe<IdentificationDetective>;
   queryEdits: QueryEditsResultType;
   queryExistingPerformer: QueryExistingPerformerResult;
   queryExistingScene: QueryExistingSceneResult;
@@ -1569,6 +1998,14 @@ export type Query = {
   queryTagCategories: QueryTagCategoriesResultType;
   queryTags: QueryTagsResultType;
   queryUsers: QueryUsersResultType;
+  /**
+   * Every solved query about one entity.
+   *
+   * This is §5's canonical link: the board's conclusions indexed against real
+   * metadata, so an entity page can show what the community worked out about it.
+   * Only SOLVED queries appear -- an open query is a question, not an answer.
+   */
+  resolvedIdentificationQueries: Array<IdentificationQuery>;
   /** @deprecated Use searchPerformers */
   searchPerformer: Array<Performer>;
   searchPerformers: QueryPerformersResultType;
@@ -1578,6 +2015,33 @@ export type Query = {
   searchStudio: Array<Studio>;
   searchTag: Array<Tag>;
   version: Version;
+};
+
+
+/** The query root for this schema */
+export type QueryCountIncompleteEntitiesArgs = {
+  below: Scalars['Int']['input'];
+  entityType: EntityType;
+};
+
+
+/** The query root for this schema */
+export type QueryEloLeaderboardArgs = {
+  entityType: EloEntityType;
+  limit?: InputMaybe<Scalars['Int']['input']>;
+};
+
+
+/** The query root for this schema */
+export type QueryEloMatchupArgs = {
+  entityType: EloEntityType;
+};
+
+
+/** The query root for this schema */
+export type QueryEloRatingArgs = {
+  entityType: EloEntityType;
+  id: Scalars['ID']['input'];
 };
 
 
@@ -1693,6 +2157,18 @@ export type QueryFingerprintClustersArgs = {
 
 
 /** The query root for this schema */
+export type QueryIdentificationQueryArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+/** The query root for this schema */
+export type QueryListOpenIdentificationQueriesArgs = {
+  limit?: InputMaybe<Scalars['Int']['input']>;
+};
+
+
+/** The query root for this schema */
 export type QueryQueryEditsArgs = {
   input: EditQueryInput;
 };
@@ -1749,6 +2225,14 @@ export type QueryQueryTagsArgs = {
 /** The query root for this schema */
 export type QueryQueryUsersArgs = {
   input: UserQueryInput;
+};
+
+
+/** The query root for this schema */
+export type QueryResolvedIdentificationQueriesArgs = {
+  entityId: Scalars['ID']['input'];
+  entityType: IdentificationTargetType;
+  limit?: InputMaybe<Scalars['Int']['input']>;
 };
 
 
@@ -1930,6 +2414,14 @@ export enum RoleEnum {
 export type Scene = {
   __typename: 'Scene';
   code?: Maybe<Scalars['String']['output']>;
+  /**
+   * How complete this scene is.
+   *
+   * The heaviest scene field is `duration`, because the identification board and the
+   * snapshot collage both need a time axis -- a scene with no duration is not merely
+   * sparse, it cannot be identified.
+   */
+  completion?: Maybe<Completion>;
   created: Scalars['Time']['output'];
   /** @deprecated Please use `release_date` instead */
   date?: Maybe<Scalars['String']['output']>;
@@ -2136,6 +2628,8 @@ export type SceneUpdateInput = {
 export type Site = {
   __typename: 'Site';
   category?: Maybe<SiteCategory>;
+  /** How complete this site is. */
+  completion?: Maybe<Completion>;
   created: Scalars['Time']['output'];
   description?: Maybe<Scalars['String']['output']>;
   /** Whether links for this site are highlighted on entity pages, in addition to being listed in the links section */
@@ -2243,6 +2737,8 @@ export type Studio = {
   aliases: Array<Scalars['String']['output']>;
   /** @deprecated Use sub_studios instead */
   child_studios: Array<Studio>;
+  /** How complete this studio is. */
+  completion?: Maybe<Completion>;
   created: Scalars['Time']['output'];
   deleted: Scalars['Boolean']['output'];
   id: Scalars['ID']['output'];
@@ -2343,6 +2839,8 @@ export type Tag = {
   __typename: 'Tag';
   aliases: Array<Scalars['String']['output']>;
   category?: Maybe<TagCategory>;
+  /** How complete this tag is. */
+  completion?: Maybe<Completion>;
   created: Scalars['Time']['output'];
   deleted: Scalars['Boolean']['output'];
   description?: Maybe<Scalars['String']['output']>;
