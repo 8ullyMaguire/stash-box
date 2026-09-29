@@ -2794,3 +2794,119 @@ All remaining work is the roadmap. Phase 1 progress:
 trust actually starts moving: exactly one call site per event kind, in the edit
 apply path.
 ---
+
+
+## Session 23 — Phase 1 Step 1.3: GraphQL exposure of trust
+
+**Step 1 is now complete.** Migration, service, and API surface all landed.
+
+### What shipped
+
+`User.trust` (owner-only) and a self-service `setContentViewingOptIn` mutation.
+The `UserTrust` type carries the level, the five contribution totals, the stored
+opt-in, and a derived `can_view_content`.
+
+Three decisions, each of which a future reader would otherwise have to
+rediscover:
+
+- **`@isUserOwner` and no second check in the resolver.** The schema directive
+  *is* the authorization. Duplicating it in Go would give two places to keep in
+  sync for one rule.
+- **No `@hasRole` on the mutation, deliberately.** SPEC §6 has a user opt in to
+  content viewing, and someone approaching Archivist must be able to express the
+  preference *before* they get there. A role requirement would make the "opted
+  in, not yet eligible" state unreachable — which is the intended flow, not an
+  edge case. The resolver rejects anonymous callers with `auth.ErrUnauthorized`
+  instead, and that is the only thing stopping unauthenticated writes.
+- **The mutation takes no user id.** The subject is always the caller; accepting
+  one would let a user set another user's preference.
+
+`trust` is nullable in the schema but a new user gets a **zeroed object, not
+null** — level 0 with no contributions is a well-defined standing, and no client
+should need a null branch for the common case.
+
+### The authorization test has teeth
+
+```
+@isUserOwner dropped from User.trust
+  --- FAIL: TestTrustIsNotReadableByAnotherUser
+  and nothing else.
+
+anonymous check removed from the resolver
+  --- FAIL: TestSetContentViewingOptInRequiresAuth
+  panic: nil deref
+```
+
+Both matter because **if the directive were dropped, every other test in the
+file would still pass.** The field would simply become world-readable.
+
+### Four test bugs, all found by tests failing on CORRECT code
+
+This is now the dominant failure mode and it is worth naming plainly.
+
+1. **The visibility test queried `me`**, which always resolves to the *caller*.
+   The attacker reading their own trust is correct behaviour regardless of the
+   directive — so the test would have **passed against a completely unprotected
+   field**. It now targets the victim by id. The attacker is also given READ,
+   because `findUser` is `@hasRole(role: READ)`: without it the attacker is
+   stopped one field earlier, and the assertion passes for entirely the wrong
+   reason.
+2. **It also asserted a null field.** The directive *rejects with a GraphQL
+   error* rather than nulling, so the correct assertion is that the query errors.
+3. **Three "approved edit" events shared one `entityID`**, so the dedup index
+   counted them once. Same mistake class as the zero-delta test in session 22.
+4. **The anonymous test asserted a global `count(*) WHERE
+   content_viewing_opt_in` is zero** — which fails because the integration
+   database is shared and not isolated. **That trap has now been hit three
+   times: #829, #1007, and here.**
+
+Session 22's lesson generalises: **a failing assertion is evidence about the code
+OR the test, and I have now twice reached for the code first.** Four of the last
+five failures were mine.
+
+### Codegen
+
+- gqlgen via `go generate` in `internal/models`; verified **idempotent** (ran
+  twice, diffed, no change).
+- The frontend has its **own** `graphql-codegen`, and a schema change requires
+  re-running it — 53 lines of new types in `src/graphql/types.ts`. Skipping this
+  leaves the frontend types silently stale.
+- Fixed a **biome format** failure on `Register.test.ts`, a file I wrote in
+  session 18 and left unformatted. Worth noting: `pnpm run validate` bundles
+  lint, format-check and tsc, so a formatting slip I introduced 5 sessions ago
+  only surfaced now that I ran the full bundle.
+
+### Gates
+
+`go build` 0 · `go vet` clean · api integration ok 50.0s · unit suite clean ·
+gqlgen idempotent · `tsc --noEmit` clean · frontend 401/401.
+
+`pnpm run validate` still exits 1 on the single pre-existing
+`lint/style/noNonNullAssertion` in `TagForm.test.tsx:216` (documented since
+session 8). Everything else in the bundle is now clean.
+
+### Phase 1 status
+
+| Step | Status |
+|---|---|
+| 0.1 modbot race | done (session 21) |
+| 1.1 migration 76 | done (`28d9377`) |
+| 1.2 service + curve | done (`a5debf2`) |
+| 1.3 GraphQL exposure | done (`6f5f6e9`) |
+| **1.4 wire the event emitters** | **next** |
+
+1.4 is the step where trust actually starts moving: **exactly one call site per
+event kind**, in the edit-apply path. The roadmap's instruction is the important
+part — `RecordTrustEvent` for `edit_approved` belongs next to the existing
+notification triggers, and the duplicate-performer check from #950 is the pattern
+to follow. Two directions per kind, since an edit can be applied *and* later
+have that approval reversed, and a negative delta is how trust is taken back.
+
+---
+
+**On the standing goal:** the issue pool remains exhausted at 28/48 triaged with
+every issue either fixed or documented as a deliberate non-fix; the 32 bar was
+set against that 48 and is not reachable from it. All remaining work is the
+roadmap, and I am working through it in order. If you would rather I restate the
+goal as the roadmap and drop the issue count, say so — I have not done that
+because it is your call, not mine.
