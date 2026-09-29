@@ -44,10 +44,21 @@ CREATE TABLE "elo_ratings" (
     -- and rises when a player is idle, which is what makes the "needs more
     -- votes" badge and any confidence filter possible.
     --
-    -- Capped by the floor/ceiling arguments of glicko.Update, so a long-idle
+    -- Capped by the min/max arguments of glicko.normalised, so a long-idle
     -- entity converges to a wide-but-bounded uncertainty rather than drifting to
-    -- infinity. See the Glicko2 comments in internal/service/elo.
+    -- infinity. See the Glicko comments in internal/service/elo.
     "deviation" DOUBLE PRECISION NOT NULL DEFAULT 350,
+    -- Glickman's sigma: how much this rating tends to swing. PERSISTENT state,
+    -- not a per-update intermediate -- it is the player's demonstrated
+    -- consistency, and the volatility update in Step 5 of the paper reads the
+    -- previous value to decide how far sigma may move. Without this column the
+    -- algorithm would restart every player at 0.06 on each vote, which silently
+    -- discards the one signal that distinguishes a consistent performer from an
+    -- erratic one.
+    --
+    -- 0.06 is Glickman's own starting value, distinct from the tau constraint
+    -- (0.5) that bounds how fast sigma may change.
+    "volatility" DOUBLE PRECISION NOT NULL DEFAULT 0.06,
     -- When the entity was last rated. Glicko is time-aware: RD grows during a
     -- gap, so this is an input, not just an audit column.
     "last_rated_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),

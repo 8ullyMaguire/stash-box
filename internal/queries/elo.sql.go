@@ -47,7 +47,7 @@ func (q *Queries) DeleteTasteVector(ctx context.Context, userID uuid.UUID) error
 
 const getEloRating = `-- name: GetEloRating :one
 
-SELECT entity_type, entity_id, rating, deviation, last_rated_at FROM elo_ratings WHERE entity_type = $1 AND entity_id = $2
+SELECT entity_type, entity_id, rating, deviation, volatility, last_rated_at FROM elo_ratings WHERE entity_type = $1 AND entity_id = $2
 `
 
 type GetEloRatingParams struct {
@@ -69,13 +69,14 @@ func (q *Queries) GetEloRating(ctx context.Context, arg GetEloRatingParams) (Elo
 		&i.EntityID,
 		&i.Rating,
 		&i.Deviation,
+		&i.Volatility,
 		&i.LastRatedAt,
 	)
 	return i, err
 }
 
 const getEloRatingsByIDs = `-- name: GetEloRatingsByIDs :many
-SELECT entity_type, entity_id, rating, deviation, last_rated_at FROM elo_ratings WHERE entity_type = $1 AND entity_id = ANY($2::UUID[])
+SELECT entity_type, entity_id, rating, deviation, volatility, last_rated_at FROM elo_ratings WHERE entity_type = $1 AND entity_id = ANY($2::UUID[])
 `
 
 type GetEloRatingsByIDsParams struct {
@@ -99,6 +100,7 @@ func (q *Queries) GetEloRatingsByIDs(ctx context.Context, arg GetEloRatingsByIDs
 			&i.EntityID,
 			&i.Rating,
 			&i.Deviation,
+			&i.Volatility,
 			&i.LastRatedAt,
 		); err != nil {
 			return nil, err
@@ -166,6 +168,55 @@ func (q *Queries) GetTasteVector(ctx context.Context, userID uuid.UUID) (TasteVe
 	return i, err
 }
 
+const listEloRatings = `-- name: ListEloRatings :many
+SELECT entity_type, entity_id, rating, deviation, volatility, last_rated_at FROM elo_ratings
+WHERE entity_type = $1
+ORDER BY rating DESC NULLS LAST, deviation ASC
+LIMIT $2
+`
+
+type ListEloRatingsParams struct {
+	EntityType string `db:"entity_type" json:"entity_type"`
+	Limit      int32  `db:"limit" json:"limit"`
+}
+
+// Over-fetches relative to the requested limit: the service re-sorts by
+// Rankable (rating, then vote count, then deviation) rather than by rating
+// alone, so a plain top-N-by-rating is not the top-N-by-Rankable. Over-fetching
+// by 4x inside the service covers that without teaching the query about the
+// tie-breaking rules.
+//
+// NULLS LAST matters: a rating row can exist with no votes if an entity was
+// seeded by the migration and never voted on, and in Postgres ASC puts NULLs
+// LAST by default but the explicit form documents that the ordering is
+// deliberate.
+func (q *Queries) ListEloRatings(ctx context.Context, arg ListEloRatingsParams) ([]EloRating, error) {
+	rows, err := q.db.Query(ctx, listEloRatings, arg.EntityType, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []EloRating{}
+	for rows.Next() {
+		var i EloRating
+		if err := rows.Scan(
+			&i.EntityType,
+			&i.EntityID,
+			&i.Rating,
+			&i.Deviation,
+			&i.Volatility,
+			&i.LastRatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const recordEloVote = `-- name: RecordEloVote :one
 INSERT INTO elo_votes (id, user_id, winner_id, loser_id, winner_type, loser_type, picked_side)
 VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -215,13 +266,14 @@ func (q *Queries) RecordEloVote(ctx context.Context, arg RecordEloVoteParams) (E
 }
 
 const upsertEloRating = `-- name: UpsertEloRating :one
-INSERT INTO elo_ratings (entity_type, entity_id, rating, deviation, last_rated_at)
-VALUES ($1, $2, $3, $4, NOW())
+INSERT INTO elo_ratings (entity_type, entity_id, rating, deviation, volatility, last_rated_at)
+VALUES ($1, $2, $3, $4, $5, NOW())
 ON CONFLICT (entity_type, entity_id) DO UPDATE
 SET rating = EXCLUDED.rating,
     deviation = EXCLUDED.deviation,
+    volatility = EXCLUDED.volatility,
     last_rated_at = NOW()
-RETURNING entity_type, entity_id, rating, deviation, last_rated_at
+RETURNING entity_type, entity_id, rating, deviation, volatility, last_rated_at
 `
 
 type UpsertEloRatingParams struct {
@@ -229,6 +281,7 @@ type UpsertEloRatingParams struct {
 	EntityID   uuid.UUID `db:"entity_id" json:"entity_id"`
 	Rating     int       `db:"rating" json:"rating"`
 	Deviation  float64   `db:"deviation" json:"deviation"`
+	Volatility float64   `db:"volatility" json:"volatility"`
 }
 
 // Creates the row on first use, which is what makes a performer created AFTER
@@ -238,12 +291,17 @@ type UpsertEloRatingParams struct {
 // last_rated_at is set on update as well as insert, so a rating that is
 // re-asserted with unchanged numbers still counts as "rated now" for the Glicko
 // time constant.
+// volatility is written, not just defaulted. Glickman's sigma is persistent
+// state: Step 5 of the paper reads the PREVIOUS value to bound how far sigma may
+// move this period. Omitting it here would silently reset every rating to 0.06
+// on every vote, which is the one thing the column exists to prevent.
 func (q *Queries) UpsertEloRating(ctx context.Context, arg UpsertEloRatingParams) (EloRating, error) {
 	row := q.db.QueryRow(ctx, upsertEloRating,
 		arg.EntityType,
 		arg.EntityID,
 		arg.Rating,
 		arg.Deviation,
+		arg.Volatility,
 	)
 	var i EloRating
 	err := row.Scan(
@@ -251,6 +309,7 @@ func (q *Queries) UpsertEloRating(ctx context.Context, arg UpsertEloRatingParams
 		&i.EntityID,
 		&i.Rating,
 		&i.Deviation,
+		&i.Volatility,
 		&i.LastRatedAt,
 	)
 	return i, err

@@ -21,11 +21,16 @@ SELECT * FROM elo_ratings WHERE entity_type = $1 AND entity_id = ANY($2::UUID[])
 -- last_rated_at is set on update as well as insert, so a rating that is
 -- re-asserted with unchanged numbers still counts as "rated now" for the Glicko
 -- time constant.
-INSERT INTO elo_ratings (entity_type, entity_id, rating, deviation, last_rated_at)
-VALUES ($1, $2, $3, $4, NOW())
+-- volatility is written, not just defaulted. Glickman's sigma is persistent
+-- state: Step 5 of the paper reads the PREVIOUS value to bound how far sigma may
+-- move this period. Omitting it here would silently reset every rating to 0.06
+-- on every vote, which is the one thing the column exists to prevent.
+INSERT INTO elo_ratings (entity_type, entity_id, rating, deviation, volatility, last_rated_at)
+VALUES ($1, $2, $3, $4, $5, NOW())
 ON CONFLICT (entity_type, entity_id) DO UPDATE
 SET rating = EXCLUDED.rating,
     deviation = EXCLUDED.deviation,
+    volatility = EXCLUDED.volatility,
     last_rated_at = NOW()
 RETURNING *;
 
@@ -41,6 +46,22 @@ RETURNING *;
 INSERT INTO elo_votes (id, user_id, winner_id, loser_id, winner_type, loser_type, picked_side)
 VALUES ($1, $2, $3, $4, $5, $6, $7)
 RETURNING *;
+
+-- name: ListEloRatings :many
+-- Over-fetches relative to the requested limit: the service re-sorts by
+-- Rankable (rating, then vote count, then deviation) rather than by rating
+-- alone, so a plain top-N-by-rating is not the top-N-by-Rankable. Over-fetching
+-- by 4x inside the service covers that without teaching the query about the
+-- tie-breaking rules.
+--
+-- NULLS LAST matters: a rating row can exist with no votes if an entity was
+-- seeded by the migration and never voted on, and in Postgres ASC puts NULLs
+-- LAST by default but the explicit form documents that the ordering is
+-- deliberate.
+SELECT * FROM elo_ratings
+WHERE entity_type = $1
+ORDER BY rating DESC NULLS LAST, deviation ASC
+LIMIT $2;
 
 -- name: CountEloVotesForEntity :one
 -- How many votes an entity has taken part in, across both sides. Feeds the

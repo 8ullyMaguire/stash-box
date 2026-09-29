@@ -404,6 +404,17 @@ type Querier interface {
 	GetUsers(ctx context.Context, dollar_1 []uuid.UUID) ([]User, error)
 	InviteKeyUsed(ctx context.Context, id uuid.UUID) (*int, error)
 	IsImageUnused(ctx context.Context, id uuid.UUID) (bool, error)
+	// Over-fetches relative to the requested limit: the service re-sorts by
+	// Rankable (rating, then vote count, then deviation) rather than by rating
+	// alone, so a plain top-N-by-rating is not the top-N-by-Rankable. Over-fetching
+	// by 4x inside the service covers that without teaching the query about the
+	// tie-breaking rules.
+	//
+	// NULLS LAST matters: a rating row can exist with no votes if an entity was
+	// seeded by the migration and never voted on, and in Postgres ASC puts NULLs
+	// LAST by default but the explicit form documents that the ordering is
+	// deliberate.
+	ListEloRatings(ctx context.Context, arg ListEloRatingsParams) ([]EloRating, error)
 	// One user's history, newest first. Used by the audit view and by tests that
 	// assert the event log is the source of truth.
 	ListUserTrustEvents(ctx context.Context, userID uuid.UUID) ([]TrustEvent, error)
@@ -562,6 +573,10 @@ type Querier interface {
 	// last_rated_at is set on update as well as insert, so a rating that is
 	// re-asserted with unchanged numbers still counts as "rated now" for the Glicko
 	// time constant.
+	// volatility is written, not just defaulted. Glickman's sigma is persistent
+	// state: Step 5 of the paper reads the PREVIOUS value to bound how far sigma may
+	// move this period. Omitting it here would silently reset every rating to 0.06
+	// on every vote, which is the one thing the column exists to prevent.
 	UpsertEloRating(ctx context.Context, arg UpsertEloRatingParams) (EloRating, error)
 	UpsertTasteVector(ctx context.Context, arg UpsertTasteVectorParams) (TasteVector, error)
 }

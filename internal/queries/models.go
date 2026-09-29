@@ -157,6 +157,7 @@ type EloRating struct {
 	EntityID    uuid.UUID          `db:"entity_id" json:"entity_id"`
 	Rating      int                `db:"rating" json:"rating"`
 	Deviation   float64            `db:"deviation" json:"deviation"`
+	Volatility  float64            `db:"volatility" json:"volatility"`
 	LastRatedAt pgtype.Timestamptz `db:"last_rated_at" json:"last_rated_at"`
 }
 
