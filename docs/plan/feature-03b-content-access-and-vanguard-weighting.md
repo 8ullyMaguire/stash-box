@@ -145,6 +145,67 @@ change the denylist from removal to grant, change evaluation order. Record the
 results in this plan. A condition that cannot be killed by a mutation is a
 condition no test covers.
 
+### Step 2.1 — migration — **DONE**
+
+Shipped as `85_add_vote_weight.up.sql`. One deviation from the plan, recorded in
+Deviations: the plan proposed creating `elo_votes_user_idx (user_id)`, but
+migration 77 already created that index as
+`elo_votes_user_idx (user_id, created_at DESC)`. A single-column index on a
+composite's leading column is a redundant prefix. The existing index is dropped
+and recreated with `weight` appended, which preserves every query the original
+served and adds the new one.
+
+## 2. Vanguard-weighted Elo votes — **DONE**
+
+Migration + `weight.go` + `weight_test.go` (11 test functions) + `gravity.go` +
+`gravity_test.go` (13 test functions). All green.
+
+### Mutation sweep results
+
+Recorded because a condition that cannot be killed by a mutation is a condition
+no test covers. Every mutation below was applied one at a time, the suite run,
+and the change reverted.
+
+| # | Mutation | Killed by |
+|---|---|---|
+| W1 | upper clamp removed | 3 tests |
+| W2 | lower clamp removed | 1 test (`TestClampVoterWeightEnforcesTheFloorDirectly`) |
+| W3 | NaN guard removed | 1 test |
+| W4 | vanguard multiplier → 1.0 | 4 tests |
+| W5 | contribution saturation removed | 1 test |
+| W6 | negative score discounts | 1 test |
+| G1 | personal fallback → clamp | 2 tests |
+| G2 | fallback removed entirely | 3 tests |
+| G3 | peer similarity forced to 1.0 | 3 tests |
+| G4 | local gravity forced to 1.0 | 3 tests |
+| G5 | NaN returned as-is | 1 test |
+| G6 | `FellBackToInstanceTaste` inverted | 2 tests |
+| G7 | personal ceiling removed | 2 tests |
+| G8 | product → weighted sum | 4 tests |
+
+**13/13 killed.** Two rounds of fixes came out of this sweep, and both were real
+defects rather than test-tuning:
+
+- **The lower clamp had no test** and survived W2. The floor turned out to be
+  *unreachable* by any legal input (lowest real weight is 0.5), so the honest fix
+  was to document it as a backstop and test the clamp function directly rather
+  than pretend the floor shapes today's rankings.
+- **`TestDroppingAnyOneFactorChangesTheScore` was needed** because a
+  "moved vs reference" comparison cannot detect a factor that is *absent* from
+  the product: both sides of the comparison are computed by the same expression.
+  The ratio form catches it.
+
+**A note on how this sweep was run, because it nearly produced a false pass.**
+The first pass reported four mutations as SURVIVED. They were not: dropping a
+factor left its variable unused, so the package failed to *build*, and the
+sweep counted only `--- FAIL` lines from test output. A build failure is a
+weaker signal than a test failure, and "the compiler noticed" is not the same as
+"a test caught this". Each was rewritten to keep the variable live
+(`if local > 0 { local = 1.0 }`) and re-run; all four are killed by real tests
+above. A mutation sweep must distinguish **build-killed** from **test-killed**,
+and a sweep that only greps for `FAIL` will quietly mislabel every compiler
+error as a coverage hole.
+
 ## 2. Vanguard-weighted Elo votes
 
 ### Step 2.1 — migration
