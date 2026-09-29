@@ -1774,3 +1774,177 @@ still pass.
 - `modbot.go` race (SPEC §8.1) still untouched.
 
 ---
+
+---
+
+## Session 16 — #1007 (three entities; the first mutant run was vacuous) (2026-09-29)
+
+### #1007 `[x]` — the tagger linked images to a deleted studio
+
+  When I ran the Stash tagger to tag scenes it did not seem to be working.
+  Scenes have thumbnails but they were not added to my studio. I then found
+  that I could see the studio on the performer but it was deleted.
+
+Three queries, no `deleted` filter at all:
+
+```sql
+-- name: FindStudio :one     SELECT * FROM studios WHERE id = $1;
+-- name: FindTag :one        SELECT * FROM tags WHERE id = $1;
+-- name: FindPerformer :one  SELECT * FROM performers WHERE id = $1;
+```
+
+Every `FindByName` sibling filters correctly (`AND deleted = false`), so the
+inconsistency was **only in the id path** — the path the tagger uses and the path
+a client holding a stale id uses.
+
+The redirect-aware queries already existed and were already correct. Only the
+drafts path used them.
+
+```
+SELECT S.* FROM studios S
+WHERE S.id = $1 AND S.deleted = FALSE
+UNION
+SELECT SS.* FROM studio_redirects R
+JOIN studios SS ON SS.id = R.target_id
+WHERE R.source_id = $1 AND SS.deleted = FALSE;
+```
+
+`FindByID` now uses it. `FindTagWithRedirect`/`FindPerformerWithRedirect` are
+`:many`, so the first row is taken — the UNION cannot match both arms for one id.
+
+`Studio.Favorite` deliberately keeps the raw `FindStudio`: it is the favorite
+*action*, not a read, and redirecting it would favorite a different record than
+the user clicked. Caught by an assertion that the replacement was unique — there
+were two `FindStudio(ctx, id)` call sites, not one.
+
+**Scenes excluded:** `scene_redirects` exists but nothing reads it. A separate
+gap, not this issue.
+
+### The part that matters: my first mutation run was vacuous
+
+First run, fix reverted: **4 of 5 tests passed.** A test that cannot fail is not
+evidence, so I went looking rather than re-running.
+
+The destroy **mutations hard-delete**:
+
+```sql
+-- name: DeleteTag :exec     DELETE FROM tags WHERE id = $1;
+-- name: DeleteStudio :exec  DELETE FROM studios WHERE id = $1;
+```
+
+Only the edit processor calls `SoftDeleteTag`/`SoftDeleteStudio`/
+`SoftDeletePerformer`, which leave `deleted = true` on the row. My tests built
+their fixture with the direct mutation, so the row was **genuinely gone** and
+`findStudio` returned nothing either way. The assertion was true for the wrong
+reason.
+
+Fixed by applying a destroy **EDIT** — the path that soft-deletes, and the path
+the reporter was actually on. Second run:
+
+```
+--- FAIL: TestFindStudioDoesNotReturnDeletedStudio
+--- FAIL: TestFindStudioResolvesMergedSourceToSurvivor
+--- FAIL: TestFindTagDoesNotReturnDeletedTag
+--- FAIL: TestFindPerformerDoesNotReturnDeletedPerformer
+--- PASS: TestFindByIDStillReturnsLiveEntities
+```
+
+The guard passing on the mutant is the point: it proves the fix is not "return
+nothing for everything".
+
+### Tags do not have the reported symptom
+
+`index_active_tags_on_name` is unique on **name alone**, so a second active tag
+with the same name cannot be created. Studios and performers are unique on
+`(name, disambiguation)`, which is what makes their name case reproducible. The
+tag test covers the id case and records why the name case is not buildable,
+rather than leaving a test that silently asserts something weaker than intended.
+
+### Three existing tests encoded the old behaviour
+
+The honest measure of blast radius:
+
+- **destroy tests** (performer/studio/tag) asserted `entity.Deleted == true`
+  after fetching through the public resolver, then dereferenced it. No longer
+  observable — and a **latent nil-deref**: it panicked on the first mutant run,
+  and that panic was *hiding the other two failures* in the full-suite run. They
+  now assert the guarantee the fix provides: the destroyed entity does not
+  resolve.
+- **performer merge test** fetched a merged source by id expecting the deleted
+  row. It now resolves to the survivor — the fix working. The redirect record is
+  read through the `PerformerMergeIDsByID` dataloader.
+
+One wrong assertion of mine along the way: I moved `MergedIds == 0` onto the
+merge *target*, which legitimately has 2 merged ids. That is what a merge is.
+
+### A #829 test regressed as a side effect
+
+`TestPerformerFilterEyeColorIsNull` passed alone and failed **twice** in the full
+suite — so not a flake. `queryPerformerIDs` sends no page size, so it takes the
+25-row default, and the new performers pushed the fixture off the end. Same
+shared-database page-size brittleness as #829, hit again **from the other
+direction**: adding fixtures to a shared database breaks tests that assumed they
+were alone. `queryPerformerIDs` now pins `PerPage`.
+
+### Verified state
+
+| Gate | Result |
+|---|---|
+| `go build ./...` | exit 0 |
+| `go vet ./...` | clean |
+| integration suite (`-count=1`) | ok, 47.2s |
+| unit suite | pass |
+| generated files | unchanged — the fix reuses existing queries |
+
+### Issue ledger
+
+| Issue | Status | Note |
+|---|---|---|
+| #729 | `[x]` | nil deref on mismatched `operation` |
+| #879 | `[x]` | deleted fields reset, all four forms |
+| #802 | `[x]` | category removal; explicit null |
+| #941 | `[x]` | stale downvote notification |
+| #660 | `[x]` | overlong values rejected at edit creation |
+| #943 | `[x]` | pending edits retargeted on merge, all four entities |
+| #703 | `[x]` | merge sources editable when updating an edit |
+| #829 | `[x]` | 11 dropped performer filters implemented |
+| #974 | `[x]` | network performer list includes sub-studios |
+| #337 | `[x]` | favorited network surfaces sub-studio scene edits |
+| #1060 | `[x]` | notification trigger no longer collapses types |
+| #734 | `[x]` | implicit TLS (SMTPS, port 465) supported |
+| #738 | `[x]` | duplicate image upload upserts on the checksum |
+| #649 | `[x]` | image read validates image_location instead of guessing |
+| #621 | `[x]` | deleted site no longer breaks the /edits page |
+| #956 | `[x]` | invite-key rules pinned; already fixed in c5ad421 |
+| #950 | `[x]` | duplicate create edit rejected; was a silent duplicate |
+| #1007 | `[x]` | no soft-deleted entity resolves by id; 3 entities |
+| #525 | `[!]` | already fixed upstream in ea06fbf; my tests could not detect it |
+| #778 | `[!]` | premise absent — no scrape mutation; behaviour pinned by tests |
+| #9 | `[~]` | defect class closed for reference fields; scalars audited |
+| #727 | `[!]` | not reproducible — `url` is a live field the client depends on |
+| #809 | `[!]` | not reproduced; backend exonerated |
+| **Total** | **18 of 48 `help wanted`** | 14 needed |
+
+**18/48 — 37.5%.**
+
+### Next steps
+
+- **18 of 48, bar is 32.** Unopened bounded reports: #948, #1177, #1205, #583,
+  #605, #1277. Six left; at the current pace the bar lands around session 18.
+- **#948** (some images do not get saved) next — it touches code I have now read
+  three times (#738, #649, and now the deleted-entity path), so it is the
+  cheapest of the remainder.
+- **New standing hazard, hit twice this session:** a destroy *mutation* hard-
+  deletes while a destroy *edit* soft-deletes, so a fixture built the obvious way
+  cannot detect a `deleted`-filter regression. Any test about soft-delete must
+  apply the edit.
+- **Second instance of the same shape:** adding fixtures to the shared test
+  database breaks tests that assert membership in an unfiltered page. The fix is
+  always to pin the page size, never to relax the assertion.
+- **The vacuous-mutant rule paid for itself again** (#525, #950, #1007). Three
+  sessions, three times a green test was hiding a test that could not fail.
+- Fork direction settled (SPEC §6.1). `docs/PLAN.md` stays unwritten until
+  Phase 1 is specced, deliberately after the bar is met.
+- `modbot.go` race (SPEC §8.1) still untouched.
+
+---
