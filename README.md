@@ -18,6 +18,18 @@ who opt in unlock content viewing. Every contribution earns reputation.
 | `issue-fixes` | Upstream bug fixes only — publishable as PRs against `stashapp/stash-box` |
 | `master` | `issue-fixes` plus the feature roadmap. Always a descendant, so the merge direction is one-way |
 
+**Which branch does a change go to?** Upstream's own bugs, and pulls of upstream
+PRs, go to `issue-fixes` — they are diffs a maintainer could take as-is. Anything
+this fork invents goes to `master`. When a change belongs to `issue-fixes` and
+has already landed on `master`, the fix is to rebase `master` onto `issue-fixes`
+rather than merge `issue-fixes` up into it; merging upward is what breaks the
+guarantee that a commit on `master` can be described as "upstream fixes, plus
+ours".
+
+`master` is a strict descendant of `issue-fixes`, so `git log
+issue-fixes..master` is exactly the fork's own work, and a diff of the two
+branches is exactly the set of PRs this fork would open upstream.
+
 ### What's built here
 
 Phase 1–2 complete, Phase 3 in progress:
