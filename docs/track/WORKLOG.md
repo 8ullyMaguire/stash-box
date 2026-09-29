@@ -3040,3 +3040,117 @@ as a deliberate non-fix, and the 32 bar was set against that 48. All remaining
 work is the roadmap, and I am working through it in order. If you want the goal
 formally rewritten to the roadmap, that is your call and I will make it in one
 edit.
+
+
+## Session 25 — Phase 1, Elo step 1: the ranking tables
+
+### First: a correction to session 24
+
+Session 24 ended saying Elo voting was cheap "because **Elo already exists in
+this codebase**." **That was wrong.** I checked before building and there is no
+Elo, no Glicko, no TrueSkill, and no pairwise or matchup table anywhere — the
+"ranking" hits in the codebase are search-result ordering and image sorting,
+and my `elo` greps were matching the substring in *dELEte*.
+
+So this is built from scratch, not adapted. Recording the correction because the
+worklog is supposed to be the thing a future session trusts, and a wrong claim
+in it costs more than a missing one.
+
+### Three tables, and the same split as trust
+
+```
+elo_votes      append-only, one row per matchup a user voted on.
+               What makes a voter's consistency (SPEC §6) computable.
+elo_ratings    the denormalised rating per entity.
+taste_vectors  the per-user taste profile (SPEC §2) — the input to
+               recommendations (§4), peering similarity (§2), "because you liked".
+```
+
+**Glicko-2 over plain Elo**, per SPEC §9, and the reason is not accuracy: it is
+that Glicko tracks a per-entity **rating deviation**, so the system knows which
+performers are genuinely well-observed and which have three votes and a
+meaningless rating. A leaderboard that presents a 3-vote rating as confidently
+as a 300-vote one is lying to the user.
+
+`entity_type` + `entity_id` rather than a `performer_id` column: §9 ranks
+performers, scenes, studios, sites, tags, lists **and instances**. A per-entity
+FK needs seven nullable columns, and could not express "instances" at all until
+Phase 4 gives it a table.
+
+### Three CHECK constraints, each mutation-checked
+
+```
+elo_votes_distinct_participants  removed -> TestEloVoteRejectsSelfVote
+elo_votes_same_entity_type       removed -> TestEloVoteRejectsMixedEntityTypes
+elo_votes_valid_side             removed -> TestEloVoteRejectsInvalidSide
+seeding INSERT made a no-op      removed -> TestEloRatingsSeededForExistingPerformers
+```
+
+### A wrong belief I had held for twenty sessions
+
+I have been recording the shared-database trap for six tests, and from that I
+concluded the test database was **persistent**. **It is not.** `pgDropAll` drops
+every table at the end of each run — *including `schema_migrations`* — so
+migrations re-run from scratch every time.
+
+That is why my first three psql-based mutation attempts all failed with
+`relation "elo_votes" does not exist`: the tables were dropped under me between
+the edit and the test. The correct mutation is to edit the **migration file**,
+which is also the better one — it proves the constraint in the file is
+load-bearing rather than one I added by hand.
+
+Worse: my own `DROP TABLE ... CASCADE` took `schema_migrations` with it, leaving
+a database that claimed version 77 with none of migration 77's tables. Repaired
+by recreating the database. **The "persistent shared DB" framing was wrong in a
+way that made me confident about things I had not checked.**
+
+### The migrate error message sent me in the wrong direction
+
+```
+ERROR: column "entity_type" does not exist
+```
+
+…reported against the *whole file*, with the entire migration quoted into the
+error. The two offending indexes referenced `"entity_type"` on `elo_votes`,
+copied from `trust_events`, which does have that column. Applying the file
+directly with `psql` gave the real line number in one step. **Worth the detour
+when a wrapped error names a symbol that appears nowhere near the problem.**
+
+### The seeding test was vacuous, and the mutation check is what said so
+
+Making the seeding `INSERT` a no-op left **every test green**. The test I had
+written created a performer *after* the migration and asserted it had no rating
+row — which is true whether or not seeding works.
+
+This is the clearest instance yet of the pattern running through all 25
+sessions: **I wrote a test, it passed, and only a mutation revealed it was
+asserting nothing.** The fix re-applies the migration by hand after dropping the
+elo tables, so a performer genuinely exists at migration time. That is the only
+way to observe a migration-time `INSERT`.
+
+`readMigration` follows the pattern the search-ranking tests already use, and
+locates the file from `runtime.Caller` rather than the working directory.
+
+### Gates
+
+`go build` 0 · `go vet` clean · unit suite clean · api integration **ok on two
+consecutive full runs**.
+
+**One flake, reported rather than buried:** `TestDownvoteNotificationClearedOnVoteChange`
+failed once in an earlier full run, then passed two consecutive full runs and
+three isolated runs. It depends on the `go r.services.Notification()` goroutines
+— a pre-existing flake source, not something this migration touches. It is
+**not** verified as fixed, and the fix (making notification delivery
+synchronous or awaited) is out of scope here.
+
+### Where the roadmap stands
+
+| Step | Status |
+|---|---|
+| Phase 1 Step 1.1–1.4 (trust) | done (sessions 22–24) |
+| Elo: tables | done (`d45f827`) |
+| **Elo: Glicko-2 rating service** | **next** |
+| Elo: GraphQL + matchup flow | after that |
+| Snapshot collages, identification board | after that |
+
+---
