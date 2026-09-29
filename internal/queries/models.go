@@ -152,6 +152,25 @@ type EditVote struct {
 	Vote      string        `db:"vote" json:"vote"`
 }
 
+type EloRating struct {
+	EntityType  string             `db:"entity_type" json:"entity_type"`
+	EntityID    uuid.UUID          `db:"entity_id" json:"entity_id"`
+	Rating      int                `db:"rating" json:"rating"`
+	Deviation   float64            `db:"deviation" json:"deviation"`
+	LastRatedAt pgtype.Timestamptz `db:"last_rated_at" json:"last_rated_at"`
+}
+
+type EloVote struct {
+	ID         uuid.UUID          `db:"id" json:"id"`
+	UserID     uuid.UUID          `db:"user_id" json:"user_id"`
+	WinnerID   uuid.UUID          `db:"winner_id" json:"winner_id"`
+	LoserID    uuid.UUID          `db:"loser_id" json:"loser_id"`
+	WinnerType string             `db:"winner_type" json:"winner_type"`
+	LoserType  string             `db:"loser_type" json:"loser_type"`
+	PickedSide int16              `db:"picked_side" json:"picked_side"`
+	CreatedAt  pgtype.Timestamptz `db:"created_at" json:"created_at"`
+}
+
 type Fingerprint struct {
 	ID        int    `db:"id" json:"id"`
 	Algorithm string `db:"algorithm" json:"algorithm"`
@@ -461,6 +480,13 @@ type TagSearch struct {
 	TagID   uuid.UUID `db:"tag_id" json:"tag_id"`
 	Name    *string   `db:"name" json:"name"`
 	Aliases []string  `db:"aliases" json:"aliases"`
+}
+
+type TasteVector struct {
+	UserID    uuid.UUID          `db:"user_id" json:"user_id"`
+	Vector    json.RawMessage    `db:"vector" json:"vector"`
+	VoteCount int                `db:"vote_count" json:"vote_count"`
+	UpdatedAt pgtype.Timestamptz `db:"updated_at" json:"updated_at"`
 }
 
 type TrustEvent struct {

@@ -31,6 +31,9 @@ type Querier interface {
 	// one).
 	ClearDownvoteEditNotifications(ctx context.Context, id uuid.UUID) error
 	ClearScenePerformerAlias(ctx context.Context, arg ClearScenePerformerAliasParams) error
+	// How many votes an entity has taken part in, across both sides. Feeds the
+	// leaderboard's "needs more votes" marker and any minimum-confidence filter.
+	CountEloVotesForEntity(ctx context.Context, arg CountEloVotesForEntityParams) (int64, error)
 	CountNotificationsByUser(ctx context.Context, arg CountNotificationsByUserParams) (int64, error)
 	CountPerformerSearchMatches(ctx context.Context, arg CountPerformerSearchMatchesParams) (interface{}, error)
 	CountScenesByPerformer(ctx context.Context, performerID uuid.UUID) (int64, error)
@@ -183,6 +186,10 @@ type Querier interface {
 	DeleteTagAliases(ctx context.Context, tagID uuid.UUID) error
 	DeleteTagAliasesByNames(ctx context.Context, arg DeleteTagAliasesByNamesParams) error
 	DeleteTagCategory(ctx context.Context, id uuid.UUID) error
+	// Only used by a rebuild, so the row can be recreated from scratch rather than
+	// merged. Merging a recomputed vector into an existing one would double-count
+	// every feature.
+	DeleteTasteVector(ctx context.Context, userID uuid.UUID) error
 	DeleteUser(ctx context.Context, id uuid.UUID) error
 	DeleteUserNotificationSubscriptions(ctx context.Context, userID uuid.UUID) error
 	DeleteUserRoles(ctx context.Context, userID uuid.UUID) error
@@ -305,6 +312,23 @@ type Querier interface {
 	GetEditsBySceneIds(ctx context.Context, sceneIds []uuid.UUID) ([]GetEditsBySceneIdsRow, error)
 	GetEditsByStudio(ctx context.Context, studioID uuid.UUID) ([]Edit, error)
 	GetEditsByTag(ctx context.Context, tagID uuid.UUID) ([]Edit, error)
+	// Elo / Glicko-2 queries (SPEC §9, migration 77).
+	//
+	// elo_votes is the source of truth and is append-only; elo_ratings is a cache
+	// with a defined rebuild path. These queries are the only places allowed to
+	// write either table, for the same reason trust.sql owns trust_events and
+	// user_trust.
+	GetEloRating(ctx context.Context, arg GetEloRatingParams) (EloRating, error)
+	// Takes a type plus a batch of ids, because ranking reads are always
+	// per-entity-kind ("the ratings for these 50 performers"), never across kinds.
+	GetEloRatingsByIDs(ctx context.Context, arg GetEloRatingsByIDsParams) ([]EloRating, error)
+	// The user's own votes, newest first. Backs the taste vector (SPEC §2) and the
+	// voting-consistency signal in SPEC §6.
+	//
+	// Ordered by created_at so a rebuild is deterministic: two rebuilds of the same
+	// vote set must produce the same vector, and an unordered scan would let
+	// floating-point rounding differ between runs.
+	GetEloVotesForUser(ctx context.Context, userID uuid.UUID) ([]EloVote, error)
 	GetFingerprint(ctx context.Context, arg GetFingerprintParams) (Fingerprint, error)
 	// Gets current images for target entity and merges with edit's added_images/removed_images
 	GetImagesForEdit(ctx context.Context, id uuid.UUID) ([]Image, error)
@@ -365,6 +389,7 @@ type Querier interface {
 	GetStudiosByPerformerAndNetwork(ctx context.Context, arg GetStudiosByPerformerAndNetworkParams) ([]GetStudiosByPerformerAndNetworkRow, error)
 	GetTagAliases(ctx context.Context, tagID uuid.UUID) ([]string, error)
 	GetTagCategoriesByIds(ctx context.Context, dollar_1 []uuid.UUID) ([]TagCategory, error)
+	GetTasteVector(ctx context.Context, userID uuid.UUID) (TasteVector, error)
 	GetUserNotificationSubscriptions(ctx context.Context, userID uuid.UUID) ([]NotificationType, error)
 	GetUserRoles(ctx context.Context, userID uuid.UUID) ([]string, error)
 	GetUserRolesByUserIDs(ctx context.Context, dollar_1 []uuid.UUID) ([]UserRole, error)
@@ -407,6 +432,15 @@ type Querier interface {
 	// and that is exactly what SetContentViewingOptIn needs to do for a user
 	// opting in before they are eligible.
 	RecomputeUserTrustTotals(ctx context.Context, userID uuid.UUID) (UserTrust, error)
+	// No ON CONFLICT: elo_votes has no natural key beyond its own id, and a
+	// duplicate matchup is a legitimate thing for a user to do (they may change
+	// their mind about the same pair). Deduplicating identical votes would discard
+	// that signal, and the "don't double count" property comes from Glicko being
+	// applied to the rating, not from refusing to store the vote.
+	//
+	// Returning the row lets the service report the resulting rating to the voter
+	// without a second round trip.
+	RecordEloVote(ctx context.Context, arg RecordEloVoteParams) (EloVote, error)
 	// ON CONFLICT DO NOTHING makes a retried or duplicated event a no-op rather
 	// than a silent double increment. The matching partial state is a real
 	// concern: an edit can be applied twice by a retried request, and without this
@@ -521,6 +555,15 @@ type Querier interface {
 	UpdateUserEmail(ctx context.Context, arg UpdateUserEmailParams) error
 	UpdateUserInviteTokenCount(ctx context.Context, arg UpdateUserInviteTokenCountParams) error
 	UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error
+	// Creates the row on first use, which is what makes a performer created AFTER
+	// the migration work without a separate backfill: the seeding INSERT covers
+	// performers that predate it, and this covers everyone after.
+	//
+	// last_rated_at is set on update as well as insert, so a rating that is
+	// re-asserted with unchanged numbers still counts as "rated now" for the Glicko
+	// time constant.
+	UpsertEloRating(ctx context.Context, arg UpsertEloRatingParams) (EloRating, error)
+	UpsertTasteVector(ctx context.Context, arg UpsertTasteVectorParams) (TasteVector, error)
 }
 
 var _ Querier = (*Queries)(nil)
