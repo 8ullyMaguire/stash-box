@@ -1,16 +1,35 @@
-# Issue #703 — implementation plan
+# 0703 — [Bug Report] Unable to Update Merges
 
-**Status: implemented and committed.** This file is the executable record
-of what was done and how to verify it, so the change can be re-derived,
-re-reviewed, or re-applied to another branch without reading the whole
-history. It is generated from the real commit; the diff below is the
-commit that closed the issue.
+**Status: SOLVED in `031e84d1d`.** This plan records what was done and
+why, so the change can be re-implemented or reviewed without the original
+context. It is a description of shipped work, not a proposal.
 
-## Commit
+- Commit: `031e84d1d` — edits: let a merge edit's sources be edited when updating (fixes #703)
+- Area: `edits`
+- Issue: https://github.com/stashapp/stash-box/issues/703
 
-- `031e84d` edits: let a merge edit's sources be edited when updating (fixes #703)
+## What was wrong
 
-## Files changed
+From `docs/track/WORKLOG.md`:
+
+> Backend was never the problem: `tag.go:99` reads `input.Edit.MergeSourceIds` on
+> the update path as well as create. The frontend form submitted those ids but
+> rendered no control for them, so a user could not add or drop a source — the
+> only recourse was cancelling and refiling, losing votes and comments. The
+> `EditUpdate` query already fetched `merge_sources` and `operation`; nothing read
+> them.
+>
+> `MergeSourceEditor` extracted rather than copy-pasted across three pages: the
+> selector differs (multi-select tags/performers, single-select studios) but the
+> list, remove control and target exclusion are identical.
+>
+> Evidence — 9 tests over tag/studio/performer. Mutation-verified by forcing
+> `isMerge = false` (the pre-#703 behaviour) in all three pages: **6 fail, 3 pass**
+> — the 3 that pass are the non-merge guards, which is correct.
+
+## Files touched
+
+**frontend**
 
 - `frontend/src/components/mergeSourceEditor/MergeSourceEditor.tsx`
 - `frontend/src/components/mergeSourceEditor/index.ts`
@@ -21,25 +40,12 @@ commit that closed the issue.
 - `frontend/src/pages/tags/TagEditUpdate.tsx`
 - `frontend/src/pages/tags/__tests__/TagEditUpdate.test.tsx`
 
-## Verification
+## The change
 
-These are the gates that must pass before the change is considered done.
-Run them in this order; a green build with a stale generated file is not
-a pass.
-
-```bash
-go build ./...
-go vet ./...
-export POSTGRES_DB="postgres:[REDACTED]@127.0.0.1:5434/stash-box-test?sslmode=disable"
-go test -tags=integration -count=1 ./internal/api/
-go test $(go list ./... | grep -vE 'internal/api$') -count=1
-```
-
-## The diff
+### `frontend/src/components/mergeSourceEditor/MergeSourceEditor.tsx`
 
 ```diff
 diff --git a/frontend/src/components/mergeSourceEditor/MergeSourceEditor.tsx b/frontend/src/components/mergeSourceEditor/MergeSourceEditor.tsx
-new file mode 100644
 index 0000000..e77e904
 --- /dev/null
 +++ b/frontend/src/components/mergeSourceEditor/MergeSourceEditor.tsx
@@ -99,71 +105,39 @@ index 0000000..e77e904
 +          {label}
 +        </label>
 +        {children(excludeIds)}
-+        {current.length > 0 && (
-+          <ul className="list-group mt-2" data-testid={testId}>
-+            {current.map((s) => (
-+              <li
-+                key={s.id}
-+                className="list-group-item d-flex justify-content-between align-items-center"
-+              >
-+                <span>{s.name || <em>loading…</em>}</span>
-+                <button
-+                  type="button"
-+                  className="btn btn-sm btn-outline-danger"
-+                  onClick={() => update(current.filter((x) => x.id !== s.id))}
-+                  aria-label={`Remove merge source ${s.name || s.id}`}
-+                >
-+                  Remove
-+                </button>
-+              </li>
-+            ))}
-+          </ul>
-+        )}
-+      </Col>
-+    </Row>
-+  );
-+};
-+
-+// True when the edit is a merge and therefore needs the source editor.
-+export const isMergeEdit = (operation: string | OperationEnum): boolean =>
-+  String(operation) === "MERGE";
+    ... (trimmed; run `git show` for the full diff)
+```
+
+### `frontend/src/components/mergeSourceEditor/index.ts`
+
+```diff
 diff --git a/frontend/src/components/mergeSourceEditor/index.ts b/frontend/src/components/mergeSourceEditor/index.ts
-new file mode 100644
 index 0000000..e69795a
 --- /dev/null
 +++ b/frontend/src/components/mergeSourceEditor/index.ts
 @@ -0,0 +1,2 @@
 +export type { MergeSource } from "./MergeSourceEditor";
 +export { isMergeEdit, MergeSourceEditor } from "./MergeSourceEditor";
+```
+
+### `frontend/src/pages/performers/PerformerEditUpdate.tsx`
+
+```diff
 diff --git a/frontend/src/pages/performers/PerformerEditUpdate.tsx b/frontend/src/pages/performers/PerformerEditUpdate.tsx
 index eea7bad..9459d76 100644
 --- a/frontend/src/pages/performers/PerformerEditUpdate.tsx
 +++ b/frontend/src/pages/performers/PerformerEditUpdate.tsx
 @@ -1,11 +1,20 @@
- import { type FC, useState } from "react";
- import { useNavigate } from "react-router-dom";
- 
 +import {
 +  isMergeEdit,
 +  type MergeSource,
 +  MergeSourceEditor,
 +} from "src/components/mergeSourceEditor";
 +import PerformerSelect from "src/components/performerSelect";
- import {
-   type EditUpdateQuery,
-   type PerformerEditDetailsInput,
 +  type PerformerFragment,
-   usePerformerEditUpdate,
- } from "src/graphql";
 +import { PerformerFragmentDoc } from "src/graphql/types";
 +import { useEntities } from "src/hooks";
- import { createHref, isPerformer, isPerformerEdit } from "src/utils";
- import PerformerForm from "./performerForm";
- 
 @@ -17,6 +26,21 @@ import { ROUTE_EDIT } from "src/constants";
- export const PerformerEditUpdate: FC<{ edit: EditUpdate }> = ({ edit }) => {
-   const navigate = useNavigate();
-   const [submissionError, setSubmissionError] = useState("");
 +  const isMerge = isMergeEdit(edit.operation);
 +
 +  // Seeded from the edit so the current sources are visible and adjustable
@@ -179,37 +153,19 @@ index eea7bad..9459d76 100644
 +    { enabled: isMerge },
 +  );
 +
-   const [updatePerformerEdit, { loading: saving }] = usePerformerEditUpdate({
-     onCompleted: (result) => {
-       if (submissionError) setSubmissionError("");
 @@ -51,7 +75,9 @@ export const PerformerEditUpdate: FC<{ edit: EditUpdate }> = ({ edit }) => {
-             id: edit.target?.id,
-             operation: edit.operation,
-             comment: editNote,
 -            merge_source_ids: edit.merge_sources.map((s) => s.id),
 +            merge_source_ids: isMerge
 +              ? mergeSources.map((s) => s.id)
 +              : edit.merge_sources.map((s) => s.id),
-           },
-           options: {
-             set_modify_aliases: setModifyAliases,
 @@ -65,6 +91,12 @@ export const PerformerEditUpdate: FC<{ edit: EditUpdate }> = ({ edit }) => {
- 
-   const performerName = edit.target?.name ?? edit.details.name;
- 
 +  const nameById = new Map(loadedSources.map((t) => [t.id, t.name]));
 +  const named = mergeSources.map((s) => ({
 +    ...s,
 +    name: nameById.get(s.id) ?? s.name,
 +  }));
 +
-   return (
-     <div>
-       <Title page={`Update performer edit for "${performerName}"`} />
 @@ -75,6 +107,31 @@ export const PerformerEditUpdate: FC<{ edit: EditUpdate }> = ({ edit }) => {
-         </i>
-       </h3>
-       <hr />
 +      {isMerge && (
 +        <>
 +          <MergeSourceEditor
@@ -227,19 +183,13 @@ index eea7bad..9459d76 100644
 +                  ])
 +                }
 +                message="Search for performers to merge..."
-+                excludePerformers={excludeIds}
-+                inputId="performer-merge-source-select"
-+              />
-+            )}
-+          </MergeSourceEditor>
-+          <hr className="my-4" />
-+        </>
-+      )}
-       <PerformerForm
-         performer={edit.target}
-         initial={edit.details}
+    ... (trimmed; run `git show` for the full diff)
+```
+
+### `frontend/src/pages/performers/__tests__/PerformerEditUpdate.test.tsx`
+
+```diff
 diff --git a/frontend/src/pages/performers/__tests__/PerformerEditUpdate.test.tsx b/frontend/src/pages/performers/__tests__/PerformerEditUpdate.test.tsx
-new file mode 100644
 index 0000000..c4f29e5
 --- /dev/null
 +++ b/frontend/src/pages/performers/__tests__/PerformerEditUpdate.test.tsx
@@ -299,68 +249,27 @@ index 0000000..c4f29e5
 +// #703 applies to every entity type: the update form has to let the merge
 +// sources be seen and changed, not just round-tripped blind.
 +describe("PerformerEditUpdate merge sources (#703)", () => {
-+  it("lists the existing merge sources on a merge edit", async () => {
-+    renderForm(<PerformerEditUpdate edit={editWith({})} />);
-+
-+    await screen.findByTestId("merge-source-list");
-+    expect(sourceItems()).toHaveLength(2);
-+  });
-+
-+  it("lets a merge source be removed", async () => {
-+    renderForm(<PerformerEditUpdate edit={editWith({})} />);
-+
-+    await screen.findByTestId("merge-source-list");
-+    expect(sourceItems()).toHaveLength(2);
-+
-+    const removeButtons = screen.getAllByRole("button", {
-+      name: /Remove merge source/,
-+    });
-+    await removeButtons[0].click();
-+
-+    await waitFor(() => expect(sourceItems()).toHaveLength(1));
-+  });
-+
-+  it("does not render the source selector on a non-merge edit", async () => {
-+    renderForm(
-+      <PerformerEditUpdate
-+        edit={editWith({ operation: "MODIFY" } as Partial<Edit>)}
-+      />,
-+    );
-+
-+    await waitFor(() =>
-+      expect(screen.queryByTestId("merge-source-list")).not.toBeInTheDocument(),
-+    );
-+  });
-+});
+    ... (trimmed; run `git show` for the full diff)
+```
+
+### `frontend/src/pages/studios/StudioEditUpdate.tsx`
+
+```diff
 diff --git a/frontend/src/pages/studios/StudioEditUpdate.tsx b/frontend/src/pages/studios/StudioEditUpdate.tsx
 index 4d4c8f5..e2b7d79 100644
 --- a/frontend/src/pages/studios/StudioEditUpdate.tsx
 +++ b/frontend/src/pages/studios/StudioEditUpdate.tsx
 @@ -1,11 +1,20 @@
- import { type FC, useState } from "react";
- import { useNavigate } from "react-router-dom";
- 
 +import {
 +  isMergeEdit,
 +  type MergeSource,
 +  MergeSourceEditor,
 +} from "src/components/mergeSourceEditor";
 +import StudioSelect from "src/components/studioSelect";
- import {
-   type EditUpdateQuery,
-   type StudioEditDetailsInput,
 +  type StudioFragment,
-   useStudioEditUpdate,
- } from "src/graphql";
 +import { StudioFragmentDoc } from "src/graphql/types";
 +import { useEntities } from "src/hooks";
- import { createHref, isStudio, isStudioEdit } from "src/utils";
- import StudioForm from "./studioForm";
- 
 @@ -17,6 +26,21 @@ import { ROUTE_EDIT } from "src/constants";
- export const StudioEditUpdate: FC<{ edit: EditUpdate }> = ({ edit }) => {
-   const navigate = useNavigate();
-   const [submissionError, setSubmissionError] = useState("");
 +  const isMerge = isMergeEdit(edit.operation);
 +
 +  // Seeded from the edit so the current sources are visible and adjustable
@@ -376,37 +285,19 @@ index 4d4c8f5..e2b7d79 100644
 +    { enabled: isMerge },
 +  );
 +
-   const [updateStudioEdit, { loading: saving }] = useStudioEditUpdate({
-     onCompleted: (result) => {
-       if (submissionError) setSubmissionError("");
 @@ -41,7 +65,9 @@ export const StudioEditUpdate: FC<{ edit: EditUpdate }> = ({ edit }) => {
-             id: edit.target?.id,
-             operation: edit.operation,
-             comment: editNote,
 -            merge_source_ids: edit.merge_sources.map((s) => s.id),
 +            merge_source_ids: isMerge
 +              ? mergeSources.map((s) => s.id)
 +              : edit.merge_sources.map((s) => s.id),
-           },
-           details: updateData,
-         },
 @@ -51,6 +77,12 @@ export const StudioEditUpdate: FC<{ edit: EditUpdate }> = ({ edit }) => {
- 
-   const studioName = edit?.target?.name ?? edit.details?.name;
- 
 +  const nameById = new Map(loadedSources.map((t) => [t.id, t.name]));
 +  const named = mergeSources.map((s) => ({
 +    ...s,
 +    name: nameById.get(s.id) ?? s.name,
 +  }));
 +
-   return (
-     <div>
-       <Title page={`Update studio edit for "${studioName}"`} />
 @@ -61,6 +93,33 @@ export const StudioEditUpdate: FC<{ edit: EditUpdate }> = ({ edit }) => {
-         </i>
-       </h3>
-       <hr />
 +      {isMerge && (
 +        <>
 +          <MergeSourceEditor
@@ -424,21 +315,13 @@ index 4d4c8f5..e2b7d79 100644
 +                      ? curr
 +                      : [...curr, { id: studio.id, name: studio.name }],
 +                  );
-+                }}
-+                excludeStudio={edit.target?.id}
-+                isClearable
-+                inputId="studio-merge-source-select"
-+              />
-+            )}
-+          </MergeSourceEditor>
-+          <hr className="my-4" />
-+        </>
-+      )}
-       <StudioForm
-         studio={edit.target}
-         initial={edit.details}
+    ... (trimmed; run `git show` for the full diff)
+```
+
+### `frontend/src/pages/studios/__tests__/StudioEditUpdate.test.tsx`
+
+```diff
 diff --git a/frontend/src/pages/studios/__tests__/StudioEditUpdate.test.tsx b/frontend/src/pages/studios/__tests__/StudioEditUpdate.test.tsx
-new file mode 100644
 index 0000000..1bdd2a6
 --- /dev/null
 +++ b/frontend/src/pages/studios/__tests__/StudioEditUpdate.test.tsx
@@ -498,46 +381,17 @@ index 0000000..1bdd2a6
 +
 +describe("StudioEditUpdate merge sources (#703)", () => {
 +  it("lists the existing merge sources on a merge edit", async () => {
-+    renderForm(<StudioEditUpdate edit={editWith({})} />);
-+
-+    await screen.findByTestId("merge-source-list");
-+    expect(sourceItems()).toHaveLength(2);
-+  });
-+
-+  it("lets a merge source be removed", async () => {
-+    renderForm(<StudioEditUpdate edit={editWith({})} />);
-+
-+    await screen.findByTestId("merge-source-list");
-+    expect(sourceItems()).toHaveLength(2);
-+
-+    const removeButtons = screen.getAllByRole("button", {
-+      name: /Remove merge source/,
-+    });
-+    await removeButtons[0].click();
-+
-+    await waitFor(() => expect(sourceItems()).toHaveLength(1));
-+  });
-+
-+  it("does not render the source selector on a non-merge edit", async () => {
-+    renderForm(
-+      <StudioEditUpdate
-+        edit={editWith({ operation: "MODIFY" } as Partial<Edit>)}
-+      />,
-+    );
-+
-+    await waitFor(() =>
-+      expect(screen.queryByTestId("merge-source-list")).not.toBeInTheDocument(),
-+    );
-+  });
-+});
+    ... (trimmed; run `git show` for the full diff)
+```
+
+### `frontend/src/pages/tags/TagEditUpdate.tsx`
+
+```diff
 diff --git a/frontend/src/pages/tags/TagEditUpdate.tsx b/frontend/src/pages/tags/TagEditUpdate.tsx
 index b90ab0b..e3807db 100644
 --- a/frontend/src/pages/tags/TagEditUpdate.tsx
 +++ b/frontend/src/pages/tags/TagEditUpdate.tsx
 @@ -1,22 +1,47 @@
- import { type FC, useState } from "react";
- import { useNavigate } from "react-router-dom";
- 
 +import {
 +  isMergeEdit,
 +  type MergeSource,
@@ -546,25 +400,12 @@ index b90ab0b..e3807db 100644
 +import TagSelect from "src/components/tagSelect";
 +import Title from "src/components/title";
 +import { ROUTE_EDIT } from "src/constants";
- import {
-   type EditUpdateQuery,
 +  type TagFragment as Tag,
-   type TagEditDetailsInput,
-   useTagEditUpdate,
- } from "src/graphql";
 +import { TagFragmentDoc } from "src/graphql/types";
 +import { useEntities } from "src/hooks";
- import { createHref, isTag, isTagEdit } from "src/utils";
- import TagForm from "./tagForm";
- 
- type EditUpdate = NonNullable<EditUpdateQuery["findEdit"]>;
- 
 -import Title from "src/components/title";
 -import { ROUTE_EDIT } from "src/constants";
 -
- export const TagEditUpdate: FC<{ edit: EditUpdate }> = ({ edit }) => {
-   const navigate = useNavigate();
-   const [submissionError, setSubmissionError] = useState("");
 +  const isMerge = isMergeEdit(edit.operation);
 +
 +  // Seeded from the edit so the current sources are visible immediately and can
@@ -582,24 +423,12 @@ index b90ab0b..e3807db 100644
 +    { enabled: isMerge },
 +  );
 +
-   const [updateTagEdit, { loading: saving }] = useTagEditUpdate({
-     onCompleted: (result) => {
-       if (submissionError) setSubmissionError("");
 @@ -38,7 +63,9 @@ export const TagEditUpdate: FC<{ edit: EditUpdate }> = ({ edit }) => {
-             id: edit.target?.id,
-             operation: edit.operation,
-             comment: editNote,
 -            merge_source_ids: edit.merge_sources.map((s) => s.id),
 +            merge_source_ids: isMerge
 +              ? mergeSources.map((s) => s.id)
 +              : edit.merge_sources.map((s) => s.id),
-           },
-           details: updateData,
-         },
 @@ -48,6 +75,13 @@ export const TagEditUpdate: FC<{ edit: EditUpdate }> = ({ edit }) => {
- 
-   const tagName = edit.target?.name ?? edit.details.name;
- 
 +  // Names arrive asynchronously; show the fetched name once it is known.
 +  const nameById = new Map(loadedSources.map((t) => [t.id, t.name]));
 +  const named = mergeSources.map((s) => ({
@@ -607,13 +436,7 @@ index b90ab0b..e3807db 100644
 +    name: nameById.get(s.id) ?? s.name,
 +  }));
 +
-   return (
-     <div>
-       <Title page={`Update tag edit for "${tagName}"`} />
 @@ -58,6 +92,31 @@ export const TagEditUpdate: FC<{ edit: EditUpdate }> = ({ edit }) => {
-         </i>
-       </h3>
-       <hr />
 +      {isMerge && (
 +        <>
 +          <MergeSourceEditor
@@ -624,26 +447,13 @@ index b90ab0b..e3807db 100644
 +            {(excludeIds) => (
 +              <TagSelect
 +                tags={[]}
-+                onChange={(tags) =>
-+                  setMergeSources((curr) => [
-+                    ...curr,
-+                    ...tags.map((t) => ({ id: t.id, name: t.name })),
-+                  ])
-+                }
-+                message="Select tags to merge:"
-+                excludeTags={excludeIds}
-+                inputId="tag-merge-source-select"
-+              />
-+            )}
-+          </MergeSourceEditor>
-+          <hr className="my-4" />
-+        </>
-+      )}
-       <TagForm
-         tag={edit.target}
-         initial={edit.details}
+    ... (trimmed; run `git show` for the full diff)
+```
+
+### `frontend/src/pages/tags/__tests__/TagEditUpdate.test.tsx`
+
+```diff
 diff --git a/frontend/src/pages/tags/__tests__/TagEditUpdate.test.tsx b/frontend/src/pages/tags/__tests__/TagEditUpdate.test.tsx
-new file mode 100644
 index 0000000..4576e3e
 --- /dev/null
 +++ b/frontend/src/pages/tags/__tests__/TagEditUpdate.test.tsx
@@ -703,37 +513,26 @@ index 0000000..4576e3e
 +  // sources at all, so a merge edit could not be adjusted -- the only recourse
 +  // was cancelling the edit and resubmitting a new one.
 +  it("lists the existing merge sources on a merge edit", async () => {
-+    renderForm(<TagEditUpdate edit={editWith({})} />);
-+
-+    await screen.findByTestId("merge-source-list");
-+    expect(sourceItems()).toHaveLength(2);
-+  });
-+
-+  it("lets a merge source be removed", async () => {
-+    renderForm(<TagEditUpdate edit={editWith({})} />);
-+
-+    await screen.findByTestId("merge-source-list");
-+    expect(sourceItems()).toHaveLength(2);
-+
-+    const removeButtons = screen.getAllByRole("button", {
-+      name: /Remove merge source/,
-+    });
-+    await removeButtons[0].click();
-+
-+    await waitFor(() => expect(sourceItems()).toHaveLength(1));
-+  });
-+
-+  it("does not render the source selector on a non-merge edit", async () => {
-+    renderForm(
-+      <TagEditUpdate
-+        edit={editWith({ operation: "MODIFY" } as Partial<Edit>)}
-+      />,
-+    );
-+
-+    await waitFor(() =>
-+      expect(screen.queryByTestId("merge-source-list")).not.toBeInTheDocument(),
-+    );
-+    expect(screen.queryByLabelText("Merge sources")).not.toBeInTheDocument();
-+  });
-+});
+    ... (trimmed; run `git show` for the full diff)
 ```
+
+## Tests
+
+- `frontend/src/pages/performers/__tests__/PerformerEditUpdate.test.tsx`
+- `frontend/src/pages/studios/__tests__/StudioEditUpdate.test.tsx`
+- `frontend/src/pages/tags/__tests__/TagEditUpdate.test.tsx`
+
+These were mutation-checked: the fix was reverted, the test was run, and
+it was required to fail. A test that survives that check is not evidence.
+
+## Verify
+
+```bash
+go build ./... && go vet ./...
+export POSTGRES_DB="$STASHBOX_TEST_DSN"   # test DSN, never commit it
+go test -tags=integration -count=1 ./internal/api/
+go test $(go list ./... | grep -vE 'internal/api$') -count=1
+cd frontend && pnpm run test:run && cd ..
+```
+
+---

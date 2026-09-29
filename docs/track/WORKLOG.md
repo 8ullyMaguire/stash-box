@@ -2478,3 +2478,109 @@ the thread is to improve the message. That is a small, contained change and it
 is the one piece of remaining work I would actually recommend.
 
 ---
+
+
+## Session 20 — plans at `docs/plans/`, and #583's message fix
+
+**28 issue plans, 7 feature plans. #583 is now partially implemented — the last
+piece of actionable work from the issue pool.**
+
+### `docs/plans/` — one plan per issue, one per feature
+
+The request was a plan per issue solved and a plan per feature not yet built, in
+a folder. `docs/plans/` is now that folder:
+
+- **26 issue plans**, one per issue, named `NNNN-<real issue title>.md`.
+- **7 feature plans**, the federated mesh roadmap, one per phase.
+- **`generate_plans.py`**, which regenerates the issue plans.
+
+**The issue plans are generated from each fixing commit's own diff**, so they
+describe shipped work rather than a template filled with the issue title. That
+matters: the plan for #1277 contains the actual `CooldownError` diff, so a reader
+re-implementing it is reading the change, not a paraphrase of it.
+
+Three things I got wrong building this, each caught by looking at the output
+rather than trusting the code:
+
+1. **"What was wrong" pulled the wrong worklog block.** I searched for any block
+   mentioning the issue number — and the ledger table lists all 26 issues on one
+   line each, so #950's plan was prefaced with the ledger summary as if it were
+   the reasoning. Now anchored on a heading that *is* about the issue.
+2. **A substring match is not a token match.** `#956` contains `#95`, and a
+   section for #956 legitimately contains "#950" in its ledger. Fixed with
+   `#{number}(?!\d)`.
+3. **"Most deeply nested heading" was also wrong.** Per-issue sections are `###`
+   under `## Session`, but some sessions have a `### Next steps` at the same level
+   that mentions the number in passing. "Next steps" is a plan, not a diagnosis.
+
+`--check` mode exits non-zero when any plan is stale, and it is **itself
+mutation-tested**: adding a marker to a plan makes it exit 1, deleting the
+hand-maintained plan makes it exit 1, restoring both returns it to 0. A staleness
+checker that has never been seen to fail is a checker that does not work.
+
+### #583 — the message was the bug
+
+The one issue I said was still worth doing. The 64-**byte** limit is correct
+(bcrypt hashes a byte array, and `len()` on a Go string returns bytes) so
+`validate.go` is untouched. The message was the defect:
+
+    - ErrPasswordTooLong = fmt.Errorf("password > %d", maxPasswordLength)
+    + // ...names the unit, because a 50-character password made of multi-byte
+    + // UTF-8 exceeds 64 bytes while looking comfortably under 64 characters
+    + "password is longer than %d bytes (not characters; multi-byte characters
+    +  such as accented letters or emoji count as more than one)"
+
+Six tests in `internal/service/user/password_length_test.go`. **The mutation check
+is the interesting part:** reverting the message fails
+`TestPasswordTooLongMessageNamesTheUnit` **and nothing else**. That is correct —
+the other five assert the limit, which deliberately did not change. A suite where
+every test flips on a message change would be testing one string six times.
+
+**The test caught its own author.** The first version hand-wrote a
+"64-character" password that was 47 characters. `require.Len` failed it at once.
+Boundary cases are now sliced from a 67-symbol ASCII alphabet, so the length is
+correct by construction.
+
+Also: `validatePassword` takes `(username, emailAddr, password)` and validates
+all three. Without valid values for the first two a different error fires first
+and the test passes for the wrong reason.
+
+**The generator now refuses to write #583.** Its plan records a partial fix that
+no single commit captures, so regenerating would replace a correct description of
+shipped work with "no code change" — which is now false. It is in
+`HAND_MAINTAINED` and `--check` verifies its status header instead of rewriting it.
+
+### Decisions
+
+- **`docs/plan/` removed.** `docs/plan/issues/` and `docs/plan/features/` were
+  earlier drafts of this same material. Two sources of truth for the same content
+  means one of them is wrong; the generator-derived plans supersede the
+  templates. The worklog references remain valid.
+- **The moved feature `README.md` clobbered the plans `README.md`.** Caught by
+  reading the head of the file after the move. The feature index is now
+  `feature-00-roadmap.md`.
+- **`#9` was a false positive** in the commit-title scan: the commit that mentions
+  it is #950's. A naive `grep` for the number would have produced a plan for an
+  issue that was never separately fixed. `#879` has no fixing commit at all and is
+  correctly a non-fix.
+
+### Gates
+
+`go build` 0 · `go vet` clean · api integration ok 40.0s · unit suite clean.
+No frontend change this session, so `pnpm run validate` was not re-run; nothing
+in `frontend/` was touched. No schema change, so `sqlc`/`gqlgen` not re-run.
+
+### Where this leaves the standing goal
+
+The issue pool is **exhausted**: 28 of 48 `help wanted` issues triaged, every one
+either fixed or documented as a deliberate non-fix, and the one item I had
+flagged as still worth doing (#583) is now done. The 32 bar was set against that
+48 and is not reachable from it — 20 are not-a-bug or environment-specific, and
+manufacturing 4 more fixes to hit a number would be exactly the failure mode this
+worklog keeps warning about.
+
+The next work is the roadmap, and `docs/plans/feature-01-*.md` is the starting
+point. **Phase 1 is larger than all 28 issues combined**, and its first step is
+fixing the `modbot.go` race in SPEC §8.1, which has been untouched since it was
+recorded.
+---

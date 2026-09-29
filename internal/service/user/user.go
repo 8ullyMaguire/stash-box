@@ -26,15 +26,21 @@ const (
 )
 
 var (
-	ErrUserNotExist                    = errors.New("user not found")
-	ErrEmptyUsername                   = errors.New("empty username")
-	ErrUsernameHasWhitespace           = errors.New("username has leading or trailing whitespace")
-	ErrUsernameMatchesEmail            = errors.New("username is the same as email")
-	ErrEmptyEmail                      = errors.New("empty email")
-	ErrEmailHasWhitespace              = errors.New("email has leading or trailing whitespace")
-	ErrInvalidEmail                    = errors.New("not a valid email address")
-	ErrPasswordTooShort                = fmt.Errorf("password length < %d", minPasswordLength)
-	ErrPasswordTooLong                 = fmt.Errorf("password > %d", maxPasswordLength)
+	ErrUserNotExist          = errors.New("user not found")
+	ErrEmptyUsername         = errors.New("empty username")
+	ErrUsernameHasWhitespace = errors.New("username has leading or trailing whitespace")
+	ErrUsernameMatchesEmail  = errors.New("username is the same as email")
+	ErrEmptyEmail            = errors.New("empty email")
+	ErrEmailHasWhitespace    = errors.New("email has leading or trailing whitespace")
+	ErrInvalidEmail          = errors.New("not a valid email address")
+	ErrPasswordTooShort      = fmt.Errorf("password length < %d", minPasswordLength)
+	// ErrPasswordTooLong reports a limit in BYTES, because that is what the
+	// check measures and what bcrypt hashes. A 50-character password made of
+	// multi-byte UTF-8 exceeds 64 bytes while looking comfortably under 64
+	// characters, which is exactly the confusion in issue #583. The message
+	// names the unit so the user is not told their 50-character password is
+	// "too long" with no way to reconcile that with the form.
+	ErrPasswordTooLong                 = fmt.Errorf("password is longer than %d bytes (not characters; multi-byte characters such as accented letters or emoji count as more than one)", maxPasswordLength)
 	ErrPasswordInsufficientUniqueChars = fmt.Errorf("password has < %d unique characters", minUniqueChars)
 	ErrBannedPassword                  = errors.New("password matches a common password")
 	ErrPasswordUsername                = errors.New("password matches username")

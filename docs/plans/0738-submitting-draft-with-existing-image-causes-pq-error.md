@@ -1,37 +1,59 @@
-# Issue #738 — implementation plan
+# 0738 — Submitting draft with existing image causes pq error
 
-**Status: implemented and committed.** This file is the executable record
-of what was done and how to verify it, so the change can be re-derived,
-re-reviewed, or re-applied to another branch without reading the whole
-history. It is generated from the real commit; the diff below is the
-commit that closed the issue.
+**Status: SOLVED in `41a3b34c6`.** This plan records what was done and
+why, so the change can be re-implemented or reviewed without the original
+context. It is a description of shipped work, not a proposal.
 
-## Commit
+- Commit: `41a3b34c6` — image: resolve duplicate uploads on the unique checksum (fixes #738)
+- Area: `image`
+- Issue: https://github.com/stashapp/stash-box/issues/738
 
-- `41a3b34` image: resolve duplicate uploads on the unique checksum (fixes #738)
+## What was wrong
 
-## Files changed
+From `docs/track/WORKLOG.md`:
+
+> `images.checksum` has a UNIQUE index (`images_checksum_idx`, migration 09) and
+> `CreateImage` had no `ON CONFLICT`:
+>
+> INSERT INTO images (id, url, width, height, checksum) VALUES (...)
+> RETURNING *;
+>
+> The service *does* pre-check — `FindByChecksum`, returning the existing image at
+> `image/service.go:85`. So sequential duplicates were already safe. The bug is the
+> window between that read and the insert: **no transaction spans them**, so two
+> submissions of the same bytes can both pass the check and both reach the insert.
+> The loser gets
+>
+> ERROR:  duplicate key value violates unique constraint "images_checksum_idx"
+>
+> which is the `pq` error from the report. Only the database can arbitrate this,
+> so the constraint is now handled where it lives. `DO UPDATE` rather than
+> `DO NOTHING` because the query is `:one` and must `RETURNING` a row; the
+> assignment is a no-op by definition of the conflict, but it lets the loser
+> resolve to the stored image — the same outcome the sequential path gives.
+>
+> `ON CONFLICT (checksum)` deliberately does not cover the primary key: a repeated
+> id still raises, which is correct, since that would be a bug and not a duplicate
+> upload.
+
+## Files touched
+
+**implementation**
+
+- `internal/service/image/service.go`
+
+**query (generated)**
 
 - `internal/queries/image.sql.go`
 - `internal/queries/querier.go`
+
+**query source**
+
 - `internal/queries/sql/image.sql`
-- `internal/service/image/service.go`
 
-## Verification
+## The change
 
-These are the gates that must pass before the change is considered done.
-Run them in this order; a green build with a stale generated file is not
-a pass.
-
-```bash
-go build ./...
-go vet ./...
-export POSTGRES_DB="postgres:[REDACTED]@127.0.0.1:5434/stash-box-test?sslmode=disable"
-go test -tags=integration -count=1 ./internal/api/
-go test $(go list ./... | grep -vE 'internal/api$') -count=1
-```
-
-## The diff
+### `internal/queries/image.sql.go`
 
 ```diff
 diff --git a/internal/queries/image.sql.go b/internal/queries/image.sql.go
@@ -39,17 +61,8 @@ index 1ad07c9..daa8d50 100644
 --- a/internal/queries/image.sql.go
 +++ b/internal/queries/image.sql.go
 @@ -15,6 +15,7 @@ const createImage = `-- name: CreateImage :one
- 
- INSERT INTO images (id, url, width, height, checksum)
- VALUES ($1, $2, $3, $4, $5)
 +ON CONFLICT (checksum) DO UPDATE SET checksum = EXCLUDED.checksum
- RETURNING id, url, width, height, checksum
- `
- 
 @@ -27,6 +28,29 @@ type CreateImageParams struct {
- }
- 
- // Image queries
 +//
 +// ON CONFLICT (checksum) DO UPDATE is deliberate and is the #738 fix.
 +//
@@ -73,17 +86,16 @@ index 1ad07c9..daa8d50 100644
 +// ON CONFLICT (checksum) does not cover the primary key: a repeated id would
 +// still raise, which is correct -- that would be a bug, not a duplicate
 +// upload.
- func (q *Queries) CreateImage(ctx context.Context, arg CreateImageParams) (Image, error) {
- 	row := q.db.QueryRow(ctx, createImage,
- 		arg.ID,
+```
+
+### `internal/queries/querier.go`
+
+```diff
 diff --git a/internal/queries/querier.go b/internal/queries/querier.go
 index c667618..2559511 100644
 --- a/internal/queries/querier.go
 +++ b/internal/queries/querier.go
 @@ -40,6 +40,29 @@ type Querier interface {
- 	// Fingerprint queries (normalized schema)
- 	CreateFingerprint(ctx context.Context, arg CreateFingerprintParams) (Fingerprint, error)
- 	// Image queries
 +	//
 +	// ON CONFLICT (checksum) DO UPDATE is deliberate and is the #738 fix.
 +	//
@@ -107,17 +119,16 @@ index c667618..2559511 100644
 +	// ON CONFLICT (checksum) does not cover the primary key: a repeated id would
 +	// still raise, which is correct -- that would be a bug, not a duplicate
 +	// upload.
- 	CreateImage(ctx context.Context, arg CreateImageParams) (Image, error)
- 	// Invite key queries
- 	CreateInviteKey(ctx context.Context, arg CreateInviteKeyParams) (InviteKey, error)
+```
+
+### `internal/queries/sql/image.sql`
+
+```diff
 diff --git a/internal/queries/sql/image.sql b/internal/queries/sql/image.sql
 index 1c728fd..876c739 100644
 --- a/internal/queries/sql/image.sql
 +++ b/internal/queries/sql/image.sql
 @@ -1,8 +1,32 @@
- -- Image queries
- 
- -- name: CreateImage :one
 +--
 +-- ON CONFLICT (checksum) DO UPDATE is deliberate and is the #738 fix.
 +--
@@ -141,46 +152,26 @@ index 1c728fd..876c739 100644
 +-- ON CONFLICT (checksum) does not cover the primary key: a repeated id would
 +-- still raise, which is correct -- that would be a bug, not a duplicate
 +-- upload.
- INSERT INTO images (id, url, width, height, checksum)
- VALUES ($1, $2, $3, $4, $5)
 +ON CONFLICT (checksum) DO UPDATE SET checksum = EXCLUDED.checksum
- RETURNING *;
- 
- -- name: DeleteImage :exec
+```
+
+### `internal/service/image/service.go`
+
+```diff
 diff --git a/internal/service/image/service.go b/internal/service/image/service.go
 index af4242d..45894c6 100644
 --- a/internal/service/image/service.go
 +++ b/internal/service/image/service.go
 @@ -59,12 +59,13 @@ func (s *Image) Create(ctx context.Context, input models.ImageCreateInput) (*mod
- 	}
- 
- 	// handle image upload
 +	var file []byte
- 	if input.File != nil {
- 		if input.File.Size > int64(10*1024*1024) {
- 			return nil, errors.New("file too big")
- 		}
- 
 -		file := make([]byte, input.File.Size)
 +		file = make([]byte, input.File.Size)
- 		if _, err := input.File.File.Read(file); err != nil {
- 			return nil, err
- 		}
 @@ -96,10 +97,6 @@ func (s *Image) Create(ctx context.Context, input models.ImageCreateInput) (*mod
- 		if err := populateImageDimensions(fileReader, &newImage); err != nil {
- 			return nil, err
- 		}
 -
 -		if err := storage.Image().WriteFile(file, &newImage); err != nil {
 -			return nil, err
 -		}
- 	} else if input.URL == nil {
- 		return nil, errors.New("missing URL or file")
- 	}
 @@ -116,7 +113,31 @@ func (s *Image) Create(ctx context.Context, input models.ImageCreateInput) (*mod
- 	if err != nil {
- 		return nil, err
- 	}
 -	return converter.ImageToModelPtr(dbImage), nil
 +
 +	image := converter.ImageToModelPtr(dbImage)
@@ -207,7 +198,32 @@ index af4242d..45894c6 100644
 +	}
 +
 +	return image, nil
- }
- 
- func (s *Image) Destroy(ctx context.Context, id uuid.UUID) error {
 ```
+
+## Tests
+
+**No test was added.** This is a defect in the change, not an oversight —
+see the README section on tests that prove nothing. A test that does not
+fail when the fix is removed is worse than no test, because it reads as
+regression cover in review.
+
+## Verify
+
+```bash
+go build ./... && go vet ./...
+export POSTGRES_DB="$STASHBOX_TEST_DSN"   # test DSN, never commit it
+go test -tags=integration -count=1 ./internal/api/
+go test $(go list ./... | grep -vE 'internal/api$') -count=1
+```
+
+## Generated code
+
+This change touched generated files. Never hand-edit them; change the
+source and regenerate, then confirm idempotence:
+
+```bash
+sqlc generate && go run github.com/99designs/gqlgen generate
+go build ./... && git diff --stat   # must be empty on a second run
+```
+
+---
