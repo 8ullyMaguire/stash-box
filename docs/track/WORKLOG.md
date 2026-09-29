@@ -3400,3 +3400,146 @@ integration ok 54.2s · unit suite clean · sqlc idempotent.
 | Snapshot collages, identification board | after that |
 
 ---
+
+
+## Session 28 — Phase 1, Elo step 4: the GraphQL matchup flow
+
+### A matchup is not two random performers
+
+SPEC §9 says only *"two performers side by side"*. Two random performers is a bad
+implementation, and the reason is specific: **a pairwise vote is only informative to
+the extent the two entities are comparable.**
+
+- Asking a user to rank a **1900 against a 1200** is a foregone conclusion. It
+  moves the 1900 slightly and teaches nobody anything.
+- Asking them to choose between two performers of **nearly equal strength** is the
+  case where their opinion is worth the most — and the case the rating system is
+  *least* able to resolve on its own.
+
+So: candidates are bucketed into **100-point rating bands**, and the partner is
+drawn from the **same band**, falling back to the nearest band with anyone in it.
+The first side is still drawn uniformly from the whole pool, so a user who only
+votes on top-rated performers keeps seeing top-rated performers.
+
+Not in the spec. It is the minimum needed to make a vote worth recording, and the
+first thing to revisit if matchup quality is ever measured.
+
+### The bug the end-to-end test caught
+
+**`performers` has no `deleted_at` column.** I assumed the timestamp form of a
+soft delete; the column is a boolean `deleted`. sqlc caught it against the schema
+and I fixed the SQL.
+
+But *why was it caught at all* is the real finding: **the entire matchup path had
+zero coverage.** The only matchup test asserted that a role gate **refused** — so
+the candidate query, the banding rule, the display-order coin and the
+already-offered filter were all untested through the layer a client actually
+uses. A mutation that served **every user a matchup built from a random user id**
+passed the whole suite.
+
+> Had the `deleted_at` mistake shipped, **every `eloMatchup` request would have
+> 500'd in production** with every unit test green.
+
+### Two surviving mutations, and what they were actually telling me
+
+**1. An unknown entity type silently mapped to performer — survived.** Because
+GraphQL's own enum validation refuses `"nonsense"` with
+`GRAPHQL_VALIDATION_FAILED` *before the resolver runs*. The resolver's `Valid()`
+check is a second, unreachable-through-GraphQL layer.
+
+Defence in depth, and worth keeping — the service is callable from the API layer
+directly. **But recording it as test coverage would be a lie**, so the test now
+names which layer actually refuses.
+
+**2. Hardcoding the elapsed time to zero — survived, and it cost the most.**
+
+I asserted the obvious thing: vote forty times, expect a floor under the
+deviation. It passed with the mutation. Measured why:
+
+| gap | rating | deviation |
+|---|---|---|
+| 0d | 792.3 | 129.53 |
+| 1d | 792.0 | 129.80 |
+| 30d | 782.0 | 137.49 |
+| 365d | 692.1 | 200.90 |
+
+Glickman's scale is 173.7178 against a starting deviation of 350, so **one day
+changes the deviation by 0.28 out of 129.**
+
+And the deeper problem: **an integration test cannot see this at all.** The votes
+happen milliseconds apart, so the real elapsed time is *already* ~0 and the
+mutation changes nothing observable. The unobservable part was the test's, not the
+code's. Moved the property to the pure service test where `ElapsedDays` is a
+**parameter** — where it kills two mutants (dropping the time-constant term from
+phi-star; removing the `maxIdleDays` clamp).
+
+> **A test placed at the wrong layer cannot fail, and a test that cannot fail is
+> worse than no test — because it is counted as evidence.**
+
+### Elapsed time is derived, never accepted
+
+A client-supplied elapsed time **is a client-supplied rating**. Glicko's time
+constant sets how fast uncertainty regrows, so a client passing 0 every time pins
+its deviation at the floor and freezes its rating; one passing 10000 resets its
+uncertainty every vote. `ElapsedDaysFor` reads stored `last_rated_at` with the
+service's own clock, and treats a **never-rated** entity as *maximally* stale
+rather than as zero.
+
+### A real off-by-one, found by asserting floor semantics
+
+`bandOf` used `rating - rating%100`, which puts **-1 and -99 in the same band** —
+98 rating points apart, treated as neighbours, which is the exact mistake banding
+exists to prevent.
+
+Negative ratings are **reachable**: `normalised` clamps the deviation and the
+volatility but **nothing clamps the rating**, so a performer who loses every
+matchup walks steadily below 1500.
+
+My first assertion was `bandOf(-1) == 0` on the reasoning that *"1 below zero is
+still roughly zero"* — true of the number, **false of the band**. The code was
+wrong and the test caught it.
+
+### A dead test script
+
+The display-order shuffler was seeded `{0,0}` and `{0,1}` on the assumption the
+first entry picked the candidate. But `displayOrder` makes **exactly one call** and
+that call *is* the coin. The trailing `1` was never read, both shufflers returned
+the same order, and the test **passed without testing the swap at all.**
+
+### Five more mutants, each caught by the right test
+
+```
+display order always puts the drawn candidate first -> TestDisplayOrderIsNotFixed
+partner drawn from any band                     -> TestWideningDoesNotReachAcross
+bandOf truncates toward zero                    -> TestBandOfFloorsRatherThanTruncates
+time-constant term dropped from phi*            -> TestElapsedTimeMakesAnIdleRating
+maxIdleDays clamp removed                       -> TestElapsedTimeMakesAnIdleRating
+```
+
+### The pattern, now at eight
+
+Zero-sum, mean-preservation, identical-opponent, fixed-point, deviation-shrinkage,
+volatility-shape, leaderboard-tiebreak, and now the time-constant regime.
+
+**Eight properties I asserted that Glicko-2 does not have.** In every case the
+fix was the same: assert the *true* property, never move the number. The two new
+ones share a root cause worth naming — **both were tests placed where the
+mechanism was not visible**, so neither could fail.
+
+### Gates
+
+`go build` 0 · `go vet` clean · **31 elo unit + 8 service integration + 14 api
+integration** · api suite ok 56.6s · sqlc **and** gqlgen idempotent.
+
+### Phase 1 status
+
+| Step | Status |
+|---|---|
+| Step 1.1–1.4 (trust) | done (sessions 22–24) |
+| Elo: tables | done (`d45f827`) |
+| Elo: Glicko-2 engine | done (`cc635bd`) |
+| Elo: service + taste vector | done (`be64e70`) |
+| **Elo: GraphQL matchup flow** | done (`159378d`) |
+| Snapshot collages, identification board | **next** |
+
+---
