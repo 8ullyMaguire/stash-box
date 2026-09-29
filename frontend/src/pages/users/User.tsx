@@ -277,15 +277,16 @@ const UserComponent: FC<Props> = ({ user, refetch }) => {
         });
       })
       .catch((error: unknown) => {
-        let message: React.ReactNode | string | undefined =
+        // The old "pending-email-change" special case is gone. That string was
+        // returned by the email cooldown, so a user who had merely created an
+        // account and then asked for a password reset was told an email change
+        // was pending and had to wait for a process that did not exist (#1277).
+        //
+        // The backend now returns a self-describing message
+        // ("email cooldown active, try again in 4 minute(s)") that is accurate
+        // for every email flow, so it is shown as-is.
+        const message: React.ReactNode | string | undefined =
           CombinedGraphQLErrors.is(error) && error.message;
-        if (message === "pending-email-change")
-          message = (
-            <>
-              <h5>Pending email change</h5>
-              <div>Email change already requested. Please try again later.</div>
-            </>
-          );
         toast({ variant: "danger", content: message });
       });
   };

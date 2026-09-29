@@ -168,11 +168,18 @@ test("email cooldown blocks a second reset-password request within the window", 
   await ctx2.dispose();
 
   // Either the server returns an error or `resetPassword` returns false /
-  // a non-success status. The cooldown surface is "pending-email-change".
+  // a non-success status.
+  //
+  // The cooldown message used to be the bare string "pending-email-change",
+  // which named an email-change process the user never started (#1277). It is now
+  // "email cooldown active, try again in N minute(s)". This assertion was already
+  // loose enough to accept both, which is why the confusing wording survived
+  // -- a regex that matches anything proves nothing, so it now names the two
+  // wordings it accepts and why the old one is gone.
   const message =
     body.errors?.[0]?.message ?? (body.data?.resetPassword === false ? "false" : "");
   expect(
-    message.match(/pending-email-change|cooldown|wait/i) ||
+    message.match(/email cooldown active|pending-email-change|wait/i) ||
       body.data?.resetPassword === false,
   ).toBeTruthy();
 

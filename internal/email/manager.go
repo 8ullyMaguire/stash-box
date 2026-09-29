@@ -20,11 +20,45 @@ func NewManager() *Manager {
 	}
 }
 
+// ErrEmailCooldown is returned when a second email to the same address is
+// attempted inside the cooldown window.
+//
+// The string used to be "pending-email-change", which was wrong for every caller
+// except one: the cooldown is a rate limit on sending, not the state of a
+// pending email change. A user who created an account and immediately asked for
+// a password reset was told an email change was pending and had to wait for that
+// non-existent process to resolve (#1277).
+//
+// Exported so callers can errors.Is against it, and paired with a typed variant
+// so the user-facing message can name how long is left rather than just that
+// something went wrong.
+var ErrEmailCooldown = errors.New("email cooldown active")
+
+// CooldownError is ErrEmailCooldown with the remaining wait attached, so the API
+// can tell the user how long to wait instead of leaving them to guess.
+type CooldownError struct {
+	// RetryAfter is how long until the address may be emailed again.
+	RetryAfter time.Duration
+}
+
+func (e *CooldownError) Error() string {
+	minutes := int(e.RetryAfter.Round(time.Minute).Minutes())
+	if minutes < 1 {
+		// A cooldown is minutes long, but guard anyway: "0 minutes" reads as a
+		// bug to the user and rounding a sub-minute remainder down would do it.
+		return "email cooldown active, try again shortly"
+	}
+	return fmt.Sprintf("email cooldown active, try again in %d minute(s)", minutes)
+}
+
+func (e *CooldownError) Is(target error) bool { return target == ErrEmailCooldown }
+
 func (m *Manager) validateEmailCooldown(email string) error {
 	m.clearExpired()
 
-	if _, found := m.lastEmailed[email]; found {
-		return errors.New("pending-email-change")
+	if t, found := m.lastEmailed[email]; found {
+		cd := config.GetEmailCooldown()
+		return &CooldownError{RetryAfter: time.Until(t.Add(cd))}
 	}
 
 	return nil

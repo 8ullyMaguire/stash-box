@@ -465,6 +465,19 @@ func SetEmailSettingsForTest(host string, port int, user, pw, from, tlsMode stri
 	}
 }
 
+// SetEmailCooldownForTest sets the email cooldown and returns a function that
+// restores the previous value.
+//
+// Follows the same shape as SetEmailSettingsForTest: the caller holds the
+// returned func and defers it, so a test cannot leak its setting into the next
+// one. The cooldown is a time.Duration in the getter but a count of seconds in
+// the config struct, so the conversion happens here rather than in every caller.
+func SetEmailCooldownForTest(d time.Duration) func() {
+	prev := C.EmailCooldown
+	C.EmailCooldown = int(d.Seconds())
+	return func() { C.EmailCooldown = prev }
+}
+
 // SetImageLocationForTest overrides image_location for the duration of a test
 // and returns a restore function.
 //
