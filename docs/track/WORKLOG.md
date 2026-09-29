@@ -3272,3 +3272,131 @@ unit suite clean · sqlc idempotent.
 | Snapshot collages, identification board | after that |
 
 ---
+
+
+## Session 27 — Phase 1, Elo step 3: the Elo service
+
+### The find: `elo_ratings` had no `volatility` column
+
+I only found this by wiring the service up and asking what `UpsertEloRating` has
+to write. Glickman's σ is **persistent state, not a per-update intermediate** —
+the volatility update in Step 5 of the paper *reads the previous value* to bound
+how far σ may move this period.
+
+So a schema with `rating` and `deviation` but no `volatility` does not merely lose
+a number. It **silently restarts every player at 0.06 on every vote**, which is
+precisely the signal that separates a consistent performer from an erratic one.
+
+The maths was already committed and fully green against the paper's worked
+example. Nothing in `glicko.go` was wrong, and no test of the maths could ever
+have caught this — the bug is one layer down, in what the database is willing to
+remember.
+
+> **"Green" against a reference only proves the layer that reference covers.**
+> A pure-function test suite for a stateful algorithm is exactly the case where
+> that is not enough. Volatility was right in memory and lost in the round trip.
+
+Added the column to migration 77 (safe — unreleased anywhere, and the harness
+drops all tables between runs) and taught `UpsertEloRating` to write it.
+`TestVolatilityIsPersisted` votes **twice** and reads the column back, because a
+one-vote test cannot see this at all.
+
+### Why the vote is stored in DISPLAY order
+
+`winner_id`/`loser_id` mean **"the slot shown here"** and "the slot they did not" —
+*not* "the better performer". Position bias (a measurable preference for whichever
+candidate appears first) is the cheapest way to game a pairwise vote, and it is
+only auditable if **the order the user actually saw survives into the log**.
+`picked_side` records which slot was taken.
+
+This is why `Vote` takes a display-ordered pair plus a `PickedSide` rather than a
+pre-resolved winner/loser pair: resolving the order at the call site means one site
+getting it backwards records the vote correctly and *displays* it wrongly — a bug
+with no test failure anywhere.
+
+### One transaction, both ratings read before either is written
+
+A vote in the log with unmoved ratings is invisible corruption. A moved rating
+with no vote is **worse** — the log is the source of truth, so a rebuild would
+erase it and the user would watch their rating jump back.
+
+Reading the two ratings interleaved would let the winner's new rating become the
+loser's opponent state, making the outcome depend on which side the code touched
+first: an ordering-dependent rating change, which shows up as occasional
+unexplained drift and nothing else.
+
+### The taste vector is a rebuild, not an increment
+
+An incremental add **cannot be undone** — if the fold is wrong, a user with a
+thousand votes has a thousand votes of error baked in, and the only remedy is
+deleting the row and hoping something rebuilds it. One indexed scan of a single
+user's votes is cheap and correct by construction.
+
+The side benefit: a key that nets to zero **stays present**, so a recommender can
+distinguish "indifferent" from "never seen".
+
+Keys are per-**entity** (`performer:<uuid>`), not per-kind. SPEC §4 ranks results
+by personal taste, and a vector that only says "this user likes performers, +3"
+cannot recommend a *specific* performer. The per-kind namespace is also the seam
+where reviews and tags earn their place later — they are what would give a
+performer and a studio a common scale.
+
+### Six wrong test premises across the two Elo sessions — mine, not the code's
+
+This is now the single clearest pattern in the work, and the leaderboard test is
+the sharpest example.
+
+**I got the leaderboard premise wrong three times and the code was right every
+time.** `Rankable` only breaks ties by observation when the ratings differ by less
+than a fifth of the combined deviation. So my first fixture — 1900 vs 1750,
+deviations 20 and 2, threshold 4.4 — was testing **the rating sort**, the very
+thing the leaderboard exists to do differently. It would have passed *with Rankable
+removed entirely*.
+
+It also had to set vote counts explicitly. `CountEloVotesForEntity` derives them
+from the log, and performers whose rating was written directly have **none**, so
+both tied at zero and the tiebreak never engaged. The fixture is now a genuine
+near-tie: **1753 vs 1750, three votes vs three hundred**.
+
+> Across sessions 26–27: zero-sum, mean-preservation, identical-opponent,
+> fixed-point, deviation-shrinkage, volatility-shape, and now leaderboard-tiebreak.
+> **Seven properties I asserted that Glicko-2 does not have.** In every case the
+> fix was to assert the *true* property, never to move the number.
+
+### A schema asymmetry the tests made concrete
+
+`elo_votes.user_id` has a **real foreign key**; `elo_ratings.entity_id` does not.
+That is not an oversight — a vote is an act by a specific user and must name one,
+while a rating is a *cache* keyed by whatever is being ranked and must survive that
+thing being merged or deleted. My first integration test used a bare random uuid
+and the database was right to refuse it.
+
+### Three more mutations, each caught by exactly the right test
+
+```
+Leaderboard sorts by rating alone  -> TestLeaderboardRanksByObservationNotJustRating
+loser rating not persisted         -> TestVoteMovesBothRatings
+vote stored in picked order        -> TestVoteIsStoredInDisplayOrder
+```
+
+The second is the one worth noting: **a service that only credits the winner**
+passes every assertion about the return value and about the vote row. Only reading
+the *loser's* rating back catches it.
+
+### Gates
+
+`go build` 0 · `go vet` clean · **24 unit + 8 integration** elo tests · api
+integration ok 54.2s · unit suite clean · sqlc idempotent.
+
+### Phase 1 status
+
+| Step | Status |
+|---|---|
+| Step 1.1–1.4 (trust) | done (sessions 22–24) |
+| Elo: tables | done (`d45f827`) |
+| Elo: Glicko-2 engine | done (`cc635bd`) |
+| **Elo: service + taste vector** | done (`be64e70`) |
+| Elo: GraphQL matchup flow | **next** |
+| Snapshot collages, identification board | after that |
+
+---
