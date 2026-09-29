@@ -179,6 +179,50 @@ func (s *Performer) buildPerformerQuery(psql sq.StatementBuilderType, input mode
 	if input.Country != nil {
 		query = queryhelper.ApplyStringCriterion(query, "country", input.Country)
 	}
+	if input.CupSize != nil {
+		query = queryhelper.ApplyStringCriterion(query, "performers.cup_size", input.CupSize)
+	}
+
+	// Enum criteria. Nullable columns, so IS NULL is a real query (#829): these
+	// were accepted by the schema and then silently dropped, so a query setting
+	// them returned every performer instead of the filtered set.
+	if input.EyeColor != nil {
+		query = queryhelper.ApplyEnumCriterion(query, "performers.eye_color", input.EyeColor.Value, input.EyeColor.Modifier)
+	}
+	if input.HairColor != nil {
+		query = queryhelper.ApplyEnumCriterion(query, "performers.hair_color", input.HairColor.Value, input.HairColor.Modifier)
+	}
+	if input.BreastType != nil {
+		query = queryhelper.ApplyEnumCriterion(query, "performers.breast_type", input.BreastType.Value, input.BreastType.Modifier)
+	}
+
+	// Int criteria
+	if input.Height != nil {
+		query = queryhelper.ApplyIntCriterion(query, "performers.height", input.Height)
+	}
+	if input.BandSize != nil {
+		query = queryhelper.ApplyIntCriterion(query, "performers.band_size", input.BandSize)
+	}
+	if input.WaistSize != nil {
+		query = queryhelper.ApplyIntCriterion(query, "performers.waist_size", input.WaistSize)
+	}
+	if input.HipSize != nil {
+		query = queryhelper.ApplyIntCriterion(query, "performers.hip_size", input.HipSize)
+	}
+	if input.CareerStartYear != nil {
+		query = queryhelper.ApplyIntCriterion(query, "performers.career_start_year", input.CareerStartYear)
+	}
+	if input.CareerEndYear != nil {
+		query = queryhelper.ApplyIntCriterion(query, "performers.career_end_year", input.CareerEndYear)
+	}
+
+	// Body modifications (tattoos, piercings) are relational tables.
+	if input.Tattoos != nil {
+		query = queryhelper.ApplyBodyModificationCriterion(query, "performer_tattoos", "performer_id", input.Tattoos)
+	}
+	if input.Piercings != nil {
+		query = queryhelper.ApplyBodyModificationCriterion(query, "performer_piercings", "performer_id", input.Piercings)
+	}
 
 	// Only non-deleted performers
 	query = query.Where(sq.Eq{"deleted": false})

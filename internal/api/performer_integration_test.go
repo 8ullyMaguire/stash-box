@@ -319,10 +319,16 @@ func (s *performerTestRunner) testQueryPerformers() {
 	})
 	assert.NoError(s.t, err)
 
-	// Test basic query
+	// Test basic query.
+	//
+	// Page size is raised rather than the query being filtered: the suite
+	// shares one database, so a page of 25 can exclude the two performers this
+	// test just created once enough other tests have added theirs. The
+	// unfiltered query is what this test means to exercise.
+	const allPerformers = 10000
 	result, err := s.client.queryPerformers(models.PerformerQueryInput{
 		Page:      1,
-		PerPage:   25,
+		PerPage:   allPerformers,
 		Direction: models.SortDirectionEnumAsc,
 		Sort:      models.PerformerSortEnumName,
 	})

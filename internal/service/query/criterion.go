@@ -50,6 +50,115 @@ func ApplyMultiIDCriterion(query *sq.SelectBuilder, tableName, joinTable, fkColu
 	return nil
 }
 
+// ApplyEnumCriterion applies a criterion whose value is a nullable enum column
+// (eye_color, hair_color, breast_type). Those are nullable varchar in the schema,
+// so IS NULL / NOT NULL are meaningful in their own right -- a performer with no
+// recorded eye color must be reachable by filtering for exactly that.
+//
+// Generic over the enum so eye/hair/breast share one implementation and cannot
+// drift apart.
+func ApplyEnumCriterion[T ~string](query sq.SelectBuilder, field string, value *T, modifier models.CriterionModifier) sq.SelectBuilder {
+	switch modifier {
+	case models.CriterionModifierEquals:
+		if value == nil {
+			return query.Where(field + " IS NULL")
+		}
+		return query.Where(sq.Eq{field: string(*value)})
+	case models.CriterionModifierNotEquals:
+		if value == nil {
+			return query.Where(field + " IS NOT NULL")
+		}
+		// A performer with no recorded value is not a non-match on "not this
+		// value" -- NULL means unknown, not "something else".
+		return query.Where(sq.And{
+			sq.NotEq{field: string(*value)},
+			sq.Expr(field + " IS NOT NULL"),
+		})
+	case models.CriterionModifierIsNull:
+		return query.Where(field + " IS NULL")
+	case models.CriterionModifierNotNull:
+		return query.Where(field + " IS NOT NULL")
+	default:
+		return query
+	}
+}
+
+// ApplyBodyModificationCriterion filters on a body modification (tattoo or
+// piercing) recorded for the performer.
+//
+// Tattoos and piercings are relational tables keyed (performer_id, location),
+// not jsonb columns on the performer, so this is an EXISTS semi-join. That is
+// also what makes "location AND description match the same row" fall out for
+// free: a performer with a left-shoulder tattoo and a separate wing tattoo does
+// not match a query asking for both, because no single row satisfies both
+// predicates.
+func ApplyBodyModificationCriterion(query sq.SelectBuilder, table, fkColumn string, criterion *models.BodyModificationCriterionInput) sq.SelectBuilder {
+	if criterion == nil {
+		return query
+	}
+
+	// A criterion with neither field set would match every performer that has
+	// any modification at all, which is almost never what the caller meant.
+	if criterion.Location == nil && criterion.Description == nil {
+		return query
+	}
+
+	mod := criterion.Modifier
+	negate := false
+
+	switch mod {
+	case models.CriterionModifierEquals, models.CriterionModifierIncludes:
+		// handled below
+	case models.CriterionModifierNotEquals:
+		negate = true
+		mod = models.CriterionModifierEquals
+	case models.CriterionModifierIsNull:
+		// "no modification at all"
+		return query.Where(sq.Expr(
+			"NOT EXISTS (SELECT 1 FROM "+table+" WHERE "+table+"."+fkColumn+" = performers.id)"))
+	case models.CriterionModifierNotNull:
+		return query.Where(sq.Expr(
+			"EXISTS (SELECT 1 FROM "+table+" WHERE "+table+"."+fkColumn+" = performers.id)"))
+	default:
+		return query
+	}
+
+	subquery := sq.Select("1").
+		From(table).
+		Where(sq.Expr(table + "." + fkColumn + " = performers.id"))
+
+	if criterion.Location != nil {
+		switch mod {
+		case models.CriterionModifierEquals:
+			subquery = subquery.Where(sq.Eq{table + ".location": *criterion.Location})
+		case models.CriterionModifierIncludes:
+			subquery = subquery.Where(sq.ILike{table + ".location": "%" + *criterion.Location + "%"})
+		}
+	}
+
+	if criterion.Description != nil {
+		switch mod {
+		case models.CriterionModifierEquals:
+			subquery = subquery.Where(sq.Eq{table + ".description": *criterion.Description})
+		case models.CriterionModifierIncludes:
+			subquery = subquery.Where(sq.ILike{table + ".description": "%" + *criterion.Description + "%"})
+		}
+	}
+
+	sql, args, err := subquery.ToSql()
+	if err != nil {
+		// Built from a fixed set of shapes, so this cannot fail in practice;
+		// degrade to no filter rather than emitting a broken query.
+		return query
+	}
+
+	exists := "EXISTS (" + sql + ")"
+	if negate {
+		exists = "NOT " + exists
+	}
+	return query.Where(sq.Expr(exists, args...))
+}
+
 // ApplyIDCriterion applies ID criterion for a direct column (equals, not equals, includes, excludes, is null, not null)
 // Returns the modified query
 func ApplyIDCriterion(query sq.SelectBuilder, field string, criterion *models.IDCriterionInput) sq.SelectBuilder {
