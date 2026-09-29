@@ -131,7 +131,20 @@ func (c *graphqlClient) setContentViewingOptIn(enabled bool) (*userTrustOutput, 
 // with no contributions has a perfectly well-defined standing, and returning it
 // means no client needs a null branch for the common case.
 func TestMeTrustIsZeroedForANewUser(t *testing.T) {
-	runner := asAdmin(t)
+	// A user created for THIS test, not asAdmin(t).
+	//
+	// asAdmin(t) is the shared admin across the whole package, and once the edit
+	// lifecycle started emitting trust events (Step 1.4) every other test that
+	// has an admin apply an edit moves the shared admin's trust. This test
+	// asserted a zeroed standing on that shared user, so it passed only while
+	// nothing emitted anything -- and began failing the moment the emitters were
+	// wired, with "expected 0, actual 3" from a completely unrelated test.
+	//
+	// Asserting on shared mutable state is the same class of bug as the global
+	// count(*) that has now bitten four tests: it measures what other tests did.
+	user, err := asAdmin(t).createTestUser(nil, nil)
+	require.NoError(t, err)
+	runner := createTestRunner(t, user, nil)
 
 	me, err := runner.client.meWithTrust()
 	require.NoError(t, err)

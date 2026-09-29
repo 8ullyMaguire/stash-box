@@ -18,6 +18,7 @@ import (
 	"github.com/stashapp/stash-box/internal/queries"
 	"github.com/stashapp/stash-box/internal/service/errutil"
 	"github.com/stashapp/stash-box/internal/service/loadutil"
+	"github.com/stashapp/stash-box/internal/service/trust"
 	"github.com/stashapp/stash-box/pkg/logger"
 	"github.com/stashapp/stash-box/pkg/utils"
 )
@@ -56,13 +57,70 @@ func destroySubmittedDraft(ctx context.Context, tx *queries.Queries, draftID uui
 type Edit struct {
 	queries *queries.Queries
 	withTxn queries.WithTxnFunc
+	trust   *trust.Trust
 }
 
 // NewEdit creates a new edit service
-func NewEdit(queries *queries.Queries, withTxn queries.WithTxnFunc) *Edit {
+func NewEdit(queries *queries.Queries, withTxn queries.WithTxnFunc, trustSvc *trust.Trust) *Edit {
 	return &Edit{
 		queries: queries,
 		withTxn: withTxn,
+		trust:   trustSvc,
+	}
+}
+
+// recordTrustEvent logs one trust event for a closed edit.
+//
+// This is the ONLY place an edit produces trust, and it is called from exactly
+// two funnels: ApplyEdit (the edit was applied) and CloseEdit (it was closed
+// without being applied). Every other caller -- an immediate accept from a
+// moderator, a vote that tips the tally, the cron sweep that closes expired
+// edits -- reaches trust through those two, which is what keeps a user earning
+// level 4 from a path that was never wired.
+//
+// Three kinds of edit deliberately earn nothing, and the reasons matter:
+//
+//   - Bot edits. A bot edit is machine-generated and auto-applied; the human
+//     did not curate anything. If these counted, a bot could farm level 4 and
+//     unlock content viewing, which is precisely the attack the steep part of
+//     the level curve exists to prevent.
+//   - Failed applies (edit.Fail()). That is our bug, not the author's quality.
+//   - CANCELED, which is the author withdrawing their own edit. Charging for
+//     that would punish a decision we explicitly support.
+//
+// Errors are logged and swallowed. By the time this runs the edit has already
+// been applied to the archive, and there is no unapply path, so failing the
+// request would leave the metadata changed and the trust unrecorded with no way
+// to retry. A lost trust event is recoverable from the edits table; a silently
+// reverted applied edit is not. The same reasoning as PromoteUserVoteRights.
+func (s *Edit) recordTrustEvent(ctx context.Context, edit *models.Edit, kind trust.KindEnum, delta int) {
+	if s.trust == nil {
+		// Only reachable if a caller wired Edit without Trust. Guard rather than
+		// panic: a missing reputation side-effect must not break curation.
+		logger.Errorf("trust service not wired into edit service; %s event for edit %s not recorded", kind, edit.ID)
+		return
+	}
+	if !edit.UserID.Valid {
+		// An edit with no author cannot earn anyone trust.
+		return
+	}
+	if edit.Bot {
+		return
+	}
+
+	// The edit id is the dedup entity: an edit is applied at most once, so this
+	// key is a genuine exactly-once guard. If a future code path ever applies
+	// the same edit twice, the second RecordTrustEvent is a no-op rather than a
+	// silent double increment.
+	entityID := edit.ID
+	if _, err := s.trust.RecordEvent(ctx, trust.Event{
+		UserID:     edit.UserID.UUID,
+		Kind:       kind,
+		Delta:      delta,
+		EntityType: "edit",
+		EntityID:   &entityID,
+	}); err != nil {
+		logger.Errorf("Failed to record %s trust event for edit %s: %v", kind, edit.ID, err)
 	}
 }
 
@@ -1259,6 +1317,13 @@ func (s *Edit) ApplyEdit(ctx context.Context, editID uuid.UUID, immediate bool) 
 	// correct for the general case -- if this ever becomes expensive, move it
 	// to a real job queue rather than back to a naked goroutine.
 	if success {
+		// The applied edit is the highest-value trust signal there is (SPEC section
+		// 6), and this is the single funnel every accept reaches: an immediate
+		// moderator accept (Apply), a vote that tips the tally (CreateVote), and
+		// the cron sweep closing an expired edit (CloseCompleted) all call
+		// ApplyEdit.
+		s.recordTrustEvent(ctx, updatedEdit, trust.KindEditApproved, 1)
+
 		userPromotionThreshold := config.GetVotePromotionThreshold()
 		if userPromotionThreshold != nil && updatedEdit.UserID.Valid {
 			if err := s.PromoteUserVoteRights(ctx, updatedEdit.UserID.UUID, *userPromotionThreshold); err != nil {
@@ -1303,6 +1368,25 @@ func (s *Edit) CloseEdit(ctx context.Context, editID uuid.UUID, status models.Vo
 
 		return err
 	})
+
+	// After the transaction commits, for the same reason the accept side records
+	// outside its transaction: a trust write that is rolled back with the edit
+	// would be correct, but a trust write that fails after the edit is committed
+	// cannot take the edit back with it.
+	if updatedEdit != nil {
+		// Only an actual rejection. CloseEdit also handles IMMEDIATE_REJECTED
+		// and CANCELED, and a naive recording here charges trust for the author
+		// withdrawing their own edit -- which is exactly what the test
+		// TestCanceledEditEmitsNoTrustEvent caught. CANCELED is the author
+		// changing their mind, a decision the system supports.
+		//
+		// An immediate reject DOES count: that is a moderator acting on the edit,
+		// not the author retracting it.
+		if updatedEdit.Status == models.VoteStatusEnumRejected.String() ||
+			updatedEdit.Status == models.VoteStatusEnumImmediateRejected.String() {
+			s.recordTrustEvent(ctx, updatedEdit, trust.KindEditRejected, 1)
+		}
+	}
 
 	return updatedEdit, err
 }

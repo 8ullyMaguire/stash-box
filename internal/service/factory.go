@@ -91,7 +91,7 @@ func (f *Factory) Site() *site.Site {
 
 // Edit returns an EditService instance
 func (f *Factory) Edit() *edit.Edit {
-	return edit.NewEdit(queries.New(f.db), f.withTxn)
+	return edit.NewEdit(queries.New(f.db), f.withTxn, trust.NewTrust(queries.New(f.db), f.withTxn))
 }
 
 // Image returns an ImageService instance
