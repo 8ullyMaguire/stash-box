@@ -4418,3 +4418,63 @@ known wrong.
 | `make it` | green, **20 packages** |
 
 ---
+
+
+## Session 37 — derived badges (Phase 2 step 7)
+
+`internal/service/badge/` · 12 unit tests · **9 / 9 mutants** · `make it` **21 pkgs**.
+
+### No `user_badges` table, and that is the design
+
+A badge is a **predicate** over the trust rollup, so it is computed on read.
+A stored badge can **disagree with the counters that justify it**, and the
+disagreement is invisible — the badge is true, the numbers say otherwise, and
+**nothing reports it**. Revocation is then a second code path: a reversal must
+find the badge, delete it, and get it right.
+
+Deriving: one source, so a badge is **always** consistent, and *revoking* is the
+absence of a predicate becoming true — no code, no migration, no state.
+
+> **The cost, stated rather than glossed:** no manual grant, no award date, no
+> badge for a departed user. All three are things a stored badge could do.
+> If a badge ever needs *"earned this on 3 March"* it stopped being a predicate
+> and became a **fact** — that is the signal it wants its own table.
+
+### Two things the mutation pass settled that tests alone did not
+
+- **A real gap.** The unknown-counter arm was **unreachable** — the only input
+  that produces an unknown counter is a bad definition, and a test cannot supply
+  one through `Derive`. It survived a panic-mutation *for that reason*. So
+  `CounterValue` is exported, and a silent zero is now **protected by a test**
+  instead of by a comment.
+- **An equivalent mutant, not an untested one.** A maxed badge produced
+  **byte-identical** output with the maxed branch disabled, because the
+  description branches on `next <= current` and *both* candidate values are ≤ the
+  user's count. **Dead code is what an equivalent mutant means** — so the branch
+  is kept, and the comment now says it is redundant rather than pretending it
+  carries weight.
+
+### Bad mutations, for the third pass running
+
+`var badges` is **still appended to**; a **build error is not a kill**. Both
+"survivors" were mine. The rule was already in the skill and I still had to
+re-derive it — which is the part worth writing down.
+
+### Two test expectations that were wrong, not the code
+
+- 0 edits → the next tier is **1**, not 10. A new user is **one edit** from their
+  first badge; *"10 more"* understates it.
+- Ordering expected `[4,2,1]` and got `[4,3,2,1]` — 100 edits is **1000 points**,
+  so `taste_maker` is earned by a fixture that never mentions points. My
+  expected value was measuring **my memory of the fixture**.
+
+### Verification
+
+| | |
+|---|---|
+| `go build` · `go vet` | clean |
+| unit | **12 pass** |
+| mutants | **9 / 9 killed** |
+| `make it` | green, **21 packages** |
+
+---
