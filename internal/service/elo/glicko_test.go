@@ -623,3 +623,78 @@ func TestSolveVolatilityReproducesThePaperIteration(t *testing.T) {
 			"started (%.6f -> %.6f)", player.Volatility, off)
 
 }
+
+// The elapsed time is an INPUT, and that is what makes it testable at all.
+//
+// A GraphQL integration test cannot see this. I wrote one that voted forty times
+// and asserted the deviation had a floor, and it passed with the resolver
+// hardcoding elapsed days to zero. Measured why: the votes in an integration test
+// happen milliseconds apart, so the REAL elapsed time is already ~0 and the
+// mutation changes nothing. The unobservable part was the test's, not the code's.
+//
+// So the property is checked here, where ElapsedDays is a parameter:
+//
+//	gap=   0d after 40 losses: rating= 792.3 dev=129.53
+//	gap=   1d after 40 losses: rating= 792.0 dev=129.80
+//	gap=  30d after 40 losses: rating= 782.0 dev=137.49
+//	gap= 365d after 40 losses: rating= 692.1 dev=200.90
+//
+// A long gap produces a genuinely less certain player and a larger rating swing,
+// which is the entire reason SPEC §9 lists "time decay" as a feature.
+func TestElapsedTimeMakesAnIdleRatingLessCertain(t *testing.T) {
+	self := Rating{Rating: 1500, Deviation: 350, Volatility: 0.06}
+	opponent := Rating{Rating: 1500, Deviation: 350, Volatility: 0.06}
+
+	run := func(elapsedDays float64) Rating {
+		cur := self
+		for range 40 {
+			cur = cur.Update(Outcome{Self: cur, Opponent: opponent, Score: Loss, ElapsedDays: elapsedDays})
+		}
+		return cur
+	}
+
+	immediate := run(0)
+	oneDay := run(1)
+	oneYear := run(365)
+
+	assert.Greater(t, oneDay.Deviation, immediate.Deviation,
+		"even a day's gap adds a little uncertainty: Glickman's time constant "+
+			"regrows the deviation toward its floor, so %.4f > %.4f", oneDay.Deviation, immediate.Deviation)
+
+	assert.Greater(t, oneYear.Deviation, oneDay.Deviation,
+		"a year-long gap must leave the player far more uncertain than a day's: "+
+			"%.2f vs %.2f", oneYear.Deviation, oneDay.Deviation)
+
+	assert.Less(t, oneYear.Rating, immediate.Rating,
+		"and a player the system has not heard from in a year should have their "+
+			"rating move FURTHER on the same result, because the system should "+
+			"trust its own opinion less: %.1f vs %.1f", oneYear.Rating, immediate.Rating)
+}
+
+// The time constant is small in absolute terms, and pretending otherwise would be
+// a test that asserts an impressive-sounding but false property.
+//
+// Measured: one day of gap changes the deviation by 0.28 out of 129. Glickman's
+// scale is 173.7178 against a starting deviation of 350, so the elapsed term is a
+// small fraction of the total unless the gap is long. A test that asserted "one
+// day noticeably widens the deviation" would be asserting something the algorithm
+// does not do, and would have sent me looking for a bug that is not there.
+func TestTheTimeConstantIsSmallForShortGaps(t *testing.T) {
+	self := Rating{Rating: 1500, Deviation: 350, Volatility: 0.06}
+	opponent := Rating{Rating: 1500, Deviation: 350, Volatility: 0.06}
+
+	run := func(elapsedDays float64) float64 {
+		cur := self
+		for range 40 {
+			cur = cur.Update(Outcome{Self: cur, Opponent: opponent, Score: Loss, ElapsedDays: elapsedDays})
+		}
+		return cur.Deviation
+	}
+
+	immediate, oneDay := run(0), run(1)
+	assert.InDelta(t, immediate, oneDay, 1.0,
+		"a single day must NOT visibly widen the deviation: the difference is "+
+			"about %.2f, because Glickman's time constant is small next to a "+
+			"350-point starting deviation. Asserting a large effect here would be "+
+			"asserting something the algorithm does not do", oneDay-immediate)
+}

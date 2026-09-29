@@ -23,6 +23,7 @@ import (
 	"github.com/stashapp/stash-box/internal/queries"
 	"github.com/stashapp/stash-box/internal/service/draft"
 	"github.com/stashapp/stash-box/internal/service/edit"
+	"github.com/stashapp/stash-box/internal/service/elo"
 	"github.com/stashapp/stash-box/internal/service/fingerprint"
 	"github.com/stashapp/stash-box/internal/service/image"
 	"github.com/stashapp/stash-box/internal/service/invite"
@@ -52,6 +53,11 @@ func NewFactory(pool *pgxpool.Pool, emailMgr *email.Manager) *Factory {
 		withTxn:  createWithTxnFunc(pool),
 		emailMgr: emailMgr,
 	}
+}
+
+// Elo returns an EloService instance
+func (f *Factory) Elo() *elo.Elo {
+	return elo.NewElo(queries.New(f.db), f.withTxn)
 }
 
 // Tag returns a TagService instance

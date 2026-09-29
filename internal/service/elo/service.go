@@ -409,6 +409,60 @@ func tasteVectorFromRow(row queries.TasteVector) *TasteVector {
 	return out
 }
 
+// ElapsedDaysFor reports how long each entity has been unrated.
+//
+// A service method rather than a client-supplied value, and the reason is that a
+// client-supplied elapsed time is a CLIENT-SUPPLIED RATING. Glicko's time constant
+// (the tau/scale pair) sets how fast uncertainty regrows, so a client passing 0
+// days on every vote would hold its deviation at the floor and its rating
+// effectively frozen, and one passing 10000 would reset its uncertainty every
+// time. Both are ways to obtain a rating the community never agreed to.
+//
+// The clock is the service's own, injected in tests, so the value is not
+// reproducible across calls either -- which is why this is computed once per vote
+// and used for both sides rather than read at two different instants.
+func (s *Elo) ElapsedDaysFor(ctx context.Context, entities []Entity) ([]float64, error) {
+	now := s.now()
+	out := make([]float64, len(entities))
+	for i, e := range entities {
+		row, err := s.queries.GetEloRating(ctx, queries.GetEloRatingParams{
+			EntityType: string(e.Type),
+			EntityID:   e.ID,
+		})
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				// An entity with no rating row has never been rated, so "unrated"
+				// is the honest answer and it is the MAXIMUM uncertainty case.
+				// Defaulting to 0 instead -- which is what a zero-valued slice would
+				// do -- would give a never-voted performer the smallest possible
+				// time constant, the exact opposite of the truth.
+				out[i] = maxElapsedDays
+				continue
+			}
+			return nil, err
+		}
+		days := now.Sub(row.LastRatedAt.Time).Hours() / 24
+		if days < 0 {
+			// Clock skew, or a row written by an instance whose clock is ahead. A
+			// negative elapsed time would shrink the deviation below its floor and
+			// hand the entity false certainty, so it is clamped rather than trusted.
+			days = 0
+		}
+		out[i] = days
+	}
+	return out, nil
+}
+
+// maxElapsedDays is the cap on how stale a rating's evidence can be considered.
+//
+// Glicko's own "period" concept: ratings are meant to be recomputed over a
+// bounded window, and an entity not rated for longer than this is treated as
+// fully unknown rather than as having accumulated infinite uncertainty. Without a
+// cap, a performer last rated five years ago would be returned to a deviation
+// larger than the algorithm's own ceiling on the next vote, and the first update
+// would carry nearly all of the rating's movement.
+const maxElapsedDays = 365.0
+
 // Leaderboard is one page of ranked entities.
 type Leaderboard struct {
 	EntityType EntityType

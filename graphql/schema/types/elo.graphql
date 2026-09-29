@@ -1,0 +1,142 @@
+# Elo ranking (SPEC §9).
+#
+# The matchup flow: "two performers side by side, who do you prefer, one click,
+# next matchup". The two shapes that make that work are EloMatchup (a proposed
+# pair, in display order) and EloVoteResult (what one vote did to the ratings).
+
+"""What kind of entity a rating is for."""
+enum EloEntityType {
+  performer
+  scene
+  studio
+  site
+  tag
+  list
+  instance
+}
+
+"""
+A proposed pair to vote on.
+
+The two sides are returned IN DISPLAY ORDER and that order is part of the data,
+not an accident of the query. Position bias -- a tendency to pick whichever
+candidate is shown first -- is the easiest way to game a pairwise vote, and it is
+only measurable if the order the user actually saw survives into the vote record.
+The client must render them in this order and echo it back as `pickedSide`.
+"""
+type EloMatchup {
+  entityType: EloEntityType!
+  """The candidate shown on the left, and shown first."""
+  left: Performer
+  """The candidate shown on the right, and shown second."""
+  right: Performer
+  """
+  How many times this exact pair has been shown to this user.
+
+  Repetition is not a bug: SPEC §9 wants streaks and a reason to come back daily,
+  and a user who has seen a pair before and votes the same way is the strongest
+  possible signal available. The client can use this to label a repeat matchup.
+  """
+  timesOffered: Int!
+}
+
+"""A stored rating for one entity."""
+type EloRating {
+  entityType: EloEntityType!
+  entityId: ID!
+  """The Glicko rating, on the usual 1500-centred scale."""
+  rating: Int!
+  """
+  How much this rating tends to swing. Lower means more settled.
+
+  This is not a confidence score in the ordinary sense and must not be shown as
+  a percentage. It is Glickman's deviation, and it is the quantity the ranking
+  rule uses to decide whether two ratings are distinguishable at all.
+  """
+  deviation: Float!
+  """
+  How many results this rating is built from.
+
+  A three-vote rating is not a settled opinion and a UI that shows it as though
+  it were one is misleading the user. The leaderboard exposes this for exactly
+  that reason.
+  """
+  voteCount: Int!
+}
+
+"""One row of a ranked list."""
+type EloLeaderboardEntry {
+  entityId: ID!
+  rating: Int!
+  deviation: Float!
+  voteCount: Int!
+  """Populated only for performer leaderboards."""
+  performer: Performer
+}
+
+"""A ranked list of entities of one kind."""
+type EloLeaderboard {
+  entityType: EloEntityType!
+  entries: [EloLeaderboardEntry!]!
+}
+
+"""What one vote changed."""
+type EloVoteResult {
+  """
+  The rating of the side the user CHOSE, after the vote.
+
+  Only the chosen side is returned, because that is the one a "your vote
+  counted" display wants. Both sides did move; reading the other is a separate
+  query, and a client that wants both can ask for both ratings.
+  """
+  rating: EloRating!
+  """The matchup that was voted on, echoed back for the client's own bookkeeping."""
+  matchup: EloMatchup!
+}
+
+input EloMatchupInput {
+  entityType: EloEntityType!
+  left: ID!
+  right: ID!
+}
+
+input EloVoteInput {
+  matchup: EloMatchupInput!
+  """
+  Which side the user chose: 0 for `left`, 1 for `right`.
+
+  An Int rather than an enum because the stored column is a smallint and an enum
+  would add a second, always-valid-at-the-schema-level way to spell the same
+  thing. The service validates the range.
+  """
+  pickedSide: Int!
+}
+
+extend type Query {
+  """
+  Get a proposed matchup to vote on.
+
+  Requires the VOTE role, matching SPEC §6 level 1 (Registered): voting is the
+  first thing trust is spent on, and it is the only ranking input in the system.
+  """
+  eloMatchup(entityType: EloEntityType!): EloMatchup @hasRole(role: VOTE)
+
+  """Get a stored rating. Unrated entities return the 1500 default, not null."""
+  eloRating(entityType: EloEntityType!, id: ID!): EloRating @hasRole(role: READ)
+
+  """
+  Get a ranked list.
+
+  Ordered by rating with near-ties broken in favour of the better-observed
+  entity, NOT by rating alone -- a three-vote rating must not outrank a
+  three-hundred-vote one just because it is numerically higher.
+  """
+  eloLeaderboard(entityType: EloEntityType!, limit: Int): EloLeaderboard @hasRole(role: READ)
+}
+
+extend type Mutation {
+  """
+  Record a vote on a matchup and move both participants' ratings.
+  """
+  voteElo(input: EloVoteInput!): EloVoteResult! @hasRole(role: VOTE)
+}

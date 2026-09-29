@@ -214,6 +214,91 @@ type EditVoteInput struct {
 	Vote VoteTypeEnum `json:"vote"`
 }
 
+// A ranked list of entities of one kind.
+type EloLeaderboard struct {
+	EntityType EloEntityType         `json:"entityType"`
+	Entries    []EloLeaderboardEntry `json:"entries"`
+}
+
+// One row of a ranked list.
+type EloLeaderboardEntry struct {
+	EntityID  uuid.UUID `json:"entityId"`
+	Rating    int       `json:"rating"`
+	Deviation float64   `json:"deviation"`
+	VoteCount int       `json:"voteCount"`
+	// Populated only for performer leaderboards.
+	Performer *Performer `json:"performer,omitempty"`
+}
+
+// A proposed pair to vote on.
+//
+// The two sides are returned IN DISPLAY ORDER and that order is part of the data,
+// not an accident of the query. Position bias -- a tendency to pick whichever
+// candidate is shown first -- is the easiest way to game a pairwise vote, and it is
+// only measurable if the order the user actually saw survives into the vote record.
+// The client must render them in this order and echo it back as `pickedSide`.
+type EloMatchup struct {
+	EntityType EloEntityType `json:"entityType"`
+	// The candidate shown on the left, and shown first.
+	Left *Performer `json:"left,omitempty"`
+	// The candidate shown on the right, and shown second.
+	Right *Performer `json:"right,omitempty"`
+	// How many times this exact pair has been shown to this user.
+	//
+	// Repetition is not a bug: SPEC §9 wants streaks and a reason to come back daily,
+	// and a user who has seen a pair before and votes the same way is the strongest
+	// possible signal available. The client can use this to label a repeat matchup.
+	TimesOffered int `json:"timesOffered"`
+}
+
+type EloMatchupInput struct {
+	EntityType EloEntityType `json:"entityType"`
+	Left       uuid.UUID     `json:"left"`
+	Right      uuid.UUID     `json:"right"`
+}
+
+// A stored rating for one entity.
+type EloRating struct {
+	EntityType EloEntityType `json:"entityType"`
+	EntityID   uuid.UUID     `json:"entityId"`
+	// The Glicko rating, on the usual 1500-centred scale.
+	Rating int `json:"rating"`
+	// How much this rating tends to swing. Lower means more settled.
+	//
+	// This is not a confidence score in the ordinary sense and must not be shown as
+	// a percentage. It is Glickman's deviation, and it is the quantity the ranking
+	// rule uses to decide whether two ratings are distinguishable at all.
+	Deviation float64 `json:"deviation"`
+	// How many results this rating is built from.
+	//
+	// A three-vote rating is not a settled opinion and a UI that shows it as though
+	// it were one is misleading the user. The leaderboard exposes this for exactly
+	// that reason.
+	VoteCount int `json:"voteCount"`
+}
+
+type EloVoteInput struct {
+	Matchup *EloMatchupInput `json:"matchup"`
+	// Which side the user chose: 0 for `left`, 1 for `right`.
+	//
+	// An Int rather than an enum because the stored column is a smallint and an enum
+	// would add a second, always-valid-at-the-schema-level way to spell the same
+	// thing. The service validates the range.
+	PickedSide int `json:"pickedSide"`
+}
+
+// What one vote changed.
+type EloVoteResult struct {
+	// The rating of the side the user CHOSE, after the vote.
+	//
+	// Only the chosen side is returned, because that is the one a "your vote
+	// counted" display wants. Both sides did move; reading the other is a separate
+	// query, and a client that wants both can ask for both ratings.
+	Rating *EloRating `json:"rating"`
+	// The matchup that was voted on, echoed back for the client's own bookkeeping.
+	Matchup *EloMatchup `json:"matchup"`
+}
+
 type EyeColorCriterionInput struct {
 	Value    *EyeColorEnum     `json:"value,omitempty"`
 	Modifier CriterionModifier `json:"modifier"`
@@ -1384,6 +1469,72 @@ func (e *EditSortEnum) UnmarshalJSON(b []byte) error {
 }
 
 func (e EditSortEnum) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+// What kind of entity a rating is for.
+type EloEntityType string
+
+const (
+	EloEntityTypePerformer EloEntityType = "performer"
+	EloEntityTypeScene     EloEntityType = "scene"
+	EloEntityTypeStudio    EloEntityType = "studio"
+	EloEntityTypeSite      EloEntityType = "site"
+	EloEntityTypeTag       EloEntityType = "tag"
+	EloEntityTypeList      EloEntityType = "list"
+	EloEntityTypeInstance  EloEntityType = "instance"
+)
+
+var AllEloEntityType = []EloEntityType{
+	EloEntityTypePerformer,
+	EloEntityTypeScene,
+	EloEntityTypeStudio,
+	EloEntityTypeSite,
+	EloEntityTypeTag,
+	EloEntityTypeList,
+	EloEntityTypeInstance,
+}
+
+func (e EloEntityType) IsValid() bool {
+	switch e {
+	case EloEntityTypePerformer, EloEntityTypeScene, EloEntityTypeStudio, EloEntityTypeSite, EloEntityTypeTag, EloEntityTypeList, EloEntityTypeInstance:
+		return true
+	}
+	return false
+}
+
+func (e EloEntityType) String() string {
+	return string(e)
+}
+
+func (e *EloEntityType) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = EloEntityType(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid EloEntityType", str)
+	}
+	return nil
+}
+
+func (e EloEntityType) MarshalGQL(w io.Writer) {
+	fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *EloEntityType) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e EloEntityType) MarshalJSON() ([]byte, error) {
 	var buf bytes.Buffer
 	e.MarshalGQL(&buf)
 	return buf.Bytes(), nil

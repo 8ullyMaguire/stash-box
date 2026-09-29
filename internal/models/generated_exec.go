@@ -177,6 +177,39 @@ type ComplexityRoot struct {
 		Vote func(childComplexity int) int
 	}
 
+	EloLeaderboard struct {
+		EntityType func(childComplexity int) int
+		Entries    func(childComplexity int) int
+	}
+
+	EloLeaderboardEntry struct {
+		Deviation func(childComplexity int) int
+		EntityID  func(childComplexity int) int
+		Performer func(childComplexity int) int
+		Rating    func(childComplexity int) int
+		VoteCount func(childComplexity int) int
+	}
+
+	EloMatchup struct {
+		EntityType   func(childComplexity int) int
+		Left         func(childComplexity int) int
+		Right        func(childComplexity int) int
+		TimesOffered func(childComplexity int) int
+	}
+
+	EloRating struct {
+		Deviation  func(childComplexity int) int
+		EntityID   func(childComplexity int) int
+		EntityType func(childComplexity int) int
+		Rating     func(childComplexity int) int
+		VoteCount  func(childComplexity int) int
+	}
+
+	EloVoteResult struct {
+		Matchup func(childComplexity int) int
+		Rating  func(childComplexity int) int
+	}
+
 	FailedOwnEdit struct {
 		Edit func(childComplexity int) int
 	}
@@ -343,6 +376,7 @@ type ComplexityRoot struct {
 		UserDestroy                       func(childComplexity int, input UserDestroyInput) int
 		UserUpdate                        func(childComplexity int, input UserUpdateInput) int
 		ValidateChangeEmail               func(childComplexity int, token uuid.UUID, email string) int
+		VoteElo                           func(childComplexity int, input EloVoteInput) int
 	}
 
 	Notification struct {
@@ -471,6 +505,9 @@ type ComplexityRoot struct {
 	}
 
 	Query struct {
+		EloLeaderboard                func(childComplexity int, entityType EloEntityType, limit *int) int
+		EloMatchup                    func(childComplexity int, entityType EloEntityType) int
+		EloRating                     func(childComplexity int, entityType EloEntityType, id uuid.UUID) int
 		FetchSiteFavicons             func(childComplexity int, url string) int
 		FindDraft                     func(childComplexity int, id uuid.UUID) int
 		FindDrafts                    func(childComplexity int) int
@@ -939,6 +976,7 @@ type MutationResolver interface {
 	FavoriteStudio(ctx context.Context, id uuid.UUID, favorite bool) (bool, error)
 	MarkNotificationsRead(ctx context.Context, notification *MarkNotificationReadInput) (bool, error)
 	UpdateNotificationSubscriptions(ctx context.Context, subscriptions []NotificationEnum) (bool, error)
+	VoteElo(ctx context.Context, input EloVoteInput) (*EloVoteResult, error)
 }
 type NotificationResolver interface {
 	Created(ctx context.Context, obj *Notification) (*time.Time, error)
@@ -1034,6 +1072,9 @@ type QueryResolver interface {
 	QueryNotifications(ctx context.Context, input QueryNotificationsInput) (*QueryNotificationsResult, error)
 	GetUnreadNotificationCount(ctx context.Context) (*UnreadNotificationCount, error)
 	QueryModAudits(ctx context.Context, input ModAuditQueryInput) (*ModAuditQuery, error)
+	EloMatchup(ctx context.Context, entityType EloEntityType) (*EloMatchup, error)
+	EloRating(ctx context.Context, entityType EloEntityType, id uuid.UUID) (*EloRating, error)
+	EloLeaderboard(ctx context.Context, entityType EloEntityType, limit *int) (*EloLeaderboard, error)
 }
 type QueryEditsResultTypeResolver interface {
 	Count(ctx context.Context, obj *EditQuery) (int, error)
@@ -1556,6 +1597,119 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.EditVote.Vote(childComplexity), true
+
+	case "EloLeaderboard.entityType":
+		if e.ComplexityRoot.EloLeaderboard.EntityType == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EloLeaderboard.EntityType(childComplexity), true
+	case "EloLeaderboard.entries":
+		if e.ComplexityRoot.EloLeaderboard.Entries == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EloLeaderboard.Entries(childComplexity), true
+
+	case "EloLeaderboardEntry.deviation":
+		if e.ComplexityRoot.EloLeaderboardEntry.Deviation == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EloLeaderboardEntry.Deviation(childComplexity), true
+	case "EloLeaderboardEntry.entityId":
+		if e.ComplexityRoot.EloLeaderboardEntry.EntityID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EloLeaderboardEntry.EntityID(childComplexity), true
+	case "EloLeaderboardEntry.performer":
+		if e.ComplexityRoot.EloLeaderboardEntry.Performer == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EloLeaderboardEntry.Performer(childComplexity), true
+	case "EloLeaderboardEntry.rating":
+		if e.ComplexityRoot.EloLeaderboardEntry.Rating == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EloLeaderboardEntry.Rating(childComplexity), true
+	case "EloLeaderboardEntry.voteCount":
+		if e.ComplexityRoot.EloLeaderboardEntry.VoteCount == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EloLeaderboardEntry.VoteCount(childComplexity), true
+
+	case "EloMatchup.entityType":
+		if e.ComplexityRoot.EloMatchup.EntityType == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EloMatchup.EntityType(childComplexity), true
+	case "EloMatchup.left":
+		if e.ComplexityRoot.EloMatchup.Left == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EloMatchup.Left(childComplexity), true
+	case "EloMatchup.right":
+		if e.ComplexityRoot.EloMatchup.Right == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EloMatchup.Right(childComplexity), true
+	case "EloMatchup.timesOffered":
+		if e.ComplexityRoot.EloMatchup.TimesOffered == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EloMatchup.TimesOffered(childComplexity), true
+
+	case "EloRating.deviation":
+		if e.ComplexityRoot.EloRating.Deviation == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EloRating.Deviation(childComplexity), true
+	case "EloRating.entityId":
+		if e.ComplexityRoot.EloRating.EntityID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EloRating.EntityID(childComplexity), true
+	case "EloRating.entityType":
+		if e.ComplexityRoot.EloRating.EntityType == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EloRating.EntityType(childComplexity), true
+	case "EloRating.rating":
+		if e.ComplexityRoot.EloRating.Rating == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EloRating.Rating(childComplexity), true
+	case "EloRating.voteCount":
+		if e.ComplexityRoot.EloRating.VoteCount == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EloRating.VoteCount(childComplexity), true
+
+	case "EloVoteResult.matchup":
+		if e.ComplexityRoot.EloVoteResult.Matchup == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EloVoteResult.Matchup(childComplexity), true
+	case "EloVoteResult.rating":
+		if e.ComplexityRoot.EloVoteResult.Rating == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EloVoteResult.Rating(childComplexity), true
 
 	case "FailedOwnEdit.edit":
 		if e.ComplexityRoot.FailedOwnEdit.Edit == nil {
@@ -2583,6 +2737,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.ValidateChangeEmail(childComplexity, args["token"].(uuid.UUID), args["email"].(string)), true
+	case "Mutation.voteElo":
+		if e.ComplexityRoot.Mutation.VoteElo == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_voteElo_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.VoteElo(childComplexity, args["input"].(EloVoteInput)), true
 
 	case "Notification.created":
 		if e.ComplexityRoot.Notification.Created == nil {
@@ -3213,6 +3378,39 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.PerformerStudio.Studio(childComplexity), true
 
+	case "Query.eloLeaderboard":
+		if e.ComplexityRoot.Query.EloLeaderboard == nil {
+			break
+		}
+
+		args, err := ec.field_Query_eloLeaderboard_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.EloLeaderboard(childComplexity, args["entityType"].(EloEntityType), args["limit"].(*int)), true
+	case "Query.eloMatchup":
+		if e.ComplexityRoot.Query.EloMatchup == nil {
+			break
+		}
+
+		args, err := ec.field_Query_eloMatchup_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.EloMatchup(childComplexity, args["entityType"].(EloEntityType)), true
+	case "Query.eloRating":
+		if e.ComplexityRoot.Query.EloRating == nil {
+			break
+		}
+
+		args, err := ec.field_Query_eloRating_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.EloRating(childComplexity, args["entityType"].(EloEntityType), args["id"].(uuid.UUID)), true
 	case "Query.fetchSiteFavicons":
 		if e.ComplexityRoot.Query.FetchSiteFavicons == nil {
 			break
@@ -4939,6 +5137,8 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputEditInput,
 		ec.unmarshalInputEditQueryInput,
 		ec.unmarshalInputEditVoteInput,
+		ec.unmarshalInputEloMatchupInput,
+		ec.unmarshalInputEloVoteInput,
 		ec.unmarshalInputEyeColorCriterionInput,
 		ec.unmarshalInputFingerprintBatchSubmission,
 		ec.unmarshalInputFingerprintClustersInput,
@@ -5329,6 +5529,149 @@ input AmendItemRemoval {
     field: String!
     """Indices to remove from the array"""
     indices: [Int!]!
+}
+`, BuiltIn: false},
+	{Name: "../../graphql/schema/types/elo.graphql", Input: `# Elo ranking (SPEC §9).
+#
+# The matchup flow: "two performers side by side, who do you prefer, one click,
+# next matchup". The two shapes that make that work are EloMatchup (a proposed
+# pair, in display order) and EloVoteResult (what one vote did to the ratings).
+
+"""What kind of entity a rating is for."""
+enum EloEntityType {
+  performer
+  scene
+  studio
+  site
+  tag
+  list
+  instance
+}
+
+"""
+A proposed pair to vote on.
+
+The two sides are returned IN DISPLAY ORDER and that order is part of the data,
+not an accident of the query. Position bias -- a tendency to pick whichever
+candidate is shown first -- is the easiest way to game a pairwise vote, and it is
+only measurable if the order the user actually saw survives into the vote record.
+The client must render them in this order and echo it back as ` + "`" + `pickedSide` + "`" + `.
+"""
+type EloMatchup {
+  entityType: EloEntityType!
+  """The candidate shown on the left, and shown first."""
+  left: Performer
+  """The candidate shown on the right, and shown second."""
+  right: Performer
+  """
+  How many times this exact pair has been shown to this user.
+
+  Repetition is not a bug: SPEC §9 wants streaks and a reason to come back daily,
+  and a user who has seen a pair before and votes the same way is the strongest
+  possible signal available. The client can use this to label a repeat matchup.
+  """
+  timesOffered: Int!
+}
+
+"""A stored rating for one entity."""
+type EloRating {
+  entityType: EloEntityType!
+  entityId: ID!
+  """The Glicko rating, on the usual 1500-centred scale."""
+  rating: Int!
+  """
+  How much this rating tends to swing. Lower means more settled.
+
+  This is not a confidence score in the ordinary sense and must not be shown as
+  a percentage. It is Glickman's deviation, and it is the quantity the ranking
+  rule uses to decide whether two ratings are distinguishable at all.
+  """
+  deviation: Float!
+  """
+  How many results this rating is built from.
+
+  A three-vote rating is not a settled opinion and a UI that shows it as though
+  it were one is misleading the user. The leaderboard exposes this for exactly
+  that reason.
+  """
+  voteCount: Int!
+}
+
+"""One row of a ranked list."""
+type EloLeaderboardEntry {
+  entityId: ID!
+  rating: Int!
+  deviation: Float!
+  voteCount: Int!
+  """Populated only for performer leaderboards."""
+  performer: Performer
+}
+
+"""A ranked list of entities of one kind."""
+type EloLeaderboard {
+  entityType: EloEntityType!
+  entries: [EloLeaderboardEntry!]!
+}
+
+"""What one vote changed."""
+type EloVoteResult {
+  """
+  The rating of the side the user CHOSE, after the vote.
+
+  Only the chosen side is returned, because that is the one a "your vote
+  counted" display wants. Both sides did move; reading the other is a separate
+  query, and a client that wants both can ask for both ratings.
+  """
+  rating: EloRating!
+  """The matchup that was voted on, echoed back for the client's own bookkeeping."""
+  matchup: EloMatchup!
+}
+
+input EloMatchupInput {
+  entityType: EloEntityType!
+  left: ID!
+  right: ID!
+}
+
+input EloVoteInput {
+  matchup: EloMatchupInput!
+  """
+  Which side the user chose: 0 for ` + "`" + `left` + "`" + `, 1 for ` + "`" + `right` + "`" + `.
+
+  An Int rather than an enum because the stored column is a smallint and an enum
+  would add a second, always-valid-at-the-schema-level way to spell the same
+  thing. The service validates the range.
+  """
+  pickedSide: Int!
+}
+
+extend type Query {
+  """
+  Get a proposed matchup to vote on.
+
+  Requires the VOTE role, matching SPEC §6 level 1 (Registered): voting is the
+  first thing trust is spent on, and it is the only ranking input in the system.
+  """
+  eloMatchup(entityType: EloEntityType!): EloMatchup @hasRole(role: VOTE)
+
+  """Get a stored rating. Unrated entities return the 1500 default, not null."""
+  eloRating(entityType: EloEntityType!, id: ID!): EloRating @hasRole(role: READ)
+
+  """
+  Get a ranked list.
+
+  Ordered by rating with near-ties broken in favour of the better-observed
+  entity, NOT by rating alone -- a three-vote rating must not outrank a
+  three-hundred-vote one just because it is numerically higher.
+  """
+  eloLeaderboard(entityType: EloEntityType!, limit: Int): EloLeaderboard @hasRole(role: READ)
+}
+
+extend type Mutation {
+  """
+  Record a vote on a matchup and move both participants' ratings.
+  """
+  voteElo(input: EloVoteInput!): EloVoteResult! @hasRole(role: VOTE)
 }
 `, BuiltIn: false},
 	{Name: "../../graphql/schema/types/filter.graphql", Input: `input MultiIDCriterionInput {
@@ -7386,6 +7729,72 @@ func (ec *executionContext) childFields_EditVote(ctx context.Context, field grap
 	return nil, fmt.Errorf("no field named %q was found under type EditVote", field.Name)
 }
 
+func (ec *executionContext) childFields_EloLeaderboard(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "entityType":
+		return ec.fieldContext_EloLeaderboard_entityType(ctx, field)
+	case "entries":
+		return ec.fieldContext_EloLeaderboard_entries(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type EloLeaderboard", field.Name)
+}
+
+func (ec *executionContext) childFields_EloLeaderboardEntry(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "entityId":
+		return ec.fieldContext_EloLeaderboardEntry_entityId(ctx, field)
+	case "rating":
+		return ec.fieldContext_EloLeaderboardEntry_rating(ctx, field)
+	case "deviation":
+		return ec.fieldContext_EloLeaderboardEntry_deviation(ctx, field)
+	case "voteCount":
+		return ec.fieldContext_EloLeaderboardEntry_voteCount(ctx, field)
+	case "performer":
+		return ec.fieldContext_EloLeaderboardEntry_performer(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type EloLeaderboardEntry", field.Name)
+}
+
+func (ec *executionContext) childFields_EloMatchup(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "entityType":
+		return ec.fieldContext_EloMatchup_entityType(ctx, field)
+	case "left":
+		return ec.fieldContext_EloMatchup_left(ctx, field)
+	case "right":
+		return ec.fieldContext_EloMatchup_right(ctx, field)
+	case "timesOffered":
+		return ec.fieldContext_EloMatchup_timesOffered(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type EloMatchup", field.Name)
+}
+
+func (ec *executionContext) childFields_EloRating(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "entityType":
+		return ec.fieldContext_EloRating_entityType(ctx, field)
+	case "entityId":
+		return ec.fieldContext_EloRating_entityId(ctx, field)
+	case "rating":
+		return ec.fieldContext_EloRating_rating(ctx, field)
+	case "deviation":
+		return ec.fieldContext_EloRating_deviation(ctx, field)
+	case "voteCount":
+		return ec.fieldContext_EloRating_voteCount(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type EloRating", field.Name)
+}
+
+func (ec *executionContext) childFields_EloVoteResult(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "rating":
+		return ec.fieldContext_EloVoteResult_rating(ctx, field)
+	case "matchup":
+		return ec.fieldContext_EloVoteResult_matchup(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type EloVoteResult", field.Name)
+}
+
 func (ec *executionContext) childFields_Fingerprint(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 	switch field.Name {
 	case "hash":
@@ -9220,6 +9629,20 @@ func (ec *executionContext) field_Mutation_validateChangeEmail_args(ctx context.
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_voteElo_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
+		func(ctx context.Context, v any) (EloVoteInput, error) {
+			return ec.unmarshalNEloVoteInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEloVoteInput(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+
 func (ec *executionContext) field_Performer_queryScenes_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -9273,6 +9696,64 @@ func (ec *executionContext) field_Query___type_args(ctx context.Context, rawArgs
 		return nil, err
 	}
 	args["name"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_eloLeaderboard_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "entityType",
+		func(ctx context.Context, v any) (EloEntityType, error) {
+			return ec.unmarshalNEloEntityType2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEloEntityType(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["entityType"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "limit",
+		func(ctx context.Context, v any) (*int, error) {
+			return ec.unmarshalOInt2ᚖint(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["limit"] = arg1
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_eloMatchup_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "entityType",
+		func(ctx context.Context, v any) (EloEntityType, error) {
+			return ec.unmarshalNEloEntityType2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEloEntityType(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["entityType"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_eloRating_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "entityType",
+		func(ctx context.Context, v any) (EloEntityType, error) {
+			return ec.unmarshalNEloEntityType2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEloEntityType(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["entityType"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (uuid.UUID, error) {
+			return ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg1
 	return args, nil
 }
 
@@ -11506,6 +11987,474 @@ func (ec *executionContext) _EditVote_vote(ctx context.Context, field graphql.Co
 }
 func (ec *executionContext) fieldContext_EditVote_vote(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("EditVote", field, true, true, errors.New("field of type VoteTypeEnum does not have child fields"))
+}
+
+func (ec *executionContext) _EloLeaderboard_entityType(ctx context.Context, field graphql.CollectedField, obj *EloLeaderboard) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_EloLeaderboard_entityType(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.EntityType, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v EloEntityType) graphql.Marshaler {
+			return ec.marshalNEloEntityType2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEloEntityType(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_EloLeaderboard_entityType(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("EloLeaderboard", field, false, false, errors.New("field of type EloEntityType does not have child fields"))
+}
+
+func (ec *executionContext) _EloLeaderboard_entries(ctx context.Context, field graphql.CollectedField, obj *EloLeaderboard) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_EloLeaderboard_entries(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Entries, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []EloLeaderboardEntry) graphql.Marshaler {
+			return ec.marshalNEloLeaderboardEntry2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEloLeaderboardEntryᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_EloLeaderboard_entries(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "EloLeaderboard",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_EloLeaderboardEntry(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _EloLeaderboardEntry_entityId(ctx context.Context, field graphql.CollectedField, obj *EloLeaderboardEntry) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_EloLeaderboardEntry_entityId(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.EntityID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v uuid.UUID) graphql.Marshaler {
+			return ec.marshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_EloLeaderboardEntry_entityId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("EloLeaderboardEntry", field, false, false, errors.New("field of type ID does not have child fields"))
+}
+
+func (ec *executionContext) _EloLeaderboardEntry_rating(ctx context.Context, field graphql.CollectedField, obj *EloLeaderboardEntry) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_EloLeaderboardEntry_rating(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Rating, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_EloLeaderboardEntry_rating(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("EloLeaderboardEntry", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _EloLeaderboardEntry_deviation(ctx context.Context, field graphql.CollectedField, obj *EloLeaderboardEntry) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_EloLeaderboardEntry_deviation(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Deviation, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v float64) graphql.Marshaler {
+			return ec.marshalNFloat2float64(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_EloLeaderboardEntry_deviation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("EloLeaderboardEntry", field, false, false, errors.New("field of type Float does not have child fields"))
+}
+
+func (ec *executionContext) _EloLeaderboardEntry_voteCount(ctx context.Context, field graphql.CollectedField, obj *EloLeaderboardEntry) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_EloLeaderboardEntry_voteCount(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.VoteCount, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_EloLeaderboardEntry_voteCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("EloLeaderboardEntry", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _EloLeaderboardEntry_performer(ctx context.Context, field graphql.CollectedField, obj *EloLeaderboardEntry) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_EloLeaderboardEntry_performer(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Performer, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *Performer) graphql.Marshaler {
+			return ec.marshalOPerformer2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐPerformer(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_EloLeaderboardEntry_performer(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "EloLeaderboardEntry",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_Performer(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _EloMatchup_entityType(ctx context.Context, field graphql.CollectedField, obj *EloMatchup) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_EloMatchup_entityType(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.EntityType, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v EloEntityType) graphql.Marshaler {
+			return ec.marshalNEloEntityType2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEloEntityType(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_EloMatchup_entityType(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("EloMatchup", field, false, false, errors.New("field of type EloEntityType does not have child fields"))
+}
+
+func (ec *executionContext) _EloMatchup_left(ctx context.Context, field graphql.CollectedField, obj *EloMatchup) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_EloMatchup_left(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Left, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *Performer) graphql.Marshaler {
+			return ec.marshalOPerformer2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐPerformer(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_EloMatchup_left(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "EloMatchup",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_Performer(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _EloMatchup_right(ctx context.Context, field graphql.CollectedField, obj *EloMatchup) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_EloMatchup_right(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Right, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *Performer) graphql.Marshaler {
+			return ec.marshalOPerformer2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐPerformer(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_EloMatchup_right(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "EloMatchup",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_Performer(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _EloMatchup_timesOffered(ctx context.Context, field graphql.CollectedField, obj *EloMatchup) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_EloMatchup_timesOffered(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.TimesOffered, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_EloMatchup_timesOffered(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("EloMatchup", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _EloRating_entityType(ctx context.Context, field graphql.CollectedField, obj *EloRating) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_EloRating_entityType(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.EntityType, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v EloEntityType) graphql.Marshaler {
+			return ec.marshalNEloEntityType2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEloEntityType(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_EloRating_entityType(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("EloRating", field, false, false, errors.New("field of type EloEntityType does not have child fields"))
+}
+
+func (ec *executionContext) _EloRating_entityId(ctx context.Context, field graphql.CollectedField, obj *EloRating) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_EloRating_entityId(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.EntityID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v uuid.UUID) graphql.Marshaler {
+			return ec.marshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_EloRating_entityId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("EloRating", field, false, false, errors.New("field of type ID does not have child fields"))
+}
+
+func (ec *executionContext) _EloRating_rating(ctx context.Context, field graphql.CollectedField, obj *EloRating) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_EloRating_rating(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Rating, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_EloRating_rating(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("EloRating", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _EloRating_deviation(ctx context.Context, field graphql.CollectedField, obj *EloRating) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_EloRating_deviation(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Deviation, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v float64) graphql.Marshaler {
+			return ec.marshalNFloat2float64(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_EloRating_deviation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("EloRating", field, false, false, errors.New("field of type Float does not have child fields"))
+}
+
+func (ec *executionContext) _EloRating_voteCount(ctx context.Context, field graphql.CollectedField, obj *EloRating) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_EloRating_voteCount(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.VoteCount, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_EloRating_voteCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("EloRating", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _EloVoteResult_rating(ctx context.Context, field graphql.CollectedField, obj *EloVoteResult) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_EloVoteResult_rating(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Rating, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *EloRating) graphql.Marshaler {
+			return ec.marshalNEloRating2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEloRating(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_EloVoteResult_rating(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "EloVoteResult",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_EloRating(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _EloVoteResult_matchup(ctx context.Context, field graphql.CollectedField, obj *EloVoteResult) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_EloVoteResult_matchup(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Matchup, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *EloMatchup) graphql.Marshaler {
+			return ec.marshalNEloMatchup2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEloMatchup(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_EloVoteResult_matchup(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "EloVoteResult",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_EloMatchup(ctx, field)
+		},
+	}
+	return fc, nil
 }
 
 func (ec *executionContext) _FailedOwnEdit_edit(ctx context.Context, field graphql.CollectedField, obj *FailedOwnEdit) (ret graphql.Marshaler) {
@@ -16638,6 +17587,68 @@ func (ec *executionContext) fieldContext_Mutation_updateNotificationSubscription
 	return fc, nil
 }
 
+func (ec *executionContext) _Mutation_voteElo(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_voteElo(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().VoteElo(ctx, fc.Args["input"].(EloVoteInput))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "VOTE")
+				if err != nil {
+					var zeroVal *EloVoteResult
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *EloVoteResult
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *EloVoteResult) graphql.Marshaler {
+			return ec.marshalNEloVoteResult2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEloVoteResult(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_voteElo(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_EloVoteResult(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_voteElo_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Notification_created(ctx context.Context, field graphql.CollectedField, obj *Notification) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -21697,6 +22708,192 @@ func (ec *executionContext) fieldContext_Query_queryModAudits(ctx context.Contex
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Query_queryModAudits_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_eloMatchup(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_eloMatchup(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().EloMatchup(ctx, fc.Args["entityType"].(EloEntityType))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "VOTE")
+				if err != nil {
+					var zeroVal *EloMatchup
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *EloMatchup
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *EloMatchup) graphql.Marshaler {
+			return ec.marshalOEloMatchup2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEloMatchup(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_Query_eloMatchup(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_EloMatchup(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_eloMatchup_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_eloRating(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_eloRating(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().EloRating(ctx, fc.Args["entityType"].(EloEntityType), fc.Args["id"].(uuid.UUID))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal *EloRating
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *EloRating
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *EloRating) graphql.Marshaler {
+			return ec.marshalOEloRating2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEloRating(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_Query_eloRating(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_EloRating(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_eloRating_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_eloLeaderboard(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_eloLeaderboard(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().EloLeaderboard(ctx, fc.Args["entityType"].(EloEntityType), fc.Args["limit"].(*int))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal *EloLeaderboard
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *EloLeaderboard
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *EloLeaderboard) graphql.Marshaler {
+			return ec.marshalOEloLeaderboard2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEloLeaderboard(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_Query_eloLeaderboard(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_EloLeaderboard(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_eloLeaderboard_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -29042,6 +30239,87 @@ func (ec *executionContext) unmarshalInputEditVoteInput(ctx context.Context, obj
 	return it, nil
 }
 
+func (ec *executionContext) unmarshalInputEloMatchupInput(ctx context.Context, obj any) (EloMatchupInput, error) {
+	var it EloMatchupInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"entityType", "left", "right"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "entityType":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("entityType"))
+			data, err := ec.unmarshalNEloEntityType2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEloEntityType(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.EntityType = data
+		case "left":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("left"))
+			data, err := ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Left = data
+		case "right":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("right"))
+			data, err := ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Right = data
+		}
+	}
+	return it, nil
+}
+
+func (ec *executionContext) unmarshalInputEloVoteInput(ctx context.Context, obj any) (EloVoteInput, error) {
+	var it EloVoteInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"matchup", "pickedSide"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "matchup":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("matchup"))
+			data, err := ec.unmarshalNEloMatchupInput2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEloMatchupInput(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Matchup = data
+		case "pickedSide":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("pickedSide"))
+			data, err := ec.unmarshalNInt2int(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.PickedSide = data
+		}
+	}
+	return it, nil
+}
+
 func (ec *executionContext) unmarshalInputEyeColorCriterionInput(ctx context.Context, obj any) (EyeColorCriterionInput, error) {
 	var it EyeColorCriterionInput
 	if obj == nil {
@@ -35771,6 +37049,257 @@ func (ec *executionContext) _EditVote(ctx context.Context, sel ast.SelectionSet,
 	return out
 }
 
+var eloLeaderboardImplementors = []string{"EloLeaderboard"}
+
+func (ec *executionContext) _EloLeaderboard(ctx context.Context, sel ast.SelectionSet, obj *EloLeaderboard) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, eloLeaderboardImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("EloLeaderboard")
+		case "entityType":
+			out.Values[i] = ec._EloLeaderboard_entityType(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "entries":
+			out.Values[i] = ec._EloLeaderboard_entries(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferred), math.MaxInt32)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var eloLeaderboardEntryImplementors = []string{"EloLeaderboardEntry"}
+
+func (ec *executionContext) _EloLeaderboardEntry(ctx context.Context, sel ast.SelectionSet, obj *EloLeaderboardEntry) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, eloLeaderboardEntryImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("EloLeaderboardEntry")
+		case "entityId":
+			out.Values[i] = ec._EloLeaderboardEntry_entityId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "rating":
+			out.Values[i] = ec._EloLeaderboardEntry_rating(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "deviation":
+			out.Values[i] = ec._EloLeaderboardEntry_deviation(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "voteCount":
+			out.Values[i] = ec._EloLeaderboardEntry_voteCount(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "performer":
+			out.Values[i] = ec._EloLeaderboardEntry_performer(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferred), math.MaxInt32)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var eloMatchupImplementors = []string{"EloMatchup"}
+
+func (ec *executionContext) _EloMatchup(ctx context.Context, sel ast.SelectionSet, obj *EloMatchup) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, eloMatchupImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("EloMatchup")
+		case "entityType":
+			out.Values[i] = ec._EloMatchup_entityType(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "left":
+			out.Values[i] = ec._EloMatchup_left(ctx, field, obj)
+		case "right":
+			out.Values[i] = ec._EloMatchup_right(ctx, field, obj)
+		case "timesOffered":
+			out.Values[i] = ec._EloMatchup_timesOffered(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferred), math.MaxInt32)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var eloRatingImplementors = []string{"EloRating"}
+
+func (ec *executionContext) _EloRating(ctx context.Context, sel ast.SelectionSet, obj *EloRating) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, eloRatingImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("EloRating")
+		case "entityType":
+			out.Values[i] = ec._EloRating_entityType(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "entityId":
+			out.Values[i] = ec._EloRating_entityId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "rating":
+			out.Values[i] = ec._EloRating_rating(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "deviation":
+			out.Values[i] = ec._EloRating_deviation(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "voteCount":
+			out.Values[i] = ec._EloRating_voteCount(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferred), math.MaxInt32)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var eloVoteResultImplementors = []string{"EloVoteResult"}
+
+func (ec *executionContext) _EloVoteResult(ctx context.Context, sel ast.SelectionSet, obj *EloVoteResult) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, eloVoteResultImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("EloVoteResult")
+		case "rating":
+			out.Values[i] = ec._EloVoteResult_rating(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "matchup":
+			out.Values[i] = ec._EloVoteResult_matchup(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferred), math.MaxInt32)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
 var failedOwnEditImplementors = []string{"FailedOwnEdit", "NotificationData"}
 
 func (ec *executionContext) _FailedOwnEdit(ctx context.Context, sel ast.SelectionSet, obj *FailedOwnEdit) graphql.Marshaler {
@@ -37074,6 +38603,13 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 		case "updateNotificationSubscriptions":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_updateNotificationSubscriptions(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "voteElo":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_voteElo(ctx, field)
 			})
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
@@ -39592,6 +41128,63 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "eloMatchup":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_eloMatchup(ctx, field)
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "eloRating":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_eloRating(ctx, field)
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "eloLeaderboard":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_eloLeaderboard(ctx, field)
 				return res
 			}
 
@@ -44762,6 +46355,80 @@ func (ec *executionContext) unmarshalNEditVoteInput2githubᚗcomᚋstashappᚋst
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
+func (ec *executionContext) unmarshalNEloEntityType2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEloEntityType(ctx context.Context, v any) (EloEntityType, error) {
+	var res EloEntityType
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNEloEntityType2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEloEntityType(ctx context.Context, sel ast.SelectionSet, v EloEntityType) graphql.Marshaler {
+	return v
+}
+
+func (ec *executionContext) marshalNEloLeaderboardEntry2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEloLeaderboardEntry(ctx context.Context, sel ast.SelectionSet, v EloLeaderboardEntry) graphql.Marshaler {
+	return ec._EloLeaderboardEntry(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNEloLeaderboardEntry2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEloLeaderboardEntryᚄ(ctx context.Context, sel ast.SelectionSet, v []EloLeaderboardEntry) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNEloLeaderboardEntry2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEloLeaderboardEntry(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNEloMatchup2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEloMatchup(ctx context.Context, sel ast.SelectionSet, v *EloMatchup) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._EloMatchup(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalNEloMatchupInput2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEloMatchupInput(ctx context.Context, v any) (*EloMatchupInput, error) {
+	res, err := ec.unmarshalInputEloMatchupInput(ctx, v)
+	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNEloRating2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEloRating(ctx context.Context, sel ast.SelectionSet, v *EloRating) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._EloRating(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalNEloVoteInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEloVoteInput(ctx context.Context, v any) (EloVoteInput, error) {
+	res, err := ec.unmarshalInputEloVoteInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNEloVoteResult2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEloVoteResult(ctx context.Context, sel ast.SelectionSet, v EloVoteResult) graphql.Marshaler {
+	return ec._EloVoteResult(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNEloVoteResult2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEloVoteResult(ctx context.Context, sel ast.SelectionSet, v *EloVoteResult) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._EloVoteResult(ctx, sel, v)
+}
+
 func (ec *executionContext) marshalNFingerprint2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐFingerprint(ctx context.Context, sel ast.SelectionSet, v Fingerprint) graphql.Marshaler {
 	return ec._Fingerprint(ctx, sel, &v)
 }
@@ -44970,6 +46637,22 @@ func (ec *executionContext) marshalNFingerprintSubmissionResult2ᚕgithubᚗcom�
 	}
 
 	return ret
+}
+
+func (ec *executionContext) unmarshalNFloat2float64(ctx context.Context, v any) (float64, error) {
+	res, err := graphql.UnmarshalFloatContext(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNFloat2float64(ctx context.Context, sel ast.SelectionSet, v float64) graphql.Marshaler {
+	_ = sel
+	res := graphql.MarshalFloatContext(v)
+	if res == graphql.Null {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+	}
+	return graphql.WrapContextMarshaler(ctx, res)
 }
 
 func (ec *executionContext) unmarshalNGenderEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐGenderEnum(ctx context.Context, v any) (GenderEnum, error) {
@@ -46730,6 +48413,27 @@ func (ec *executionContext) marshalOEditTarget2githubᚗcomᚋstashappᚋstash�
 		return graphql.Null
 	}
 	return ec._EditTarget(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalOEloLeaderboard2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEloLeaderboard(ctx context.Context, sel ast.SelectionSet, v *EloLeaderboard) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._EloLeaderboard(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalOEloMatchup2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEloMatchup(ctx context.Context, sel ast.SelectionSet, v *EloMatchup) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._EloMatchup(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalOEloRating2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEloRating(ctx context.Context, sel ast.SelectionSet, v *EloRating) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._EloRating(ctx, sel, v)
 }
 
 func (ec *executionContext) unmarshalOEthnicityEnum2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEthnicityEnum(ctx context.Context, v any) (*EthnicityEnum, error) {
