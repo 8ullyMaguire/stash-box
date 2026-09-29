@@ -1094,6 +1094,30 @@ type UserQueryInput struct {
 	PerPage   int        `json:"per_page"`
 }
 
+// A user's trust standing.
+//
+// `level` is derived from the totals by the curve in internal/service/trust, and
+// is the field that gates capability: level 4 (Archivist) is the point at which a
+// user may opt in to viewing content.
+//
+// `content_viewing_opt_in` is the user's own choice and is recorded
+// independently of level, so a user can express the preference before they are
+// eligible. Both conditions must hold for access -- see SPEC section 6.
+type UserTrust struct {
+	Level                int  `json:"level"`
+	ApprovedEdits        int  `json:"approved_edits"`
+	RejectedEdits        int  `json:"rejected_edits"`
+	IdentificationSolves int  `json:"identification_solves"`
+	QuestsCompleted      int  `json:"quests_completed"`
+	ReplicasHosted       int  `json:"replicas_hosted"`
+	ContentViewingOptIn  bool `json:"content_viewing_opt_in"`
+	// Whether this user may currently view content: level 4 or above AND opted in.
+	//
+	// Derived at read time rather than stored, because eligibility changes when a
+	// threshold changes and a stored copy would go stale silently.
+	CanViewContent bool `json:"can_view_content"`
+}
+
 type UserUpdateInput struct {
 	ID   uuid.UUID `json:"id"`
 	Name *string   `json:"name,omitempty"`

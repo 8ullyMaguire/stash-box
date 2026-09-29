@@ -58,9 +58,9 @@ describe("registration invite key validation", () => {
 
   describe("when require_invite is true", () => {
     it("rejects a missing invite key", async () => {
-      await expect(validate({ email: "user@example.com" }, true)).rejects.toThrow(
-        "Invite key is required",
-      );
+      await expect(
+        validate({ email: "user@example.com" }, true),
+      ).rejects.toThrow("Invite key is required");
     });
 
     it("rejects a malformed invite key", async () => {

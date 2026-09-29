@@ -313,6 +313,7 @@ type ComplexityRoot struct {
 		SceneEditUpdate                   func(childComplexity int, id uuid.UUID, input SceneEditInput) int
 		SceneMoveFingerprintSubmissions   func(childComplexity int, input MoveFingerprintSubmissionsInput) int
 		SceneUpdate                       func(childComplexity int, input SceneUpdateInput) int
+		SetContentViewingOptIn            func(childComplexity int, enabled bool) int
 		SiteCategoryCreate                func(childComplexity int, input SiteCategoryCreateInput) int
 		SiteCategoryDestroy               func(childComplexity int, input SiteCategoryDestroyInput) int
 		SiteCategoryUpdate                func(childComplexity int, input SiteCategoryUpdateInput) int
@@ -771,6 +772,7 @@ type ComplexityRoot struct {
 		Name                      func(childComplexity int) int
 		NotificationSubscriptions func(childComplexity int) int
 		Roles                     func(childComplexity int) int
+		Trust                     func(childComplexity int) int
 		VoteCount                 func(childComplexity int) int
 	}
 
@@ -789,6 +791,17 @@ type ComplexityRoot struct {
 		PendingBot           func(childComplexity int) int
 		Rejected             func(childComplexity int) int
 		RejectedBot          func(childComplexity int) int
+	}
+
+	UserTrust struct {
+		ApprovedEdits        func(childComplexity int) int
+		CanViewContent       func(childComplexity int) int
+		ContentViewingOptIn  func(childComplexity int) int
+		IdentificationSolves func(childComplexity int) int
+		Level                func(childComplexity int) int
+		QuestsCompleted      func(childComplexity int) int
+		RejectedEdits        func(childComplexity int) int
+		ReplicasHosted       func(childComplexity int) int
 	}
 
 	UserVoteCount struct {
@@ -874,6 +887,7 @@ type MutationResolver interface {
 	UserCreate(ctx context.Context, input UserCreateInput) (*User, error)
 	UserUpdate(ctx context.Context, input UserUpdateInput) (*User, error)
 	UserDestroy(ctx context.Context, input UserDestroyInput) (bool, error)
+	SetContentViewingOptIn(ctx context.Context, enabled bool) (*UserTrust, error)
 	ImageCreate(ctx context.Context, input ImageCreateInput) (*Image, error)
 	ImageDestroy(ctx context.Context, input ImageDestroyInput) (bool, error)
 	NewUser(ctx context.Context, input NewUserInput) (*uuid.UUID, error)
@@ -1144,6 +1158,7 @@ type UserResolver interface {
 
 	ActiveInviteCodes(ctx context.Context, obj *User) ([]string, error)
 	InviteCodes(ctx context.Context, obj *User) ([]InviteKey, error)
+	Trust(ctx context.Context, obj *User) (*UserTrust, error)
 }
 
 type executableSchema graphql.ExecutableSchemaState[ResolverRoot, DirectiveRoot, ComplexityRoot]
@@ -2238,6 +2253,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.SceneUpdate(childComplexity, args["input"].(SceneUpdateInput)), true
+	case "Mutation.setContentViewingOptIn":
+		if e.ComplexityRoot.Mutation.SetContentViewingOptIn == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_setContentViewingOptIn_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.SetContentViewingOptIn(childComplexity, args["enabled"].(bool)), true
 	case "Mutation.siteCategoryCreate":
 		if e.ComplexityRoot.Mutation.SiteCategoryCreate == nil {
 			break
@@ -4686,6 +4712,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.User.Roles(childComplexity), true
+	case "User.trust":
+		if e.ComplexityRoot.User.Trust == nil {
+			break
+		}
+
+		return e.ComplexityRoot.User.Trust(childComplexity), true
 	case "User.vote_count":
 		if e.ComplexityRoot.User.VoteCount == nil {
 			break
@@ -4777,6 +4809,55 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.UserEditCount.RejectedBot(childComplexity), true
+
+	case "UserTrust.approved_edits":
+		if e.ComplexityRoot.UserTrust.ApprovedEdits == nil {
+			break
+		}
+
+		return e.ComplexityRoot.UserTrust.ApprovedEdits(childComplexity), true
+	case "UserTrust.can_view_content":
+		if e.ComplexityRoot.UserTrust.CanViewContent == nil {
+			break
+		}
+
+		return e.ComplexityRoot.UserTrust.CanViewContent(childComplexity), true
+	case "UserTrust.content_viewing_opt_in":
+		if e.ComplexityRoot.UserTrust.ContentViewingOptIn == nil {
+			break
+		}
+
+		return e.ComplexityRoot.UserTrust.ContentViewingOptIn(childComplexity), true
+	case "UserTrust.identification_solves":
+		if e.ComplexityRoot.UserTrust.IdentificationSolves == nil {
+			break
+		}
+
+		return e.ComplexityRoot.UserTrust.IdentificationSolves(childComplexity), true
+	case "UserTrust.level":
+		if e.ComplexityRoot.UserTrust.Level == nil {
+			break
+		}
+
+		return e.ComplexityRoot.UserTrust.Level(childComplexity), true
+	case "UserTrust.quests_completed":
+		if e.ComplexityRoot.UserTrust.QuestsCompleted == nil {
+			break
+		}
+
+		return e.ComplexityRoot.UserTrust.QuestsCompleted(childComplexity), true
+	case "UserTrust.rejected_edits":
+		if e.ComplexityRoot.UserTrust.RejectedEdits == nil {
+			break
+		}
+
+		return e.ComplexityRoot.UserTrust.RejectedEdits(childComplexity), true
+	case "UserTrust.replicas_hosted":
+		if e.ComplexityRoot.UserTrust.ReplicasHosted == nil {
+			break
+		}
+
+		return e.ComplexityRoot.UserTrust.ReplicasHosted(childComplexity), true
 
 	case "UserVoteCount.abstain":
 		if e.ComplexityRoot.UserVoteCount.Abstain == nil {
@@ -6666,6 +6747,44 @@ type User {
   invite_tokens: Int @isUserOwner
   active_invite_codes: [String!] @isUserOwner @deprecated(reason: "Use invite_codes instead")
   invite_codes: [InviteKey!] @isUserOwner
+
+  """
+  Trust level and contribution totals (SPEC section 6).
+
+  Owner and admin only: trust is a reputation score, and a user's standing is
+  not other users' business. Unlike ` + "`" + `roles` + "`" + `, this is NOT an authorization
+  primitive -- it records what the user has done, not what they may do.
+  """
+  trust: UserTrust @isUserOwner
+}
+
+"""
+A user's trust standing.
+
+` + "`" + `level` + "`" + ` is derived from the totals by the curve in internal/service/trust, and
+is the field that gates capability: level 4 (Archivist) is the point at which a
+user may opt in to viewing content.
+
+` + "`" + `content_viewing_opt_in` + "`" + ` is the user's own choice and is recorded
+independently of level, so a user can express the preference before they are
+eligible. Both conditions must hold for access -- see SPEC section 6.
+"""
+type UserTrust {
+  level: Int!
+  approved_edits: Int!
+  rejected_edits: Int!
+  identification_solves: Int!
+  quests_completed: Int!
+  replicas_hosted: Int!
+  content_viewing_opt_in: Boolean!
+
+  """
+  Whether this user may currently view content: level 4 or above AND opted in.
+
+  Derived at read time rather than stored, because eligibility changes when a
+  threshold changes and a stored copy would go stale silently.
+  """
+  can_view_content: Boolean!
 }
 
 input UserCreateInput {
@@ -6961,6 +7080,18 @@ type Mutation {
   userCreate(input: UserCreateInput!): User @hasRole(role: ADMIN)
   userUpdate(input: UserUpdateInput!): User @hasRole(role: ADMIN)
   userDestroy(input: UserDestroyInput!): Boolean! @hasRole(role: ADMIN)
+
+  """
+  Record or withdraw the user's opt-in to viewing content (SPEC section 6).
+
+  Self-service and owner-only: this is the user's own choice, and it grants
+  nothing on its own. Content access additionally requires level 4 (Archivist),
+  which is derived from contributions rather than assigned by anyone.
+
+  No role directive: a user with no roles at all must be able to record the
+  preference, because opting in BEFORE reaching level 4 is the intended flow.
+  """
+  setContentViewingOptIn(enabled: Boolean!): UserTrust!
 
   imageCreate(input: ImageCreateInput!): Image @hasRole(role: EDIT)
   imageDestroy(input: ImageDestroyInput!): Boolean! @hasRole(role: MODIFY)
@@ -7901,6 +8032,8 @@ func (ec *executionContext) childFields_User(ctx context.Context, field graphql.
 		return ec.fieldContext_User_active_invite_codes(ctx, field)
 	case "invite_codes":
 		return ec.fieldContext_User_invite_codes(ctx, field)
+	case "trust":
+		return ec.fieldContext_User_trust(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type User", field.Name)
 }
@@ -7937,6 +8070,28 @@ func (ec *executionContext) childFields_UserEditCount(ctx context.Context, field
 		return ec.fieldContext_UserEditCount_canceled_bot(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type UserEditCount", field.Name)
+}
+
+func (ec *executionContext) childFields_UserTrust(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "level":
+		return ec.fieldContext_UserTrust_level(ctx, field)
+	case "approved_edits":
+		return ec.fieldContext_UserTrust_approved_edits(ctx, field)
+	case "rejected_edits":
+		return ec.fieldContext_UserTrust_rejected_edits(ctx, field)
+	case "identification_solves":
+		return ec.fieldContext_UserTrust_identification_solves(ctx, field)
+	case "quests_completed":
+		return ec.fieldContext_UserTrust_quests_completed(ctx, field)
+	case "replicas_hosted":
+		return ec.fieldContext_UserTrust_replicas_hosted(ctx, field)
+	case "content_viewing_opt_in":
+		return ec.fieldContext_UserTrust_content_viewing_opt_in(ctx, field)
+	case "can_view_content":
+		return ec.fieldContext_UserTrust_can_view_content(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type UserTrust", field.Name)
 }
 
 func (ec *executionContext) childFields_UserVoteCount(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -8618,6 +8773,20 @@ func (ec *executionContext) field_Mutation_sceneUpdate_args(ctx context.Context,
 		return nil, err
 	}
 	args["input"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_setContentViewingOptIn_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "enabled",
+		func(ctx context.Context, v any) (bool, error) {
+			return ec.unmarshalNBoolean2bool(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["enabled"] = arg0
 	return args, nil
 }
 
@@ -13443,6 +13612,50 @@ func (ec *executionContext) fieldContext_Mutation_userDestroy(ctx context.Contex
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Mutation_userDestroy_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_setContentViewingOptIn(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_setContentViewingOptIn(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().SetContentViewingOptIn(ctx, fc.Args["enabled"].(bool))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *UserTrust) graphql.Marshaler {
+			return ec.marshalNUserTrust2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐUserTrust(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_setContentViewingOptIn(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_UserTrust(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_setContentViewingOptIn_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -26274,6 +26487,51 @@ func (ec *executionContext) fieldContext_User_invite_codes(_ context.Context, fi
 	return fc, nil
 }
 
+func (ec *executionContext) _User_trust(ctx context.Context, field graphql.CollectedField, obj *User) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_User_trust(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.User().Trust(ctx, obj)
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				if ec.Directives.IsUserOwner == nil {
+					var zeroVal *UserTrust
+					return zeroVal, errors.New("directive isUserOwner is not implemented")
+				}
+				return ec.Directives.IsUserOwner(ctx, obj, directive0)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *UserTrust) graphql.Marshaler {
+			return ec.marshalOUserTrust2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐUserTrust(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_User_trust(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "User",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_UserTrust(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _UserEditCount_accepted(ctx context.Context, field graphql.CollectedField, obj *UserEditCount) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -26594,6 +26852,190 @@ func (ec *executionContext) _UserEditCount_canceled_bot(ctx context.Context, fie
 }
 func (ec *executionContext) fieldContext_UserEditCount_canceled_bot(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("UserEditCount", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _UserTrust_level(ctx context.Context, field graphql.CollectedField, obj *UserTrust) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_UserTrust_level(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Level, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_UserTrust_level(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("UserTrust", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _UserTrust_approved_edits(ctx context.Context, field graphql.CollectedField, obj *UserTrust) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_UserTrust_approved_edits(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ApprovedEdits, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_UserTrust_approved_edits(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("UserTrust", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _UserTrust_rejected_edits(ctx context.Context, field graphql.CollectedField, obj *UserTrust) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_UserTrust_rejected_edits(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.RejectedEdits, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_UserTrust_rejected_edits(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("UserTrust", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _UserTrust_identification_solves(ctx context.Context, field graphql.CollectedField, obj *UserTrust) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_UserTrust_identification_solves(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.IdentificationSolves, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_UserTrust_identification_solves(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("UserTrust", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _UserTrust_quests_completed(ctx context.Context, field graphql.CollectedField, obj *UserTrust) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_UserTrust_quests_completed(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.QuestsCompleted, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_UserTrust_quests_completed(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("UserTrust", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _UserTrust_replicas_hosted(ctx context.Context, field graphql.CollectedField, obj *UserTrust) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_UserTrust_replicas_hosted(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ReplicasHosted, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_UserTrust_replicas_hosted(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("UserTrust", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _UserTrust_content_viewing_opt_in(ctx context.Context, field graphql.CollectedField, obj *UserTrust) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_UserTrust_content_viewing_opt_in(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ContentViewingOptIn, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_UserTrust_content_viewing_opt_in(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("UserTrust", field, false, false, errors.New("field of type Boolean does not have child fields"))
+}
+
+func (ec *executionContext) _UserTrust_can_view_content(ctx context.Context, field graphql.CollectedField, obj *UserTrust) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_UserTrust_can_view_content(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.CanViewContent, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_UserTrust_can_view_content(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("UserTrust", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
 func (ec *executionContext) _UserVoteCount_abstain(ctx context.Context, field graphql.CollectedField, obj *UserVoteCount) (ret graphql.Marshaler) {
@@ -36302,6 +36744,13 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "setContentViewingOptIn":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_setContentViewingOptIn(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "imageCreate":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_imageCreate(ctx, field)
@@ -43219,6 +43668,39 @@ func (ec *executionContext) _User(ctx context.Context, sel ast.SelectionSet, obj
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "trust":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._User_trust(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -43320,6 +43802,80 @@ func (ec *executionContext) _UserEditCount(ctx context.Context, sel ast.Selectio
 			}
 		case "canceled_bot":
 			out.Values[i] = ec._UserEditCount_canceled_bot(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferred), math.MaxInt32)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var userTrustImplementors = []string{"UserTrust"}
+
+func (ec *executionContext) _UserTrust(ctx context.Context, sel ast.SelectionSet, obj *UserTrust) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, userTrustImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("UserTrust")
+		case "level":
+			out.Values[i] = ec._UserTrust_level(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "approved_edits":
+			out.Values[i] = ec._UserTrust_approved_edits(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "rejected_edits":
+			out.Values[i] = ec._UserTrust_rejected_edits(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "identification_solves":
+			out.Values[i] = ec._UserTrust_identification_solves(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "quests_completed":
+			out.Values[i] = ec._UserTrust_quests_completed(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "replicas_hosted":
+			out.Values[i] = ec._UserTrust_replicas_hosted(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "content_viewing_opt_in":
+			out.Values[i] = ec._UserTrust_content_viewing_opt_in(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "can_view_content":
+			out.Values[i] = ec._UserTrust_can_view_content(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -45748,6 +46304,20 @@ func (ec *executionContext) unmarshalNUserQueryInput2githubᚗcomᚋstashappᚋs
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
+func (ec *executionContext) marshalNUserTrust2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐUserTrust(ctx context.Context, sel ast.SelectionSet, v UserTrust) graphql.Marshaler {
+	return ec._UserTrust(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNUserTrust2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐUserTrust(ctx context.Context, sel ast.SelectionSet, v *UserTrust) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._UserTrust(ctx, sel, v)
+}
+
 func (ec *executionContext) unmarshalNUserUpdateInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐUserUpdateInput(ctx context.Context, v any) (UserUpdateInput, error) {
 	res, err := ec.unmarshalInputUserUpdateInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
@@ -47031,6 +47601,13 @@ func (ec *executionContext) marshalOUser2ᚖgithubᚗcomᚋstashappᚋstashᚑbo
 		return graphql.Null
 	}
 	return ec._User(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalOUserTrust2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐUserTrust(ctx context.Context, sel ast.SelectionSet, v *UserTrust) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._UserTrust(ctx, sel, v)
 }
 
 func (ec *executionContext) unmarshalOUserVotedFilterEnum2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐUserVotedFilterEnum(ctx context.Context, v any) (*UserVotedFilterEnum, error) {

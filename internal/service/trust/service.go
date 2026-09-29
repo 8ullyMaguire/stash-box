@@ -205,6 +205,27 @@ func (s *Trust) Level(ctx context.Context, userID uuid.UUID) (LevelEnum, error) 
 	return LevelEnum(rollup.Level), nil
 }
 
+// Rollup returns the raw rollup row, or nil if the user has none.
+//
+// This is the one accessor that exposes the storage type, and it exists for
+// callers that need a field Totals deliberately omits -- currently only
+// ContentViewingOptIn, which is a user preference rather than a contribution and
+// so is not part of a "totals" value.
+//
+// Prefer Level, TotalsFor and CanViewContent for anything that can be expressed
+// through them; they encode the derivation rules, whereas this hands back
+// whatever is stored.
+func (s *Trust) Rollup(ctx context.Context, userID uuid.UUID) (*queries.UserTrust, error) {
+	rollup, err := s.queries.GetUserTrust(ctx, userID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &rollup, nil
+}
+
 // TotalsFor returns a user's rollup totals, or zeroes if they have none.
 func (s *Trust) TotalsFor(ctx context.Context, userID uuid.UUID) (Totals, error) {
 	rollup, err := s.queries.GetUserTrust(ctx, userID)

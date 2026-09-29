@@ -45,6 +45,44 @@ type User {
   invite_tokens: Int @isUserOwner
   active_invite_codes: [String!] @isUserOwner @deprecated(reason: "Use invite_codes instead")
   invite_codes: [InviteKey!] @isUserOwner
+
+  """
+  Trust level and contribution totals (SPEC section 6).
+
+  Owner and admin only: trust is a reputation score, and a user's standing is
+  not other users' business. Unlike `roles`, this is NOT an authorization
+  primitive -- it records what the user has done, not what they may do.
+  """
+  trust: UserTrust @isUserOwner
+}
+
+"""
+A user's trust standing.
+
+`level` is derived from the totals by the curve in internal/service/trust, and
+is the field that gates capability: level 4 (Archivist) is the point at which a
+user may opt in to viewing content.
+
+`content_viewing_opt_in` is the user's own choice and is recorded
+independently of level, so a user can express the preference before they are
+eligible. Both conditions must hold for access -- see SPEC section 6.
+"""
+type UserTrust {
+  level: Int!
+  approved_edits: Int!
+  rejected_edits: Int!
+  identification_solves: Int!
+  quests_completed: Int!
+  replicas_hosted: Int!
+  content_viewing_opt_in: Boolean!
+
+  """
+  Whether this user may currently view content: level 4 or above AND opted in.
+
+  Derived at read time rather than stored, because eligibility changes when a
+  threshold changes and a stored copy would go stale silently.
+  """
+  can_view_content: Boolean!
 }
 
 input UserCreateInput {

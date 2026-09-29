@@ -145,6 +145,18 @@ type Mutation {
   userUpdate(input: UserUpdateInput!): User @hasRole(role: ADMIN)
   userDestroy(input: UserDestroyInput!): Boolean! @hasRole(role: ADMIN)
 
+  """
+  Record or withdraw the user's opt-in to viewing content (SPEC section 6).
+
+  Self-service and owner-only: this is the user's own choice, and it grants
+  nothing on its own. Content access additionally requires level 4 (Archivist),
+  which is derived from contributions rather than assigned by anyone.
+
+  No role directive: a user with no roles at all must be able to record the
+  preference, because opting in BEFORE reaching level 4 is the intended flow.
+  """
+  setContentViewingOptIn(enabled: Boolean!): UserTrust!
+
   imageCreate(input: ImageCreateInput!): Image @hasRole(role: EDIT)
   imageDestroy(input: ImageDestroyInput!): Boolean! @hasRole(role: MODIFY)
 

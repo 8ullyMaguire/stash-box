@@ -725,6 +725,17 @@ export type Mutation = {
   /** Move all fingerprint submissions from source scene to target scene */
   sceneMoveFingerprintSubmissions: Scalars['Boolean']['output'];
   sceneUpdate?: Maybe<Scene>;
+  /**
+   * Record or withdraw the user's opt-in to viewing content (SPEC section 6).
+   *
+   * Self-service and owner-only: this is the user's own choice, and it grants
+   * nothing on its own. Content access additionally requires level 4 (Archivist),
+   * which is derived from contributions rather than assigned by anyone.
+   *
+   * No role directive: a user with no roles at all must be able to record the
+   * preference, because opting in BEFORE reaching level 4 is the intended flow.
+   */
+  setContentViewingOptIn: UserTrust;
   siteCategoryCreate?: Maybe<SiteCategory>;
   siteCategoryDestroy: Scalars['Boolean']['output'];
   siteCategoryUpdate?: Maybe<SiteCategory>;
@@ -942,6 +953,11 @@ export type MutationSceneMoveFingerprintSubmissionsArgs = {
 
 export type MutationSceneUpdateArgs = {
   input: SceneUpdateInput;
+};
+
+
+export type MutationSetContentViewingOptInArgs = {
+  enabled: Scalars['Boolean']['input'];
 };
 
 
@@ -2489,6 +2505,14 @@ export type User = {
   notification_subscriptions: Array<NotificationEnum>;
   /** Should not be visible to other users */
   roles?: Maybe<Array<RoleEnum>>;
+  /**
+   * Trust level and contribution totals (SPEC section 6).
+   *
+   * Owner and admin only: trust is a reputation score, and a user's standing is
+   * not other users' business. Unlike `roles`, this is NOT an authorization
+   * primitive -- it records what the user has done, not what they may do.
+   */
+  trust?: Maybe<UserTrust>;
   /**  Vote counts by type  */
   vote_count: UserVoteCount;
 };
@@ -2569,6 +2593,35 @@ export type UserQueryInput = {
   unsuccessful_edits?: InputMaybe<IntCriterionInput>;
   /** Filter by votes on unsuccessful edits */
   unsuccessful_votes?: InputMaybe<IntCriterionInput>;
+};
+
+/**
+ * A user's trust standing.
+ *
+ * `level` is derived from the totals by the curve in internal/service/trust, and
+ * is the field that gates capability: level 4 (Archivist) is the point at which a
+ * user may opt in to viewing content.
+ *
+ * `content_viewing_opt_in` is the user's own choice and is recorded
+ * independently of level, so a user can express the preference before they are
+ * eligible. Both conditions must hold for access -- see SPEC section 6.
+ */
+export type UserTrust = {
+  __typename: 'UserTrust';
+  approved_edits: Scalars['Int']['output'];
+  /**
+   * Whether this user may currently view content: level 4 or above AND opted in.
+   *
+   * Derived at read time rather than stored, because eligibility changes when a
+   * threshold changes and a stored copy would go stale silently.
+   */
+  can_view_content: Scalars['Boolean']['output'];
+  content_viewing_opt_in: Scalars['Boolean']['output'];
+  identification_solves: Scalars['Int']['output'];
+  level: Scalars['Int']['output'];
+  quests_completed: Scalars['Int']['output'];
+  rejected_edits: Scalars['Int']['output'];
+  replicas_hosted: Scalars['Int']['output'];
 };
 
 export type UserUpdateInput = {
