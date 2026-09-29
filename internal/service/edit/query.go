@@ -163,13 +163,30 @@ func (s *Edit) buildEditQuery(psql sq.StatementBuilderType, filter models.EditQu
 
 	// Filter by favorite status
 	if filter.IsFavorite != nil && *filter.IsFavorite {
+		// Studio favorites are matched against a scene's studio, either the
+		// favorited studio itself or that studio's parent (#337). Favoriting a
+		// network and not seeing its sub-studios' scene edits meant favoriting
+		// every sub-studio by hand, which is not what favoriting a network
+		// means. The parent arm is the same one-level traversal the performer
+		// studio filter uses (#974) and the scene query's ParentStudio filter
+		// uses, so all three agree on what a network contains.
+		//
+		// studios.parent_studio_id covers the child arm; joining scenes to
+		// studios and comparing studios.parent_studio_id covers the network arm.
 		favoriteClause := `
 			edits.id IN (
 				(SELECT TE.edit_id FROM studio_favorites TF JOIN studio_edits TE ON TF.studio_id = TE.studio_id WHERE TF.user_id = ?)
 				UNION
 				(SELECT PE.edit_id FROM performer_favorites PF JOIN performer_edits PE ON PF.performer_id = PE.performer_id WHERE PF.user_id = ?)
 				UNION
-				(SELECT SE.edit_id FROM studio_favorites TF JOIN scenes S ON TF.studio_id = S.studio_id JOIN scene_edits SE ON S.id = SE.scene_id WHERE TF.user_id = ?)
+				(SELECT SE.edit_id FROM studio_favorites TF
+				 JOIN scenes S ON TF.studio_id = S.studio_id
+				 JOIN scene_edits SE ON S.id = SE.scene_id WHERE TF.user_id = ?)
+				UNION
+				(SELECT SE.edit_id FROM studio_favorites TF
+				 JOIN studios TS ON TS.parent_studio_id = TF.studio_id
+				 JOIN scenes S ON TS.id = S.studio_id
+				 JOIN scene_edits SE ON S.id = SE.scene_id WHERE TF.user_id = ?)
 				UNION
 				(SELECT E.id FROM performer_favorites PF JOIN edits E ON E.data->'merge_sources' @> to_jsonb(PF.performer_id::TEXT)
 				 WHERE E.target_type = 'PERFORMER' AND E.operation = 'MERGE' AND PF.user_id = ?)
@@ -184,7 +201,8 @@ func (s *Edit) buildEditQuery(psql sq.StatementBuilderType, filter models.EditQu
 				 WHERE E.target_type = 'SCENE' AND TF.user_id = ?)
 			)
 		`
-		query = query.Where(sq.Expr(favoriteClause, userID, userID, userID, userID, userID, userID))
+		query = query.Where(sq.Expr(favoriteClause,
+			userID, userID, userID, userID, userID, userID, userID))
 	}
 
 	// Simple filters
