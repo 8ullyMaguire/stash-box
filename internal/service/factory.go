@@ -26,6 +26,7 @@ import (
 	"github.com/stashapp/stash-box/internal/service/edit"
 	"github.com/stashapp/stash-box/internal/service/elo"
 	"github.com/stashapp/stash-box/internal/service/fingerprint"
+	"github.com/stashapp/stash-box/internal/service/identification"
 	"github.com/stashapp/stash-box/internal/service/image"
 	"github.com/stashapp/stash-box/internal/service/invite"
 	"github.com/stashapp/stash-box/internal/service/mod_audit"
@@ -54,6 +55,11 @@ func NewFactory(pool *pgxpool.Pool, emailMgr *email.Manager) *Factory {
 		withTxn:  createWithTxnFunc(pool),
 		emailMgr: emailMgr,
 	}
+}
+
+// Identification returns an IdentificationService instance
+func (f *Factory) Identification() *identification.Service {
+	return identification.NewService(queries.New(f.db), f.withTxn)
 }
 
 // Collage returns a CollageService instance

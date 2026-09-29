@@ -5,9 +5,9 @@ import (
 	"testing"
 
 	"github.com/gofrs/uuid"
+	"github.com/stashapp/stash-box/pkg/utils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/stashapp/stash-box/pkg/utils"
 )
 
 // Regression tests for issue #660, "Limit Field Lengths on Form Fields".

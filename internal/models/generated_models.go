@@ -461,6 +461,101 @@ type IDCriterionInput struct {
 	Modifier CriterionModifier `json:"modifier"`
 }
 
+// One suggested answer to a query.
+type IdentificationCandidate struct {
+	ID         uuid.UUID                `json:"id"`
+	QueryID    uuid.UUID                `json:"queryId"`
+	EntityType IdentificationTargetType `json:"entityType"`
+	EntityID   uuid.UUID                `json:"entityId"`
+	// The suggested entity, resolved. Null when the entity has been deleted since the
+	// suggestion was made, which is a real possibility on a board that outlives its
+	// questions.
+	Entity *Performer `json:"entity,omitempty"`
+	// Why this was suggested. Free text and usually null.
+	//
+	// A candidate with a reason -- "the studio watermark is visible in frame 3" -- is
+	// far more useful to someone reading the thread than the bare entity, and it is
+	// the difference between a suggestion and a guess. Not exposed as a mutation input
+	// yet: no caller in this version has a way to supply one.
+	Note        *string   `json:"note,omitempty"`
+	SuggestedBy *User     `json:"suggestedBy,omitempty"`
+	CreatedAt   time.Time `json:"createdAt"`
+	// How many people have voted for this.
+	//
+	// This is a tally of PEOPLE, which is what §5's leaderboards are built from.
+	VoteCount int `json:"voteCount"`
+	// Whether the VIEWING user has voted for this.
+	//
+	// Rendered as a state rather than an action: a vote button that silently does
+	// nothing on a second tap is worse than one that shows it is already cast.
+	VotedByMe bool `json:"votedByMe"`
+}
+
+// A ranked list of identifiers, for §5's "Detective" leaderboard.
+type IdentificationDetective struct {
+	User *User `json:"user"`
+	// How many candidates this user has voted on across OPEN queries.
+	Score int `json:"score"`
+}
+
+type IdentificationPostInput struct {
+	TargetType  IdentificationTargetType `json:"targetType"`
+	TargetID    *uuid.UUID               `json:"targetId,omitempty"`
+	Description string                   `json:"description"`
+	SnapshotID  *uuid.UUID               `json:"snapshotId,omitempty"`
+}
+
+// A question about something half-remembered.
+type IdentificationQuery struct {
+	ID         uuid.UUID                `json:"id"`
+	TargetType IdentificationTargetType `json:"targetType"`
+	// The entity the question is about, when the asker has it.
+	//
+	// Optional: a user often has the scene and wants the performer identified within
+	// it. The description is the question either way.
+	TargetID *uuid.UUID `json:"targetId,omitempty"`
+	// What the asker remembers. The only required field -- SPEC §5 lists
+	// description, collage, snapshot, frame and quote as ALTERNATIVES, not as a form
+	// with required inputs, and a user with a half-formed memory should be able to
+	// post it and let the community ask for more.
+	Description string `json:"description"`
+	// The visual evidence, when there is any.
+	SnapshotID *uuid.UUID           `json:"snapshotId,omitempty"`
+	Status     IdentificationStatus `json:"status"`
+	CreatedAt  time.Time            `json:"createdAt"`
+	// What it was resolved to, and by whom. Null unless status is `solved`.
+	//
+	// `resolvedType` is not necessarily `targetType`: a user asking "who is this
+	// performer" with a target of `scene` resolves to a performer. The board is
+	// explicit about which of the two it is.
+	ResolvedType *IdentificationTargetType `json:"resolvedType,omitempty"`
+	ResolvedID   *uuid.UUID                `json:"resolvedId,omitempty"`
+	ResolvedBy   *User                     `json:"resolvedBy,omitempty"`
+	ResolvedAt   *time.Time                `json:"resolvedAt,omitempty"`
+	// The suggested answers, most-voted first.
+	//
+	// A candidate with zero votes still appears: it is exactly when someone needs to
+	// see it.
+	Candidates []IdentificationCandidate `json:"candidates"`
+}
+
+type IdentificationResolveInput struct {
+	QueryID uuid.UUID `json:"queryId"`
+	// What it turned out to be.
+	//
+	// Must be the same type the query asked about: suggesting and resolving across
+	// types is a category error, and the service refuses it rather than tolerating a
+	// performer in a list of possible scenes.
+	ResolvedType IdentificationTargetType `json:"resolvedType"`
+	ResolvedID   uuid.UUID                `json:"resolvedId"`
+}
+
+type IdentificationSuggestInput struct {
+	QueryID    uuid.UUID                `json:"queryId"`
+	EntityType IdentificationTargetType `json:"entityType"`
+	EntityID   uuid.UUID                `json:"entityId"`
+}
+
 type ImageCreateInput struct {
 	URL  *string         `json:"url,omitempty"`
 	File *graphql.Upload `json:"file,omitempty"`
@@ -2107,6 +2202,133 @@ func (e *HairColorEnum) UnmarshalJSON(b []byte) error {
 }
 
 func (e HairColorEnum) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+// A query's state.
+type IdentificationStatus string
+
+const (
+	// Nobody has resolved it yet. The only state the board's queue shows.
+	IdentificationStatusOpen IdentificationStatus = "open"
+	// A human accepted a resolution. Always names what it resolved to.
+	IdentificationStatusSolved IdentificationStatus = "solved"
+	// The community gave up.
+	//
+	// Distinct from `open` because "nobody will ever solve this" and "nobody has
+	// solved this yet" want different handling: an abandoned query re-surfacing in the
+	// queue forever is how a board fills with questions nobody wants.
+	IdentificationStatusAbandoned IdentificationStatus = "abandoned"
+)
+
+var AllIdentificationStatus = []IdentificationStatus{
+	IdentificationStatusOpen,
+	IdentificationStatusSolved,
+	IdentificationStatusAbandoned,
+}
+
+func (e IdentificationStatus) IsValid() bool {
+	switch e {
+	case IdentificationStatusOpen, IdentificationStatusSolved, IdentificationStatusAbandoned:
+		return true
+	}
+	return false
+}
+
+func (e IdentificationStatus) String() string {
+	return string(e)
+}
+
+func (e *IdentificationStatus) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = IdentificationStatus(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid IdentificationStatus", str)
+	}
+	return nil
+}
+
+func (e IdentificationStatus) MarshalGQL(w io.Writer) {
+	fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *IdentificationStatus) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e IdentificationStatus) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+// What kind of entity a query is trying to identify.
+type IdentificationTargetType string
+
+const (
+	IdentificationTargetTypePerformer IdentificationTargetType = "performer"
+	IdentificationTargetTypeScene     IdentificationTargetType = "scene"
+	IdentificationTargetTypeStudio    IdentificationTargetType = "studio"
+	IdentificationTargetTypeSite      IdentificationTargetType = "site"
+	IdentificationTargetTypeTag       IdentificationTargetType = "tag"
+)
+
+var AllIdentificationTargetType = []IdentificationTargetType{
+	IdentificationTargetTypePerformer,
+	IdentificationTargetTypeScene,
+	IdentificationTargetTypeStudio,
+	IdentificationTargetTypeSite,
+	IdentificationTargetTypeTag,
+}
+
+func (e IdentificationTargetType) IsValid() bool {
+	switch e {
+	case IdentificationTargetTypePerformer, IdentificationTargetTypeScene, IdentificationTargetTypeStudio, IdentificationTargetTypeSite, IdentificationTargetTypeTag:
+		return true
+	}
+	return false
+}
+
+func (e IdentificationTargetType) String() string {
+	return string(e)
+}
+
+func (e *IdentificationTargetType) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = IdentificationTargetType(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid IdentificationTargetType", str)
+	}
+	return nil
+}
+
+func (e IdentificationTargetType) MarshalGQL(w io.Writer) {
+	fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *IdentificationTargetType) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e IdentificationTargetType) MarshalJSON() ([]byte, error) {
 	var buf bytes.Buffer
 	e.MarshalGQL(&buf)
 	return buf.Bytes(), nil

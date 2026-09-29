@@ -11,6 +11,16 @@ import (
 )
 
 type Querier interface {
+	// Marks a query dead. Distinct from leaving it open: an abandoned query is one the
+	// community voted down, and re-surfacing it in the queue forever is how a board
+	// fills with questions nobody wants.
+	AbandonIdentificationQuery(ctx context.Context, id uuid.UUID) (IdentificationQuery, error)
+	// Proposes a candidate.
+	//
+	// The unique (query_id, entity_type, entity_id) means one suggestion per entity
+	// per query: re-suggesting is not more signal, and allowing it would let one
+	// person weight the vote.
+	AddIdentificationCandidate(ctx context.Context, arg AddIdentificationCandidateParams) (IdentificationCandidate, error)
 	// Applies one event's effect to the rollup, creating the row if absent.
 	//
 	// The totals are incremented rather than recomputed by replaying events, so
@@ -49,6 +59,13 @@ type Querier interface {
 	// How many votes an entity has taken part in, across both sides. Feeds the
 	// leaderboard's "needs more votes" marker and any minimum-confidence filter.
 	CountEloVotesForEntity(ctx context.Context, arg CountEloVotesForEntityParams) (int64, error)
+	// How many candidates this user has voted on, anywhere.
+	//
+	// Backs §5's "Detective" leaderboard. Counting through the candidate table rather
+	// than straight at the votes, so a vote on a candidate whose query has been
+	// deleted does not count: the vote is evidence about a question that no longer
+	// exists.
+	CountIdentificationVotesForUser(ctx context.Context, userID uuid.UUID) (int64, error)
 	CountNotificationsByUser(ctx context.Context, arg CountNotificationsByUserParams) (int64, error)
 	CountPerformerSearchMatches(ctx context.Context, arg CountPerformerSearchMatchesParams) (interface{}, error)
 	CountSceneSnapshots(ctx context.Context, sceneID uuid.UUID) (int64, error)
@@ -67,6 +84,12 @@ type Querier interface {
 	// pair is new.
 	CountVotesBetweenEntities(ctx context.Context, arg CountVotesBetweenEntitiesParams) (int64, error)
 	CountVotesByType(ctx context.Context, userID uuid.NullUUID) ([]CountVotesByTypeRow, error)
+	// A single candidate's tally.
+	//
+	// Counted here rather than joined into GetIdentificationCandidate because a vote
+	// mutation needs this one row and the grouped per-query query would be a scan of
+	// every candidate on the query to answer "how many votes does this one have".
+	CountVotesForCandidate(ctx context.Context, candidateID uuid.UUID) (int64, error)
 	// Creates the collage row. source_duration_ms is the duration the sampler
 	// believed; the scene's current duration is read by the caller and stored
 	// alongside it so a stale collage is diagnosable rather than merely wrong-looking.
@@ -81,6 +104,12 @@ type Querier interface {
 	CreateEditVote(ctx context.Context, arg CreateEditVoteParams) error
 	// Fingerprint queries (normalized schema)
 	CreateFingerprint(ctx context.Context, arg CreateFingerprintParams) (Fingerprint, error)
+	// Identification board queries (SPEC §5, migration 79).
+	//
+	// Three tables with one rule running through all of them: a vote is EVIDENCE, not
+	// authority. Nothing here writes to scenes/performers/etc, and the resolution path
+	// records what a human decided rather than inferring it from a tally.
+	CreateIdentificationQuery(ctx context.Context, arg CreateIdentificationQueryParams) (IdentificationQuery, error)
 	// Image queries
 	//
 	// ON CONFLICT (checksum) DO UPDATE is deliberate and is the #738 fix.
@@ -396,6 +425,13 @@ type Querier interface {
 	// floating-point rounding differ between runs.
 	GetEloVotesForUser(ctx context.Context, userID uuid.UUID) ([]EloVote, error)
 	GetFingerprint(ctx context.Context, arg GetFingerprintParams) (Fingerprint, error)
+	// A single candidate, for the vote path.
+	//
+	// Joins the query so the caller can check the query is still open without a
+	// second round trip -- voting on a resolved query is meaningless and the vote
+	// would be counted for nothing.
+	GetIdentificationCandidate(ctx context.Context, id uuid.UUID) (GetIdentificationCandidateRow, error)
+	GetIdentificationQuery(ctx context.Context, id uuid.UUID) (IdentificationQuery, error)
 	// Gets current images for target entity and merges with edit's added_images/removed_images
 	GetImagesForEdit(ctx context.Context, id uuid.UUID) ([]Image, error)
 	// Gets current performers for target entity and merges with edit's added_performers/removed_performers
@@ -469,6 +505,9 @@ type Querier interface {
 	GetUserTrust(ctx context.Context, userID uuid.UUID) (UserTrust, error)
 	GetUserTrustByUserIDs(ctx context.Context, dollar_1 []uuid.UUID) ([]UserTrust, error)
 	GetUsers(ctx context.Context, dollar_1 []uuid.UUID) ([]User, error)
+	// Whether THIS user already voted, so the UI can render a vote button as a state
+	// rather than as an action that silently does nothing.
+	HasVotedForCandidate(ctx context.Context, arg HasVotedForCandidateParams) (bool, error)
 	InviteKeyUsed(ctx context.Context, id uuid.UUID) (*int, error)
 	IsImageUnused(ctx context.Context, id uuid.UUID) (bool, error)
 	// The frames of a collage, in playback order.
@@ -488,6 +527,34 @@ type Querier interface {
 	// LAST by default but the explicit form documents that the ordering is
 	// deliberate.
 	ListEloRatings(ctx context.Context, arg ListEloRatingsParams) ([]EloRating, error)
+	// A query's candidates WITH their tallies.
+	//
+	// LEFT JOIN plus count, so a candidate nobody has voted for still appears with
+	// zero. An INNER JOIN would silently hide every freshly-suggested candidate,
+	// which is exactly when someone needs to see it.
+	//
+	// count(DISTINCT v.user_id) rather than count(v.*): the vote table's primary key
+	// already makes the rows distinct, but the DISTINCT documents that the tally is
+	// of PEOPLE, which is the number §5's leaderboards are built from.
+	ListIdentificationCandidates(ctx context.Context, arg ListIdentificationCandidatesParams) ([]ListIdentificationCandidatesRow, error)
+	// A user's own questions, so they can see what they asked and what got solved.
+	ListIdentificationQueriesByCreator(ctx context.Context, arg ListIdentificationQueriesByCreatorParams) ([]IdentificationQuery, error)
+	// Every query in a state, for moderation and for §5's "solved" archive view.
+	ListIdentificationQueriesByStatus(ctx context.Context, arg ListIdentificationQueriesByStatusParams) ([]IdentificationQuery, error)
+	// The board's queue: open queries, newest first.
+	//
+	// Bounded by the caller and defaulted in the service. An unbounded queue is a
+	// denial-of-service vector, and no UI renders more than a few hundred.
+	//
+	// The partial index on status='open' covers exactly this, so the filter is not
+	// costing a scan of solved and abandoned queries.
+	ListOpenIdentificationQueries(ctx context.Context, limit int32) ([]IdentificationQuery, error)
+	// "Everything the community has worked out about this performer."
+	//
+	// This is the query that turns a solved query into a CANONICAL LINK, per §5: the
+	// answer is that the board's conclusions are indexed against real metadata, so
+	// finding an entity also finds what was learned about it.
+	ListResolvedQueriesForEntity(ctx context.Context, arg ListResolvedQueriesForEntityParams) ([]IdentificationQuery, error)
 	// Every snapshot for a scene, in order, whether or not it is in a collage.
 	//
 	// Ordered by timestamp so a caller rendering a scene's visual index gets frames in
@@ -589,6 +656,17 @@ type Querier interface {
 	// Resolves a set of UUIDs to the type of entity they belong to, used to turn
 	// bare UUIDs in comments into links.
 	ResolveEntityTypes(ctx context.Context, ids []uuid.UUID) ([]ResolveEntityTypesRow, error)
+	// Records what a HUMAN decided a query was.
+	//
+	// The CHECK constraint enforces that a solved query names its resolution, so
+	// there is no way to mark one solved with nothing attached -- which is the
+	// failure that would make every consumer of the "solved" view re-verify it.
+	//
+	// Guarded on status='open' so a second resolution attempt is a no-op returning no
+	// rows rather than an overwrite. Two people clicking "accept" on different
+	// candidates at the same time is a real race, and last-write-wins would silently
+	// discard one person's work.
+	ResolveIdentificationQuery(ctx context.Context, arg ResolveIdentificationQueryParams) (IdentificationQuery, error)
 	// Keep the WHERE clause in sync across SearchPerformers, CountPerformerSearchMatches,
 	// and GetPerformerSearchFacets so paging, counts, and facets stay consistent.
 	SearchPerformers(ctx context.Context, arg SearchPerformersParams) ([]uuid.UUID, error)
@@ -654,6 +732,7 @@ type Querier interface {
 	TriggerSceneEditNotifications(ctx context.Context, id uuid.UUID) error
 	TriggerStudioEditNotifications(ctx context.Context, id uuid.UUID) error
 	TriggerUpdatedEditNotifications(ctx context.Context, id uuid.UUID) error
+	UnvoteIdentificationCandidate(ctx context.Context, arg UnvoteIdentificationCandidateParams) error
 	UpdateEdit(ctx context.Context, arg UpdateEditParams) (Edit, error)
 	UpdateEditCommentText(ctx context.Context, arg UpdateEditCommentTextParams) (EditComment, error)
 	UpdateEditData(ctx context.Context, arg UpdateEditDataParams) (Edit, error)
@@ -704,6 +783,9 @@ type Querier interface {
 	// on every vote, which is the one thing the column exists to prevent.
 	UpsertEloRating(ctx context.Context, arg UpsertEloRatingParams) (EloRating, error)
 	UpsertTasteVector(ctx context.Context, arg UpsertTasteVectorParams) (TasteVector, error)
+	// One vote. The composite primary key on the vote table is the rule: a second
+	// vote is a constraint violation rather than a silently doubled tally.
+	VoteForIdentificationCandidate(ctx context.Context, arg VoteForIdentificationCandidateParams) error
 }
 
 var _ Querier = (*Queries)(nil)

@@ -1,0 +1,263 @@
+# Identification board (SPEC §5): "Which Was That…?"
+#
+# The board turns collective memory into structured archive data. A user posts
+# something half-remembered, the community proposes candidates and votes, and a
+# solved query becomes a canonical link to real metadata.
+#
+# The rule that shapes this schema: a query is a QUESTION and a candidate is a
+# SUGGESTION. Neither is metadata. Nothing in this file can create a scene or a
+# performer, and the absence of such a mutation is the point -- SPEC §5 says an
+# identification "can trigger metadata creation", and CAN means through the
+# existing edit path, by a person. A mutation that created metadata from a vote
+# would make the archive fill itself with confidently wrong records, every one of
+# which then becomes a canonical link that search points at.
+
+"""What kind of entity a query is trying to identify."""
+enum IdentificationTargetType {
+  performer
+  scene
+  studio
+  site
+  tag
+}
+
+"""A query's state."""
+enum IdentificationStatus {
+  """
+  Nobody has resolved it yet. The only state the board's queue shows.
+  """
+  open
+  """
+  A human accepted a resolution. Always names what it resolved to.
+  """
+  solved
+  """
+  The community gave up.
+
+  Distinct from `open` because "nobody will ever solve this" and "nobody has
+  solved this yet" want different handling: an abandoned query re-surfacing in the
+  queue forever is how a board fills with questions nobody wants.
+  """
+  abandoned
+}
+
+"""A question about something half-remembered."""
+type IdentificationQuery {
+  id: ID!
+
+  targetType: IdentificationTargetType!
+
+  """
+  The entity the question is about, when the asker has it.
+
+  Optional: a user often has the scene and wants the performer identified within
+  it. The description is the question either way.
+  """
+  targetId: ID
+
+  """
+  What the asker remembers. The only required field -- SPEC §5 lists
+  description, collage, snapshot, frame and quote as ALTERNATIVES, not as a form
+  with required inputs, and a user with a half-formed memory should be able to
+  post it and let the community ask for more.
+  """
+  description: String!
+
+  """
+  The visual evidence, when there is any.
+  """
+  snapshotId: ID
+
+  status: IdentificationStatus!
+  createdAt: Time!
+
+  """
+  What it was resolved to, and by whom. Null unless status is `solved`.
+
+  `resolvedType` is not necessarily `targetType`: a user asking "who is this
+  performer" with a target of `scene` resolves to a performer. The board is
+  explicit about which of the two it is.
+  """
+  resolvedType: IdentificationTargetType
+  resolvedId: ID
+  resolvedBy: User
+  resolvedAt: Time
+
+  """
+  The suggested answers, most-voted first.
+
+  A candidate with zero votes still appears: it is exactly when someone needs to
+  see it.
+  """
+  candidates: [IdentificationCandidate!]!
+}
+
+"""One suggested answer to a query."""
+type IdentificationCandidate {
+  id: ID!
+  queryId: ID!
+  entityType: IdentificationTargetType!
+  entityId: ID!
+
+  """
+  The suggested entity, resolved. Null when the entity has been deleted since the
+  suggestion was made, which is a real possibility on a board that outlives its
+  questions.
+  """
+  entity: Performer
+
+  """
+  Why this was suggested. Free text and usually null.
+
+  A candidate with a reason -- "the studio watermark is visible in frame 3" -- is
+  far more useful to someone reading the thread than the bare entity, and it is
+  the difference between a suggestion and a guess. Not exposed as a mutation input
+  yet: no caller in this version has a way to supply one.
+  """
+  note: String
+  suggestedBy: User
+  createdAt: Time!
+
+  """
+  How many people have voted for this.
+
+  This is a tally of PEOPLE, which is what §5's leaderboards are built from.
+  """
+  voteCount: Int!
+
+  """
+  Whether the VIEWING user has voted for this.
+
+  Rendered as a state rather than an action: a vote button that silently does
+  nothing on a second tap is worse than one that shows it is already cast.
+  """
+  votedByMe: Boolean!
+}
+
+"""
+A ranked list of identifiers, for §5's "Detective" leaderboard.
+"""
+type IdentificationDetective {
+  user: User!
+  """
+  How many candidates this user has voted on across OPEN queries.
+  """
+  score: Int!
+}
+
+input IdentificationPostInput {
+  targetType: IdentificationTargetType!
+  targetId: ID
+  description: String!
+  snapshotId: ID
+}
+
+input IdentificationSuggestInput {
+  queryId: ID!
+  entityType: IdentificationTargetType!
+  entityId: ID!
+}
+
+input IdentificationResolveInput {
+  queryId: ID!
+  """
+  What it turned out to be.
+
+  Must be the same type the query asked about: suggesting and resolving across
+  types is a category error, and the service refuses it rather than tolerating a
+  performer in a list of possible scenes.
+  """
+  resolvedType: IdentificationTargetType!
+  resolvedId: ID!
+}
+
+extend type Query {
+  """
+  The board's queue: open queries, newest first.
+
+  Open to any reader. A question with no answer is not sensitive, and hiding the
+  board behind registration would defeat its purpose, which is to be looked at.
+  """
+  listOpenIdentificationQueries(limit: Int): [IdentificationQuery!]!
+    @hasRole(role: READ)
+
+  """Read one query, with its candidates."""
+  identificationQuery(id: ID!): IdentificationQuery @hasRole(role: READ)
+
+  """
+  Every solved query about one entity.
+
+  This is §5's canonical link: the board's conclusions indexed against real
+  metadata, so an entity page can show what the community worked out about it.
+  Only SOLVED queries appear -- an open query is a question, not an answer.
+  """
+  resolvedIdentificationQueries(
+    entityType: IdentificationTargetType!
+    entityId: ID!
+    limit: Int
+  ): [IdentificationQuery!]! @hasRole(role: READ)
+
+  """
+  §5's "Detective" leaderboard, for the current user.
+
+  Scores count votes on OPEN queries only. A vote on a query that was resolved
+  without you stops counting, because it was evidence about a question that no
+  longer exists.
+  """
+  myIdentificationDetectiveScore: IdentificationDetective @hasRole(role: VOTE)
+}
+
+extend type Mutation {
+  """
+  Post a question about something half-remembered.
+
+  Requires VOTE, not READ: posting is a contribution, and §6 level 1 (Registered)
+  is where the board begins. Anonymous users can read it and see what is being
+  looked for, which is most of the value of a public board.
+  """
+  postIdentificationQuery(
+    input: IdentificationPostInput!
+  ): IdentificationQuery! @hasRole(role: VOTE)
+
+  """
+  Suggest a candidate answer.
+
+  One suggestion per entity per query, enforced by the database: re-suggesting is
+  not more signal, and allowing it would let one person suggest a candidate and
+  then vote it.
+  """
+  suggestIdentificationCandidate(
+    input: IdentificationSuggestInput!
+  ): IdentificationCandidate! @hasRole(role: VOTE)
+
+  """
+  Vote for a candidate. Voting twice is a constraint violation, not a doubled
+  tally.
+  """
+  voteIdentificationCandidate(candidateId: ID!): IdentificationCandidate!
+    @hasRole(role: VOTE)
+
+  """
+  Take a vote back. An accidental tap should be undoable, and a vote the user
+  cannot withdraw is a vote they will not make.
+  """
+  unvoteIdentificationCandidate(candidateId: ID!): IdentificationCandidate!
+    @hasRole(role: VOTE)
+
+  """
+  Record what a query turned out to be.
+
+  This requires a named human and records who they were. There is deliberately NO
+  vote-threshold variant of this mutation: a plurality is not authority, and one
+  that silently created metadata would be the single most damaging thing this
+  board could do to the archive.
+  """
+  resolveIdentificationQuery(
+    input: IdentificationResolveInput!
+  ): IdentificationQuery! @hasRole(role: VOTE)
+
+  """
+  Mark a query dead, so it leaves the queue.
+  """
+  abandonIdentificationQuery(id: ID!): IdentificationQuery! @hasRole(role: VOTE)
+}

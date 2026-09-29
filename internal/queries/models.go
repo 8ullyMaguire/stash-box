@@ -188,6 +188,39 @@ type Fingerprint struct {
 	Hash      int64  `db:"hash" json:"hash"`
 }
 
+type IdentificationCandidate struct {
+	ID          uuid.UUID     `db:"id" json:"id"`
+	QueryID     uuid.UUID     `db:"query_id" json:"query_id"`
+	EntityType  string        `db:"entity_type" json:"entity_type"`
+	EntityID    uuid.UUID     `db:"entity_id" json:"entity_id"`
+	Note        *string       `db:"note" json:"note"`
+	SuggestedBy uuid.NullUUID `db:"suggested_by" json:"suggested_by"`
+	CreatedAt   time.Time     `db:"created_at" json:"created_at"`
+}
+
+type IdentificationCandidateVote struct {
+	CandidateID uuid.UUID `db:"candidate_id" json:"candidate_id"`
+	UserID      uuid.UUID `db:"user_id" json:"user_id"`
+	CreatedAt   time.Time `db:"created_at" json:"created_at"`
+}
+
+type IdentificationQuery struct {
+	ID           uuid.UUID     `db:"id" json:"id"`
+	TargetType   string        `db:"target_type" json:"target_type"`
+	TargetID     uuid.NullUUID `db:"target_id" json:"target_id"`
+	Description  string        `db:"description" json:"description"`
+	CollageID    uuid.NullUUID `db:"collage_id" json:"collage_id"`
+	SnapshotID   uuid.NullUUID `db:"snapshot_id" json:"snapshot_id"`
+	CreatedBy    uuid.NullUUID `db:"created_by" json:"created_by"`
+	Status       string        `db:"status" json:"status"`
+	ResolvedType *string       `db:"resolved_type" json:"resolved_type"`
+	ResolvedID   uuid.NullUUID `db:"resolved_id" json:"resolved_id"`
+	ResolvedBy   uuid.NullUUID `db:"resolved_by" json:"resolved_by"`
+	ResolvedAt   *time.Time    `db:"resolved_at" json:"resolved_at"`
+	CreatedAt    time.Time     `db:"created_at" json:"created_at"`
+	UpdatedAt    time.Time     `db:"updated_at" json:"updated_at"`
+}
+
 type Image struct {
 	ID       uuid.UUID `db:"id" json:"id"`
 	Url      *string   `db:"url" json:"url"`

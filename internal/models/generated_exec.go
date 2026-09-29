@@ -277,6 +277,39 @@ type ComplexityRoot struct {
 		Gender func(childComplexity int) int
 	}
 
+	IdentificationCandidate struct {
+		CreatedAt   func(childComplexity int) int
+		Entity      func(childComplexity int) int
+		EntityID    func(childComplexity int) int
+		EntityType  func(childComplexity int) int
+		ID          func(childComplexity int) int
+		Note        func(childComplexity int) int
+		QueryID     func(childComplexity int) int
+		SuggestedBy func(childComplexity int) int
+		VoteCount   func(childComplexity int) int
+		VotedByMe   func(childComplexity int) int
+	}
+
+	IdentificationDetective struct {
+		Score func(childComplexity int) int
+		User  func(childComplexity int) int
+	}
+
+	IdentificationQuery struct {
+		Candidates   func(childComplexity int) int
+		CreatedAt    func(childComplexity int) int
+		Description  func(childComplexity int) int
+		ID           func(childComplexity int) int
+		ResolvedAt   func(childComplexity int) int
+		ResolvedBy   func(childComplexity int) int
+		ResolvedID   func(childComplexity int) int
+		ResolvedType func(childComplexity int) int
+		SnapshotID   func(childComplexity int) int
+		Status       func(childComplexity int) int
+		TargetID     func(childComplexity int) int
+		TargetType   func(childComplexity int) int
+	}
+
 	Image struct {
 		Height func(childComplexity int) int
 		ID     func(childComplexity int) int
@@ -309,6 +342,7 @@ type ComplexityRoot struct {
 	}
 
 	Mutation struct {
+		AbandonIdentificationQuery        func(childComplexity int, id uuid.UUID) int
 		ActivateNewUser                   func(childComplexity int, input ActivateNewUserInput) int
 		AmendEdit                         func(childComplexity int, input AmendEditInput) int
 		ApproveEdit                       func(childComplexity int, input ApproveEditInput) int
@@ -334,10 +368,12 @@ type ComplexityRoot struct {
 		PerformerEdit                     func(childComplexity int, input PerformerEditInput) int
 		PerformerEditUpdate               func(childComplexity int, id uuid.UUID, input PerformerEditInput) int
 		PerformerUpdate                   func(childComplexity int, input PerformerUpdateInput) int
+		PostIdentificationQuery           func(childComplexity int, input IdentificationPostInput) int
 		RegenerateAPIKey                  func(childComplexity int, userID *uuid.UUID) int
 		RequestChangeEmail                func(childComplexity int) int
 		RescindInviteCode                 func(childComplexity int, code uuid.UUID) int
 		ResetPassword                     func(childComplexity int, input ResetPasswordInput) int
+		ResolveIdentificationQuery        func(childComplexity int, input IdentificationResolveInput) int
 		RevokeInvite                      func(childComplexity int, input RevokeInviteInput) int
 		SceneCreate                       func(childComplexity int, input SceneCreateInput) int
 		SceneDeleteFingerprintSubmissions func(childComplexity int, input DeleteFingerprintSubmissionsInput) int
@@ -362,6 +398,7 @@ type ComplexityRoot struct {
 		SubmitFingerprints                func(childComplexity int, input []FingerprintBatchSubmission) int
 		SubmitPerformerDraft              func(childComplexity int, input PerformerDraftInput) int
 		SubmitSceneDraft                  func(childComplexity int, input SceneDraftInput) int
+		SuggestIdentificationCandidate    func(childComplexity int, input IdentificationSuggestInput) int
 		TagCategoryCreate                 func(childComplexity int, input TagCategoryCreateInput) int
 		TagCategoryDestroy                func(childComplexity int, input TagCategoryDestroyInput) int
 		TagCategoryUpdate                 func(childComplexity int, input TagCategoryUpdateInput) int
@@ -370,6 +407,7 @@ type ComplexityRoot struct {
 		TagEdit                           func(childComplexity int, input TagEditInput) int
 		TagEditUpdate                     func(childComplexity int, id uuid.UUID, input TagEditInput) int
 		TagUpdate                         func(childComplexity int, input TagUpdateInput) int
+		UnvoteIdentificationCandidate     func(childComplexity int, candidateID uuid.UUID) int
 		UpdateEditComment                 func(childComplexity int, input UpdateEditCommentInput) int
 		UpdateNotificationSubscriptions   func(childComplexity int, subscriptions []NotificationEnum) int
 		UserCreate                        func(childComplexity int, input UserCreateInput) int
@@ -377,6 +415,7 @@ type ComplexityRoot struct {
 		UserUpdate                        func(childComplexity int, input UserUpdateInput) int
 		ValidateChangeEmail               func(childComplexity int, token uuid.UUID, email string) int
 		VoteElo                           func(childComplexity int, input EloVoteInput) int
+		VoteIdentificationCandidate       func(childComplexity int, candidateID uuid.UUID) int
 	}
 
 	Notification struct {
@@ -505,51 +544,55 @@ type ComplexityRoot struct {
 	}
 
 	Query struct {
-		EloLeaderboard                func(childComplexity int, entityType EloEntityType, limit *int) int
-		EloMatchup                    func(childComplexity int, entityType EloEntityType) int
-		EloRating                     func(childComplexity int, entityType EloEntityType, id uuid.UUID) int
-		FetchSiteFavicons             func(childComplexity int, url string) int
-		FindDraft                     func(childComplexity int, id uuid.UUID) int
-		FindDrafts                    func(childComplexity int) int
-		FindEdit                      func(childComplexity int, id uuid.UUID) int
-		FindPerformer                 func(childComplexity int, id uuid.UUID) int
-		FindPerformers                func(childComplexity int, ids []uuid.UUID) int
-		FindScene                     func(childComplexity int, id uuid.UUID) int
-		FindScenes                    func(childComplexity int, ids []uuid.UUID) int
-		FindScenesBySceneFingerprints func(childComplexity int, fingerprints [][]FingerprintQueryInput) int
-		FindSite                      func(childComplexity int, id uuid.UUID) int
-		FindSiteCategory              func(childComplexity int, id int) int
-		FindStudio                    func(childComplexity int, id *uuid.UUID, name *string) int
-		FindStudios                   func(childComplexity int, ids []uuid.UUID) int
-		FindTag                       func(childComplexity int, id *uuid.UUID, name *string) int
-		FindTagCategory               func(childComplexity int, id uuid.UUID) int
-		FindTagOrAlias                func(childComplexity int, name string) int
-		FindTags                      func(childComplexity int, ids []uuid.UUID) int
-		FindUser                      func(childComplexity int, id *uuid.UUID, username *string) int
-		FingerprintClusters           func(childComplexity int, input FingerprintClustersInput) int
-		GetConfig                     func(childComplexity int) int
-		GetUnreadNotificationCount    func(childComplexity int) int
-		Me                            func(childComplexity int) int
-		QueryEdits                    func(childComplexity int, input EditQueryInput) int
-		QueryExistingPerformer        func(childComplexity int, input QueryExistingPerformerInput) int
-		QueryExistingScene            func(childComplexity int, input QueryExistingSceneInput) int
-		QueryModAudits                func(childComplexity int, input ModAuditQueryInput) int
-		QueryNotifications            func(childComplexity int, input QueryNotificationsInput) int
-		QueryPerformers               func(childComplexity int, input PerformerQueryInput) int
-		QueryScenes                   func(childComplexity int, input SceneQueryInput) int
-		QuerySiteCategories           func(childComplexity int) int
-		QuerySites                    func(childComplexity int) int
-		QueryStudios                  func(childComplexity int, input StudioQueryInput) int
-		QueryTagCategories            func(childComplexity int) int
-		QueryTags                     func(childComplexity int, input TagQueryInput) int
-		QueryUsers                    func(childComplexity int, input UserQueryInput) int
-		SearchPerformer               func(childComplexity int, term string, limit *int) int
-		SearchPerformers              func(childComplexity int, term string, limit *int, page *int, perPage *int, filter *PerformerSearchFilter) int
-		SearchScene                   func(childComplexity int, term string, limit *int) int
-		SearchScenes                  func(childComplexity int, term string, limit *int, page *int, perPage *int) int
-		SearchStudio                  func(childComplexity int, term string, limit *int) int
-		SearchTag                     func(childComplexity int, term string, limit *int) int
-		Version                       func(childComplexity int) int
+		EloLeaderboard                 func(childComplexity int, entityType EloEntityType, limit *int) int
+		EloMatchup                     func(childComplexity int, entityType EloEntityType) int
+		EloRating                      func(childComplexity int, entityType EloEntityType, id uuid.UUID) int
+		FetchSiteFavicons              func(childComplexity int, url string) int
+		FindDraft                      func(childComplexity int, id uuid.UUID) int
+		FindDrafts                     func(childComplexity int) int
+		FindEdit                       func(childComplexity int, id uuid.UUID) int
+		FindPerformer                  func(childComplexity int, id uuid.UUID) int
+		FindPerformers                 func(childComplexity int, ids []uuid.UUID) int
+		FindScene                      func(childComplexity int, id uuid.UUID) int
+		FindScenes                     func(childComplexity int, ids []uuid.UUID) int
+		FindScenesBySceneFingerprints  func(childComplexity int, fingerprints [][]FingerprintQueryInput) int
+		FindSite                       func(childComplexity int, id uuid.UUID) int
+		FindSiteCategory               func(childComplexity int, id int) int
+		FindStudio                     func(childComplexity int, id *uuid.UUID, name *string) int
+		FindStudios                    func(childComplexity int, ids []uuid.UUID) int
+		FindTag                        func(childComplexity int, id *uuid.UUID, name *string) int
+		FindTagCategory                func(childComplexity int, id uuid.UUID) int
+		FindTagOrAlias                 func(childComplexity int, name string) int
+		FindTags                       func(childComplexity int, ids []uuid.UUID) int
+		FindUser                       func(childComplexity int, id *uuid.UUID, username *string) int
+		FingerprintClusters            func(childComplexity int, input FingerprintClustersInput) int
+		GetConfig                      func(childComplexity int) int
+		GetUnreadNotificationCount     func(childComplexity int) int
+		IdentificationQuery            func(childComplexity int, id uuid.UUID) int
+		ListOpenIdentificationQueries  func(childComplexity int, limit *int) int
+		Me                             func(childComplexity int) int
+		MyIdentificationDetectiveScore func(childComplexity int) int
+		QueryEdits                     func(childComplexity int, input EditQueryInput) int
+		QueryExistingPerformer         func(childComplexity int, input QueryExistingPerformerInput) int
+		QueryExistingScene             func(childComplexity int, input QueryExistingSceneInput) int
+		QueryModAudits                 func(childComplexity int, input ModAuditQueryInput) int
+		QueryNotifications             func(childComplexity int, input QueryNotificationsInput) int
+		QueryPerformers                func(childComplexity int, input PerformerQueryInput) int
+		QueryScenes                    func(childComplexity int, input SceneQueryInput) int
+		QuerySiteCategories            func(childComplexity int) int
+		QuerySites                     func(childComplexity int) int
+		QueryStudios                   func(childComplexity int, input StudioQueryInput) int
+		QueryTagCategories             func(childComplexity int) int
+		QueryTags                      func(childComplexity int, input TagQueryInput) int
+		QueryUsers                     func(childComplexity int, input UserQueryInput) int
+		ResolvedIdentificationQueries  func(childComplexity int, entityType IdentificationTargetType, entityID uuid.UUID, limit *int) int
+		SearchPerformer                func(childComplexity int, term string, limit *int) int
+		SearchPerformers               func(childComplexity int, term string, limit *int, page *int, perPage *int, filter *PerformerSearchFilter) int
+		SearchScene                    func(childComplexity int, term string, limit *int) int
+		SearchScenes                   func(childComplexity int, term string, limit *int, page *int, perPage *int) int
+		SearchStudio                   func(childComplexity int, term string, limit *int) int
+		SearchTag                      func(childComplexity int, term string, limit *int) int
+		Version                        func(childComplexity int) int
 	}
 
 	QueryEditsResultType struct {
@@ -977,6 +1020,12 @@ type MutationResolver interface {
 	MarkNotificationsRead(ctx context.Context, notification *MarkNotificationReadInput) (bool, error)
 	UpdateNotificationSubscriptions(ctx context.Context, subscriptions []NotificationEnum) (bool, error)
 	VoteElo(ctx context.Context, input EloVoteInput) (*EloVoteResult, error)
+	PostIdentificationQuery(ctx context.Context, input IdentificationPostInput) (*IdentificationQuery, error)
+	SuggestIdentificationCandidate(ctx context.Context, input IdentificationSuggestInput) (*IdentificationCandidate, error)
+	VoteIdentificationCandidate(ctx context.Context, candidateID uuid.UUID) (*IdentificationCandidate, error)
+	UnvoteIdentificationCandidate(ctx context.Context, candidateID uuid.UUID) (*IdentificationCandidate, error)
+	ResolveIdentificationQuery(ctx context.Context, input IdentificationResolveInput) (*IdentificationQuery, error)
+	AbandonIdentificationQuery(ctx context.Context, id uuid.UUID) (*IdentificationQuery, error)
 }
 type NotificationResolver interface {
 	Created(ctx context.Context, obj *Notification) (*time.Time, error)
@@ -1075,6 +1124,10 @@ type QueryResolver interface {
 	EloMatchup(ctx context.Context, entityType EloEntityType) (*EloMatchup, error)
 	EloRating(ctx context.Context, entityType EloEntityType, id uuid.UUID) (*EloRating, error)
 	EloLeaderboard(ctx context.Context, entityType EloEntityType, limit *int) (*EloLeaderboard, error)
+	ListOpenIdentificationQueries(ctx context.Context, limit *int) ([]IdentificationQuery, error)
+	IdentificationQuery(ctx context.Context, id uuid.UUID) (*IdentificationQuery, error)
+	ResolvedIdentificationQueries(ctx context.Context, entityType IdentificationTargetType, entityID uuid.UUID, limit *int) ([]IdentificationQuery, error)
+	MyIdentificationDetectiveScore(ctx context.Context) (*IdentificationDetective, error)
 }
 type QueryEditsResultTypeResolver interface {
 	Count(ctx context.Context, obj *EditQuery) (int, error)
@@ -1892,6 +1945,153 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.GenderFacet.Gender(childComplexity), true
 
+	case "IdentificationCandidate.createdAt":
+		if e.ComplexityRoot.IdentificationCandidate.CreatedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.IdentificationCandidate.CreatedAt(childComplexity), true
+	case "IdentificationCandidate.entity":
+		if e.ComplexityRoot.IdentificationCandidate.Entity == nil {
+			break
+		}
+
+		return e.ComplexityRoot.IdentificationCandidate.Entity(childComplexity), true
+	case "IdentificationCandidate.entityId":
+		if e.ComplexityRoot.IdentificationCandidate.EntityID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.IdentificationCandidate.EntityID(childComplexity), true
+	case "IdentificationCandidate.entityType":
+		if e.ComplexityRoot.IdentificationCandidate.EntityType == nil {
+			break
+		}
+
+		return e.ComplexityRoot.IdentificationCandidate.EntityType(childComplexity), true
+	case "IdentificationCandidate.id":
+		if e.ComplexityRoot.IdentificationCandidate.ID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.IdentificationCandidate.ID(childComplexity), true
+	case "IdentificationCandidate.note":
+		if e.ComplexityRoot.IdentificationCandidate.Note == nil {
+			break
+		}
+
+		return e.ComplexityRoot.IdentificationCandidate.Note(childComplexity), true
+	case "IdentificationCandidate.queryId":
+		if e.ComplexityRoot.IdentificationCandidate.QueryID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.IdentificationCandidate.QueryID(childComplexity), true
+	case "IdentificationCandidate.suggestedBy":
+		if e.ComplexityRoot.IdentificationCandidate.SuggestedBy == nil {
+			break
+		}
+
+		return e.ComplexityRoot.IdentificationCandidate.SuggestedBy(childComplexity), true
+	case "IdentificationCandidate.voteCount":
+		if e.ComplexityRoot.IdentificationCandidate.VoteCount == nil {
+			break
+		}
+
+		return e.ComplexityRoot.IdentificationCandidate.VoteCount(childComplexity), true
+	case "IdentificationCandidate.votedByMe":
+		if e.ComplexityRoot.IdentificationCandidate.VotedByMe == nil {
+			break
+		}
+
+		return e.ComplexityRoot.IdentificationCandidate.VotedByMe(childComplexity), true
+
+	case "IdentificationDetective.score":
+		if e.ComplexityRoot.IdentificationDetective.Score == nil {
+			break
+		}
+
+		return e.ComplexityRoot.IdentificationDetective.Score(childComplexity), true
+	case "IdentificationDetective.user":
+		if e.ComplexityRoot.IdentificationDetective.User == nil {
+			break
+		}
+
+		return e.ComplexityRoot.IdentificationDetective.User(childComplexity), true
+
+	case "IdentificationQuery.candidates":
+		if e.ComplexityRoot.IdentificationQuery.Candidates == nil {
+			break
+		}
+
+		return e.ComplexityRoot.IdentificationQuery.Candidates(childComplexity), true
+	case "IdentificationQuery.createdAt":
+		if e.ComplexityRoot.IdentificationQuery.CreatedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.IdentificationQuery.CreatedAt(childComplexity), true
+	case "IdentificationQuery.description":
+		if e.ComplexityRoot.IdentificationQuery.Description == nil {
+			break
+		}
+
+		return e.ComplexityRoot.IdentificationQuery.Description(childComplexity), true
+	case "IdentificationQuery.id":
+		if e.ComplexityRoot.IdentificationQuery.ID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.IdentificationQuery.ID(childComplexity), true
+	case "IdentificationQuery.resolvedAt":
+		if e.ComplexityRoot.IdentificationQuery.ResolvedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.IdentificationQuery.ResolvedAt(childComplexity), true
+	case "IdentificationQuery.resolvedBy":
+		if e.ComplexityRoot.IdentificationQuery.ResolvedBy == nil {
+			break
+		}
+
+		return e.ComplexityRoot.IdentificationQuery.ResolvedBy(childComplexity), true
+	case "IdentificationQuery.resolvedId":
+		if e.ComplexityRoot.IdentificationQuery.ResolvedID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.IdentificationQuery.ResolvedID(childComplexity), true
+	case "IdentificationQuery.resolvedType":
+		if e.ComplexityRoot.IdentificationQuery.ResolvedType == nil {
+			break
+		}
+
+		return e.ComplexityRoot.IdentificationQuery.ResolvedType(childComplexity), true
+	case "IdentificationQuery.snapshotId":
+		if e.ComplexityRoot.IdentificationQuery.SnapshotID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.IdentificationQuery.SnapshotID(childComplexity), true
+	case "IdentificationQuery.status":
+		if e.ComplexityRoot.IdentificationQuery.Status == nil {
+			break
+		}
+
+		return e.ComplexityRoot.IdentificationQuery.Status(childComplexity), true
+	case "IdentificationQuery.targetId":
+		if e.ComplexityRoot.IdentificationQuery.TargetID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.IdentificationQuery.TargetID(childComplexity), true
+	case "IdentificationQuery.targetType":
+		if e.ComplexityRoot.IdentificationQuery.TargetType == nil {
+			break
+		}
+
+		return e.ComplexityRoot.IdentificationQuery.TargetType(childComplexity), true
+
 	case "Image.height":
 		if e.ComplexityRoot.Image.Height == nil {
 			break
@@ -2010,6 +2210,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.ModAudit.User(childComplexity), true
 
+	case "Mutation.abandonIdentificationQuery":
+		if e.ComplexityRoot.Mutation.AbandonIdentificationQuery == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_abandonIdentificationQuery_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.AbandonIdentificationQuery(childComplexity, args["id"].(uuid.UUID)), true
 	case "Mutation.activateNewUser":
 		if e.ComplexityRoot.Mutation.ActivateNewUser == nil {
 			break
@@ -2280,6 +2491,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.PerformerUpdate(childComplexity, args["input"].(PerformerUpdateInput)), true
+	case "Mutation.postIdentificationQuery":
+		if e.ComplexityRoot.Mutation.PostIdentificationQuery == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_postIdentificationQuery_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.PostIdentificationQuery(childComplexity, args["input"].(IdentificationPostInput)), true
 	case "Mutation.regenerateAPIKey":
 		if e.ComplexityRoot.Mutation.RegenerateAPIKey == nil {
 			break
@@ -2319,6 +2541,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.ResetPassword(childComplexity, args["input"].(ResetPasswordInput)), true
+	case "Mutation.resolveIdentificationQuery":
+		if e.ComplexityRoot.Mutation.ResolveIdentificationQuery == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_resolveIdentificationQuery_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.ResolveIdentificationQuery(childComplexity, args["input"].(IdentificationResolveInput)), true
 	case "Mutation.revokeInvite":
 		if e.ComplexityRoot.Mutation.RevokeInvite == nil {
 			break
@@ -2583,6 +2816,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.SubmitSceneDraft(childComplexity, args["input"].(SceneDraftInput)), true
+	case "Mutation.suggestIdentificationCandidate":
+		if e.ComplexityRoot.Mutation.SuggestIdentificationCandidate == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_suggestIdentificationCandidate_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.SuggestIdentificationCandidate(childComplexity, args["input"].(IdentificationSuggestInput)), true
 	case "Mutation.tagCategoryCreate":
 		if e.ComplexityRoot.Mutation.TagCategoryCreate == nil {
 			break
@@ -2671,6 +2915,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.TagUpdate(childComplexity, args["input"].(TagUpdateInput)), true
+	case "Mutation.unvoteIdentificationCandidate":
+		if e.ComplexityRoot.Mutation.UnvoteIdentificationCandidate == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_unvoteIdentificationCandidate_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.UnvoteIdentificationCandidate(childComplexity, args["candidateId"].(uuid.UUID)), true
 	case "Mutation.updateEditComment":
 		if e.ComplexityRoot.Mutation.UpdateEditComment == nil {
 			break
@@ -2748,6 +3003,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.VoteElo(childComplexity, args["input"].(EloVoteInput)), true
+	case "Mutation.voteIdentificationCandidate":
+		if e.ComplexityRoot.Mutation.VoteIdentificationCandidate == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_voteIdentificationCandidate_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.VoteIdentificationCandidate(childComplexity, args["candidateId"].(uuid.UUID)), true
 
 	case "Notification.created":
 		if e.ComplexityRoot.Notification.Created == nil {
@@ -3627,13 +3893,41 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.GetUnreadNotificationCount(childComplexity), true
+	case "Query.identificationQuery":
+		if e.ComplexityRoot.Query.IdentificationQuery == nil {
+			break
+		}
 
+		args, err := ec.field_Query_identificationQuery_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.IdentificationQuery(childComplexity, args["id"].(uuid.UUID)), true
+
+	case "Query.listOpenIdentificationQueries":
+		if e.ComplexityRoot.Query.ListOpenIdentificationQueries == nil {
+			break
+		}
+
+		args, err := ec.field_Query_listOpenIdentificationQueries_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.ListOpenIdentificationQueries(childComplexity, args["limit"].(*int)), true
 	case "Query.me":
 		if e.ComplexityRoot.Query.Me == nil {
 			break
 		}
 
 		return e.ComplexityRoot.Query.Me(childComplexity), true
+	case "Query.myIdentificationDetectiveScore":
+		if e.ComplexityRoot.Query.MyIdentificationDetectiveScore == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Query.MyIdentificationDetectiveScore(childComplexity), true
 	case "Query.queryEdits":
 		if e.ComplexityRoot.Query.QueryEdits == nil {
 			break
@@ -3762,6 +4056,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.QueryUsers(childComplexity, args["input"].(UserQueryInput)), true
+	case "Query.resolvedIdentificationQueries":
+		if e.ComplexityRoot.Query.ResolvedIdentificationQueries == nil {
+			break
+		}
+
+		args, err := ec.field_Query_resolvedIdentificationQueries_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.ResolvedIdentificationQueries(childComplexity, args["entityType"].(IdentificationTargetType), args["entityId"].(uuid.UUID), args["limit"].(*int)), true
 	case "Query.searchPerformer":
 		if e.ComplexityRoot.Query.SearchPerformer == nil {
 			break
@@ -5151,6 +5456,9 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputHairColorCriterionInput,
 		ec.unmarshalInputHideEditCommentInput,
 		ec.unmarshalInputIDCriterionInput,
+		ec.unmarshalInputIdentificationPostInput,
+		ec.unmarshalInputIdentificationResolveInput,
+		ec.unmarshalInputIdentificationSuggestInput,
 		ec.unmarshalInputImageCreateInput,
 		ec.unmarshalInputImageDestroyInput,
 		ec.unmarshalInputImageUpdateInput,
@@ -5761,6 +6069,270 @@ type ClusterOshash {
 input FingerprintClustersInput {
   scene_id: ID!
   distance: Int!
+}
+`, BuiltIn: false},
+	{Name: "../../graphql/schema/types/identification.graphql", Input: `# Identification board (SPEC §5): "Which Was That…?"
+#
+# The board turns collective memory into structured archive data. A user posts
+# something half-remembered, the community proposes candidates and votes, and a
+# solved query becomes a canonical link to real metadata.
+#
+# The rule that shapes this schema: a query is a QUESTION and a candidate is a
+# SUGGESTION. Neither is metadata. Nothing in this file can create a scene or a
+# performer, and the absence of such a mutation is the point -- SPEC §5 says an
+# identification "can trigger metadata creation", and CAN means through the
+# existing edit path, by a person. A mutation that created metadata from a vote
+# would make the archive fill itself with confidently wrong records, every one of
+# which then becomes a canonical link that search points at.
+
+"""What kind of entity a query is trying to identify."""
+enum IdentificationTargetType {
+  performer
+  scene
+  studio
+  site
+  tag
+}
+
+"""A query's state."""
+enum IdentificationStatus {
+  """
+  Nobody has resolved it yet. The only state the board's queue shows.
+  """
+  open
+  """
+  A human accepted a resolution. Always names what it resolved to.
+  """
+  solved
+  """
+  The community gave up.
+
+  Distinct from ` + "`" + `open` + "`" + ` because "nobody will ever solve this" and "nobody has
+  solved this yet" want different handling: an abandoned query re-surfacing in the
+  queue forever is how a board fills with questions nobody wants.
+  """
+  abandoned
+}
+
+"""A question about something half-remembered."""
+type IdentificationQuery {
+  id: ID!
+
+  targetType: IdentificationTargetType!
+
+  """
+  The entity the question is about, when the asker has it.
+
+  Optional: a user often has the scene and wants the performer identified within
+  it. The description is the question either way.
+  """
+  targetId: ID
+
+  """
+  What the asker remembers. The only required field -- SPEC §5 lists
+  description, collage, snapshot, frame and quote as ALTERNATIVES, not as a form
+  with required inputs, and a user with a half-formed memory should be able to
+  post it and let the community ask for more.
+  """
+  description: String!
+
+  """
+  The visual evidence, when there is any.
+  """
+  snapshotId: ID
+
+  status: IdentificationStatus!
+  createdAt: Time!
+
+  """
+  What it was resolved to, and by whom. Null unless status is ` + "`" + `solved` + "`" + `.
+
+  ` + "`" + `resolvedType` + "`" + ` is not necessarily ` + "`" + `targetType` + "`" + `: a user asking "who is this
+  performer" with a target of ` + "`" + `scene` + "`" + ` resolves to a performer. The board is
+  explicit about which of the two it is.
+  """
+  resolvedType: IdentificationTargetType
+  resolvedId: ID
+  resolvedBy: User
+  resolvedAt: Time
+
+  """
+  The suggested answers, most-voted first.
+
+  A candidate with zero votes still appears: it is exactly when someone needs to
+  see it.
+  """
+  candidates: [IdentificationCandidate!]!
+}
+
+"""One suggested answer to a query."""
+type IdentificationCandidate {
+  id: ID!
+  queryId: ID!
+  entityType: IdentificationTargetType!
+  entityId: ID!
+
+  """
+  The suggested entity, resolved. Null when the entity has been deleted since the
+  suggestion was made, which is a real possibility on a board that outlives its
+  questions.
+  """
+  entity: Performer
+
+  """
+  Why this was suggested. Free text and usually null.
+
+  A candidate with a reason -- "the studio watermark is visible in frame 3" -- is
+  far more useful to someone reading the thread than the bare entity, and it is
+  the difference between a suggestion and a guess. Not exposed as a mutation input
+  yet: no caller in this version has a way to supply one.
+  """
+  note: String
+  suggestedBy: User
+  createdAt: Time!
+
+  """
+  How many people have voted for this.
+
+  This is a tally of PEOPLE, which is what §5's leaderboards are built from.
+  """
+  voteCount: Int!
+
+  """
+  Whether the VIEWING user has voted for this.
+
+  Rendered as a state rather than an action: a vote button that silently does
+  nothing on a second tap is worse than one that shows it is already cast.
+  """
+  votedByMe: Boolean!
+}
+
+"""
+A ranked list of identifiers, for §5's "Detective" leaderboard.
+"""
+type IdentificationDetective {
+  user: User!
+  """
+  How many candidates this user has voted on across OPEN queries.
+  """
+  score: Int!
+}
+
+input IdentificationPostInput {
+  targetType: IdentificationTargetType!
+  targetId: ID
+  description: String!
+  snapshotId: ID
+}
+
+input IdentificationSuggestInput {
+  queryId: ID!
+  entityType: IdentificationTargetType!
+  entityId: ID!
+}
+
+input IdentificationResolveInput {
+  queryId: ID!
+  """
+  What it turned out to be.
+
+  Must be the same type the query asked about: suggesting and resolving across
+  types is a category error, and the service refuses it rather than tolerating a
+  performer in a list of possible scenes.
+  """
+  resolvedType: IdentificationTargetType!
+  resolvedId: ID!
+}
+
+extend type Query {
+  """
+  The board's queue: open queries, newest first.
+
+  Open to any reader. A question with no answer is not sensitive, and hiding the
+  board behind registration would defeat its purpose, which is to be looked at.
+  """
+  listOpenIdentificationQueries(limit: Int): [IdentificationQuery!]!
+    @hasRole(role: READ)
+
+  """Read one query, with its candidates."""
+  identificationQuery(id: ID!): IdentificationQuery @hasRole(role: READ)
+
+  """
+  Every solved query about one entity.
+
+  This is §5's canonical link: the board's conclusions indexed against real
+  metadata, so an entity page can show what the community worked out about it.
+  Only SOLVED queries appear -- an open query is a question, not an answer.
+  """
+  resolvedIdentificationQueries(
+    entityType: IdentificationTargetType!
+    entityId: ID!
+    limit: Int
+  ): [IdentificationQuery!]! @hasRole(role: READ)
+
+  """
+  §5's "Detective" leaderboard, for the current user.
+
+  Scores count votes on OPEN queries only. A vote on a query that was resolved
+  without you stops counting, because it was evidence about a question that no
+  longer exists.
+  """
+  myIdentificationDetectiveScore: IdentificationDetective @hasRole(role: VOTE)
+}
+
+extend type Mutation {
+  """
+  Post a question about something half-remembered.
+
+  Requires VOTE, not READ: posting is a contribution, and §6 level 1 (Registered)
+  is where the board begins. Anonymous users can read it and see what is being
+  looked for, which is most of the value of a public board.
+  """
+  postIdentificationQuery(
+    input: IdentificationPostInput!
+  ): IdentificationQuery! @hasRole(role: VOTE)
+
+  """
+  Suggest a candidate answer.
+
+  One suggestion per entity per query, enforced by the database: re-suggesting is
+  not more signal, and allowing it would let one person suggest a candidate and
+  then vote it.
+  """
+  suggestIdentificationCandidate(
+    input: IdentificationSuggestInput!
+  ): IdentificationCandidate! @hasRole(role: VOTE)
+
+  """
+  Vote for a candidate. Voting twice is a constraint violation, not a doubled
+  tally.
+  """
+  voteIdentificationCandidate(candidateId: ID!): IdentificationCandidate!
+    @hasRole(role: VOTE)
+
+  """
+  Take a vote back. An accidental tap should be undoable, and a vote the user
+  cannot withdraw is a vote they will not make.
+  """
+  unvoteIdentificationCandidate(candidateId: ID!): IdentificationCandidate!
+    @hasRole(role: VOTE)
+
+  """
+  Record what a query turned out to be.
+
+  This requires a named human and records who they were. There is deliberately NO
+  vote-threshold variant of this mutation: a plurality is not authority, and one
+  that silently created metadata would be the single most damaging thing this
+  board could do to the archive.
+  """
+  resolveIdentificationQuery(
+    input: IdentificationResolveInput!
+  ): IdentificationQuery! @hasRole(role: VOTE)
+
+  """
+  Mark a query dead, so it leaves the queue.
+  """
+  abandonIdentificationQuery(id: ID!): IdentificationQuery! @hasRole(role: VOTE)
 }
 `, BuiltIn: false},
 	{Name: "../../graphql/schema/types/image.graphql", Input: `scalar Upload
@@ -7869,6 +8441,72 @@ func (ec *executionContext) childFields_GenderFacet(ctx context.Context, field g
 	return nil, fmt.Errorf("no field named %q was found under type GenderFacet", field.Name)
 }
 
+func (ec *executionContext) childFields_IdentificationCandidate(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "id":
+		return ec.fieldContext_IdentificationCandidate_id(ctx, field)
+	case "queryId":
+		return ec.fieldContext_IdentificationCandidate_queryId(ctx, field)
+	case "entityType":
+		return ec.fieldContext_IdentificationCandidate_entityType(ctx, field)
+	case "entityId":
+		return ec.fieldContext_IdentificationCandidate_entityId(ctx, field)
+	case "entity":
+		return ec.fieldContext_IdentificationCandidate_entity(ctx, field)
+	case "note":
+		return ec.fieldContext_IdentificationCandidate_note(ctx, field)
+	case "suggestedBy":
+		return ec.fieldContext_IdentificationCandidate_suggestedBy(ctx, field)
+	case "createdAt":
+		return ec.fieldContext_IdentificationCandidate_createdAt(ctx, field)
+	case "voteCount":
+		return ec.fieldContext_IdentificationCandidate_voteCount(ctx, field)
+	case "votedByMe":
+		return ec.fieldContext_IdentificationCandidate_votedByMe(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type IdentificationCandidate", field.Name)
+}
+
+func (ec *executionContext) childFields_IdentificationDetective(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "user":
+		return ec.fieldContext_IdentificationDetective_user(ctx, field)
+	case "score":
+		return ec.fieldContext_IdentificationDetective_score(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type IdentificationDetective", field.Name)
+}
+
+func (ec *executionContext) childFields_IdentificationQuery(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "id":
+		return ec.fieldContext_IdentificationQuery_id(ctx, field)
+	case "targetType":
+		return ec.fieldContext_IdentificationQuery_targetType(ctx, field)
+	case "targetId":
+		return ec.fieldContext_IdentificationQuery_targetId(ctx, field)
+	case "description":
+		return ec.fieldContext_IdentificationQuery_description(ctx, field)
+	case "snapshotId":
+		return ec.fieldContext_IdentificationQuery_snapshotId(ctx, field)
+	case "status":
+		return ec.fieldContext_IdentificationQuery_status(ctx, field)
+	case "createdAt":
+		return ec.fieldContext_IdentificationQuery_createdAt(ctx, field)
+	case "resolvedType":
+		return ec.fieldContext_IdentificationQuery_resolvedType(ctx, field)
+	case "resolvedId":
+		return ec.fieldContext_IdentificationQuery_resolvedId(ctx, field)
+	case "resolvedBy":
+		return ec.fieldContext_IdentificationQuery_resolvedBy(ctx, field)
+	case "resolvedAt":
+		return ec.fieldContext_IdentificationQuery_resolvedAt(ctx, field)
+	case "candidates":
+		return ec.fieldContext_IdentificationQuery_candidates(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type IdentificationQuery", field.Name)
+}
+
 func (ec *executionContext) childFields_Image(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 	switch field.Name {
 	case "id":
@@ -8663,6 +9301,20 @@ func (ec *executionContext) dir_hasRole_args(ctx context.Context, rawArgs map[st
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_abandonIdentificationQuery_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (uuid.UUID, error) {
+			return ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_activateNewUser_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -9023,6 +9675,20 @@ func (ec *executionContext) field_Mutation_performerUpdate_args(ctx context.Cont
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_postIdentificationQuery_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
+		func(ctx context.Context, v any) (IdentificationPostInput, error) {
+			return ec.unmarshalNIdentificationPostInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationPostInput(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_regenerateAPIKey_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -9057,6 +9723,20 @@ func (ec *executionContext) field_Mutation_resetPassword_args(ctx context.Contex
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
 		func(ctx context.Context, v any) (ResetPasswordInput, error) {
 			return ec.unmarshalNResetPasswordInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐResetPasswordInput(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_resolveIdentificationQuery_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
+		func(ctx context.Context, v any) (IdentificationResolveInput, error) {
+			return ec.unmarshalNIdentificationResolveInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationResolveInput(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -9417,6 +10097,20 @@ func (ec *executionContext) field_Mutation_submitSceneDraft_args(ctx context.Con
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_suggestIdentificationCandidate_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
+		func(ctx context.Context, v any) (IdentificationSuggestInput, error) {
+			return ec.unmarshalNIdentificationSuggestInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationSuggestInput(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_tagCategoryCreate_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -9537,6 +10231,20 @@ func (ec *executionContext) field_Mutation_tagUpdate_args(ctx context.Context, r
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_unvoteIdentificationCandidate_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "candidateId",
+		func(ctx context.Context, v any) (uuid.UUID, error) {
+			return ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["candidateId"] = arg0
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_updateEditComment_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -9640,6 +10348,20 @@ func (ec *executionContext) field_Mutation_voteElo_args(ctx context.Context, raw
 		return nil, err
 	}
 	args["input"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_voteIdentificationCandidate_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "candidateId",
+		func(ctx context.Context, v any) (uuid.UUID, error) {
+			return ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["candidateId"] = arg0
 	return args, nil
 }
 
@@ -10033,6 +10755,34 @@ func (ec *executionContext) field_Query_fingerprintClusters_args(ctx context.Con
 	return args, nil
 }
 
+func (ec *executionContext) field_Query_identificationQuery_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (uuid.UUID, error) {
+			return ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_listOpenIdentificationQueries_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "limit",
+		func(ctx context.Context, v any) (*int, error) {
+			return ec.unmarshalOInt2ᚖint(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["limit"] = arg0
+	return args, nil
+}
+
 func (ec *executionContext) field_Query_queryEdits_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -10170,6 +10920,36 @@ func (ec *executionContext) field_Query_queryUsers_args(ctx context.Context, raw
 		return nil, err
 	}
 	args["input"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_resolvedIdentificationQueries_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "entityType",
+		func(ctx context.Context, v any) (IdentificationTargetType, error) {
+			return ec.unmarshalNIdentificationTargetType2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationTargetType(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["entityType"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "entityId",
+		func(ctx context.Context, v any) (uuid.UUID, error) {
+			return ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["entityId"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "limit",
+		func(ctx context.Context, v any) (*int, error) {
+			return ec.unmarshalOInt2ᚖint(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["limit"] = arg2
 	return args, nil
 }
 
@@ -13189,6 +13969,603 @@ func (ec *executionContext) _GenderFacet_count(ctx context.Context, field graphq
 }
 func (ec *executionContext) fieldContext_GenderFacet_count(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("GenderFacet", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _IdentificationCandidate_id(ctx context.Context, field graphql.CollectedField, obj *IdentificationCandidate) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_IdentificationCandidate_id(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v uuid.UUID) graphql.Marshaler {
+			return ec.marshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_IdentificationCandidate_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("IdentificationCandidate", field, false, false, errors.New("field of type ID does not have child fields"))
+}
+
+func (ec *executionContext) _IdentificationCandidate_queryId(ctx context.Context, field graphql.CollectedField, obj *IdentificationCandidate) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_IdentificationCandidate_queryId(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.QueryID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v uuid.UUID) graphql.Marshaler {
+			return ec.marshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_IdentificationCandidate_queryId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("IdentificationCandidate", field, false, false, errors.New("field of type ID does not have child fields"))
+}
+
+func (ec *executionContext) _IdentificationCandidate_entityType(ctx context.Context, field graphql.CollectedField, obj *IdentificationCandidate) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_IdentificationCandidate_entityType(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.EntityType, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v IdentificationTargetType) graphql.Marshaler {
+			return ec.marshalNIdentificationTargetType2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationTargetType(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_IdentificationCandidate_entityType(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("IdentificationCandidate", field, false, false, errors.New("field of type IdentificationTargetType does not have child fields"))
+}
+
+func (ec *executionContext) _IdentificationCandidate_entityId(ctx context.Context, field graphql.CollectedField, obj *IdentificationCandidate) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_IdentificationCandidate_entityId(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.EntityID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v uuid.UUID) graphql.Marshaler {
+			return ec.marshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_IdentificationCandidate_entityId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("IdentificationCandidate", field, false, false, errors.New("field of type ID does not have child fields"))
+}
+
+func (ec *executionContext) _IdentificationCandidate_entity(ctx context.Context, field graphql.CollectedField, obj *IdentificationCandidate) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_IdentificationCandidate_entity(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Entity, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *Performer) graphql.Marshaler {
+			return ec.marshalOPerformer2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐPerformer(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_IdentificationCandidate_entity(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "IdentificationCandidate",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_Performer(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _IdentificationCandidate_note(ctx context.Context, field graphql.CollectedField, obj *IdentificationCandidate) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_IdentificationCandidate_note(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Note, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
+			return ec.marshalOString2ᚖstring(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_IdentificationCandidate_note(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("IdentificationCandidate", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _IdentificationCandidate_suggestedBy(ctx context.Context, field graphql.CollectedField, obj *IdentificationCandidate) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_IdentificationCandidate_suggestedBy(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.SuggestedBy, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *User) graphql.Marshaler {
+			return ec.marshalOUser2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐUser(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_IdentificationCandidate_suggestedBy(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "IdentificationCandidate",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_User(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _IdentificationCandidate_createdAt(ctx context.Context, field graphql.CollectedField, obj *IdentificationCandidate) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_IdentificationCandidate_createdAt(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.CreatedAt, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v time.Time) graphql.Marshaler {
+			return ec.marshalNTime2timeᚐTime(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_IdentificationCandidate_createdAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("IdentificationCandidate", field, false, false, errors.New("field of type Time does not have child fields"))
+}
+
+func (ec *executionContext) _IdentificationCandidate_voteCount(ctx context.Context, field graphql.CollectedField, obj *IdentificationCandidate) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_IdentificationCandidate_voteCount(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.VoteCount, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_IdentificationCandidate_voteCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("IdentificationCandidate", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _IdentificationCandidate_votedByMe(ctx context.Context, field graphql.CollectedField, obj *IdentificationCandidate) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_IdentificationCandidate_votedByMe(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.VotedByMe, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_IdentificationCandidate_votedByMe(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("IdentificationCandidate", field, false, false, errors.New("field of type Boolean does not have child fields"))
+}
+
+func (ec *executionContext) _IdentificationDetective_user(ctx context.Context, field graphql.CollectedField, obj *IdentificationDetective) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_IdentificationDetective_user(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.User, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *User) graphql.Marshaler {
+			return ec.marshalNUser2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐUser(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_IdentificationDetective_user(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "IdentificationDetective",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_User(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _IdentificationDetective_score(ctx context.Context, field graphql.CollectedField, obj *IdentificationDetective) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_IdentificationDetective_score(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Score, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_IdentificationDetective_score(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("IdentificationDetective", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _IdentificationQuery_id(ctx context.Context, field graphql.CollectedField, obj *IdentificationQuery) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_IdentificationQuery_id(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v uuid.UUID) graphql.Marshaler {
+			return ec.marshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_IdentificationQuery_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("IdentificationQuery", field, false, false, errors.New("field of type ID does not have child fields"))
+}
+
+func (ec *executionContext) _IdentificationQuery_targetType(ctx context.Context, field graphql.CollectedField, obj *IdentificationQuery) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_IdentificationQuery_targetType(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.TargetType, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v IdentificationTargetType) graphql.Marshaler {
+			return ec.marshalNIdentificationTargetType2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationTargetType(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_IdentificationQuery_targetType(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("IdentificationQuery", field, false, false, errors.New("field of type IdentificationTargetType does not have child fields"))
+}
+
+func (ec *executionContext) _IdentificationQuery_targetId(ctx context.Context, field graphql.CollectedField, obj *IdentificationQuery) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_IdentificationQuery_targetId(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.TargetID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *uuid.UUID) graphql.Marshaler {
+			return ec.marshalOID2ᚖgithubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_IdentificationQuery_targetId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("IdentificationQuery", field, false, false, errors.New("field of type ID does not have child fields"))
+}
+
+func (ec *executionContext) _IdentificationQuery_description(ctx context.Context, field graphql.CollectedField, obj *IdentificationQuery) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_IdentificationQuery_description(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Description, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_IdentificationQuery_description(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("IdentificationQuery", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _IdentificationQuery_snapshotId(ctx context.Context, field graphql.CollectedField, obj *IdentificationQuery) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_IdentificationQuery_snapshotId(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.SnapshotID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *uuid.UUID) graphql.Marshaler {
+			return ec.marshalOID2ᚖgithubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_IdentificationQuery_snapshotId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("IdentificationQuery", field, false, false, errors.New("field of type ID does not have child fields"))
+}
+
+func (ec *executionContext) _IdentificationQuery_status(ctx context.Context, field graphql.CollectedField, obj *IdentificationQuery) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_IdentificationQuery_status(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Status, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v IdentificationStatus) graphql.Marshaler {
+			return ec.marshalNIdentificationStatus2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationStatus(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_IdentificationQuery_status(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("IdentificationQuery", field, false, false, errors.New("field of type IdentificationStatus does not have child fields"))
+}
+
+func (ec *executionContext) _IdentificationQuery_createdAt(ctx context.Context, field graphql.CollectedField, obj *IdentificationQuery) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_IdentificationQuery_createdAt(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.CreatedAt, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v time.Time) graphql.Marshaler {
+			return ec.marshalNTime2timeᚐTime(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_IdentificationQuery_createdAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("IdentificationQuery", field, false, false, errors.New("field of type Time does not have child fields"))
+}
+
+func (ec *executionContext) _IdentificationQuery_resolvedType(ctx context.Context, field graphql.CollectedField, obj *IdentificationQuery) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_IdentificationQuery_resolvedType(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ResolvedType, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *IdentificationTargetType) graphql.Marshaler {
+			return ec.marshalOIdentificationTargetType2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationTargetType(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_IdentificationQuery_resolvedType(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("IdentificationQuery", field, false, false, errors.New("field of type IdentificationTargetType does not have child fields"))
+}
+
+func (ec *executionContext) _IdentificationQuery_resolvedId(ctx context.Context, field graphql.CollectedField, obj *IdentificationQuery) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_IdentificationQuery_resolvedId(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ResolvedID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *uuid.UUID) graphql.Marshaler {
+			return ec.marshalOID2ᚖgithubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_IdentificationQuery_resolvedId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("IdentificationQuery", field, false, false, errors.New("field of type ID does not have child fields"))
+}
+
+func (ec *executionContext) _IdentificationQuery_resolvedBy(ctx context.Context, field graphql.CollectedField, obj *IdentificationQuery) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_IdentificationQuery_resolvedBy(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ResolvedBy, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *User) graphql.Marshaler {
+			return ec.marshalOUser2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐUser(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_IdentificationQuery_resolvedBy(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "IdentificationQuery",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_User(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _IdentificationQuery_resolvedAt(ctx context.Context, field graphql.CollectedField, obj *IdentificationQuery) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_IdentificationQuery_resolvedAt(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ResolvedAt, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *time.Time) graphql.Marshaler {
+			return ec.marshalOTime2ᚖtimeᚐTime(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_IdentificationQuery_resolvedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("IdentificationQuery", field, false, false, errors.New("field of type Time does not have child fields"))
+}
+
+func (ec *executionContext) _IdentificationQuery_candidates(ctx context.Context, field graphql.CollectedField, obj *IdentificationQuery) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_IdentificationQuery_candidates(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Candidates, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []IdentificationCandidate) graphql.Marshaler {
+			return ec.marshalNIdentificationCandidate2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationCandidateᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_IdentificationQuery_candidates(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "IdentificationQuery",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_IdentificationCandidate(ctx, field)
+		},
+	}
+	return fc, nil
 }
 
 func (ec *executionContext) _Image_id(ctx context.Context, field graphql.CollectedField, obj *Image) (ret graphql.Marshaler) {
@@ -17643,6 +19020,378 @@ func (ec *executionContext) fieldContext_Mutation_voteElo(ctx context.Context, f
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Mutation_voteElo_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_postIdentificationQuery(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_postIdentificationQuery(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().PostIdentificationQuery(ctx, fc.Args["input"].(IdentificationPostInput))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "VOTE")
+				if err != nil {
+					var zeroVal *IdentificationQuery
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *IdentificationQuery
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *IdentificationQuery) graphql.Marshaler {
+			return ec.marshalNIdentificationQuery2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationQuery(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_postIdentificationQuery(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_IdentificationQuery(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_postIdentificationQuery_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_suggestIdentificationCandidate(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_suggestIdentificationCandidate(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().SuggestIdentificationCandidate(ctx, fc.Args["input"].(IdentificationSuggestInput))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "VOTE")
+				if err != nil {
+					var zeroVal *IdentificationCandidate
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *IdentificationCandidate
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *IdentificationCandidate) graphql.Marshaler {
+			return ec.marshalNIdentificationCandidate2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationCandidate(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_suggestIdentificationCandidate(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_IdentificationCandidate(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_suggestIdentificationCandidate_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_voteIdentificationCandidate(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_voteIdentificationCandidate(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().VoteIdentificationCandidate(ctx, fc.Args["candidateId"].(uuid.UUID))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "VOTE")
+				if err != nil {
+					var zeroVal *IdentificationCandidate
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *IdentificationCandidate
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *IdentificationCandidate) graphql.Marshaler {
+			return ec.marshalNIdentificationCandidate2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationCandidate(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_voteIdentificationCandidate(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_IdentificationCandidate(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_voteIdentificationCandidate_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_unvoteIdentificationCandidate(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_unvoteIdentificationCandidate(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().UnvoteIdentificationCandidate(ctx, fc.Args["candidateId"].(uuid.UUID))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "VOTE")
+				if err != nil {
+					var zeroVal *IdentificationCandidate
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *IdentificationCandidate
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *IdentificationCandidate) graphql.Marshaler {
+			return ec.marshalNIdentificationCandidate2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationCandidate(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_unvoteIdentificationCandidate(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_IdentificationCandidate(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_unvoteIdentificationCandidate_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_resolveIdentificationQuery(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_resolveIdentificationQuery(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().ResolveIdentificationQuery(ctx, fc.Args["input"].(IdentificationResolveInput))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "VOTE")
+				if err != nil {
+					var zeroVal *IdentificationQuery
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *IdentificationQuery
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *IdentificationQuery) graphql.Marshaler {
+			return ec.marshalNIdentificationQuery2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationQuery(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_resolveIdentificationQuery(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_IdentificationQuery(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_resolveIdentificationQuery_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_abandonIdentificationQuery(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_abandonIdentificationQuery(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().AbandonIdentificationQuery(ctx, fc.Args["id"].(uuid.UUID))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "VOTE")
+				if err != nil {
+					var zeroVal *IdentificationQuery
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *IdentificationQuery
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *IdentificationQuery) graphql.Marshaler {
+			return ec.marshalNIdentificationQuery2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationQuery(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_abandonIdentificationQuery(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_IdentificationQuery(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_abandonIdentificationQuery_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -22896,6 +24645,242 @@ func (ec *executionContext) fieldContext_Query_eloLeaderboard(ctx context.Contex
 	if fc.Args, err = ec.field_Query_eloLeaderboard_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_listOpenIdentificationQueries(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_listOpenIdentificationQueries(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().ListOpenIdentificationQueries(ctx, fc.Args["limit"].(*int))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal []IdentificationQuery
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal []IdentificationQuery
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v []IdentificationQuery) graphql.Marshaler {
+			return ec.marshalNIdentificationQuery2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationQueryᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_listOpenIdentificationQueries(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_IdentificationQuery(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_listOpenIdentificationQueries_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_identificationQuery(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_identificationQuery(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().IdentificationQuery(ctx, fc.Args["id"].(uuid.UUID))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal *IdentificationQuery
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *IdentificationQuery
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *IdentificationQuery) graphql.Marshaler {
+			return ec.marshalOIdentificationQuery2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationQuery(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_Query_identificationQuery(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_IdentificationQuery(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_identificationQuery_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_resolvedIdentificationQueries(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_resolvedIdentificationQueries(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().ResolvedIdentificationQueries(ctx, fc.Args["entityType"].(IdentificationTargetType), fc.Args["entityId"].(uuid.UUID), fc.Args["limit"].(*int))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal []IdentificationQuery
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal []IdentificationQuery
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v []IdentificationQuery) graphql.Marshaler {
+			return ec.marshalNIdentificationQuery2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationQueryᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_resolvedIdentificationQueries(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_IdentificationQuery(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_resolvedIdentificationQueries_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_myIdentificationDetectiveScore(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_myIdentificationDetectiveScore(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Query().MyIdentificationDetectiveScore(ctx)
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "VOTE")
+				if err != nil {
+					var zeroVal *IdentificationDetective
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *IdentificationDetective
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *IdentificationDetective) graphql.Marshaler {
+			return ec.marshalOIdentificationDetective2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationDetective(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_Query_myIdentificationDetectiveScore(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_IdentificationDetective(ctx, field)
+		},
 	}
 	return fc, nil
 }
@@ -30859,6 +32844,145 @@ func (ec *executionContext) unmarshalInputIDCriterionInput(ctx context.Context, 
 	return it, nil
 }
 
+func (ec *executionContext) unmarshalInputIdentificationPostInput(ctx context.Context, obj any) (IdentificationPostInput, error) {
+	var it IdentificationPostInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"targetType", "targetId", "description", "snapshotId"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "targetType":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("targetType"))
+			data, err := ec.unmarshalNIdentificationTargetType2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationTargetType(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.TargetType = data
+		case "targetId":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("targetId"))
+			data, err := ec.unmarshalOID2ᚖgithubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.TargetID = data
+		case "description":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("description"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Description = data
+		case "snapshotId":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("snapshotId"))
+			data, err := ec.unmarshalOID2ᚖgithubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.SnapshotID = data
+		}
+	}
+	return it, nil
+}
+
+func (ec *executionContext) unmarshalInputIdentificationResolveInput(ctx context.Context, obj any) (IdentificationResolveInput, error) {
+	var it IdentificationResolveInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"queryId", "resolvedType", "resolvedId"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "queryId":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("queryId"))
+			data, err := ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.QueryID = data
+		case "resolvedType":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("resolvedType"))
+			data, err := ec.unmarshalNIdentificationTargetType2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationTargetType(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ResolvedType = data
+		case "resolvedId":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("resolvedId"))
+			data, err := ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ResolvedID = data
+		}
+	}
+	return it, nil
+}
+
+func (ec *executionContext) unmarshalInputIdentificationSuggestInput(ctx context.Context, obj any) (IdentificationSuggestInput, error) {
+	var it IdentificationSuggestInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"queryId", "entityType", "entityId"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "queryId":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("queryId"))
+			data, err := ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.QueryID = data
+		case "entityType":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("entityType"))
+			data, err := ec.unmarshalNIdentificationTargetType2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationTargetType(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.EntityType = data
+		case "entityId":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("entityId"))
+			data, err := ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.EntityID = data
+		}
+	}
+	return it, nil
+}
+
 func (ec *executionContext) unmarshalInputImageCreateInput(ctx context.Context, obj any) (ImageCreateInput, error) {
 	var it ImageCreateInput
 	if obj == nil {
@@ -37879,6 +40003,201 @@ func (ec *executionContext) _GenderFacet(ctx context.Context, sel ast.SelectionS
 	return out
 }
 
+var identificationCandidateImplementors = []string{"IdentificationCandidate"}
+
+func (ec *executionContext) _IdentificationCandidate(ctx context.Context, sel ast.SelectionSet, obj *IdentificationCandidate) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, identificationCandidateImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("IdentificationCandidate")
+		case "id":
+			out.Values[i] = ec._IdentificationCandidate_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "queryId":
+			out.Values[i] = ec._IdentificationCandidate_queryId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "entityType":
+			out.Values[i] = ec._IdentificationCandidate_entityType(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "entityId":
+			out.Values[i] = ec._IdentificationCandidate_entityId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "entity":
+			out.Values[i] = ec._IdentificationCandidate_entity(ctx, field, obj)
+		case "note":
+			out.Values[i] = ec._IdentificationCandidate_note(ctx, field, obj)
+		case "suggestedBy":
+			out.Values[i] = ec._IdentificationCandidate_suggestedBy(ctx, field, obj)
+		case "createdAt":
+			out.Values[i] = ec._IdentificationCandidate_createdAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "voteCount":
+			out.Values[i] = ec._IdentificationCandidate_voteCount(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "votedByMe":
+			out.Values[i] = ec._IdentificationCandidate_votedByMe(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferred), math.MaxInt32)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var identificationDetectiveImplementors = []string{"IdentificationDetective"}
+
+func (ec *executionContext) _IdentificationDetective(ctx context.Context, sel ast.SelectionSet, obj *IdentificationDetective) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, identificationDetectiveImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("IdentificationDetective")
+		case "user":
+			out.Values[i] = ec._IdentificationDetective_user(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "score":
+			out.Values[i] = ec._IdentificationDetective_score(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferred), math.MaxInt32)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var identificationQueryImplementors = []string{"IdentificationQuery"}
+
+func (ec *executionContext) _IdentificationQuery(ctx context.Context, sel ast.SelectionSet, obj *IdentificationQuery) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, identificationQueryImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("IdentificationQuery")
+		case "id":
+			out.Values[i] = ec._IdentificationQuery_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "targetType":
+			out.Values[i] = ec._IdentificationQuery_targetType(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "targetId":
+			out.Values[i] = ec._IdentificationQuery_targetId(ctx, field, obj)
+		case "description":
+			out.Values[i] = ec._IdentificationQuery_description(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "snapshotId":
+			out.Values[i] = ec._IdentificationQuery_snapshotId(ctx, field, obj)
+		case "status":
+			out.Values[i] = ec._IdentificationQuery_status(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "createdAt":
+			out.Values[i] = ec._IdentificationQuery_createdAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "resolvedType":
+			out.Values[i] = ec._IdentificationQuery_resolvedType(ctx, field, obj)
+		case "resolvedId":
+			out.Values[i] = ec._IdentificationQuery_resolvedId(ctx, field, obj)
+		case "resolvedBy":
+			out.Values[i] = ec._IdentificationQuery_resolvedBy(ctx, field, obj)
+		case "resolvedAt":
+			out.Values[i] = ec._IdentificationQuery_resolvedAt(ctx, field, obj)
+		case "candidates":
+			out.Values[i] = ec._IdentificationQuery_candidates(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferred), math.MaxInt32)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
 var imageImplementors = []string{"Image"}
 
 func (ec *executionContext) _Image(ctx context.Context, sel ast.SelectionSet, obj *Image) graphql.Marshaler {
@@ -38610,6 +40929,48 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 		case "voteElo":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_voteElo(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "postIdentificationQuery":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_postIdentificationQuery(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "suggestIdentificationCandidate":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_suggestIdentificationCandidate(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "voteIdentificationCandidate":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_voteIdentificationCandidate(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "unvoteIdentificationCandidate":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_unvoteIdentificationCandidate(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "resolveIdentificationQuery":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_resolveIdentificationQuery(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "abandonIdentificationQuery":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_abandonIdentificationQuery(ctx, field)
 			})
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
@@ -41185,6 +43546,88 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 					}
 				}()
 				res = ec._Query_eloLeaderboard(ctx, field)
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "listOpenIdentificationQueries":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_listOpenIdentificationQueries(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "identificationQuery":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_identificationQuery(ctx, field)
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "resolvedIdentificationQueries":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_resolvedIdentificationQueries(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "myIdentificationDetectiveScore":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_myIdentificationDetectiveScore(ctx, field)
 				return res
 			}
 
@@ -46741,6 +49184,101 @@ func (ec *executionContext) marshalNID2ᚕgithubᚗcomᚋgofrsᚋuuidᚐUUIDᚄ(
 	return ret
 }
 
+func (ec *executionContext) marshalNIdentificationCandidate2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationCandidate(ctx context.Context, sel ast.SelectionSet, v IdentificationCandidate) graphql.Marshaler {
+	return ec._IdentificationCandidate(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNIdentificationCandidate2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationCandidateᚄ(ctx context.Context, sel ast.SelectionSet, v []IdentificationCandidate) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNIdentificationCandidate2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationCandidate(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNIdentificationCandidate2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationCandidate(ctx context.Context, sel ast.SelectionSet, v *IdentificationCandidate) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._IdentificationCandidate(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalNIdentificationPostInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationPostInput(ctx context.Context, v any) (IdentificationPostInput, error) {
+	res, err := ec.unmarshalInputIdentificationPostInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNIdentificationQuery2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationQuery(ctx context.Context, sel ast.SelectionSet, v IdentificationQuery) graphql.Marshaler {
+	return ec._IdentificationQuery(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNIdentificationQuery2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationQueryᚄ(ctx context.Context, sel ast.SelectionSet, v []IdentificationQuery) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNIdentificationQuery2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationQuery(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNIdentificationQuery2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationQuery(ctx context.Context, sel ast.SelectionSet, v *IdentificationQuery) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._IdentificationQuery(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalNIdentificationResolveInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationResolveInput(ctx context.Context, v any) (IdentificationResolveInput, error) {
+	res, err := ec.unmarshalInputIdentificationResolveInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) unmarshalNIdentificationStatus2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationStatus(ctx context.Context, v any) (IdentificationStatus, error) {
+	var res IdentificationStatus
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNIdentificationStatus2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationStatus(ctx context.Context, sel ast.SelectionSet, v IdentificationStatus) graphql.Marshaler {
+	return v
+}
+
+func (ec *executionContext) unmarshalNIdentificationSuggestInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationSuggestInput(ctx context.Context, v any) (IdentificationSuggestInput, error) {
+	res, err := ec.unmarshalInputIdentificationSuggestInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) unmarshalNIdentificationTargetType2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationTargetType(ctx context.Context, v any) (IdentificationTargetType, error) {
+	var res IdentificationTargetType
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNIdentificationTargetType2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationTargetType(ctx context.Context, sel ast.SelectionSet, v IdentificationTargetType) graphql.Marshaler {
+	return v
+}
+
 func (ec *executionContext) marshalNImage2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐImage(ctx context.Context, sel ast.SelectionSet, v Image) graphql.Marshaler {
 	return ec._Image(ctx, sel, &v)
 }
@@ -47943,6 +50481,16 @@ func (ec *executionContext) marshalNUser2ᚕgithubᚗcomᚋstashappᚋstashᚑbo
 	return ret
 }
 
+func (ec *executionContext) marshalNUser2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐUser(ctx context.Context, sel ast.SelectionSet, v *User) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._User(ctx, sel, v)
+}
+
 func (ec *executionContext) unmarshalNUserChangeEmailStatus2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐUserChangeEmailStatus(ctx context.Context, v any) (UserChangeEmailStatus, error) {
 	var res UserChangeEmailStatus
 	err := res.UnmarshalGQL(v)
@@ -48710,6 +51258,36 @@ func (ec *executionContext) unmarshalOIDCriterionInput2ᚖgithubᚗcomᚋstashap
 	}
 	res, err := ec.unmarshalInputIDCriterionInput(ctx, v)
 	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOIdentificationDetective2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationDetective(ctx context.Context, sel ast.SelectionSet, v *IdentificationDetective) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._IdentificationDetective(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalOIdentificationQuery2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationQuery(ctx context.Context, sel ast.SelectionSet, v *IdentificationQuery) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._IdentificationQuery(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalOIdentificationTargetType2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationTargetType(ctx context.Context, v any) (*IdentificationTargetType, error) {
+	if v == nil {
+		return nil, nil
+	}
+	var res = new(IdentificationTargetType)
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOIdentificationTargetType2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationTargetType(ctx context.Context, sel ast.SelectionSet, v *IdentificationTargetType) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return v
 }
 
 func (ec *executionContext) marshalOImage2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐImageᚄ(ctx context.Context, sel ast.SelectionSet, v []Image) graphql.Marshaler {

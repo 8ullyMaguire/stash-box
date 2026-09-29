@@ -91,9 +91,9 @@ func EnumPtr[T StringEnum](field string, old *string, current *T) error {
 // ErrFieldTooLong is returned when a submitted value exceeds the length of the
 // database column it will be written to.
 type ErrFieldTooLong struct {
-	Field    string
-	Length   int
-	Max      int
+	Field  string
+	Length int
+	Max    int
 }
 
 func (e *ErrFieldTooLong) Error() string {
