@@ -404,7 +404,48 @@ instance that does not start, and C produces the local dataset and the working
 integration gate that A's plan would need. It also resolves §2.4/§2.5 as
 prerequisites rather than leaving them as ambient risk.
 
-**Nothing should be implemented until the owner picks.**
+### 6.1 Decision — taken 2026-09-29, by delegation
+
+**The fork's direction is the federated discovery mesh (§7).** The owner
+delegated this call rather than answering it directly, so here is the
+reasoning, and here is what it rules out.
+
+Direction A (port StashForge governance) is **rejected as the destination**.
+StashForge reimplemented voting, reputation and proposals on top of stash's
+models; stash-box already has native consensus (`edit` / `edit_votes`, 4 480
+lines in `internal/service/edit`). Porting a parallel governance system onto
+an archive that already has one would be the fork of a different product, and
+it is not what the brief asks for.
+
+Direction B (contributions back upstream) is **adopted as a standing practice,
+not as the destination**. It costs nothing to keep upstreamable — small diffs,
+generated code regenerated rather than hand-edited, and a bug fix that upstream
+would accept is worth more than one that would not. Every issue fix in this
+tracker is deliberately shaped that way. It is a constraint on how work is
+done, not a goal.
+
+Direction C (private/self-hosted instance) is **adopted as the prerequisite
+the spec already recommended** — build, harden, run. It is now largely done:
+the `vips`/`openexr`/`openjph` chain, the `pg_search` migration, the
+`go:embed` frontend build, and a working integration gate are all resolved.
+
+So: **C is a prerequisite, B is a constraint, and the destination is §7.** The
+spec's own ordering ("C first, then A") was right about sequencing and wrong
+about the endpoint, because at the time A and the mesh looked like
+alternatives. They are not: the mesh needs the *capability* of StashForge's
+governance, but it needs it federated and reputation-aware, which is what §7
+§6 (trust levels) and §12 (gamification) describe, and what A would deliver as
+a single-instance system.
+
+**Consequence for sequencing:** the remaining `help wanted` backlog still gets
+finished first. It is cheap (bounded defects, each provable by a test), it
+leaves the tree in a state worth building on, and it is the part most likely
+to be upstreamed. §7 does not start until the bar is met.
+
+**One decision deliberately left open:** whether the mesh's Phase 1 ships as
+one instance or as a protocol. That is a genuine technical fork with real
+cost either way, and it should be decided against the code rather than in
+advance. It is recorded in `docs/PLAN.md` when Phase 1 is specced.
 
 ---
 
