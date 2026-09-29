@@ -1578,3 +1578,199 @@ the error named the mismatch precisely; there the mutant simply survived.
 - `modbot.go` race (SPEC §8.1) still untouched.
 
 ---
+
+---
+
+## Session 15 — #956 (already fixed, now pinned), #950 (worse than reported) (2026-09-29)
+
+### #956 `[x]` — invite key validated while the field is hidden
+
+  When the config flag has require_invite set to false, the registration page
+  hides the invite field but the user still gets a validation message saying
+  "invalid invite key" when clicking "Register"
+
+**Does not reproduce.** The schema already carries the guard:
+
+```ts
+.when("$inviteRequired", ([inviteRequired], s) => inviteRequired
+    ? s.matches(UUID_REGEX, ...).required("Invite key is required")
+    : s.test("uuid-if-present", ..., (v) => !v || UUID_REGEX.test(v)))
+```
+
+`git log -S` dates it to `c5ad421` (2026-05-18), well after the v0.6.11 build
+the reporter used. I verified all seven cases by hand before writing anything.
+
+So this is a **test-only** commit, and the reason it is worth making is that
+**nothing pinned the rule.** A plausible refactor — tightening the string, or
+dropping the `.test` branch because it looks redundant — would reintroduce the
+reported bug with the whole suite green. The schema is now exported so the
+rules can be exercised without mocking config for a validation assertion.
+
+Mutation-verified by removing the `.when()` guard, leaving `matches().required()`:
+
+```
+x accepts an email with no invite key
+x accepts an empty invite key
+promise rejected "ValidationError: Invalid invite key" instead of resolving
+```
+
+— the reported error verbatim. The "invites required" cases keep passing on the
+mutant, which is correct; that branch was never the bug.
+
+One assertion of mine was wrong and the suite caught it: I expected
+"Email is required" for a malformed address, but yup tests `.email()` before
+`.required()`, so the message is yup's own. Asserting the rejection rather than
+the string keeps that test about the rule instead of about yup's message
+precedence.
+
+**A flake I nearly filed as a regression.** An intermediate run showed 5
+unrelated failures in `EditAmendForm` and `PerformerForm` with 10-15 second
+timeouts. A clean full re-run passed 401/401, and `git status` showed only my
+one file modified — so it was vitest contention from running repeatedly
+back-to-back, not my change. Recorded because "it passed on retry" is exactly
+the claim that needs the second run to be worth anything, and because the
+instinct on seeing red is to assume you caused it.
+
+### #950 `[x]` — and the real defect is worse than the report
+
+Reported: the edit fails at apply time with
+
+```
+Unknown Error: Error creating Performer: pq: duplicate key value violates
+unique constraint "index_active_performers_on_name"
+```
+
+Migration 06:
+
+```sql
+CREATE UNIQUE INDEX "index_active_performers_on_name" ON "performers"
+  ("name", "disambiguation") WHERE NOT "deleted";
+```
+
+**What I got wrong first, and it took a probe to correct.** I assumed the index
+rejected duplicates whenever they existed, and expected my test to reproduce the
+`pq` error on the pre-fix code. It did not — the edit **applied successfully**,
+no error at all. So I stopped and probed the index directly:
+
+```
+INSERT (name, disambiguation) VALUES ('probe3-950', NULL)   -- ok
+INSERT (name, disambiguation) VALUES ('probe3-950', NULL)   -- ALSO ok
+INSERT (name, disambiguation) VALUES ('probe3-950', '')     -- ALSO ok
+
+-- but with a non-empty disambiguation:
+ERROR: duplicate key value violates unique constraint
+       "index_active_performers_on_name"
+```
+
+**NULLs do not collide in a Postgres unique index**, and `disambiguation` is
+nullable with no default on the edit input. So for a performer with no
+disambiguation — most of them — the database does not reject the duplicate at
+all, and the actual pre-fix behaviour was a **silent second active performer**,
+not a `pq` error.
+
+The reporter's error text is real, but does not reproduce for a nil
+disambiguation on this tree. The defect underneath is worse than the one
+described, and the fix closes it either way.
+
+`applyCreate` now checks first, via `FindExistingPerformers` — the same query
+the frontend's duplicate warning already uses, matching the same
+`(name, disambiguation)` pair. `FindPerformerByName` would have been wrong: it
+ignores disambiguation, so it would reject legitimately distinct performers
+*and* miss the case where the two disambiguations differ.
+
+The check **mirrors** the index rather than replacing it — the index still has
+the final word if two applies race; this handles the ordinary case with a
+message a contributor and the modbot can act on.
+
+**A designed disagreement worth knowing about:** `FindExistingPerformers`
+treats nil and empty disambiguation as the same thing, because that is what a
+user means, while the index treats them as distinct keys. The application is
+the only place that disagreement can be resolved, and it now is.
+
+### The surface the test had to assert on
+
+My first version asserted the return value of `ApproveEdit` and passed
+**vacuously** — the apply failure is caught by `ApplyEdit`, written into a
+modbot comment as `Unknown Error: %v`, and the edit marked `Fail()`
+(`service.go:1196-1213`). It does not come back as an error at all.
+
+So the assertion belongs on the comment, which is also the surface the reporter
+actually saw. Three test-authoring corrections along the way, all caught rather
+than reasoned about:
+
+- invented `editCommentText` helper → the real API is `resolver.Edit().Comments`;
+- `models.Edit.Status` is a plain `string`, and a successful apply is
+  `IMMEDIATE_ACCEPTED`, so expecting `ACCEPTED` failed the two tests that were
+  *supposed* to pass — `Applied bool` is the real signal;
+- invented `activePerformerCount` again → dropped it rather than build the
+  fiction; the `Applied` assertion already proves the behaviour.
+
+Four tests. The two guards (distinct disambiguation, brand-new performer) are
+what give the failing test its meaning — without them "apply failed" would be
+satisfiable by rejecting every create edit.
+
+Mutation-verified by removing the check: both duplicate tests fail, both guards
+still pass.
+
+### Verified state
+
+| Gate | Result |
+|---|---|
+| `go build ./...` | exit 0 |
+| `go vet ./...` | clean |
+| integration suite (`-count=1`) | ok, 49.4s |
+| unit suite | pass |
+| frontend tests | 401 pass / 37 files |
+| frontend `validate` | unchanged — single pre-existing lint error in `TagForm.test.tsx:216`, reproduced on a stashed baseline |
+
+### Issue ledger
+
+| Issue | Status | Note |
+|---|---|---|
+| #729 | `[x]` | nil deref on mismatched `operation` |
+| #879 | `[x]` | deleted fields reset, all four forms |
+| #802 | `[x]` | category removal; explicit null |
+| #941 | `[x]` | stale downvote notification |
+| #660 | `[x]` | overlong values rejected at edit creation |
+| #943 | `[x]` | pending edits retargeted on merge, all four entities |
+| #703 | `[x]` | merge sources editable when updating an edit |
+| #829 | `[x]` | 11 dropped performer filters implemented |
+| #974 | `[x]` | network performer list includes sub-studios |
+| #337 | `[x]` | favorited network surfaces sub-studio scene edits |
+| #1060 | `[x]` | notification trigger no longer collapses types |
+| #734 | `[x]` | implicit TLS (SMTPS, port 465) supported |
+| #738 | `[x]` | duplicate image upload upserts on the checksum |
+| #649 | `[x]` | image read validates image_location instead of guessing |
+| #621 | `[x]` | deleted site no longer breaks the /edits page |
+| #956 | `[x]` | invite-key rules pinned; already fixed in c5ad421 |
+| #950 | `[x]` | duplicate create edit rejected; was a silent duplicate |
+| #525 | `[!]` | already fixed upstream in ea06fbf; my tests could not detect it |
+| #778 | `[!]` | premise absent — no scrape mutation; behaviour pinned by tests |
+| #9 | `[~]` | defect class closed for reference fields; scalars audited |
+| #727 | `[!]` | not reproducible — `url` is a live field the client depends on |
+| #809 | `[!]` | not reproduced; backend exonerated |
+| **Total** | **17 of 48 `help wanted`** | 15 needed |
+
+**17/48 — 35%.**
+
+### Next steps
+
+- **17 of 48, bar is 32.** Unopened bounded reports: #1007, #948, #1177, #1205,
+  #583, #605, #1277. Seven left; at the current pace the bar lands around
+  session 19.
+- **#1007** (studio tagger ignores duplicate names and still matches deleted
+  studios) is next — it is a query-correctness bug like #974/#337, in the same
+  "matched the wrong row" family, and the deleted-studio half is likely the
+  same class as #621.
+- **#948** (some images do not get saved) touches code I have now read twice for
+  #738 and #649, so it is the cheapest of the remainder.
+- **A standing hazard, now hit three times** (#525, #956, #950): a green test
+  proves nothing until the code it protects has been deleted and the test has
+  been seen to go red. Every new test this tracker gets mutation-checked, and
+  the guard case is written alongside the failure case so a blanket fix cannot
+  pass.
+- Fork direction is settled (SPEC §6.1). `docs/PLAN.md` stays unwritten until
+  Phase 1 is specced, which is deliberately after the bar is met.
+- `modbot.go` race (SPEC §8.1) still untouched.
+
+---
