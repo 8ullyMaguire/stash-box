@@ -31,6 +31,16 @@ type Querier interface {
 	//
 	// ON CONFLICT (user_id) DO UPDATE is required because a user with no rollup row
 	// yet (every new user) has to be created on first event.
+	// The per-kind terms are the SIGNED DELTA, not a literal 1.
+	//
+	// They used to be literal 1, which is why every caller passed Delta: 1 and the
+	// column could only ever count whole contributions. A bounty needs its magnitude
+	// to reach bonus_points, and a reversal needs -1 to come back out, so the
+	// magnitude cannot live in the caller and be ignored here.
+	//
+	// Rejected edits are already the sign-flipped term (-delta), which is the one
+	// place the sign convention differs: 'edit_rejected' moves rejected_edits, and a
+	// REVERSAL of a rejection moves it back.
 	ApplyTrustEvent(ctx context.Context, arg ApplyTrustEventParams) (UserTrust, error)
 	// Claims a set of snapshots for a collage.
 	//

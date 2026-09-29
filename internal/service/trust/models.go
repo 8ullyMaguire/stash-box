@@ -23,6 +23,20 @@ const (
 	KindQuestCompleted KindEnum = "quest_completed"
 	// KindReplicaHosted is a replica kept alive for mesh preservation.
 	KindReplicaHosted KindEnum = "replica_hosted"
+	// KindBountyBonus is the EXTRA points an authored quest's bounty is worth,
+	// on top of the quest's own value.
+	//
+	// A points-ONLY kind: it moves BonusPoints and none of the counts. It has no
+	// entry in PointsPerKind, and that is deliberate rather than an oversight --
+	// the reason is below, and TestBountyBonusIsNotACountedKind pins it.
+	//
+	// Why a separate kind at all, rather than delta=500 on quest_completed: the
+	// rollup is count x PointsPerKind, and quests_completed is a COUNT of quests.
+	// Recording 500 there would credit 500 completed quests, so finishing one
+	// quest with a 500-point bounty would earn 10,000 points. "How many quests"
+	// and "how much are they worth" are different questions and one integer
+	// cannot answer both.
+	KindBountyBonus KindEnum = "bounty_bonus"
 )
 
 // AllKinds is every kind the rollup knows how to count.
@@ -36,6 +50,18 @@ var AllKinds = []KindEnum{
 	KindIdentificationSolved,
 	KindQuestCompleted,
 	KindReplicaHosted,
+	// KindBountyBonus is DELIBERATELY absent from AllKinds, and from
+	// PointsPerKind.
+	//
+	// AllKinds is what the counts are summed over, and a points-only kind in that
+	// list would either be counted (double-crediting the quest) or need a zero
+	// weight, which TestEveryKindHasPoints correctly rejects as pointless. So it
+	// is kept out of the counted set and summed separately into BonusPoints.
+	//
+	// The cost of that choice is that AllKinds is no longer "every kind", so the
+	// name is a lie in a small way. Accepted, and pinned by
+	// TestBountyBonusIsAKnownKind: the kind IS known to the service, it just does
+	// not participate in the count rollup.
 }
 
 // PointsPerKind is how much each contribution is worth toward a level.
@@ -139,6 +165,10 @@ type Totals struct {
 	IdentificationSolves int
 	QuestsCompleted      int
 	ReplicasHosted       int
+	// BonusPoints is points earned from events that are not contributions of a
+	// countable kind -- currently a quest's bounty. Summed, not counted, because
+	// "a bounty is worth this much" is a total and not a tally.
+	BonusPoints int
 }
 
 // Points is the weighted total of everything the user has contributed.
@@ -153,7 +183,13 @@ func (t Totals) Points() int {
 		t.RejectedEdits*PointsPerKind[KindEditRejected] +
 		t.IdentificationSolves*PointsPerKind[KindIdentificationSolved] +
 		t.QuestsCompleted*PointsPerKind[KindQuestCompleted] +
-		t.ReplicasHosted*PointsPerKind[KindReplicaHosted]
+		t.ReplicasHosted*PointsPerKind[KindReplicaHosted] +
+		// Added last and ADDITIVELY. A bounty is extra value for a quest already
+		// counted, so the quest's own weight is earned once by the count and the
+		// bounty is added on top. Folding the bounty into a multiplier here would
+		// make a quest worth PointsPerKind * (1 + bounty), which is a second
+		// interpretation of the same number living in a second place.
+		t.BonusPoints
 }
 
 // LevelForPoints maps a point total to a level.

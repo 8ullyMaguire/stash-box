@@ -616,4 +616,5 @@ type UserTrust struct {
 	ReplicasHosted       int                `db:"replicas_hosted" json:"replicas_hosted"`
 	ContentViewingOptIn  bool               `db:"content_viewing_opt_in" json:"content_viewing_opt_in"`
 	UpdatedAt            pgtype.Timestamptz `db:"updated_at" json:"updated_at"`
+	BonusPoints          int                `db:"bonus_points" json:"bonus_points"`
 }

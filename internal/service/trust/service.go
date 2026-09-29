@@ -48,7 +48,18 @@ func (s *Trust) WithTxn(fn func(*queries.Queries) error) error {
 }
 
 // knownKind reports whether the rollup knows how to count this kind.
+// knownKind reports whether the service understands a kind well enough to roll it
+// up.
+//
+// PointsPerKind alone can no longer answer this: KindBountyBonus is deliberately
+// absent from that map (it is a points-only kind and has no per-contribution
+// weight), so keying off the map would reject it as unknown and RecordEvent would
+// record it and then decline to roll it up -- the exact silent-invisible-
+// contribution failure the enum is meant to prevent.
 func knownKind(k KindEnum) bool {
+	if k == KindBountyBonus {
+		return true
+	}
 	_, ok := PointsPerKind[k]
 	return ok
 }
@@ -121,9 +132,16 @@ func (s *Trust) withRecordTx(ctx context.Context, event Event) (*queries.UserTru
 			return err
 		}
 
+		// EventDelta is the caller's SIGNED delta, and passing it is what lets a
+		// single event carry a magnitude. It used to be omitted, because the
+		// query hardcoded a literal 1 per kind and the count columns could only
+		// ever tally whole contributions. A bounty needs 500 to arrive as 500
+		// points and a reversal needs -1 to come back out, so the magnitude has
+		// to travel with the event rather than being discarded here.
 		rollup, err := tx.ApplyTrustEvent(ctx, queries.ApplyTrustEventParams{
-			UserID:    event.UserID,
-			EventKind: string(event.Kind),
+			UserID:     event.UserID,
+			EventKind:  string(event.Kind),
+			EventDelta: event.Delta,
 		})
 		if err != nil {
 			return err
@@ -241,6 +259,11 @@ func (s *Trust) TotalsFor(ctx context.Context, userID uuid.UUID) (Totals, error)
 		IdentificationSolves: rollup.IdentificationSolves,
 		QuestsCompleted:      rollup.QuestsCompleted,
 		ReplicasHosted:       rollup.ReplicasHosted,
+		// Carried across, and it has to be: a quest's bounty is in this field
+		// and in no other, so a Totals that dropped it would report a curator
+		// with the right counts and the wrong score, and the two would disagree
+		// with nothing reporting an error.
+		BonusPoints: rollup.BonusPoints,
 	}, nil
 }
 

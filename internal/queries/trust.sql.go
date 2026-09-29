@@ -12,14 +12,18 @@ import (
 )
 
 const applyTrustEvent = `-- name: ApplyTrustEvent :one
-INSERT INTO user_trust (user_id, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, updated_at)
+INSERT INTO user_trust (user_id, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, bonus_points, updated_at)
 VALUES (
     $1,
-    CASE WHEN $2::TEXT = 'edit_approved' THEN 1 ELSE 0 END,
-    CASE WHEN $2::TEXT = 'edit_rejected' THEN 1 ELSE 0 END,
-    CASE WHEN $2::TEXT = 'identification_solved' THEN 1 ELSE 0 END,
-    CASE WHEN $2::TEXT = 'quest_completed' THEN 1 ELSE 0 END,
-    CASE WHEN $2::TEXT = 'replica_hosted' THEN 1 ELSE 0 END,
+    CASE WHEN $2::TEXT = 'edit_approved' THEN $3::INTEGER ELSE 0 END,
+    CASE WHEN $2::TEXT = 'edit_rejected' THEN $3::INTEGER ELSE 0 END,
+    CASE WHEN $2::TEXT = 'identification_solved' THEN $3::INTEGER ELSE 0 END,
+    CASE WHEN $2::TEXT = 'quest_completed' THEN $3::INTEGER ELSE 0 END,
+    CASE WHEN $2::TEXT = 'replica_hosted' THEN $3::INTEGER ELSE 0 END,
+    -- A points-ONLY kind: bounty_bonus moves bonus_points and no count at all.
+    -- That is the whole reason it is a separate kind -- folding it into
+    -- quests_completed would credit 500 completed quests for one bounty.
+    CASE WHEN $2::TEXT = 'bounty_bonus' THEN $3::INTEGER ELSE 0 END,
     NOW()
 )
 ON CONFLICT (user_id) DO UPDATE SET
@@ -28,13 +32,15 @@ ON CONFLICT (user_id) DO UPDATE SET
     identification_solves = user_trust.identification_solves + EXCLUDED.identification_solves,
     quests_completed = user_trust.quests_completed + EXCLUDED.quests_completed,
     replicas_hosted = user_trust.replicas_hosted + EXCLUDED.replicas_hosted,
+    bonus_points = user_trust.bonus_points + EXCLUDED.bonus_points,
     updated_at = NOW()
-RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at
+RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points
 `
 
 type ApplyTrustEventParams struct {
-	UserID    uuid.UUID `db:"user_id" json:"user_id"`
-	EventKind string    `db:"event_kind" json:"event_kind"`
+	UserID     uuid.UUID `db:"user_id" json:"user_id"`
+	EventKind  string    `db:"event_kind" json:"event_kind"`
+	EventDelta int       `db:"event_delta" json:"event_delta"`
 }
 
 // Applies one event's effect to the rollup, creating the row if absent.
@@ -46,8 +52,18 @@ type ApplyTrustEventParams struct {
 //
 // ON CONFLICT (user_id) DO UPDATE is required because a user with no rollup row
 // yet (every new user) has to be created on first event.
+// The per-kind terms are the SIGNED DELTA, not a literal 1.
+//
+// They used to be literal 1, which is why every caller passed Delta: 1 and the
+// column could only ever count whole contributions. A bounty needs its magnitude
+// to reach bonus_points, and a reversal needs -1 to come back out, so the
+// magnitude cannot live in the caller and be ignored here.
+//
+// Rejected edits are already the sign-flipped term (-delta), which is the one
+// place the sign convention differs: 'edit_rejected' moves rejected_edits, and a
+// REVERSAL of a rejection moves it back.
 func (q *Queries) ApplyTrustEvent(ctx context.Context, arg ApplyTrustEventParams) (UserTrust, error) {
-	row := q.db.QueryRow(ctx, applyTrustEvent, arg.UserID, arg.EventKind)
+	row := q.db.QueryRow(ctx, applyTrustEvent, arg.UserID, arg.EventKind, arg.EventDelta)
 	var i UserTrust
 	err := row.Scan(
 		&i.UserID,
@@ -59,6 +75,7 @@ func (q *Queries) ApplyTrustEvent(ctx context.Context, arg ApplyTrustEventParams
 		&i.ReplicasHosted,
 		&i.ContentViewingOptIn,
 		&i.UpdatedAt,
+		&i.BonusPoints,
 	)
 	return i, err
 }
@@ -75,7 +92,7 @@ func (q *Queries) CountUserTrustEvents(ctx context.Context, userID uuid.UUID) (i
 }
 
 const getAllUserTrust = `-- name: GetAllUserTrust :many
-SELECT user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at FROM user_trust
+SELECT user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points FROM user_trust
 `
 
 // Every rollup row. Used when a threshold changes and every level must be
@@ -99,6 +116,7 @@ func (q *Queries) GetAllUserTrust(ctx context.Context) ([]UserTrust, error) {
 			&i.ReplicasHosted,
 			&i.ContentViewingOptIn,
 			&i.UpdatedAt,
+			&i.BonusPoints,
 		); err != nil {
 			return nil, err
 		}
@@ -112,7 +130,7 @@ func (q *Queries) GetAllUserTrust(ctx context.Context) ([]UserTrust, error) {
 
 const getUserTrust = `-- name: GetUserTrust :one
 
-SELECT user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at FROM user_trust WHERE user_id = $1
+SELECT user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points FROM user_trust WHERE user_id = $1
 `
 
 // Trust level queries (SPEC §6, migration 76).
@@ -134,12 +152,13 @@ func (q *Queries) GetUserTrust(ctx context.Context, userID uuid.UUID) (UserTrust
 		&i.ReplicasHosted,
 		&i.ContentViewingOptIn,
 		&i.UpdatedAt,
+		&i.BonusPoints,
 	)
 	return i, err
 }
 
 const getUserTrustByUserIDs = `-- name: GetUserTrustByUserIDs :many
-SELECT user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at FROM user_trust WHERE user_id = ANY($1::UUID[])
+SELECT user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points FROM user_trust WHERE user_id = ANY($1::UUID[])
 `
 
 func (q *Queries) GetUserTrustByUserIDs(ctx context.Context, dollar_1 []uuid.UUID) ([]UserTrust, error) {
@@ -161,6 +180,7 @@ func (q *Queries) GetUserTrustByUserIDs(ctx context.Context, dollar_1 []uuid.UUI
 			&i.ReplicasHosted,
 			&i.ContentViewingOptIn,
 			&i.UpdatedAt,
+			&i.BonusPoints,
 		); err != nil {
 			return nil, err
 		}
@@ -209,7 +229,7 @@ func (q *Queries) ListUserTrustEvents(ctx context.Context, userID uuid.UUID) ([]
 }
 
 const recomputeUserTrustTotals = `-- name: RecomputeUserTrustTotals :one
-INSERT INTO user_trust (user_id, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, updated_at)
+INSERT INTO user_trust (user_id, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, bonus_points, updated_at)
 SELECT
     $1,
     COALESCE(SUM(CASE WHEN kind = 'edit_approved' THEN delta ELSE 0 END), 0),
@@ -217,6 +237,7 @@ SELECT
     COALESCE(SUM(CASE WHEN kind = 'identification_solved' THEN delta ELSE 0 END), 0),
     COALESCE(SUM(CASE WHEN kind = 'quest_completed' THEN delta ELSE 0 END), 0),
     COALESCE(SUM(CASE WHEN kind = 'replica_hosted' THEN delta ELSE 0 END), 0),
+    COALESCE(SUM(CASE WHEN kind = 'bounty_bonus' THEN delta ELSE 0 END), 0),
     NOW()
 FROM trust_events
 WHERE user_id = $1
@@ -226,8 +247,9 @@ ON CONFLICT (user_id) DO UPDATE SET
     identification_solves = EXCLUDED.identification_solves,
     quests_completed = EXCLUDED.quests_completed,
     replicas_hosted = EXCLUDED.replicas_hosted,
+    bonus_points = EXCLUDED.bonus_points,
     updated_at = NOW()
-RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at
+RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points
 `
 
 // Rebuilds the totals from the event log.
@@ -254,6 +276,7 @@ func (q *Queries) RecomputeUserTrustTotals(ctx context.Context, userID uuid.UUID
 		&i.ReplicasHosted,
 		&i.ContentViewingOptIn,
 		&i.UpdatedAt,
+		&i.BonusPoints,
 	)
 	return i, err
 }
@@ -305,7 +328,7 @@ const setContentViewingOptIn = `-- name: SetContentViewingOptIn :one
 UPDATE user_trust
 SET content_viewing_opt_in = $2, updated_at = NOW()
 WHERE user_id = $1
-RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at
+RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points
 `
 
 type SetContentViewingOptInParams struct {
@@ -333,6 +356,7 @@ func (q *Queries) SetContentViewingOptIn(ctx context.Context, arg SetContentView
 		&i.ReplicasHosted,
 		&i.ContentViewingOptIn,
 		&i.UpdatedAt,
+		&i.BonusPoints,
 	)
 	return i, err
 }
@@ -341,7 +365,7 @@ const setUserTrustLevel = `-- name: SetUserTrustLevel :one
 UPDATE user_trust
 SET level = $2, updated_at = NOW()
 WHERE user_id = $1
-RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at
+RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points
 `
 
 type SetUserTrustLevelParams struct {
@@ -365,6 +389,7 @@ func (q *Queries) SetUserTrustLevel(ctx context.Context, arg SetUserTrustLevelPa
 		&i.ReplicasHosted,
 		&i.ContentViewingOptIn,
 		&i.UpdatedAt,
+		&i.BonusPoints,
 	)
 	return i, err
 }
