@@ -1235,3 +1235,167 @@ reports: #1177, #1007, #956, #950, #948, #649, #621, #592, #525, #1205, #583,
 - `modbot.go` race (SPEC §8.1) still untouched.
 
 ---
+
+---
+
+## Session 13 — #525 not a bug, #649 fixed (2026-09-29)
+
+### #525 `[!]` — already fixed upstream; my tests proved nothing, so I deleted them
+
+The report is precise: `findEdit → details → images → 0` fails with "the
+requested element is null which the schema does not allow", and
+`PerformerEdit.images` is `[Image!]!` (`performer.graphql:277`), so one nil
+element kills the whole query.
+
+I traced every path an image can take on an edit — `images`, `added_images`,
+`removed_images` across all four target types — and **all of them funnel
+through one helper**, `imageList` (`loaders.go:34`), which already drops nils:
+
+```go
+for _, image := range res {
+    if image != nil {          // <-- already there
+        images = append(images, *image)
+    }
+}
+```
+
+`git log -S` dates that filter to `ea06fbf` (2025-11-16, the #987 layer
+refactor) — long after the Oct 2022 report. So the defect was fixed upstream
+somewhere in that refactor, without the issue being closed.
+
+**The part that matters: my first tests passed, and I nearly believed them.**
+I wrote scene and performer tests reproducing the reported path, both went
+green, and green is what a fixed bug looks like. So I mutation-tested —
+deleted the nil-filter in `imageList` and re-ran:
+
+```
+--- PASS: TestFindEditWithDeletedImageDoesNotReturnNullElement
+--- PASS: TestFindPerformerEditWithDeletedImageDoesNotReturnNullElement
+```
+
+**The mutant survived.** The nil never reaches `imageList` at all, because
+`GetImagesForEdit`'s query ends in an inner `JOIN images i ON fi.image_id =
+i.id` (`edit.sql:246`) — a deleted image is already dropped in SQL, one layer
+below where I was looking. My tests could not have detected the original bug
+at any strength.
+
+So I deleted them rather than commit two green tests that assert nothing.
+Committing them would have looked like coverage and been worth less than
+nothing: they would have kept passing through any future refactor, and the
+ledger would have claimed a pinned contract that no test actually checks.
+A surviving mutant is the signal, and the honest response to it is to remove
+the test, not to strengthen its assertions until it goes red for the wrong
+reason.
+
+Recorded `[!]` with the reason, same as #727/#809 — the reporter's bug was
+real, it is not in this tree, and I will not claim to have fixed it.
+
+### #649 `[x]` — image reads guessed a path when image_location was unset
+
+  If `image_location` is not specified, the system still allows images to be
+  created in the database, and it places the image files in the current
+  working directory. If you try to retrieve an image, you _then_ get an error
+  message indicating that the image location has not been specified.
+
+The mechanism is `filepath.Join`, and it is the whole bug:
+
+```go
+filepath.Join("", "ab/cd/<id>")   // "ab/cd/<id>"  -- RELATIVE
+```
+
+Not an error, not an absolute path — a relative one. So the read was attempted
+against the process working directory and failed with a bare
+`stat ab/cd/<id>: no such file or directory` that names neither the image nor
+the missing setting. That is precisely the confusing error in the report.
+
+`WriteFile` already called `config.ValidateImageLocation`. `ReadFile` did not.
+The asymmetry *is* the defect: the write refused, the read guessed, and the
+guess was silently wrong rather than loudly refused. One guard, and both
+halves of the backend now agree.
+
+S3 is untouched and deliberately so: it reads its endpoint from
+`GetS3Config`, not `image_location`, so the guard does not apply.
+
+### Mutation-verified, and the mutant reproduced the report verbatim
+
+Deleting the guard from `ReadFile` alone:
+
+```
+"stat e5/d5/<id>: no such file or directory" does not contain "ImageLocation"
+--- FAIL: TestReadFileErrorsWhenImageLocationUnset
+```
+
+That error text is the pre-#649 symptom, so the test is detecting the actual
+defect and not a proxy for it.
+
+Five tests, and the reasoning behind their shape:
+
+- the `filepath.Join` case is asserted **directly against stdlib behaviour** —
+  a round trip through the backend would agree with whatever the backend did,
+  which is the same trap #525 walked into;
+- one test asserts a failed read leaves **nothing in the working directory**,
+  since silent CWD pollution is the specific harm described;
+- one test asserts a *configured* location still serves images, so the new
+  guard cannot regress into a blanket refusal.
+
+`config.SetImageLocationForTest` added, following `SetEmailSettingsForTest`
+from #734. Both exist only because `C` is unexported and the package under
+test needs config-dependent behaviour; `C.ImageLocation` being empty in tests
+*is* the #649 condition, so there is no way to cover this without it. Two
+test-only exports is a smell worth watching, not a reason to skip the coverage.
+
+### Verified state
+
+| Gate | Result |
+|---|---|
+| `go build ./...` | exit 0 |
+| `go vet ./...` | clean |
+| `internal/storage` tests | 5 pass |
+| unit suite | pass |
+| integration suite (`-count=1`) | ok, 36.7s |
+| `sqlc` / `gqlgen` | idempotent, no drift |
+
+### Issue ledger
+
+| Issue | Status | Note |
+|---|---|---|
+| #729 | `[x]` | nil deref on mismatched `operation` |
+| #879 | `[x]` | deleted fields reset, all four forms |
+| #802 | `[x]` | category removal; explicit null |
+| #941 | `[x]` | stale downvote notification |
+| #660 | `[x]` | overlong values rejected at edit creation |
+| #943 | `[x]` | pending edits retargeted on merge, all four entities |
+| #703 | `[x]` | merge sources editable when updating an edit |
+| #829 | `[x]` | 11 dropped performer filters implemented |
+| #974 | `[x]` | network performer list includes sub-studios |
+| #337 | `[x]` | favorited network surfaces sub-studio scene edits |
+| #1060 | `[x]` | notification trigger no longer collapses types |
+| #734 | `[x]` | implicit TLS (SMTPS, port 465) supported |
+| #738 | `[x]` | duplicate image upload upserts on the checksum |
+| #649 | `[x]` | image read validates image_location instead of guessing |
+| #525 | `[!]` | already fixed upstream in ea06fbf; my tests could not detect it |
+| #778 | `[!]` | premise absent — no scrape mutation; behaviour pinned by tests |
+| #9 | `[~]` | defect class closed for reference fields; scalars audited |
+| #727 | `[!]` | not reproducible — `url` is a live field the client depends on |
+| #809 | `[!]` | not reproduced; backend exonerated |
+| **Total** | **14 of 48 `help wanted`** | 18 needed |
+
+**14/48 — 29%.**
+
+### Next steps
+
+- **14 of 48, bar is 32.** Unopened bounded reports: #621, #1007, #956, #950,
+  #948, #1177, #1205, #583, #605, #1277. Ten issues, and the pace suggests
+  roughly six more turns at one to two each — the bar is reachable without
+  touching a single `enhancement` issue, so the "it's exhausted" worry from
+  Sessions 10-11 is dead. #621 is still the most promising (a stated repro and
+  the same edit-consistency family as #943).
+- **#525's real lesson, and it generalises:** two tests I wrote passed against
+  a bug that was already fixed, and would have kept passing forever. The
+  only thing that caught it was deleting the code they were supposed to
+  protect. Green is not evidence that a test is *capable* of failing.
+- Fork direction (SPEC §6) still unchosen, so the vision work has not started.
+  This is the one item I cannot decide: the answer changes what gets built.
+- `modbot.go` race (SPEC §8.1) still untouched.
+
+---
