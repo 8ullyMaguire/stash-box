@@ -1,3 +1,22 @@
+# Phase 4 — SUPERSEDED
+
+**Replaced by `docs/plans/feature-phase-4-federation-mesh.md` (2026-09-29).**
+
+This plan covered Phase 4's federation half: instance registry and peering,
+preservation policy and replication, and cross-instance discovery. It predates
+the owner's rewritten specification (now SPEC §7.17–§7.22), which added instance
+roles, reputation attestations, peering tiers, quorum and divergence handling,
+preservation alerts, the storage allocation algorithm, onion-routed metadata sync,
+local-first nodes, and anonymity levels — and which **rejected** the public P2P
+swarm layer this plan's neighbourhood assumed.
+
+Its Steps 2–3 are folded into Steps 2 and 5 of the replacement, and its Step 4
+(cross-instance discovery) is preserved verbatim there as Step 7b.
+
+Kept as a pointer rather than deleted so an existing link to this path resolves.
+
+<details><summary>Original content</summary>
+
 # Phase 4 — federation protocol, taste-based peering, preservation replication, cross-instance discovery
 
 **Status: not started. Depends on Phases 1–3. The largest phase, and the one
@@ -172,3 +191,5 @@ They are not hypothetical; each one produced a wrong result that had to be undon
 10. **Do not hand-edit generated files.** `internal/queries/*.sql.go`,
     `internal/models/generated_*.go` and `graphql/generated.go` come from sqlc and
     gqlgen. Change the `.sql` / `.graphql` and regenerate.
+
+</details>

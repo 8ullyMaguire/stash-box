@@ -1,9 +1,9 @@
 # stash-box fork — SPEC
 
-**Status:** draft v0.1 — foundation, direction open
+**Status:** draft v0.2 — foundation, direction resolved (§6.1), vision amended (§7.17–§7.22)
 **Repo:** `~/code-local/go/stash-box` (clone of `github.com/stashapp/stash-box`)
 **Pinned upstream:** `b4b8aef2` ("Use setup-go native cache (#1250)", 2026-09-09)
-**Written:** 2026-09-28
+**Written:** 2026-09-28 · **Amended:** 2026-09-29 (§7.17–§7.22, mesh architecture)
 
 Every fact in §2 was measured on this host on the clone, not taken from the
 README or `CLAUDE.md`. Where those two disagree with measurement, measurement
@@ -433,8 +433,8 @@ So: **C is a prerequisite, B is a constraint, and the destination is §7.** The
 spec's own ordering ("C first, then A") was right about sequencing and wrong
 about the endpoint, because at the time A and the mesh looked like
 alternatives. They are not: the mesh needs the *capability* of StashForge's
-governance, but it needs it federated and reputation-aware, which is what §7
-§6 (trust levels) and §12 (gamification) describe, and what A would deliver as
+governance, but it needs it federated and reputation-aware, which is what §7.6
+(trust levels) and §7.12 (gamification) describe, and what A would deliver as
 a single-instance system.
 
 **Consequence for sequencing:** the remaining `help wanted` backlog still gets
@@ -570,7 +570,7 @@ curate accurately.
 `VOTE`, `EDIT`, `MODIFY`, `MODERATE`, `ADMIN`, `INVITE`, `MANAGE_INVITES`): the
 fork's trust ladder must be layered **on top of** these rather than replacing
 them, or it breaks the public GraphQL compatibility surface the Stash desktop
-app depends on (§4.3). Concretely: Level 0 = anonymous + `READ`; Level 1 =
+app depends on (constraint 3 in §4). Concretely: Level 0 = anonymous + `READ`; Level 1 =
 `READ`+`VOTE`+`EDIT`; Levels 2–3 = `MODIFY`/`MODERATE`; Levels 4–5 = new
 capabilities gated on an opt-in flag, not on new roles.
 
@@ -677,6 +677,238 @@ the archive.
 || 3 | Directory for sites/studios + user reviews + Stash app integration + public API + browser extension |
 || 4 | Federation protocol + taste-based peering + preservation replication + cross-instance discovery |
 || 5 | Mobile app + annual awards + advanced recommendation engine + mesh-wide curation campaigns |
+
+### 7.17 Mesh architecture — roles, attestations, and peering (amended 2026-09-29)
+
+Added from the owner's rewritten specification. §7.1–§7.16 are the earlier
+revision of this vision and are unchanged; this section and §7.18 add to them
+rather than restating them. The intake review, including every rejection and the
+reason for it, is `docs/track/INTAKE-2026-09-29-federated-mesh-v2.md`.
+
+**Two planes, and the draft's own text is what separates them.** Section 4.5 of
+the *proposal* (not of this spec — this spec has no such section) says metadata syncs
+over onion routing and that "full content never moves over onion routing — it
+moves over the P2P layer." That is the proposal telling us
+the two planes are separable, so the spec separates them: a **metadata plane**
+(signed records, attestations, capability and taste profiles) and a **content
+plane** (replication, storage, transfer). They have different trust models, different
+anonymity properties, and different failure modes, and one implementation of each.
+
+#### 7.17.1 Instance roles
+
+A node may hold several roles. Roles are **capabilities this node offers**, not
+permissions it claims, and a node's role never changes what it may read from the
+metadata plane.
+
+| Role | Offers | Notes |
+|---|---|---|
+| Hub | high uptime, large storage | operator- or community-funded |
+| Community | themed archive (vintage, VR, indie) | moderate storage |
+| Personal | a user's own node | contributes when it chooses |
+| Read-only mirror | replicates metadata and snapshots | **never** accepts writes, never hosts content |
+| Relay | metadata only | routing and sync, no content |
+
+The read-only distinction is enforced by capability, not by trust: a mirror holds
+no write credential, so "accepts no writes" is a property of its key rather than a
+policy it could be asked to break.
+
+#### 7.17.2 Peer reputation keys and signed attestations
+
+Every user holds a **reputation keypair** signed by their home instance. Reputation
+travels as a signed attestation: *"instance A attests that user U is level 4, has
+contribution score 12,340, and holds active vanguard status."*
+
+- An instance may **accept, weight, or reject** an attestation according to its
+  trust in the attesting instance. Weighting is the mesh's only trust-inheritance
+  mechanism, and it is per-instance policy.
+- **Attestation weight decays** and requires re-signing, so a lapsed contributor's
+  standing does not persist indefinitely.
+- **Disagreement is a first-class outcome.** When instances disagree about an
+  attestation, it is arbitrated by a steward — the same re-route §7.18 uses for
+  metadata conflicts. The proposal does not specify this case and it is the case
+  that decides whether the mechanism is safe, so the spec does.
+- Sybil resistance: an attestation chain is only as strong as the weakest link the
+  receiving instance chooses to honour, which is why honouring is **policy,
+  per-receiver, and never automatic**.
+
+**The attested level is a claim, never a copy — and the distinction is the whole
+safety property of the mechanism.** An attestation says *"I believe this user is
+level 4"*, not *"this user is level 4"*. A receiving instance that treats an
+attestation as authoritative is running someone else's trust model with someone
+else's thresholds, and a compromised or merely wrong home instance becomes a
+privilege-escalation vector against every peer that believed it.
+
+This is the same rule §3.3 already states for edit votes — **recomputed from rows,
+never tallied into a column** — applied to a value that crosses an instance
+boundary. Migration 76's `user_trust.level` is already a *cache with a defined
+rebuild path* (`RebuildLevels`), not a source of truth, and an attestation carries
+the recomputed claim plus the rows needed to re-derive it. A peer that stores the
+level without the events has adopted a second source of truth it cannot audit.
+
+#### 7.17.3 Peering and peering tiers
+
+Instances peer on taste-vector similarity (cosine above an operator-set threshold),
+capability compatibility, and mutual attestation. Operators may whitelist,
+blacklist, or re-weight. Peer relationships are **signed and revocable by either
+side at any time**.
+
+| Tier | Metadata | Snapshots | Content | Quests | Ranked discovery |
+|---|---|---|---|---|---|
+| Full peer | yes | yes | yes | yes | yes |
+| Metadata peer | yes | yes | no | yes | yes |
+| Discovery peer | read | no | no | no | yes |
+| Relay peer | no | no | no | no | no |
+
+Tier is a property of the **signed relationship**, negotiated and recorded, not a
+per-request decision — so a downgrade takes effect once and is auditable, and a
+peer cannot be re-classified by a third instance.
+
+#### 7.17.4 Onion-routed metadata sync
+
+Metadata snapshots sync between peers over onion routing (Tor, I2P, or a
+mesh-specific onion protocol) so peers do not learn each other's addresses. What
+crosses the wire is **only**: signed metadata records, snapshot collage hashes,
+reputation attestations, and peer capability/taste profiles. **Full content never
+traverses this path** — it uses the content plane.
+
+Cadence is configurable: hourly diffs by default, daily full reconciliation. An
+instance may be **air-gapped**, syncing via signed export/import bundles instead;
+an air-gapped instance is a supported topology, not a degraded one.
+
+### 7.18 Federated curation, conflict resolution, and storage allocation (amended 2026-09-29)
+
+#### 7.18.1 Change propagation and conflict resolution
+
+Metadata changes are signed by the originating user's reputation key and then by
+the instance. Peers apply them by rule:
+
+- From a **high-trust user on a trusted peer** — applied immediately.
+- From a **new user or an untrusted peer** — held in a **quorum queue** until a
+  per-instance rule is satisfied (e.g. three trusted peers confirm).
+
+Conflicts resolve in this order, and the order is the specification: **recency plus
+trust weight**, then **community vote**, then **steward arbitration**, then
+**fork**. Forking is legitimate and permanent: if two versions of truth are needed,
+both are kept and shown with a **divergence marker**, and users can see which
+instances hold which version. A fork is not a failure to be resolved later; it is
+the outcome when resolution is genuinely ambiguous, and hiding it behind a last
+write wins is the thing this ordering exists to prevent.
+
+#### 7.18.2 Preservation alerts
+
+A replica carries a **manifest hash** and a content hash. Peers verify each
+other's replicas by random challenge; a failed verification triggers re-download
+from a healthy peer. **If every replica of a scene disappears, the mesh raises a
+preservation alert** and promotes that scene to the top of every matching
+instance's allocation queue. This is the same scene §7.3 promises to restore — the
+alert is what makes "if an instance goes offline" cover the stronger case of *all*
+of them going offline.
+
+#### 7.18.3 Storage allocation
+
+When an instance has free storage it fills it with content its users would enjoy
+most, scored by: instance taste vector, vanguard taste vectors (weighted highest),
+high-trust user vectors (medium), general user vector (low), peer demand signals,
+preservation urgency (rare content, endangered replicas), and curation completion
+score — **more complete metadata is preferred, because an archived scene nobody
+can search for has been preserved in the least useful sense.**
+
+An **allocation log** is kept so operators can audit and tune what was placed and
+why. Users may submit allocation preferences, which enter the scoring as an input
+rather than an override.
+
+#### 7.18.4 Auto-archiving by cross-instance enjoyment
+
+Content that draws enjoyment signals on **at least two instances** becomes eligible
+for auto-archiving by any peer with capacity and matching taste gravity. Signals
+are: opt-in viewing sessions above a threshold, high vanguard/high-trust review
+scores, Elo percentile, curation intensity, and repeated peer requests. Operators
+may raise or lower the threshold or exclude tags.
+
+Auto-archived content is **replicated, verified, and manifest-registered, never
+silently mutated.** The threshold is an *instance default overridable in both
+directions* — this is a starting policy, not a floor.
+
+#### 7.18.5 Local-first and anonymity
+
+A user may run a personal node with a full metadata database, a local library, and
+optional federation, and may contribute storage to the mesh for reputation. Users
+choose an anonymity level — **fully anonymous** (onion-routed metadata, no account),
+**pseudonymous** (account plus signed reputation key), or **open**. The default for
+a new user is pseudonymous with no content sharing until opt-in.
+
+### 7.19 The P2P content layer — REJECTED, with the mechanism re-routed
+
+Recorded as a rejection because a future draft will re-propose it, and because the
+reasoning is the load-bearing part.
+
+The proposal's §5.1 asks for BitTorrent, WebTorrent, DHT (mainline and custom),
+eDonkey2000, Kad, IPFS, and a custom swarm protocol. **Not adopted as a product
+surface.** Three independent grounds:
+
+1. **It is a different product.** A swarm client has no metadata, no GraphQL, and
+   none of the curation or trust machinery that is this repository's entire point.
+   The proposal itself draws the seam (its section 4.5), and adopting its section 5 wholesale
+   would build a filesharing daemon that a GraphQL server has to babysit.
+2. **Licence exposure is unresolved.** The eMule-lineage reference implementations
+   are GPL. This fork is MIT (constraint 2 in §4), and linking or embedding them is
+   a distribution event. Adopting the vocabulary now puts a known-unanswered
+   question inside the spec where it is inherited silently.
+3. **It adds no GraphQL surface at all** — the first proposed subsystem with none.
+   Constraint 3 in §4 ("Constraints a fork inherits") makes the GraphQL schema a
+   public compatibility surface for the Stash desktop app, and a subsystem
+   invisible to it cannot be governed by it.
+
+**What is adopted instead:** the content plane is a single **instance-to-instance**
+replication protocol (§7.18.2, §7.18.3), spec-agnostic and replacing whatever
+transport is configured. If a public swarm protocol is ever wanted, it plugs in
+behind the content plane's interface and adds no spec change — which is the test
+for whether that addition was the right shape.
+
+### 7.20 Vanguard — the draft's influence grant, corrected
+
+The proposal grants vanguards "weighted influence on gravity tuning." **Adopted
+except that clause**, and the correction is deliberate.
+
+A vanguard is a user whose taste vector has high **resonance** with the instance's
+gravity, who holds high trust, and who has a high contribution score. Resonance is
+continuous and adoption-weighted, and **vanguard status is dynamic** — earned, lost,
+and regained. Operators may appoint manually or let the algorithm decide (default:
+algorithm, with manual override).
+
+Vanguards receive early feature access, priority in curation quests, storage
+allocation influence, awards nomination rights, and a visible badge. **They do not
+get a weighted vote on instance gravity.** Gravity is an operator control, listed as
+one in §7.13, and the proposal's own §2.2 provides the sanctioned influence path
+when it says operators may appoint vanguards manually. Weighting gravity by user
+resonance would let a small high-trust group steer every user's recommendations for
+the whole instance — a governance change wearing a gamification costume. Priority
+and nomination are influence; a vote on the theme is control.
+
+### 7.21 Ecosystem delta
+
+The only ecosystem change is a widened SDK list: **Rust** joins Python, JavaScript,
+and Go (§7.11). Developer sandbox, webhooks, browser extension, and mobile app are
+already specified in §7.11 and are unchanged.
+
+### 7.22 §7.16 corrected — four of its five "No" rows are now stale
+
+§7.16 was accurate when written and is **wrong now**, because this fork has since
+built four of the five capabilities it declared absent. Correcting it here rather
+than editing §7.16 in place, so the correction and its date are both visible.
+
+|| Vision item | §7.16 said | Now |
+||---|---|---|
+|| Elo / Glicko ranking | No | **built** — `internal/service/elo`, Glicko-2 |
+|| Snapshot collages | No | **built** — `internal/service/collage` |
+|| Identification board | No | **built** — migration 79, `internal/service/identification` |
+|| Completion scores | No | **built** — `internal/service/completion`, GraphQL-exposed |
+|| Federation / replication | No | **still no** — and §7.17/§7.18 now say what it takes |
+
+§7.16's reasoning about the existing `edit`/`edit_votes` machinery still holds and
+is worth keeping: consensus on facts is a different problem from pairwise
+preference ranking, and the Elo implementation is deliberately not built on the
+edit system.
 
 ### 7.16 What the vision needs from the existing codebase
 
