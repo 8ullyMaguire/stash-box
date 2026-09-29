@@ -1948,3 +1948,176 @@ were alone. `queryPerformerIDs` now pins `PerPage`.
 - `modbot.go` race (SPEC §8.1) still untouched.
 
 ---
+
+---
+
+## Session 17 — #948 (one issue, two bugs; one of them far more common) (2026-09-29)
+
+### #948 `[x]` — some images do not get saved
+
+  Very rarely an image will fail to get saved when uploaded to StashDB. This
+  always happens with the same image and has been tested across both different
+  browsers and different users.
+
+**Bug 1 — the checksum short-circuit, which is what the report describes.**
+
+DogmaDragon's diagnosis in the thread *is* the bug:
+
+> The images are "cached" by their checksum so if the initial upload failed any
+> subsequent re-upload will not update the image. The workaround is to modify the
+> image to change the checksum and then upload it.
+
+Changing the checksum only works because it produces a different key. A checksum
+hit short-circuited the entire create path and returned the existing row.
+
+**This is the window my own #738 fix opened.** I moved the write *after* the
+insert deliberately, so a failed write cannot leave an orphan file that
+`DestroyUnusedImages` cannot find (the reaper walks the images table, so an
+unreferenced file is invisible to it). The cost of that ordering:
+
+```
+insert commits  ->  write fails  ->  row points at nothing
+                                   ->  every later upload short-circuits
+                                   ->  permanent
+```
+
+A checksum hit is now only a hit when the file is actually retrievable. Missing
+file → treat as absent, delete the dead row, rerun. The id cannot be reused (the
+row is keyed by id and holds the checksum, so new bytes under the old id collide
+with a path the row already claims), so the repaired image gets a fresh id.
+
+`storage.Backend` gains `FileExists` — on the interface, not as a filesystem call
+in the service, because **S3 has the same hole**: a row in Postgres with no
+object in the bucket. A `remote_url` image always counts as present, or every
+remote upload would look like a repair.
+
+**Bug 2 — PNG and JPEG cannot be decoded at all, on any unix build.**
+
+Found by the test fixture, not by reading. My first PNG was rejected:
+
+```
+image: unknown format
+```
+
+...even though the same bytes decoded fine in a standalone program. The cause:
+
+```go
+import (
+    "image"
+    _ "image/gif"
+    io
+    _ "golang.org/x/image/webp"
+)
+```
+
+GIF and WebP registered. **PNG and JPEG did not.** `image.Decode` matches on
+registered formats, and on every platform where the resizer is the libvips build
+— everything unix, per `resize_unix.go` vs `resize_windows.go` — no stdlib PNG or
+JPEG decoder is ever linked. `populateImageDimensions` is on the path of *every*
+upload (`service.go:129`), so this is not an edge case: **it rejects the two most
+common image formats outright.**
+
+A second way for an image to fail to get saved, and a *far* more common one than
+the checksum case. Registered both decoders.
+
+**A fixture lesson repeated from #1007:** a test that fails for the wrong reason
+is worse than no test. I verified the PNG bytes against `image.DecodeConfig` in a
+throwaway program *before* writing them into the test file, because the first
+hand-written PNG was rejected. The error pointed at the fixture; had I "fixed" it
+by loosening the assertion, I would have shipped a test that never touched the
+checksum logic.
+
+### Tests
+
+Four, in a new package `internal/service/image` with its own `TestMain` —
+`database/testutil.initPostgres` drops every table before running, so it cannot
+share a binary with `internal/api`. The service is reachable through
+`testutil.Factory().Image()`.
+
+**This closes the #738 coverage gap.** #738's logic was verified as a raw SQL
+contract because the service was unreachable from a test; the logic here is in Go,
+so it is tested as Go.
+
+Two are guards, and their value showed in the mutation runs: removing the file
+check also fails the *reuse* test, because the present-file case is the same code
+path. `TestFileExistsTreatsRemoteImagesAsPresent` is the only test that survives
+both mutants — correct, it covers a branch neither fix touches.
+
+Mutation-verified independently:
+
+```
+A, no FileExists check:
+  --- FAIL: TestImageCreateRepairsRowWhoseFileIsMissing
+  --- FAIL: TestImageCreateReusesRowWhenFileIsPresent
+  --- FAIL: TestImageCreateKeepsChecksumUniquenessAfterRepair
+
+B, no png/jpeg decoder:
+  --- FAIL: TestImageCreateRepairsRowWhoseFileIsMissing   (unknown format)
+  --- FAIL: TestImageCreateReusesRowWhenFileIsPresent
+  --- FAIL: TestImageCreateKeepsChecksumUniquenessAfterRepair
+```
+
+### Verified state
+
+| Gate | Result |
+|---|---|
+| `go build ./...` | exit 0 |
+| `go vet ./...` | clean |
+| image integration | ok |
+| api integration (`-count=1`) | ok, 37.1s |
+| unit suite | pass |
+
+### Issue ledger
+
+| Issue | Status | Note |
+|---|---|---|
+| #729 | `[x]` | nil deref on mismatched `operation` |
+| #879 | `[x]` | deleted fields reset, all four forms |
+| #802 | `[x]` | category removal; explicit null |
+| #941 | `[x]` | stale downvote notification |
+| #660 | `[x]` | overlong values rejected at edit creation |
+| #943 | `[x]` | pending edits retargeted on merge, all four entities |
+| #703 | `[x]` | merge sources editable when updating an edit |
+| #829 | `[x]` | 11 dropped performer filters implemented |
+| #974 | `[x]` | network performer list includes sub-studios |
+| #337 | `[x]` | favorited network surfaces sub-studio scene edits |
+| #1060 | `[x]` | notification trigger no longer collapses types |
+| #734 | `[x]` | implicit TLS (SMTPS, port 465) supported |
+| #738 | `[x]` | duplicate image upload upserts on the checksum |
+| #649 | `[x]` | image read validates image_location instead of guessing |
+| #621 | `[x]` | deleted site no longer breaks the /edits page |
+| #956 | `[x]` | invite-key rules pinned; already fixed in c5ad421 |
+| #950 | `[x]` | duplicate create edit rejected; was a silent duplicate |
+| #1007 | `[x]` | no soft-deleted entity resolves by id; 3 entities |
+| #948 | `[x]` | broken upload self-repairs; **PNG/JPEG now decode at all** |
+| #525 | `[!]` | already fixed upstream in ea06fbf; my tests could not detect it |
+| #778 | `[!]` | premise absent — no scrape mutation; behaviour pinned by tests |
+| #9 | `[~]` | defect class closed for reference fields; scalars audited |
+| #727 | `[!]` | not reproducible — `url` is a live field the client depends on |
+| #809 | `[!]` | not reproduced; backend exonerated |
+| **Total** | **19 of 48 `help wanted`** | 13 needed |
+
+**19/48 — 39.6%.**
+
+### Next steps
+
+- **19 of 48, bar is 32.** Unopened bounded reports: #1177, #1205, #583, #605,
+  #1277. Five left; the bar lands around session 19–20.
+- **#1177** next — fingerprint cluster view fills the hash list with duplicates
+  every time you switch clusters. A frontend state-reset bug, cheap and bounded.
+- **Standing lesson, now four times** (#525, #950, #1007, #948): a test that
+  cannot fail, or that fails for the wrong reason, is worse than no test. Both
+  mutations in #1007 and both here were caught only by deleting the fix and
+  watching.
+- **Fixes create their own issues.** #738's write-after-insert opened #948's
+  window. Worth re-reading my own recent commits for ordering assumptions when
+  the next report lands in the same area.
+- **`internal/image` has no tests** (`resize_unix.go` / `resize_windows.go` is
+  the only untested package, excluded from the unit run). The PNG/JPEG finding is
+  exactly the kind of thing a build-tag split hides. Candidate for a follow-up
+  once the bar is met.
+- Fork direction settled (SPEC §6.1). `docs/PLAN.md` stays unwritten until
+  Phase 1 is specced, deliberately after the bar is met.
+- `modbot.go` race (SPEC §8.1) still untouched.
+
+---
