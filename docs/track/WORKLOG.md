@@ -4634,3 +4634,81 @@ different to a client, and collapsing them **tells an author their review vanish
 **Next: Phase 3 step 2 — site directory fields + `site_alternatives`.**
 
 ---
+
+
+## Session 40 — site directory + alternatives graph (SPEC §7.10, Phase 3 step 2)
+
+Migration 83 · `internal/service/site/directory.go` · 3 unit + 12 integration · **7 / 7 mutants** · `make it` **24 pkgs**.
+
+### Nullable arrays are the SEMANTICS, not a convenience
+
+> An empty array is a **claim** — *"this site has no payment methods"*. NULL is the
+> truth — *"nobody filled this in"*.
+
+Most sites are unknown for most fields, so defaulting to `'{}'` makes the directory
+**lie about its own catalogue**. The write-side cost is deliberate friction: a
+caller must pass a **real empty slice to CLEAR** a field, because a request body
+that can't distinguish *"set to empty"* from *"not touching"* can't clear a wrong field.
+
+### The CHECK is load-bearing AND not sufficient
+
+A site cannot be its own alternative. The failure is **not a rejected write** — it's a
+graph **cycle**, and the alternatives list is walked to build a navigation tree, so
+a one-node cycle **hangs the page for every visitor**.
+
+But the CHECK stops `A → A` **and nothing else**. `A → B → C → A` is legal, so:
+
+- a **depth bound that is a CONSTANT**, not a parameter — a parameter is a footgun
+  with a plausible-looking call site;
+- a **visited set** seeded with the root.
+
+Redundant **by design**: the bound survives a bug in the visited set and vice versa.
+**BFS** so the frontier can't exceed the node count — cost in edges, not paths.
+
+### Two survivors that were worth the whole exercise
+
+| mutant | why it survived | fix |
+|---|---|---|
+| **visited set removed** | passed **every** test, **including the cycle test I wrote to cover it** | **`TestADiamond`** — measured 4 vs 3 |
+| **limit clamp removed** | clamped and unclamped over 9 fixtures return **the same rows** | pure `clampLimit`, asserted directly |
+| **empty query → `ILIKE '%%'`** | `''` and `NULL` return **identical results** | pure `searchText`, asserted directly |
+
+> At depth 2, `A → B → C → A` **never re-reaches the root** — C joins the next
+> frontier and is never expanded. **A test that looks like coverage of cycle safety
+> was not covering it.** A **diamond** is the shape that exercises it.
+
+Both remaining defects are **invisible to any output-comparing test, by
+construction** — one is a cost, one is a scan, **neither is a result**.
+
+### Duplication is not redundancy
+
+The self-alternative guard is in the schema **and** the service, and the *service*
+one survived until I tested it:
+
+> The constraint makes the rule **TRUE**; the service check makes it **VISIBLE** —
+> and only the second needs its own test, or a refactor that routes around the
+> service loses the named error and **nothing notices**.
+
+### Also
+
+- Search sorts by **review count before average** — a bare average puts one 5★ above
+  forty 4.4s, exactly the misreading §7.10's "rating" filter invites.
+- Array filters are **OVERLAP, not containment** — cash **and** cards must match a
+  filter for cards.
+- **Stale plan reference corrected:** the plan required `FindSiteWithRedirect` for
+  the #1007 contract. **No such function exists** and there is **no redirect
+  mechanism** — sites are hard-deleted and `ON DELETE CASCADE` makes a dangling id
+  *impossible* rather than filtered. Contract now stated directly in the SQL.
+
+### Verification
+
+| | |
+|---|---|
+| `go build` · `go vet` | clean |
+| unit · integration | **3 · 12 pass** |
+| mutants | **7 / 7** (2 unit · 5 integration) |
+| `make it` | green, **24 packages** |
+
+**Next: Phase 3 step 3 — REST subset + webhooks (SSRF, HMAC, retry).**
+
+---
