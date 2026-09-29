@@ -3665,3 +3665,127 @@ sequence to a clean database**.
 | **Identification board** | **next — last Phase 1 item** |
 
 ---
+
+
+## Session 30 — Phase 1, identification board (SPEC §5) — Phase 1 COMPLETE
+
+### A vote is evidence, not authority
+
+The decision the whole package exists to express. **There is deliberately no
+vote-threshold resolution and no mutation that creates a scene or a performer.**
+
+SPEC §5 says an identification *"can trigger metadata creation and replication"* —
+**CAN**, through the existing edit path, **by a person**. A plurality vote is not a
+creation. An archive that fills itself from votes fills itself with *confidently
+wrong* records, and every one of those then becomes a canonical link that search
+and recommendations point at.
+
+Resolution requires a named human, records **who**, and records trust **only when
+the answer they picked was one the community had already proposed**. Picking a
+suggestion is the act §5 rewards; resolving to something nobody suggested is a
+different act and earns nothing.
+
+### The Detective score counts open queries only
+
+A vote on a query that was resolved without you **stops counting** — it was
+evidence about a question that no longer exists, and a leaderboard that keeps
+counting it rewards voting on questions that were answered without the voter.
+
+### A tie is not a consensus
+
+`LeadingCandidate` returns **nothing** on a tie, rather than picking one of the
+tied candidates. §5 wants a leaderboard, and a leaderboard that silently chose a
+winner among equals would report a consensus the community did not reach. Same
+for a candidate with zero votes: nobody has said anything about it.
+
+### The CHECK constraint, proven in both directions
+
+Marking a query **solved with nothing attached** → rejected. Marking one **open with
+a resolution attached** → rejected. So no consumer of the solved view has to
+re-verify it.
+
+### A real bug found by probing, not by reading the diff
+
+The vote mutation returned a **tally of 0** while the database held **1**. The count
+was in the service's struct the whole time and simply **never crossed into the
+GraphQL model** — one missing line in a conversion function.
+
+It compiled. Every service-level test passed. The field is declared non-null, so
+GraphQL accepted the zero. **Only a test at the API boundary could see it**, because
+only that layer compares what the user was told against what was stored.
+
+> **And my first version of that assertion could not have caught it.** It compared
+> the mutation's return value against *itself* — which cannot distinguish a correct
+> tally from a resolver that returns zero every time, because both are
+> self-consistent. The test now reads the tally through a **separate query** and
+> compares the two. That is the only form of the assertion with content.
+
+### Two reentrancy guards, and which one is load-bearing
+
+`Resolve` checks status **twice** — once in Go, once in the SQL. I assumed the SQL
+one was the real guard, because the Go check runs first and *reads like tidiness*.
+
+| removed | result |
+|---|---|
+| the Go status re-check | **survives** |
+| the SQL status guard | **survives** |
+| both | `TestResolveIsNotReentrant` **fails** |
+
+They are **not independent**. The Go check catches a query that changed state
+between the read and the write; the SQL guard is what survives two genuinely
+concurrent transactions where both reads happen before either write.
+
+> **"There are two guards so one must suffice" is a guess, and it was wrong in both
+> directions.** Removing one and seeing the suite stay green tells you nothing;
+> I had to remove both before the test failed.
+
+### Mutation results
+
+**Five resolver mutants, all caught:** tally not crossing the API boundary ·
+`votedByMe` forced false · `votedByMe` forced true · candidates never attached ·
+resolution type dropped.
+
+**Six service-level, all caught:** a vote auto-resolving the query · resolution type
+unchecked · candidate type unchecked · trust recorded for an unsuggested answer ·
+the suggested-match check inverted · the call site never passing a trust callback.
+
+> Two of the first pass *looked* like catches and were not: one was a **build
+> failure** and one was a mutation that **never applied** (my perl pattern didn't
+> match, and the harness reported `ok`). A harness that reports `killed` has not
+> proved anything — I had to redo both before either meant anything.
+
+### Three test bugs of my own, each a fixture failure posing as a service failure
+
+1. **Random UUIDs as voters** → foreign key violations, not behaviour under test.
+2. **UUID names colliding** — `uuid.NewV7` is time-ordered, so consecutive ids share
+   a leading prefix and `id.String()[:8]` collided across tests in the same
+   millisecond.
+3. **`assert.Contains` over a slice of pointers** → compares *addresses*, so it can
+   never match. It failed with a dump of pointers rather than a useful message.
+
+### Gates
+
+`go build` 0 · `go vet` clean · **6 unit + 17 service-integration + 6 GraphQL** ·
+api suite ok 59.7s · units clean · **gqlgen and sqlc both idempotent** · **all 79
+migrations apply in sequence to a clean database**.
+
+---
+
+## Phase 1 — COMPLETE
+
+| Step | Item | Session | Commit |
+|---|---|---|---|
+| 1.1–1.4 | trust levels, XP, badges, reputation | 22–24 | — |
+| 1.5a–c | Elo: tables / engine / service / matchup flow | 25–28 | — |
+| 1.5d | snapshot collages (SPEC §8) | 29 | `99e5cb0` |
+| **1.6** | **identification board (SPEC §5)** | **30** | `860c6c1` |
+
+**SPEC §15 Phase 1 is done:** single-instance public metadata portal + snapshot
+collages + Elo voting + identification board.
+
+### Next — Phase 2
+
+Trust levels + opt-in content viewing + gamification + curation quests + completion
+scores (§6, §7, §12). Plan first, per the standing workflow.
+
+---
