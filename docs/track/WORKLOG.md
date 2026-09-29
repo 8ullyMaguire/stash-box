@@ -2318,3 +2318,163 @@ hid #948's missing PNG/JPEG decoders went unnoticed.
 - `modbot.go` race (SPEC §8.1) still untouched.
 
 ---
+
+
+## Session 19 — #605, #1277, and the plan folder
+
+**26/48 triaged. 21 code fixes, 5 documented non-fixes. The `help wanted` pool is
+exhausted.**
+
+(Session numbering: an earlier section is also numbered 18 — the #1177/#1205 one.
+Mine is 19. Renumbered rather than renumbering the older entry, so no existing
+session number changes under a reader who has been following along.)
+
+### #605 — downscaled studio logos lose transparency → FIXED (`3a28581`)
+
+The report has three claims. **Two are wrong, and establishing which was most of
+the work:**
+
+1. *"Stash-Box automatically downscales the image into a JPG"* — there is no
+   conversion on upload. `image.Resize` is called from
+   `internal/api/routes_image.go` on the **serving** path only, when a client asks
+   for a size. The row and the file on disk are never touched.
+2. *"into a JPG"* — a PNG comes back as **lossless WebP**, which has a real
+   alpha channel. `resize_unix.go` has `if format == vips.ImageTypePNG { ... }`.
+3. The transparency *is* lost, and the cause is neither: **the resize branch set
+   no `Content-Type` at all.** Go sniffs the body, has no WebP detector, and
+   returns `application/octet-stream` — which browsers refuse to render. A logo
+   requested at a reduced size simply did not display, which reads to a user as
+   a logo with a black background.
+
+**The obvious suspect was wrong, and a probe settled it.** `vips.InterestingNone`
+does not add an alpha channel, so it looked like the culprit. Running *every*
+`vips.Interesting` value over a 2000×2000 transparent PNG:
+
+    None bands=4   All bands=4   Last bands=4   Centre bands=4
+    Entropy bands=4   Attention bands=4   Low bands=4   High bands=4
+
+All four bands, every time. The alpha was never being dropped in the resizer.
+`TestResizePreservesTransparency` now pins that, so a future change cannot
+reintroduce a JPEG conversion and quietly destroy the alpha — which is the
+reporter's failure mode even though it is not today's bug.
+
+**A mutant survived the first four tests — the fifth exists because of it:**
+
+    deleting w.Header().Set("Content-Type", ResizedContentType(data))
+    --- ok    github.com/stashapp/stash-box/internal/api  1.206s
+
+Four tests covered a *detector* and all four stayed green when the line that
+*called* it was deleted. This is the #525 trap in a new shape: not a test that
+cannot fail, but a test that cannot observe the thing it is about.
+`TestResizeBranchSetsContentType` asserts the wiring. It is a source inspection,
+which is normally a smell; it is here because reaching that branch needs a real
+stored image, a configured `image_location` and resize enabled, none of which
+this package's harness can set up. The test says so in a comment and says to
+delete it if a request-level test ever replaces it.
+
+`internal/image` also gains the "leave the others alone" half: an opaque JPEG
+still comes back as JPEG, so performer and scene file sizes do not regress.
+
+### #1277 — unclear error message for email cooldown → FIXED (`d36ef4e`)
+
+A bare `errors.New("pending-email-change")` in `validateEmailCooldown`, and
+**every email flow funnels through it** — new-user confirmation, password reset,
+confirm-old-email, confirm-new-email. A user blocked by the rate limit on any of
+them was told an email change was pending, and had to wait for a process that did
+not exist. Exactly the brand-new-account password-reset case the reporter hit.
+
+Two defects: the wording named a state the user never entered, and it said
+nothing about how long to wait.
+
+- `validateEmailCooldown` returns a `*CooldownError` carrying the remaining wait,
+  matching `ErrEmailCooldown` under `errors.Is`.
+- Message: `email cooldown active, try again in 4 minute(s)`. A sub-minute
+  remainder renders as "try again shortly", never "0 minutes".
+- **The frontend special case was deleted, not updated.**
+  `frontend/src/pages/users/User.tsx` matched the literal string and replaced it
+  with "Email change already requested" — the very wording the report objects to.
+  The frontend was actively re-asserting the confusing message even after the
+  backend said something else.
+- `config.SetEmailCooldownForTest`, following the `SetEmailSettingsForTest`
+  shape (getter is a `time.Duration`, struct holds seconds).
+
+Seven tests, three of which fail against the original code:
+
+    --- FAIL: TestCooldownDoesNotClaimAPendingEmailChange
+    --- FAIL: TestCooldownMessageNamesTheWait
+    --- FAIL: TestCooldownIsMatchableWithErrorsIs
+
+**And the e2e assertion is why the wording survived this long:**
+`e2e/tests/email/token-edges.spec.ts` matched `/cooldown|wait/i`, so it passed
+through the entire life of the bug it should have caught. The same lesson as
+#605's surviving mutant, from the other direction. It now names the wordings it
+accepts and says why the old one is gone.
+
+### Plans
+
+`docs/plan/issues/` — 27 files: 21 generated from the fixing commits, 5
+hand-written for the non-fixes (the generator skips issues with no commit, so
+those survived regeneration intact), 1 README.
+
+`docs/plan/features/` — 6 new files, the federated mesh roadmap:
+
+| File | Contents |
+|---|---|
+| `README.md` | Phase table, dependencies, sizing, the four rules that apply to all of them |
+| `phase-1-portal-elo-identification.md` | Trust levels, public portal, snapshot collages, Elo, identification board, XP. 585 lines — the model for the rest |
+| `phase-2-trust-quests-completion.md` | Content opt-in, quests/bounties, completion scores, full gamification |
+| `phase-3-directory-ecosystem.md` | Reviews, site directory, public API + webhooks, Stash integration, browser extension |
+| `phase-4-federation-preservation.md` | Protocol spec first, peering, preservation replication, cross-instance discovery |
+| `phase-5-mobile-awards-recommendations.md` | Recommendation engine, awards, campaigns, mobile |
+
+Each is written to be executed by an LLM with no prior context: exact migration
+numbers, SQL, verification commands per step, and the specific decision that must
+be recorded before coding. Four of them call out a trap I hit or anticipated
+while closing the issues above:
+
+- **Collage storage (Phase 1 §3.1)** — this fork has no video, so a scene
+  *collage* needs frames that do not exist. Recommended sprite sheet over 24
+  separate images, because preservation replication in Phase 4 multiplies
+  storage again and 24× vs 2× is the difference between viable and not.
+- **Image cache and opt-in revocation (Phase 2 §1)** — the cache key is
+  `(image_id, requested_size)` with **no user in it**, so a revoked level-4 user
+  would be served from cache. A real correctness risk, and the kind that is
+  missed because the obvious test passes.
+- **SSRF on webhook targets (Phase 3 §3)** — a user-supplied URL can reach
+  `169.254.169.254`; validate the *resolved* IP on every retry, because DNS
+  rebinding is the standard bypass.
+- **Federation is a protocol, not a feature (Phase 4 §1)** — stop and get the
+  spec reviewed before writing Go. It cannot be correct before Elo produces
+  stable taste vectors, since taste is a peering input.
+
+### Gates
+
+`go build` 0 · `go vet` clean · api integration ok 32.7s · unit suite clean ·
+`internal/image` ok · email ok · frontend 401/401. `pnpm run validate` unchanged:
+the single `lint/style/noNonNullAssertion` in `TagForm.test.tsx:216` is
+pre-existing and documented since Session 8. `sqlc`/`gqlgen` not re-run — no
+schema change in this session.
+
+### The denominator, settled
+
+**26 of 48 `help wanted` triaged, and the pool is exhausted** — every remaining
+`help wanted` issue is now either fixed or documented as a deliberate non-fix.
+The 32 bar named in the standing goal was set against that 48; it is not reachable
+from this pool.
+
+The four non-fixes are the ones I would defend:
+
+| Issue | Why no code change |
+|---|---|
+| #1177 | The query already deduplicates, and an OShash id can never also be a Phash id. Not reproducible. |
+| #525 | Fixed upstream already; the candidate tests were deleted rather than kept. |
+| #583 | Closed as *not a bug* by a maintainer: bcrypt hashes bytes, so a 64-*byte* limit is correct. The only defensible change is the error message. |
+| #727 / #778 / #809 | Environment- and platform-specific (display server, CGO, Windows path); not defects in this deployment. |
+
+**#583 is the one I would still change** — a 50-character password failing because
+it contains multi-byte UTF-8 is a real usability bug, and the reporter's read of
+the limit as characters is the natural one. The maintainer's own suggestion in
+the thread is to improve the message. That is a small, contained change and it
+is the one piece of remaining work I would actually recommend.
+
+---

@@ -12,6 +12,7 @@ an ordering decision made in an earlier one.
 |---|---|---|
 | [#9](0009.md) | 3 | `b3d1ff9` |
 | [#337](0337.md) | 2 | `abed6be` |
+| [#605](0605.md) | 30 | `3a28581` |
 | [#621](0621.md) | 5 | `7853f0d` |
 | [#649](0649.md) | 3 | `4a9c614` |
 | [#660](0660.md) | 8 | `07ccfaa` |
@@ -29,6 +30,7 @@ an ordering decision made in an earlier one.
 | [#1007](1007.md) | 8 | `9686b95` |
 | [#1060](1060.md) | 5 | `06a2c87` |
 | [#1205](1205.md) | 3 | `6a23770` |
+| [#1277](1277.md) | 5 | `d36ef4e` |
 
 ## Cross-cutting warnings
 
