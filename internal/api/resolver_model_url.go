@@ -23,5 +23,17 @@ func (r *urlResolver) Type(ctx context.Context, obj *models.URL) (string, error)
 	if err != nil {
 		return "", err
 	}
-	return strings.ToUpper(site.Name), err
+
+	// A missing site must not panic. Site is declared non-null, so a URL with a
+	// dangling site_id should already be filtered out upstream
+	// (GetMergedURLsForEdit joins sites), but this resolver is reachable from
+	// any model carrying a URL and the schema's own guarantee is not something
+	// to dereference blindly: a nil here is a panic that takes the request
+	// handler with it, which is strictly worse than an empty string on a
+	// deprecated field.
+	if site == nil {
+		return "", nil
+	}
+
+	return strings.ToUpper(site.Name), nil
 }

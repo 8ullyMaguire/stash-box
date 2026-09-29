@@ -1239,8 +1239,9 @@ final_urls AS (
     UNION
     SELECT url, site_id FROM added_urls
 )
-SELECT DISTINCT url, site_id FROM final_urls
-ORDER BY url
+SELECT DISTINCT final_urls.url, final_urls.site_id FROM final_urls
+JOIN sites s ON s.id = final_urls.site_id
+ORDER BY final_urls.url
 `
 
 type GetMergedURLsForEditRow struct {
@@ -1249,6 +1250,25 @@ type GetMergedURLsForEditRow struct {
 }
 
 // URL merging queries for edits
+// Drop any URL whose site no longer exists.
+//
+// This is the #621 fix. current_urls is safe already: scene_urls/performer_urls/
+// studio_urls carry a foreign key to sites, so deleting a site cascades the
+// join rows away. But added_urls is read straight out of the edit's JSON
+// payload, which is not a foreign key and is not cascaded -- a site deleted
+// after the edit was filed left a dangling site_id behind.
+//
+// The dangling id then reached URL.site, which the schema declares non-null
+// (`site: Site!`), so the dataloader's nil became a GraphQL null-in-non-null
+// error and the whole /edits page failed to render -- one bad row taking out
+// every edit on the page. URL.type additionally dereferenced the nil site
+// without a check.
+//
+// Filtering here rather than relaxing the schema to `site: Site` is
+// deliberate: the frontend's URLFragment requires site { id name icon
+// category { ... } } to render a row at all, so a null site would not fix the
+// page, it would trade a loud failure for blank or broken rows. A URL whose
+// site is gone has no site to render, so it does not belong in the list.
 // result: URL
 // Gets current URLs for target entity and merges with edit's added_urls/removed_urls
 func (q *Queries) GetMergedURLsForEdit(ctx context.Context, id uuid.UUID) ([]GetMergedURLsForEditRow, error) {
