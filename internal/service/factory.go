@@ -25,6 +25,8 @@ import (
 	"github.com/stashapp/stash-box/internal/email"
 	"github.com/stashapp/stash-box/internal/queries"
 	"github.com/stashapp/stash-box/internal/service/authored"
+	"github.com/stashapp/stash-box/internal/service/award"
+	"github.com/stashapp/stash-box/internal/service/badge"
 	"github.com/stashapp/stash-box/internal/service/collage"
 	"github.com/stashapp/stash-box/internal/service/completion"
 	"github.com/stashapp/stash-box/internal/service/draft"
@@ -216,6 +218,26 @@ func (f *Factory) Invite() *invite.Invite {
 }
 
 // Trust returns a TrustService instance
+// Award returns an AwardService instance.
+func (f *Factory) Award() *award.Service {
+	return award.NewService(f.Trust())
+}
+
+// Badges returns a user's derived badges.
+//
+// Not a method on the badge package because Derive is a PURE function of the
+// rollup and needs no service of its own -- it takes trust.Totals and returns
+// badges. The factory method is here so a resolver has one way to reach it that
+// does not involve constructing the rollup by hand, and so the trust service it
+// reads is the same object the rest of the app uses.
+func (f *Factory) Badges(ctx context.Context, userID uuid.UUID) ([]badge.Badge, error) {
+	totals, err := f.Trust().TotalsFor(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	return badge.Derive(totals), nil
+}
+
 func (f *Factory) Trust() *trust.Trust {
 	return trust.NewTrust(queries.New(f.db), f.withTxn)
 }
