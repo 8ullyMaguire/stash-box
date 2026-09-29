@@ -16,6 +16,10 @@ type Querier interface {
 	// community voted down, and re-surfacing it in the queue forever is how a board
 	// fills with questions nobody wants.
 	AbandonIdentificationQuery(ctx context.Context, id uuid.UUID) (IdentificationQuery, error)
+	// Gives up permanently. The row is KEPT, not deleted, because "this endpoint
+	// failed four times and was abandoned" is the answer to the question a user asks
+	// when their integration silently stopped working.
+	AbandonWebhookDelivery(ctx context.Context, arg AbandonWebhookDeliveryParams) error
 	AddAuthoredQuestItem(ctx context.Context, arg AddAuthoredQuestItemParams) (AuthoredQuestItem, error)
 	// Proposes a candidate.
 	//
@@ -159,6 +163,9 @@ type Querier interface {
 	// mutation needs this one row and the grouped per-query query would be a scan of
 	// every candidate on the query to answer "how many votes does this one have".
 	CountVotesForCandidate(ctx context.Context, candidateID uuid.UUID) (int64, error)
+	// How many are still pending for an endpoint. Shown on the settings page so a user
+	// can see their queue is backing up BEFORE deliveries start failing.
+	CountWebhookDeliveries(ctx context.Context, endpointID uuid.UUID) (int, error)
 	// Authored quests, bounties and claiming (SPEC §7.7).
 	//
 	// GENERATED quests (internal/service/quest) are a pure function of the archive and
@@ -316,6 +323,9 @@ type Querier interface {
 	CreateUserRoles(ctx context.Context, arg []CreateUserRolesParams) (int64, error)
 	// User token queries
 	CreateUserToken(ctx context.Context, arg CreateUserTokenParams) (UserToken, error)
+	CreateWebhookDelivery(ctx context.Context, arg CreateWebhookDeliveryParams) (WebhookDelivery, error)
+	// Webhook queries (SPEC §7.11, phase 3 step 3).
+	CreateWebhookEndpoint(ctx context.Context, arg CreateWebhookEndpointParams) (WebhookEndpoint, error)
 	DeleteAllSceneFingerprintSubmissions(ctx context.Context, arg DeleteAllSceneFingerprintSubmissionsParams) (int64, error)
 	DeleteAuthoredQuest(ctx context.Context, id uuid.UUID) error
 	// Removing a collage. The snapshots it referenced are NOT deleted: the FK is ON
@@ -389,6 +399,8 @@ type Querier interface {
 	DeleteUserNotificationSubscriptions(ctx context.Context, userID uuid.UUID) error
 	DeleteUserRoles(ctx context.Context, userID uuid.UUID) error
 	DeleteUserToken(ctx context.Context, id uuid.UUID) error
+	// Returns the row so the caller can report WHICH endpoint was removed.
+	DeleteWebhookEndpoint(ctx context.Context, arg DeleteWebhookEndpointParams) (WebhookEndpoint, error)
 	DestroyExpiredInvites(ctx context.Context) error
 	DestroyExpiredNotifications(ctx context.Context) error
 	// The pg-spgist_hamming custom-scan hook turns this UNNEST + <@ into a single
@@ -525,6 +537,12 @@ type Querier interface {
 	FindUserTokensByEmail(ctx context.Context, dollar_1 string) ([]UserToken, error)
 	FindUserTokensByInviteKey(ctx context.Context, dollar_1 uuid.UUID) ([]UserToken, error)
 	FindUserWithRoles(ctx context.Context, id uuid.UUID) (FindUserWithRolesRow, error)
+	FindWebhookEndpoint(ctx context.Context, id uuid.UUID) (WebhookEndpoint, error)
+	// Scoped by user on purpose. An endpoint id is a UUID and a GraphQL client cannot
+	// be assumed to pass the caller's own, so a lookup that does not check ownership
+	// is a way to read another user's webhook configuration -- including the target
+	// URL, which is often an internal address.
+	FindWebhookEndpointByUser(ctx context.Context, arg FindWebhookEndpointByUserParams) (WebhookEndpoint, error)
 	// Get all fingerprints for multiple scenes with aggregated vote data
 	// When onlySubmitted is true, pass the actual user ID, when false pass NULL
 	GetAllFingerprints(ctx context.Context, arg GetAllFingerprintsParams) ([]GetAllFingerprintsRow, error)
@@ -687,6 +705,18 @@ type Querier interface {
 	// (collage_id, timestamp_ms) so this is an index scan and not a sort of the
 	// scene's entire snapshot set.
 	ListCollageSnapshots(ctx context.Context, sceneID uuid.UUID) ([]SceneSnapshot, error)
+	// The queue read: pending, due, oldest first.
+	//
+	// `FOR UPDATE SKIP LOCKED` and NOT a plain SELECT. Two dispatchers running at once
+	// -- a second instance, or an overlapping tick -- must not both claim the same
+	// row, or the same event is delivered twice. SKIP LOCKED makes the second one step
+	// over the locked row and take the next, which turns "two dispatchers" into "one
+	// dispatcher and one slightly behind", with no coordination and no failure.
+	//
+	// A plain SELECT here is the single most common way a queue double-delivers, and
+	// the symptom -- a consumer seeing every event twice -- is usually blamed on the
+	// consumer.
+	ListDueWebhookDeliveries(ctx context.Context, arg ListDueWebhookDeliveriesParams) ([]WebhookDelivery, error)
 	// Over-fetches relative to the requested limit: the service re-sorts by
 	// Rankable (rating, then vote count, then deviation) rather than by rating
 	// alone, so a plain top-N-by-rating is not the top-N-by-Rankable. Over-fetching
@@ -841,10 +871,27 @@ type Querier interface {
 	// One user's history, newest first. Used by the audit view and by tests that
 	// assert the event log is the source of truth.
 	ListUserTrustEvents(ctx context.Context, userID uuid.UUID) ([]TrustEvent, error)
+	// A user's delivery history for one endpoint, newest first.
+	ListWebhookDeliveriesForEndpoint(ctx context.Context, arg ListWebhookDeliveriesForEndpointParams) ([]WebhookDelivery, error)
+	ListWebhookEndpoints(ctx context.Context, arg ListWebhookEndpointsParams) ([]WebhookEndpoint, error)
+	// The dispatch set: live endpoints subscribed to this event type.
+	//
+	// The overlap operator again, and the reason is the same as the directory's array
+	// filters: an endpoint subscribed to ["scene.added", "scene.updated"] wants
+	// scene.added, and containment (@>) would require an exact list match.
+	ListWebhookEndpointsForEvent(ctx context.Context, dollar_1 []string) ([]WebhookEndpoint, error)
 	LoadClusterSubmissions(ctx context.Context, fingerprintIds []int) ([]LoadClusterSubmissionsRow, error)
 	LoadLinkedOshashSubmissions(ctx context.Context, phashFingerprintIds []int) ([]LoadLinkedOshashSubmissionsRow, error)
 	MarkAllNotificationsRead(ctx context.Context, userID uuid.UUID) error
 	MarkNotificationRead(ctx context.Context, arg MarkNotificationReadParams) error
+	MarkWebhookDelivered(ctx context.Context, id uuid.UUID) (WebhookDelivery, error)
+	// Records a failed attempt and schedules the next one.
+	//
+	// next_attempt_at is computed by the service and passed in, not by the database.
+	// The backoff schedule is a POLICY -- changing it should not be a migration --
+	// and the service is where the policy lives. The database's job is only to store
+	// when.
+	MarkWebhookFailed(ctx context.Context, arg MarkWebhookFailedParams) (WebhookDelivery, error)
 	MoveSceneFingerprintSubmissions(ctx context.Context, arg MoveSceneFingerprintSubmissionsParams) ([]uuid.UUID, error)
 	// Completion score inputs (SPEC §7.7).
 	//
@@ -965,6 +1012,10 @@ type Querier interface {
 	// candidates at the same time is a real race, and last-write-wins would silently
 	// discard one person's work.
 	ResolveIdentificationQuery(ctx context.Context, arg ResolveIdentificationQueryParams) (IdentificationQuery, error)
+	// Replaces the hash. The OLD secret stops working immediately, which is the point:
+	// a rotation is what a user does after suspecting a leak, and a rotation that
+	// left the old secret valid would give no protection at all.
+	RotateWebhookSecret(ctx context.Context, arg RotateWebhookSecretParams) (WebhookEndpoint, error)
 	// Which scene fields are filled.
 	//
 	// duration is first because it is the most heavily weighted scene field and
@@ -1040,6 +1091,7 @@ type Querier interface {
 	// never by the database. The curve is a product decision and belongs in Go,
 	// where it can be changed without a migration.
 	SetUserTrustLevel(ctx context.Context, arg SetUserTrustLevelParams) (UserTrust, error)
+	SetWebhookEndpointDisabled(ctx context.Context, arg SetWebhookEndpointDisabledParams) (WebhookEndpoint, error)
 	SiteCompletionInputs(ctx context.Context, id uuid.UUID) (SiteCompletionInputsRow, error)
 	SoftDeletePerformer(ctx context.Context, id uuid.UUID) (Performer, error)
 	SoftDeleteScene(ctx context.Context, id uuid.UUID) (Scene, error)

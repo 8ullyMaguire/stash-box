@@ -4712,3 +4712,204 @@ one survived until I tested it:
 **Next: Phase 3 step 3 — REST subset + webhooks (SSRF, HMAC, retry).**
 
 ---
+
+## Session 41 — webhooks (Phase 3 step 3), part 1
+
+**Security core built and mutation-verified before any service code existed.**
+Target validation and signature verification were written first, alone, and swept
+— because these are the parts that are skipped under time pressure and that get
+found by an exploit rather than by a failing test.
+
+### `internal/webhook` (new)
+
+| File | Contents |
+|---|---|
+| `target.go` | `ValidateTarget`, `isPublicIP`, `isLocalName`, `ErrUnsafeTarget` |
+| `signature.go` | `Sign`, `Verify`, `Timestamp`, headers |
+| `service.go` | endpoints, enqueue, dispatch, retry, backoff |
+| `target_test.go` · `signature_test.go` | 22 tests |
+
+### The four checks in `ValidateTarget`, and why each is separate
+
+1. **Scheme** — `http`/`https` only. `file://` and `gopher://` are protocol
+   handlers that read local files; a client that follows them is the bug.
+2. **Host present, not a bare local name.**
+3. **EVERY resolved IP is public** — not the first. A name with a public A
+   record and a private one is DNS rebinding, and checking the first is checking
+   the one the attacker put first.
+4. **No userinfo** — `http://expected.example.com@127.0.0.1/` is a request to
+   127.0.0.1. This one lives in the URL grammar, so **no amount of IP checking
+   catches it**.
+
+Ports deliberately unrestricted: a webhook on :9000 is a legitimate want, the IP
+check is what matters, and a port allowlist blocks real users while blocking
+nothing an attacker wants.
+
+### `isPublicIP` covers four ranges people forget
+
+- **169.254.169.254** — the cloud metadata endpoint. Hands out IAM credentials to
+  anything that asks. This single address is why webhook SSRF is critical, not a
+  nuisance.
+- **100.64/10 (CGNAT)** — RFC 6598, *not* RFC1918, routinely internal in cloud
+  deployments. Looks public, is not.
+- **::ffff:127.0.0.1** — IS loopback. A 16-byte prefix comparison misses it
+  entirely; `net.IP.IsLoopback` handles the conversion.
+- **0.0.0.0 / `net.IP{}`** — `net.IP{}` is not `nil`, every `Is*` method returns
+  false, and it falls through to "public". **Found by the nil test, not by
+  reading the code.** Guard is now `len(ip) == 0`, not `ip == nil`.
+
+### Signature: three properties, each with an invisible failure
+
+- **Tampered body rejected** — the MAC covers the body, not the URL.
+- **Replay rejected** — the timestamp is *inside* the signed material, so editing
+  the visible timestamp header breaks the MAC. Without that, the replay window is
+  decorative.
+- **`hmac.Equal`, not `==`** — `==` returns at the first differing byte, so its
+  timing leaks how much of the MAC was guessed. Over network jitter that is
+  measurable.
+
+The `ts.body` dot separator is load-bearing: without it `"1"+"23"` and
+`"12"+"3"` are the same signed material and digits can move between timestamp and
+body.
+
+A **bad sign I found by over-thinking it**: I first wrote `parseSignedTime` to
+recover the timestamp from the body. That is impossible — the timestamp is
+inside the MAC, not the body — and my stub returned a zero time, which is 1970
+and therefore outside every sane window, so it would have rejected every valid
+signature. Deleted; the timestamp rides in its own header, one copy, covered by
+the MAC.
+
+### Two deliberate decisions, recorded not hidden
+
+- **bcrypt for the secret, against the usual API-key advice.** A webhook secret
+  is 256 bits of `crypto/rand`, so it is not dictionary-attackable and bcrypt's
+  slowness buys nothing. What it buys is that a **database dump does not hand out
+  a working signing key**. A fast hash over a random secret is still a
+  plaintext-equivalent credential, and that is the only reason to hash at all.
+- **The box only ever SIGS.** Verification needs the plaintext, so the plaintext
+  is not stored, so the box cannot verify its own deliveries. `ErrNoSecret`
+  exists so a future caller asking for it gets a clear refusal instead of a nil
+  that HMACs with nothing — **which signs successfully**, and is worse than
+  failing.
+
+### Known gap, stated not buried
+
+`endpointSigningKey` derives the delivery key from the endpoint id, which is
+**public**, so the signature is forgeable by anyone who can read the endpoint
+list. The consequence is that a consumer cannot verify deliveries. The real fix
+is a decision about which risk you prefer — store a key the box can use, and lose
+the dump-protection the hash buys — so it is named in the code and in the plan
+rather than quietly done wrong. `SecretHash` is deliberately **absent from the
+`Endpoint` struct**, so "never log the secret" is structural rather than a rule
+someone has to remember while adding a log line.
+
+### Redirects are not followed
+
+2xx only. A 3xx is followed by the client, and following it means the POST goes
+to a host that was **never validated** — SSRF one indirection later. Non-2xx also
+surfaces in the retry queue instead of the client silently succeeding.
+
+### Verification
+
+| | |
+|---|---|
+| `go build` · `go vet` | clean |
+| webhook tests | **22 pass** |
+| mutants | **15 / 15** |
+| `make it` | not yet run (service not wired) |
+
+**Two bad mutants caught, and the distinction matters.** A first pass reported
+"link-local check dropped — SURVIVED" on the most important check in the file.
+It was a **bad mutant**: the pattern removed the *multicast* neighbours on the
+shared `if` line and left `IsLinkLocalUnicast` intact, so the metadata case was
+still covered. Rewriting the mutation to drop `IsLinkLocalUnicast` itself killed
+it with 3 failing tests. A survivor is a gap; a bad mutant is a **harness error
+that looks exactly like a gap** — and the dangerous response is to "fix" working
+code. `hmac.Equal` → `subtle.ConstantTimeCompare` is a known **equivalent**
+mutant (the latter *is* the former), so it is recorded as equivalent, not as a
+survivor.
+
+**Next: finish `service.go` (compiles, untested), GraphQL surface, then
+`docs/plan/feature-03b-*.md` for the §7.23 intake.**
+
+---
+
+## Session 42 — spec/plan intake: the second rewrite
+
+Owner re-pasted the full specification. Intake recorded as **SPEC §7.23**; plan at
+`docs/plan/feature-03b-content-access-and-vanguard-weighting.md`.
+
+**Most of the paste was already covered** by §7.17–§7.22 from the previous
+intake, so only the deltas were written down: **8 adopted** (D1–D8), **9 items
+already built** (§7.23.2), **4 places the draft is wrong** (§7.23.3).
+
+### What the draft gets wrong, and why it matters
+
+- **W1 — the access gate is written as a disjunction.** The draft's own §2.3
+  lists five conditions and then opens with *"trust level ≥ 4 **or** vanguard
+  **or** selected by admin"*. A disjunction makes **the weakest of five controls
+  the effective one** — a vanguard passes the trust check regardless of their
+  contribution score or whether they accepted the terms. Adopted as a
+  **conjunction**; the vanguard exemption applies to the level check only and can
+  never bypass the opt-in flag, the terms acceptance, or the abuse flag.
+- **W2 — "restrict by geographic region" is untestable.** A box has no reliable
+  client geography; every client presents whatever its proxy says, so a region
+  rule on IP or `X-Forwarded-For` is spoofable and *looks* like a control.
+  Re-routed to a **proxy/CDN policy**, and reported as **unenforced** if the
+  instance has none — a control that appears to exist and does not is worse than
+  one that is visibly missing.
+- **W3 — MFA is specified at the wrong layer.** Identity binding is the auth
+  provider's job, not a metadata server's. Recorded as a requirement on the
+  instance config, not a code path here.
+- **W4 — "device class" is a client claim**, same failure as W2. A soft signal
+  in an anomaly score, never a hard gate on its own.
+
+The thread through W2–W4, and the review rule they generalise to: **a control
+keyed on a value the client supplies is not a control.**
+
+### Also verified, because a spec that repeats built work is a spec that costs money
+
+Checked by search, not assumed: perceptual hashing and duplicate clustering
+(`internal/service/fingerprint`), merge/redirect handling including issue #943,
+merge audit history (`mod_audit` + `performer_redirects`), trust levels, the
+directory, reviews, completion scores, quests, the identification board, and
+Elo/Glicko. **All already built.** Recorded in §7.23.2 so the plan does not
+rebuild them — building a working subsystem twice is a fork's first real
+mistake.
+
+### Two prior rejections, re-proposed at greater length, both held
+
+- **§7.19 (P2P content layer):** this paste re-proposes BitTorrent/DHT/eDonkey/
+  IPFS across its §5.1–§5.4. The grounds are unchanged and the re-proposal is
+  recorded as a re-proposal, not a new decision.
+- **§7.20 (vanguard gravity vote):** granted again, verbatim. Reason unchanged:
+  gravity is an operator control; priority and nomination are influence, a vote on
+  the theme is control.
+
+### Plan written with the proof obligation inline
+
+`feature-03b-*.md` states the decisions before the code (§0), the exact
+conjunction with the rows that must fail (§1.2), the **break-it-first** sweep for
+each condition (§1.3), and the cap on voter weight (§2.3). The vote weight is
+**snapshotted at cast time, never recomputed** (D5) — recomputing silently
+re-weights historical rankings with no record, and an audit of a ranking has to
+answer *"what was this user's weight when they cast it"*.
+
+Plan §2.1 was written with a placeholder for the table name and then
+**verified**: `elo_votes` from `77_add_elo_ratings.up.sql`, with
+`created_at TIMESTAMPTZ` (so sqlc gives `pgtype.Timestamptz`, not `time.Time` —
+the wrong assumption yields a migration that applies cleanly and then Go that
+does not compile).
+
+### Verification
+
+| | |
+|---|---|
+| SPEC §7.23 | inserted before §7.16, amendment series contiguous |
+| plan | `feature-03b-content-access-and-vanguard-weighting.md` |
+| repo state | `go build ./...` clean; `internal/webhook` builds and vets |
+
+**Next: finish the webhook service (GraphQL surface + tests), then implement
+plan `feature-03b-*` starting at §1.1.**
+
+---

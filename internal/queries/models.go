@@ -648,3 +648,26 @@ type UserTrust struct {
 	UpdatedAt            pgtype.Timestamptz `db:"updated_at" json:"updated_at"`
 	BonusPoints          int                `db:"bonus_points" json:"bonus_points"`
 }
+
+type WebhookDelivery struct {
+	ID            uuid.UUID          `db:"id" json:"id"`
+	EndpointID    uuid.UUID          `db:"endpoint_id" json:"endpoint_id"`
+	EventType     string             `db:"event_type" json:"event_type"`
+	Payload       json.RawMessage    `db:"payload" json:"payload"`
+	Attempt       int                `db:"attempt" json:"attempt"`
+	NextAttemptAt time.Time          `db:"next_attempt_at" json:"next_attempt_at"`
+	LastError     *string            `db:"last_error" json:"last_error"`
+	DeliveredAt   pgtype.Timestamptz `db:"delivered_at" json:"delivered_at"`
+	CreatedAt     time.Time          `db:"created_at" json:"created_at"`
+}
+
+type WebhookEndpoint struct {
+	ID         uuid.UUID `db:"id" json:"id"`
+	UserID     uuid.UUID `db:"user_id" json:"user_id"`
+	SecretHash string    `db:"secret_hash" json:"secret_hash"`
+	TargetUrl  string    `db:"target_url" json:"target_url"`
+	EventTypes []string  `db:"event_types" json:"event_types"`
+	Disabled   bool      `db:"disabled" json:"disabled"`
+	CreatedAt  time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt  time.Time `db:"updated_at" json:"updated_at"`
+}

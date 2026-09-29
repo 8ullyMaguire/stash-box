@@ -910,6 +910,105 @@ is worth keeping: consensus on facts is a different problem from pairwise
 preference ranking, and the Elo implementation is deliberately not built on the
 edit system.
 
+> The following block is §7.23, inserted before the §7.16 that follows it. It
+> sits here rather than at end-of-file because §7.16 through §7.22 form one
+> contiguous amendment series and §7.23 amends that series; §7.16's position
+> after §7.22 is pre-existing and is not reordered.
+
+---
+
+### 7.23 Second intake amendment — what the 2026-09-29 rewrite adds (amended 2026-09-29)
+
+The owner's specification was re-pasted in fuller form. Most of it is the
+revision already captured in §7.17–§7.22; this section records only the
+**eight deltas that are new**, and the four places where the draft would be
+**wrong as written** if implemented literally.
+
+Verified against the tree rather than assumed; each "already present" claim
+below was checked by search on 2026-09-29.
+
+#### 7.23.1 Adopted — genuinely new
+
+| # | Delta | Note |
+|---|---|---|
+| D1 | **Vanguard trust-weighted voting.** Elo votes weight by voter trust, vanguard status, and contribution score. | Not a new mechanism — a weight column on a vote row. Fits `elo`. |
+| D2 | **Identification board federates.** A query broadcasts to peers with matching taste vectors. | Metadata plane only (§7.17.1). Content never broadcasts. |
+| D3 | **Gravity slider ranks by an explicit formula**: local gravity × peer similarity × personal taste × trust weight. | The product from §7.4 becomes a computable expression. |
+| D4 | **Content access is a conjunction of five conditions**, not a level check. | The one that changes how the gate is written — see §7.23.3. |
+| D5 | **Access can be restricted by tag, studio, performer, region, time window, device class.** | A denylist evaluated after the five conditions, never instead of them. |
+| D6 | **Guilds, mentorship, adoption, public roadmap, voting.** | Community layer. No ranking effect on the mesh. |
+| D7 | **Mobile app and browser extension are named first-class deliverables.** | Already in §7.11; promoted from implied to explicit. |
+| D8 | **Sync cadence and air-gap bundles are operator-configurable.** | Already in §7.17.4; this paste states it more firmly. |
+
+#### 7.23.2 Already present — recorded so the plan does not rebuild them
+
+The draft re-proposes these as if new. They exist; building them again would
+be a fork's first real mistake.
+
+| Draft item | Reality in this tree |
+|---|---|
+| Perceptual hashing, duplicate clustering | **built** — `internal/service/fingerprint`, `cluster.go`, oshash |
+| Duplicate detection, multi-user merge | **built** — `internal/service/fingerprint/cluster.go`; issue #943 merge/redirect path already works |
+| Merge history for audit | **built** — `mod_audit` table + `internal/service/mod_audit`; `performer_redirects` retains the mapping |
+| Trust levels, opt-in content flags | **built** — `internal/service/trust`; `user_trust.level` is a rebuildable cache (§7.17.2) |
+| Directory, site profiles, reviews | **built** — `internal/service/site`, `internal/service/review` |
+| Completion scores, curation quests | **built** — `internal/service/completion`, `internal/service/quest` |
+| Identification board | **built** — `internal/service/identification` |
+| Collages | **built** — `internal/service/collage` |
+| Elo / Glicko | **built** — `internal/service/elo` |
+
+#### 7.23.3 The draft is wrong in four places
+
+**W1 — "Trust level ≥ 4 **or** vanguard **or** selected by admin" makes the
+gate a disjunction.** The draft's own §2.3 lists five conditions and then opens
+with an *or*, so a vanguard passes the trust check regardless of their
+contribution score or whether they accepted the content terms. A disjunction
+means the weakest of five controls is the actual control. **Adopted as a
+conjunction**: all five must hold, and the vanguard exemption exists only as an
+alternative to the *level* check, never as a bypass of the opt-in flag, the
+contribution threshold, or the terms acceptance. Every extra exemption the draft
+adds after the list is a hole, and each is recorded below with the reason it
+would be a hole.
+
+**W2 — "Restrict access by geographic region" is untestable as written.** A
+box has no reliable client geography; every HTTP client presents whatever its
+proxy says, so a region rule keyed on IP or `X-Forwarded-For` is trivially
+spoofed and gives the appearance of a control. **Adopted as a policy input to
+be passed to the CDN/proxy in front of the instance**, where it is enforceable,
+rather than an application-level check. If the instance has no such proxy, the
+rule is reported as unenforced rather than silently ignored.
+
+**W3 — "Require multi-factor identity binding" is specified at the wrong
+layer.** Binding an identity to a person is not something a metadata server
+does; it is what the instance's authentication provider does. **Adopted as a
+requirement on the instance's auth configuration**, recorded and displayed, not
+implemented as a code path in this repository.
+
+**W4 — "Device class" is a client claim, not a server fact.** Same failure as
+W2: a header the client sets. **Adopted as a soft signal** — a factor in an
+anomaly score, never a hard gate on its own, because a hard gate on a
+client-supplied value is a check the client controls.
+
+The common thread in W2–W4: **a control keyed on a value the client supplies
+is not a control.** That is the review rule for every access rule this fork
+accepts, and it is why the content plane (§7.19) does not trust client-supplied
+provenance either.
+
+#### 7.23.4 What did not change
+
+§7.19's rejection of the P2P content layer **stands and is now firmer**, because
+this paste re-proposes it at greater length (its §5.1, §5.2, §5.3, §5.4) and the
+additional grounds are the same: no GraphQL surface, unresolved licence
+exposure, and a different product. The re-proposal is recorded as a
+re-proposal, not as a new decision, and §7.19's re-routed content plane is
+unchanged.
+
+§7.20's rejection of the vanguard gravity vote **stands.** This paste grants
+vanguards "weighted influence on gravity tuning" again, verbatim. The reason in
+§7.20 is unchanged and is not a reading of the draft: gravity is an operator
+control, priority and nomination are influence, a vote on the theme is control.
+
+
 ### 7.16 What the vision needs from the existing codebase
 
 The three capabilities the fork must *build* rather than extend, because nothing
