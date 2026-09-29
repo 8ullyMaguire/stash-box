@@ -3154,3 +3154,121 @@ synchronous or awaited) is out of scope here.
 | Snapshot collages, identification board | after that |
 
 ---
+
+
+## Session 26 — Phase 1, Elo step 2: the Glicko-2 rating engine
+
+### The headline: I wrote this from memory and it was wrong four times
+
+Not "had a bug" — **wrong four separate times**, and every version produced a
+*plausible* number rather than an absurd one:
+
+1. **`v` computed by summing the terms.** The paper's exponent is −1, so `v` is
+   the **reciprocal** of the sum.
+2. **A `g()` that returned the expected score** instead of Glickman's
+   rating-system function, so `v` carried the wrong factor entirely.
+3. **A twenty-pass fixed-point loop wrapped around Step 7**, which the paper
+   defines as a *direct substitution*. It solved a different equation and
+   overshot: one win against an identical opponent moved a rating from **1500 to
+   7578**.
+4. **An entirely invented auxiliary function `f`**, with a hardcoded `v = 0`
+   inside it.
+
+Property tests caught all four — they check sign, monotonicity, finiteness and
+determinism, and a plausible-but-wrong Glicko satisfies every one.
+
+**What actually fixed it was reading the paper** (`glicko.net/glicko/glicko2.pdf`)
+and adding its canonical worked example as a test: r=1500/RD=200/σ=0.06 against
+1400/RD=30, 1550/RD=100, 1700/RD=300, winning once and losing twice → must give
+**r′=1464.06, RD′=151.52, σ′=0.05999**. It now reproduces all three exactly.
+
+That test is a *golden* test — normally the wrong kind. It is the right kind here
+**because the expected values come from the paper rather than from my own
+output.** A golden test of my own arithmetic would have recorded all four bugs as
+correct.
+
+> **Worth carrying forward: for any numerical algorithm, pin it to a published
+> worked example.** Reproducibility and correctness are different things, and my
+> arithmetic was reproducible and wrong.
+
+### Six mutations, each caught by exactly the right test
+
+```
+v uses g(phi) instead of g(phiBar)   -> TestGlickmansWorkedExample
+v not inverted                       -> TestGlickmansWorkedExample
+delta missing its g(phi_j) factor     -> TestGlickmansWorkedExample
+Step 7 iterated to a false fixed pt   -> TestGlickmansWorkedExample
+Illinois solve discarded, returns tau -> TestSolveVolatilityReproducesThePaper
+volatility ignores delta              -> TestSolveVolatilityReproducesThePaper
+```
+
+The volatility one needed its own unit test: through the worked example alone, a
+solver pinned to `tau` would be caught only by the one 0.06 value. The direct
+test also pins the **U-shape** — σ′ is *lowest* where results exactly match the
+prediction, which the paper's own note explains ("no evidence of inconsistent
+performance").
+
+### Five of my test premises were wrong, and the code was right every time
+
+This is the theme of the session, and it belongs in the log as a group:
+
+1. **"Ratings are zero-sum."** Glicko-2 is not, and I should have known before
+   writing the test — the two players have different uncertainties, so a point off
+   the winner is not a point onto the loser.
+2. **"The mean is preserved over a run."** It is not. I confirmed by writing an
+   **independent Python transcription** of the paper's steps 3, 4, 6 and 7: it
+   drifts to 1575 over 2000 random matchups in exactly the same way. `UpdateBatch`
+   is a *batch* algorithm over a rating period; driving it one matchup at a time
+   against a shared pool is a different computation. When two implementations
+   agree, the bug is in your test.
+3. **"An identical opponent carries no information."** False for a decisive score:
+   with equal µ and φ, E = 0.5, so a win has a residual of +0.5. Only a **draw**
+   against an identical opponent carries nothing.
+4. **"µ is a fixed point of the update."** The paper evaluates E at the *pre-period*
+   µ, so it deliberately is not — and asserting otherwise is **the same root cause
+   as bug 3 above**: my test and my implementation were wrong in the same way at
+   the same time.
+5. **"The deviation always shrinks with more votes."** From a *wide* RD it does
+   (200 → 106.7, 300 → 136.2). From a *narrow* one it **grows** (49.09 → 57.48),
+   because beating a fixed nearby opponent is then a genuine surprise. I spent
+   **five attempts** inventing thresholds to make this pass; every failure was
+   legitimate, and the fix each time was to assert the *true* property rather than
+   move the number.
+
+> **Five thresholds, five made-up numbers.** Every one of those attempts was me
+> fitting an assertion to observed output. The lesson generalises past this file:
+> **if a threshold is invented to rescue a failing assertion, the assertion is
+> the bug.**
+
+### A tooling trap worth recording
+
+A mutation loop that asserts on a pattern and restores only on success **leaves a
+live mutant in the tree** when the assertion fires. One of mine aborted
+mid-loop and left `v := vSum` behind, which then failed four tests for a reason
+unrelated to the code under test — and cost a confusing detour before I spotted it
+by reading the actual region. Every mutation now restores in a `finally`.
+
+### `Rankable` exists to prevent the obvious leaderboard bug
+
+Sorting on rating alone lets a performer with **three votes** outrank one with
+**three hundred**. A difference inside a fifth of the combined deviation is noise,
+and the better-observed rating wins that tie. Without this type, a public
+leaderboard is trivially gameable.
+
+### Gates
+
+`go build` 0 · `go vet` clean · **18 elo tests** · api integration ok 50.0s ·
+unit suite clean · sqlc idempotent.
+
+### Phase 1 status
+
+| Step | Status |
+|---|---|
+| Step 1.1–1.4 (trust) | done (sessions 22–24) |
+| Elo: tables | done (`d45f827`) |
+| **Elo: Glicko-2 engine** | done (`cc635bd`) |
+| Elo: service + vote recording | **next** |
+| Elo: GraphQL matchup flow | after that |
+| Snapshot collages, identification board | after that |
+
+---
