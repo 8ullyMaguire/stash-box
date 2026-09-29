@@ -4,6 +4,7 @@ package fingerprint
 import (
 	"context"
 	"math/bits"
+	"slices"
 	"sort"
 
 	"github.com/gofrs/uuid"
@@ -294,23 +295,53 @@ func (s *Fingerprint) loadOshashLinks(ctx context.Context, phashMemberIDs []int)
 	if err != nil {
 		return oshashLinks{}, err
 	}
+	return buildOshashLinks(rows), nil
+}
+
+// buildOshashLinks turns the query rows into the phash->oshash index, the
+// per-oshash hash map, and the ordered id list.
+//
+// Split out from loadOshashLinks so the indexing is testable without a database:
+// the interesting part of this function is a control-flow bug that no
+// integration test over a clean fixture would ever trigger, because it needs an
+// oshash shared by two phashes.
+func buildOshashLinks(rows []queries.LoadLinkedOshashSubmissionsRow) oshashLinks {
 	out := oshashLinks{
 		byPhash:    make(map[int][]int),
 		hashesByID: make(map[int]int64),
 	}
+
 	for _, row := range rows {
-		if _, seen := out.hashesByID[row.OshashFingerprintID]; seen {
-			continue
+		// The per-oshash data is recorded once, so the hash lookup and the
+		// submission fetch are not repeated for a shared oshash.
+		if _, seen := out.hashesByID[row.OshashFingerprintID]; !seen {
+			out.hashesByID[row.OshashFingerprintID] = row.OshashHash
+			out.allIDs = append(out.allIDs, row.OshashFingerprintID)
 		}
-		out.hashesByID[row.OshashFingerprintID] = row.OshashHash
-		out.allIDs = append(out.allIDs, row.OshashFingerprintID)
-		out.byPhash[row.PhashFingerprintID] = append(out.byPhash[row.PhashFingerprintID], row.OshashFingerprintID)
+
+		// The phash->oshash index is per (phash, oshash) PAIR, and is recorded
+		// for every row.
+		//
+		// This used to sit under the `seen` check above, which was keyed on the
+		// oshash id alone -- so the first phash to claim an oshash won, and
+		// every later phash linked to the same oshash lost it, because the
+		// `continue` skipped this append along with the bookkeeping. One oshash
+		// linked to two phashes is the normal case, not an edge case: the link
+		// is "these two fingerprints were co-submitted on one scene by one user
+		// within 60 seconds", and a scene commonly has several phashes. The
+		// pair check is what keeps a repeated (phash, oshash) row from being
+		// listed twice.
+		pair := row.PhashFingerprintID
+		if !slices.Contains(out.byPhash[pair], row.OshashFingerprintID) {
+			out.byPhash[pair] = append(out.byPhash[pair], row.OshashFingerprintID)
+		}
 	}
+
 	sort.Ints(out.allIDs)
 	for _, ids := range out.byPhash {
 		sort.Ints(ids)
 	}
-	return out, nil
+	return out
 }
 
 // neighbor is a (fingerprint id, hash) pair returned by a bktree probe.
