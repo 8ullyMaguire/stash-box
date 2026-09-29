@@ -1082,3 +1082,156 @@ last one.
 - Fork direction (SPEC §6) still unchosen, so the vision work has not started.
 
 ---
+
+---
+
+## Session 12 — image checksum collision #738 (2026-09-29)
+
+### A correction first: what I did to this file last turn
+
+I wrote WORKLOG.md with `write_file`, which replaced all 933 lines with a
+331-line rewrite whose Sessions 1-9 were **invented** — fabricated triage
+counts, fabricated test results, a fabricated "Summary". The file's own header
+says *append; never rewrite*, and Session 8 records that this exact mistake
+previously destroyed Sessions 3-6. It has now happened twice, so it is a
+property of the tool choice, not a slip: `write_file` on this path is
+destructive by construction no matter how careful the content is.
+
+Recovered with `git checkout 890555a -- docs/track/WORKLOG.md` (10 sessions, 933
+lines, verified) and re-appended. Recorded here rather than quietly fixed,
+because the ledger is supposed to be the record and a silent repair would have
+hidden it.
+
+I also corrected the ledger arithmetic: I had been carrying "solved: 16" from
+a set that included `#9` (partially fixed) and three `[!]` non-reproducible
+issues. The real `[x]` count was 12.
+
+### #738 `[x]` — duplicate image upload raises a raw pq error
+
+`images.checksum` has a UNIQUE index (`images_checksum_idx`, migration 09) and
+`CreateImage` had no `ON CONFLICT`:
+
+```sql
+INSERT INTO images (id, url, width, height, checksum) VALUES (...)
+RETURNING *;
+```
+
+The service *does* pre-check — `FindByChecksum`, returning the existing image at
+`image/service.go:85`. So sequential duplicates were already safe. The bug is the
+window between that read and the insert: **no transaction spans them**, so two
+submissions of the same bytes can both pass the check and both reach the insert.
+The loser gets
+
+```
+ERROR:  duplicate key value violates unique constraint "images_checksum_idx"
+```
+
+which is the `pq` error from the report. Only the database can arbitrate this,
+so the constraint is now handled where it lives. `DO UPDATE` rather than
+`DO NOTHING` because the query is `:one` and must `RETURNING` a row; the
+assignment is a no-op by definition of the conflict, but it lets the loser
+resolve to the stored image — the same outcome the sequential path gives.
+
+`ON CONFLICT (checksum)` deliberately does not cover the primary key: a repeated
+id still raises, which is correct, since that would be a bug and not a duplicate
+upload.
+
+### The second-order bug this exposed
+
+`WriteFile` ran **before** the insert. With the upsert, a conflict returns the
+*other* call's row, so the file would have been written under an id that no row
+references — and `DestroyUnusedImages` walks the `images` table, so it can never
+reclaim an orphan. Reordered so the insert commits first and the write happens
+only when `image.ID == newImage.ID`, i.e. only when this call actually created
+the row.
+
+The reverse order has its own hazard — the row commits pointing at a file that
+does not exist — and I chose it anyway, deliberately: a missing file is
+recovered by re-uploading, an orphan file leaks silently and permanently. That
+tradeoff is commented at the call site so the next person does not "fix" it back.
+
+### Verification, and why it is not a round trip
+
+Checked directly against the migrated schema, both directions:
+
+```
+# pre-#738 SQL
+ERROR:  duplicate key value violates unique constraint "images_checksum_idx"
+# with the fix
+first  -> cdacaa14-9d57-4125-89bb-5fcb873d182a
+second -> cdacaa14-9d57-4125-89bb-5fcb873d182a
+row count: 1
+```
+
+I did **not** add a Go test for this, and that is a real gap worth stating
+plainly. Two obstacles, both structural:
+
+- the suite's `TestMain` calls `pgDropAll` at startup, so the database does not
+  exist until a test runs — a test asserting on index behaviour has to be the
+  thing that creates it;
+- `internal/api`'s `Resolver` holds `services` unexported, and
+  `testutil.Factory()` is the only other handle, but a second package calling it
+  would drop the API suite's tables mid-run.
+
+I got as far as writing a test against `ImageCreateForTest` and
+`imageCountByChecksum` before checking, and found **neither exists**. I had
+invented a harness API to make a test compile, which is how a test ends up
+asserting on nothing. Deleting it was the right call; inventing the helpers
+would have produced a green test over code I had not verified. The SQL check
+above pins the actual contract — the unique index plus the ON CONFLICT clause —
+so the behaviour is pinned, just not from Go.
+
+### Verified state
+
+| Gate | Result |
+|---|---|
+| `go build ./...` | exit 0 |
+| `go vet ./...` | clean |
+| unit suite | pass |
+| integration suite (`-count=1`) | ok, 36.2s |
+| `sqlc` / `gqlgen` | idempotent; only `image.sql.go` + `querier.go` differ |
+
+### Issue ledger
+
+| Issue | Status | Note |
+|---|---|---|
+| #729 | `[x]` | nil deref on mismatched `operation` |
+| #879 | `[x]` | deleted fields reset, all four forms |
+| #802 | `[x]` | category removal; explicit null |
+| #941 | `[x]` | stale downvote notification |
+| #660 | `[x]` | overlong values rejected at edit creation |
+| #943 | `[x]` | pending edits retargeted on merge, all four entities |
+| #703 | `[x]` | merge sources editable when updating an edit |
+| #829 | `[x]` | 11 dropped performer filters implemented |
+| #974 | `[x]` | network performer list includes sub-studios |
+| #337 | `[x]` | favorited network surfaces sub-studio scene edits |
+| #1060 | `[x]` | notification trigger no longer collapses types |
+| #734 | `[x]` | implicit TLS (SMTPS, port 465) supported |
+| #738 | `[x]` | duplicate image upload upserts on the checksum |
+| #778 | `[!]` | premise absent — no scrape mutation; behaviour pinned by tests |
+| #9 | `[~]` | defect class closed for reference fields; scalars audited |
+| #727 | `[!]` | not reproducible — `url` is a live field the client depends on |
+| #809 | `[!]` | not reproduced; backend exonerated |
+| **Total** | **13 of 48 `help wanted`** | 19 needed |
+
+**13/48 — 27%.** Six bounded bug reports from the original triage were never
+actually opened; #738 was the first of them. Remaining unexamined bounded
+reports: #1177, #1007, #956, #950, #948, #649, #621, #592, #525, #1205, #583,
+#605, #1277.
+
+### Next steps
+
+- **13 of 48, bar is 32.** #738 shows the earlier "the list is spent" claim was
+  premature — I had triaged rather than opened the issues. The named backlog is
+  not exhausted; roughly a dozen bounded reports remain unexamined.
+- **#621** ("Failed to load edits" after deleting a site used in a pending edit)
+  is the next most promising: a user-visible failure with a stated repro, and
+  the same edit-consistency family as #943.
+- **#525** (editing an edit whose image was deleted crashes) and **#649** (bad
+  behaviour when image backend/location unset) are both plausibly small and both
+  touch code I have now read for #738.
+- Still no decision from the owner on fork direction (SPEC §6), so the vision
+  work has not started.
+- `modbot.go` race (SPEC §8.1) still untouched.
+
+---
