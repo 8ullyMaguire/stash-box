@@ -2121,3 +2121,200 @@ B, no png/jpeg decoder:
 - `modbot.go` race (SPEC §8.1) still untouched.
 
 ---
+
+---
+
+## Session 18 — #1177 (reported duplication does not exist; a link was dropped instead), #1205 (2026-09-29)
+
+### #1177 `[x]` — but not the bug that was reported
+
+  When switching between fingerprint clusters in the cluster view, ... the list
+  fills with duplicate entries every time you switch back and forth
+
+**I could not reproduce the duplication, and I deleted the test that claimed to.**
+
+Three wrong mechanisms, each killed by evidence rather than argument:
+
+1. **Client accumulation.** No: `rows` is rebuilt every render from
+   `memberLinkedFingerprints`, and `useFingerprintClusters` is
+   `fetchPolicy: "no-cache"`.
+2. **A hash shared between two phashes duplicates a row.** No:
+   `buildMember` is called per member with `oshashByPhash[id]` — *one phash's own
+   list*. My first test asserted this and **passed on unfixed code**, which is
+   how I knew it was wrong.
+3. **The SQL's `DISTINCT` fails to collapse repeats.** No: the raw join really
+   does produce a repeated `(oshash, phash)` pair — 4× for one pair in the test
+   database — but `DISTINCT` collapses it to 1. Checked every list the query can
+   produce:
+   ```sql
+   SELECT phash_fp, count(*), count(DISTINCT oshash_fp) ... HAVING count(*) <> count(DISTINCT oshash_fp);
+   -- (no rows)
+   ```
+
+Also closed: an oshash id can never *also* be a phash member — `fingerprints` is
+keyed by id with one algorithm per row, and the database confirms 0 such rows.
+
+I had written a dedup guard in `buildMember` for a state the query cannot
+produce. Its test could only ever pass by construction. **Deleted both.**
+
+**What is actually wrong, found on the way — a link silently DROPPED:**
+
+```go
+if _, seen := out.hashesByID[row.OshashFingerprintID]; seen {
+    continue
+}
+out.byPhash[row.PhashFingerprintID] = append(out.byPhash[row.PhashFingerprintID], ...)
+```
+
+The guard is keyed on the **oshash id**, but `hashesByID`/`allIDs` are
+per-oshash (correct) while `byPhash` is a **per-(phash, oshash)** index. The
+`continue` skips the `byPhash` append too, so the first phash to claim an oshash
+wins and every later phash linked to it loses it.
+
+**One oshash linked to two phashes is the normal case**, not an edge case — the
+link is "co-submitted on one scene by one user within 60s", and a scene commonly
+has several phashes:
+
+```
+18 | 2 | {18,19}
+19 | 2 | {18,19}
+21 | 2 | {21,22}
+24 | 2 | {24,25}
+```
+
+Consequence: `linked_fingerprints` drives the move/delete mutation rows
+(`buildMoveSources`), so a missing oshash is **left behind on the source scene**
+when its phash is moved, and survives a delete meant to take it.
+
+`buildOshashLinks` split out of `loadOshashLinks` so the indexing is testable
+without a DB — no clean fixture triggers this, because it needs a shared oshash.
+
+Four tests, mutation-verified **in both halves**:
+
+```
+restore the original seen/continue:
+  --- FAIL: TestLoadOshashLinksKeepsOshashForEveryLinkedPhash
+  --- FAIL: TestLoadOshashLinksKeepsSharedOshashAlongsideOthers
+
+remove the pair check:
+  --- FAIL: TestLoadOshashLinksDoesNotRepeatSamePair
+```
+
+The second run is the one that matters: deleting the pair check entirely passes
+the first two tests and reintroduces the repeat the `seen` guard existed to
+prevent. Without that counter-test this would be a **trade, not a fix**.
+
+### #1205 `[x]` — resolution must be able to outrank aspect ratio
+
+  The intent of #1089 was to prioritize a 2:3 image aspect ratio. ... in some
+  cases, very low resolution photos are chosen over more suitable ones. ...
+  For example, a 200x300 image (a perfect 2:3 ratio) gets prioritized over a
+  1200x2000 image.
+
+`OrderPortrait` compared ratio distance first, height only as a tie-break. A
+200×300 thumbnail is exactly 2:3 and won outright. `performer.Images` returns
+this order and **the first entry is the display image** — visible, not cosmetic.
+
+Fixed by bucketing pixel area (800 000) and comparing buckets *before* ratios.
+Buckets rather than raw areas, because the report asks for the ratio to become
+secondary only on a **major** difference — same tier still means ratio decides,
+so #1089 survives where it should. "Biggest always wins" would have passed the
+reported example and broken the point of #1089.
+
+**Two existing cases changed, and both changes are the fix working:**
+
+```
+expected: 400x600, 422x600, 1080x1920, 640x480, 600x400, 1920x1080
+actual:   1080x1920, 1920x1080, 400x600, 422x600, 640x480, 600x400
+```
+
+400×600 is the ideal 2:3 at 240k pixels; 1080×1920 is 2.07M. Each pair is one
+bucket, so the ratio comparison still orders them internally — only the tiers
+moved. The second case swaps the same two images and the property it pins (a
+zero-width image sorts last) is unaffected.
+
+Six new tests, two of them guards against "resolution always wins":
+
+- `TestOrderPortraitStillPrefersIdealRatioAtComparableResolution` — two large
+  images, ideal ratio wins.
+- `TestOrderPortraitFloorIsABandNotABlanketRule` — both directions: small
+  good-ratio loses to large worse-ratio, and two small comparable images still
+  sort by ratio.
+
+Mutation-verified: removing the bucket comparison fails 3 new tests **and** the
+pre-existing `TestOrderPortrait`.
+
+**Side effect:** `internal/image` is no longer excluded from the unit run. It
+always had tests and was being skipped — which is how the build-tag split that
+hid #948's missing PNG/JPEG decoders went unnoticed.
+
+### Verified state
+
+| Gate | Result |
+|---|---|
+| `go build ./...` | exit 0 |
+| `go vet ./...` | clean |
+| api integration (`-count=1`) | ok, 32.5s |
+| unit suite | pass, **now including `internal/image`** |
+
+### Issue ledger
+
+| Issue | Status | Note |
+|---|---|---|
+| #729 | `[x]` | nil deref on mismatched `operation` |
+| #879 | `[x]` | deleted fields reset, all four forms |
+| #802 | `[x]` | category removal; explicit null |
+| #941 | `[x]` | stale downvote notification |
+| #660 | `[x]` | overlong values rejected at edit creation |
+| #943 | `[x]` | pending edits retargeted on merge, all four entities |
+| #703 | `[x]` | merge sources editable when updating an edit |
+| #829 | `[x]` | 11 dropped performer filters implemented |
+| #974 | `[x]` | network performer list includes sub-studios |
+| #337 | `[x]` | favorited network surfaces sub-studio scene edits |
+| #1060 | `[x]` | notification trigger no longer collapses types |
+| #734 | `[x]` | implicit TLS (SMTPS, port 465) supported |
+| #738 | `[x]` | duplicate image upload upserts on the checksum |
+| #649 | `[x]` | image read validates image_location instead of guessing |
+| #621 | `[x]` | deleted site no longer breaks the /edits page |
+| #956 | `[x]` | invite-key rules pinned; already fixed in c5ad421 |
+| #950 | `[x]` | duplicate create edit rejected; was a silent duplicate |
+| #1007 | `[x]` | no soft-deleted entity resolves by id; 3 entities |
+| #948 | `[x]` | broken upload self-repairs; PNG/JPEG now decode at all |
+| #1177 | `[x]` | reported dupes don't exist; a shared oshash was **dropped** |
+| #1205 | `[x]` | resolution can outrank aspect ratio for portraits |
+| #525 | `[!]` | already fixed upstream in ea06fbf; my tests could not detect it |
+| #778 | `[!]` | premise absent — no scrape mutation; behaviour pinned by tests |
+| #9 | `[~]` | defect class closed for reference fields; scalars audited |
+| #727 | `[!]` | not reproducible — `url` is a live field the client depends on |
+| #809 | `[!]` | not reproduced; backend exonerated |
+| #583 | `[~]` | **closed as not-a-bug by the maintainer** (see next steps) |
+| **Total** | **21 of 48 `help wanted`** | 11 needed |
+
+**21/48 — 43.75%.**
+
+### Next steps
+
+- **21 of 48, bar is 32.** Remaining: #605, #1277. **Only two left**, and both
+  need triage — if either turns out to be another not-a-bug or a premise that
+  does not exist, the 32 bar is unreachable from the `help wanted` pool and I
+  need to widen the denominator (all open issues, not just `help wanted`) or
+  re-triage the backlog. **This is the one decision I may need input on.**
+- **#583 (password length limit)** is now read: erri120, a maintainer, closed it
+  as **not a bug** in Jan 2023. The limit is 64 *bytes*, deliberately, because
+  bcrypt hashes a byte array. The reporter's 50-character password failed
+  because it contained multi-byte UTF-8. The code is correct; the only defensible
+  change is the error *message*, which he also suggests. Marked `[~]` rather than
+  counted, pending that call.
+- **#605, #1277** are the last two unreviewed. Worth reading both before
+  committing to a path.
+- **The rule that paid again, in a new form** (#525, #950, #1007, #948, #1177):
+  a test that *passes on unfixed code* is as worthless as one that fails for the
+  wrong reason. #1177's first test passed on the bug, and that is the only reason
+  I found it. Both directions of "green means nothing" need the same suspicion.
+- **Deleting a fix is a legitimate outcome.** #1177 cost more time proving a
+  negative than most fixes cost implementing, and the tracker is better for it.
+- Fork direction settled (SPEC §6.1). `docs/PLAN.md` stays unwritten until
+  Phase 1 is specced, deliberately after the bar is met.
+- `modbot.go` race (SPEC §8.1) still untouched.
+
+---
