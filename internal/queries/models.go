@@ -111,6 +111,28 @@ func (ns NullNotificationType) Value() (driver.Value, error) {
 	return string(ns.NotificationType), nil
 }
 
+type AuthoredQuest struct {
+	ID           uuid.UUID     `db:"id" json:"id"`
+	EntityType   string        `db:"entity_type" json:"entity_type"`
+	Field        string        `db:"field" json:"field"`
+	Target       int           `db:"target" json:"target"`
+	BountyPoints int           `db:"bounty_points" json:"bounty_points"`
+	Reason       *string       `db:"reason" json:"reason"`
+	AuthoredBy   uuid.NullUUID `db:"authored_by" json:"authored_by"`
+	ExpiresAt    *time.Time    `db:"expires_at" json:"expires_at"`
+	CreatedAt    time.Time     `db:"created_at" json:"created_at"`
+}
+
+type AuthoredQuestItem struct {
+	ID         uuid.UUID     `db:"id" json:"id"`
+	QuestID    uuid.UUID     `db:"quest_id" json:"quest_id"`
+	EntityType string        `db:"entity_type" json:"entity_type"`
+	EntityID   uuid.UUID     `db:"entity_id" json:"entity_id"`
+	ClaimedBy  uuid.NullUUID `db:"claimed_by" json:"claimed_by"`
+	ClaimedAt  *time.Time    `db:"claimed_at" json:"claimed_at"`
+	CreatedAt  time.Time     `db:"created_at" json:"created_at"`
+}
+
 type Collage struct {
 	ID                uuid.UUID   `db:"id" json:"id"`
 	SceneID           uuid.UUID   `db:"scene_id" json:"scene_id"`

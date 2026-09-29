@@ -15,6 +15,7 @@ type Querier interface {
 	// community voted down, and re-surfacing it in the queue forever is how a board
 	// fills with questions nobody wants.
 	AbandonIdentificationQuery(ctx context.Context, id uuid.UUID) (IdentificationQuery, error)
+	AddAuthoredQuestItem(ctx context.Context, arg AddAuthoredQuestItemParams) (AuthoredQuestItem, error)
 	// Proposes a candidate.
 	//
 	// The unique (query_id, entity_type, entity_id) means one suggestion per entity
@@ -47,6 +48,18 @@ type Querier interface {
 	// in Postgres and unnest is the idiomatic one.
 	AssignSnapshotsToCollage(ctx context.Context, arg AssignSnapshotsToCollageParams) (int64, error)
 	CancelUserEdits(ctx context.Context, userID uuid.NullUUID) error
+	// THE CLAIM. A guarded UPDATE, never a check-then-write.
+	//
+	// Two curators claiming the last item in a quest must not both get it, and
+	// SELECT-then-UPDATE cannot express that: both read "unclaimed", both write. The
+	// WHERE claimed_by IS NULL is the whole concurrency control, and it holds the gap
+	// shut because the UPDATE takes the row lock before evaluating it.
+	//
+	// An item already claimed by SOMEONE ELSE returns no rows (ErrNoRows), which the
+	// service reports as "already claimed" rather than as a failure. An item already
+	// claimed by the SAME curator returns the row, so claiming twice is idempotent --
+	// a retried request must not tell a curator they lost a race they won.
+	ClaimAuthoredQuestItem(ctx context.Context, arg ClaimAuthoredQuestItemParams) (AuthoredQuestItem, error)
 	// Only clear once NO reject votes remain on the edit.
 	//
 	// A DOWNVOTE_OWN_EDIT notification is per (author, edit), not per vote, so it
@@ -56,6 +69,9 @@ type Querier interface {
 	// one).
 	ClearDownvoteEditNotifications(ctx context.Context, id uuid.UUID) error
 	ClearScenePerformerAlias(ctx context.Context, arg ClearScenePerformerAliasParams) error
+	// The count of items a quest holds, used to refuse authoring more than the
+	// target rather than silently truncating.
+	CountAuthoredQuestItems(ctx context.Context, questID uuid.UUID) (int64, error)
 	// How many votes an entity has taken part in, across both sides. Feeds the
 	// leaderboard's "needs more votes" marker and any minimum-confidence filter.
 	CountEloVotesForEntity(ctx context.Context, arg CountEloVotesForEntityParams) (int64, error)
@@ -115,6 +131,12 @@ type Querier interface {
 	// mutation needs this one row and the grouped per-query query would be a scan of
 	// every candidate on the query to answer "how many votes does this one have".
 	CountVotesForCandidate(ctx context.Context, candidateID uuid.UUID) (int64, error)
+	// Authored quests, bounties and claiming (SPEC §7.7).
+	//
+	// GENERATED quests (internal/service/quest) are a pure function of the archive and
+	// deliberately never stored. These are the AUTHORED ones: a quest a person
+	// promised, carrying a bounty a generator must not be able to manufacture.
+	CreateAuthoredQuest(ctx context.Context, arg CreateAuthoredQuestParams) (AuthoredQuest, error)
 	// Creates the collage row. source_duration_ms is the duration the sampler
 	// believed; the scene's current duration is read by the caller and stored
 	// alongside it so a stale collage is diagnosable rather than merely wrong-looking.
@@ -238,6 +260,7 @@ type Querier interface {
 	// User token queries
 	CreateUserToken(ctx context.Context, arg CreateUserTokenParams) (UserToken, error)
 	DeleteAllSceneFingerprintSubmissions(ctx context.Context, arg DeleteAllSceneFingerprintSubmissionsParams) (int64, error)
+	DeleteAuthoredQuest(ctx context.Context, id uuid.UUID) error
 	// Removing a collage. The snapshots it referenced are NOT deleted: the FK is ON
 	// DELETE SET NULL, so they return to the unassigned pool and a later generation can
 	// reuse them. Deleting a user's curated frames because someone re-rolled a collage
@@ -311,7 +334,35 @@ type Querier interface {
 	// customscan's row count and picks a hash-join + seq scan of scene_fingerprints.
 	ExpandPhashNeighbors(ctx context.Context, arg ExpandPhashNeighborsParams) ([]ExpandPhashNeighborsRow, error)
 	ExpandSceneCoMembers(ctx context.Context, sceneIds []uuid.UUID) ([]ExpandSceneCoMembersRow, error)
+	// Expiring stale claims. A curator who abandoned work releases it themselves;
+	// this is the backstop for the ones who did not.
+	//
+	// Scoped by AGE as well as by the cutoff so it cannot strand a recent claim
+	// because the batch ran slowly.
+	ExpireStaleQuestClaims(ctx context.Context, dollar_1 interface{}) ([]AuthoredQuestItem, error)
+	// The quest board. Active quests only, because an expired quest is not a quest
+	// anybody acts on, and the count of expired ones grows forever.
+	//
+	// The expiry filter lives HERE rather than in the client so "active" has one
+	// definition. A client-side expiry filter and a server-side one disagree the
+	// moment a clock is involved.
+	FindActiveAuthoredQuests(ctx context.Context) ([]AuthoredQuest, error)
 	FindActiveInviteKeysForUser(ctx context.Context, generatedBy uuid.UUID) ([]InviteKey, error)
+	FindAuthoredQuest(ctx context.Context, id uuid.UUID) (AuthoredQuest, error)
+	FindAuthoredQuestByAuthor(ctx context.Context, authoredBy uuid.NullUUID) ([]AuthoredQuest, error)
+	// The items of a quest, with the claim inlined.
+	//
+	// The LEFT JOIN to the claim is the "reconcile on read" the migration comment
+	// promises: a filled field does not DELETE the row, it just makes the item
+	// stop counting. Keeping the row is what lets the quest show "you did this one",
+	// which is most of why a curator comes back.
+	FindAuthoredQuestItems(ctx context.Context, questID uuid.UUID) ([]FindAuthoredQuestItemsRow, error)
+	// "Show me everything known about this entity" -- how an authored quest turns
+	// into a canonical link back to the entity's page.
+	FindAuthoredQuestItemsByEntity(ctx context.Context, arg FindAuthoredQuestItemsByEntityParams) ([]AuthoredQuestItem, error)
+	// A curator's in-progress work, newest claim first. The "what am I working on"
+	// list, and the query an operator runs to find claims worth expiring.
+	FindClaimsByUser(ctx context.Context, claimedBy uuid.NullUUID) ([]FindClaimsByUserRow, error)
 	// Returns pending edits past either voting deadline, along with the tallies needed to
 	// decide their outcome in Go. The `votes` column is unusable here: a net score cannot tell
 	// a unanimous result apart from a contested one adding up to the same number.
@@ -729,6 +780,9 @@ type Querier interface {
 	// Returning the row means a duplicate insert reports no rows, which the
 	// service treats as "already recorded" rather than as an error.
 	RecordTrustEvent(ctx context.Context, arg RecordTrustEventParams) (TrustEvent, error)
+	// Releasing a claim. Restricted to the claimer's own rows by the WHERE, so one
+	// curator cannot release another's work.
+	ReleaseAuthoredQuestItem(ctx context.Context, arg ReleaseAuthoredQuestItemParams) (AuthoredQuestItem, error)
 	ResetVotes(ctx context.Context, editID uuid.UUID) error
 	// Resolves a set of UUIDs to the type of entity they belong to, used to turn
 	// bare UUIDs in comments into links.
