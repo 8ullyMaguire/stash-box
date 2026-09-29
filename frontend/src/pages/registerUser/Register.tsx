@@ -16,7 +16,11 @@ import * as yup from "yup";
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-const schema = yup.object({
+// Exported so the invite-key rules can be tested directly. These are the exact
+// rules #956 turned on: when require_invite is false the field is hidden, so it
+// must not be required -- but a value the user did type should still be
+// checked rather than sent to the server to reject.
+export const schema = yup.object({
   email: yup.string().email().required("Email is required"),
   inviteKey: yup
     .string()
