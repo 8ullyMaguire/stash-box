@@ -3925,3 +3925,132 @@ most safety-critical code in the repository, and bolting a curation engine besid
 it is not the way to do that.
 
 ---
+
+
+## Session 32 — Phase 2 step 2, completion over GraphQL (SPEC §7.7)
+
+### The count query had never been executed
+
+`expr * N` where `expr` is boolean is a **type error** in PostgreSQL — there is no
+boolean-times-integer operator. So `countIncompleteEntities` returned a GraphQL
+error to every client that asked it anything.
+
+> **`sqlc generate` checks the SQL's SYNTAX and happily generates Go from a query
+> that cannot execute.** Nothing failed until a test actually ran it, and the tests
+> before that could not have: there was no database involved.
+
+A cast inside the `NOT` is rejected identically — `NOT (...)::int` casts `NOT`'s
+argument rather than its result:
+
+```
+ERROR:  argument of NOT must be type boolean, not type integer
+```
+
+The working form is `(NOT (...))::int * N`, on all **57** weight terms. The SQL is
+now **generated from a table** rather than repaired by regex, after the first two
+regex repair passes each introduced a worse error than the one they fixed.
+
+### A field that could never be filled
+
+The parity test found the scorer weighted performer `details` at 10 — and
+`performers` has **no details column**. `Score` treats an absent map key as
+missing, so every performer in the archive was capped at **80 of 90** with an
+unfillable gap in its missing list, and a quest would have been generated asking
+for something no curator could supply. Total 90 → 80.
+
+> The same reasoning was already written into the studio list — *"there is no
+> details column, so there is no details field"* — and **missed for the performer**.
+
+### The test that was checking a copy of the file
+
+The first parity test compared the Go weights against a hand-transcribed Go map
+"of the SQL weights". Two mutations survived it:
+
+```
+SQL: performer country 8 -> 9        -> SURVIVED
+Go:  add a field to performer only   -> SURVIVED
+```
+
+> **A parity test has to read one side from the thing it is checking.** That
+> version compared the scorer to a *third artefact* nobody maintained — the SQL was
+> not in the test, so editing the SQL could not fail it.
+
+### Three checks shaped like the text they read
+
+| Attempt | Mutation it missed | Why |
+|---|---|---|
+| hand-copied Go map | SQL weight edit | file not in the test |
+| `strings.Contains("::int")` | cast inside the `NOT` | the line still has `::int` |
+| `Index("::int") < LastIndex(")")` | cast inside the `NOT` | compared against the term's own paren |
+| **`PREPARE` via PostgreSQL** | — | asks the thing that must be true |
+
+> **Ask the thing that has to be true, rather than inferring it from its text.**
+> Same lesson three times in one file.
+
+### A truncation bug that sent the whole file to the database
+
+`strings.Index(body, "-- name: ")` returns **0** on a string that begins with the
+marker, and a `next > 0` guard then skipped the truncation entirely — so `$1` landed
+where a literal belonged. `next >= 0` is not the fix: that truncates to empty and
+panics. **The boundary is `marker + 1`.**
+
+> The error said *"there is no parameter $1"* — symptom, not cause. It took a diff
+> against a hand-built statement to see the two were not the same text.
+
+### A threshold test that agreed with the bug it was meant to catch
+
+The first version carried **its own copy of the formula** and asserted against
+values derived from it. The `+1` off-by-one survived until the **degenerate cases**
+were written longhand:
+
+| Threshold | Meaning | minMissing (total 80) |
+|---|---|---|
+| `below = 0` | counts **nothing** — an empty performer scores 0, which is not below 0 | 81 (unreachable) |
+| `below = 100` | counts everything incomplete | 1 |
+
+> **Those two, written out, are what exposed it.** minMissing is
+> `floor(boundary) + 1`, not the boundary itself. Expectations are now derived from
+> the *definition*, and the test calls the function the service calls.
+
+### A count taken before the entity existed
+
+The count test asserted *"the archive is full of partial performers"* and read the
+count **before creating anything**. Zero is a correct answer about an empty
+archive; the test was describing a database that does not exist in that state.
+
+> **A count taken before the entity exists is not a weaker assertion than one taken
+> after — it is an assertion about nothing.** Fixture first, count second.
+
+### `WeightFor` did not exist
+
+`fieldWeight` is unexported, and `TotalWeight`/`Fields` give only the sum and the
+names. **A sum cannot see a swap**, so `performer.country` 8 ↔ 3 would have passed
+on the totals alone.
+
+### Nine mutations, all caught
+
+`drop a cast` · `cast inside the NOT` ×3 · `performer country 8→9` · `studio parent
+30→40` · `site regex 30→35` · the `+1` off-by-one · an inverted threshold.
+
+The per-field test and the totals test each catch what the other **structurally
+cannot**: a redistribution that leaves the total unchanged, and a field added to one
+side only.
+
+### Gates
+
+`go build` 0 · `go vet` clean · **21 unit + 25 integration** · API suite ok 56.1s ·
+units clean · **sqlc and gqlgen both idempotent**.
+
+### Phase 2 status
+
+| Step | Item | Status |
+|---|---|---|
+| 1 | completion scores, all five entity types | done (`c6caa25`) |
+| **2** | **GraphQL: score + missing list + count** | **done** (`1f89888`) |
+| 3 | generated quests | next |
+| 4 | authored quests, bounties, claiming | — |
+| 5 | XP award path through `RecordEvent` | — |
+| 6 | derived badges | — |
+| 7 | activity days + streaks | — |
+
+---
