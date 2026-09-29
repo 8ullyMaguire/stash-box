@@ -103,22 +103,29 @@ func TestOrderPortrait(t *testing.T) {
 		expected []models.Image
 	}{
 		{
-			name: "Sorts by distance from 2:3 ratio",
+			// Updated for #1205. This case previously led with 400x600 because
+			// it is exactly the ideal 2:3 -- and it is only 240k pixels, while
+			// 1080x1920 is 2.07M. Ordering by ratio alone made the thumbnail the
+			// display image, which is the reported bug. The two large images
+			// (2.07M each) are one resolution bucket, so the ratio comparison
+			// still orders them relative to each other; the four small ones
+			// (240k-307k) are all in bucket 0 and likewise still sort by ratio.
+			name: "Resolution separates the tiers, ratio orders within a tier",
 			images: []models.Image{
-				{Width: 640, Height: 480},   // 4:3 (1.333)
-				{Width: 1920, Height: 1080}, // 16:9 (1.777)
-				{Width: 1080, Height: 1920}, // 9:16 (0.5625)
-				{Width: 400, Height: 600},   // 2:3 (0.666) (ideal)
-				{Width: 600, Height: 400},   // 3:2 (1.5)
-				{Width: 422, Height: 600},   // 0.703
+				{Width: 640, Height: 480},   // 4:3 (1.333), 307k, bucket 0
+				{Width: 1920, Height: 1080}, // 16:9 (1.777), 2.07M, bucket 2
+				{Width: 1080, Height: 1920}, // 9:16 (0.5625), 2.07M, bucket 2
+				{Width: 400, Height: 600},   // 2:3 ideal, 240k, bucket 0
+				{Width: 600, Height: 400},   // 3:2 (1.5), 240k, bucket 0
+				{Width: 422, Height: 600},   // 0.703, 253k, bucket 0
 			},
 			expected: []models.Image{
-				{Width: 400, Height: 600},   // 2:3 (0.666) (ideal)
-				{Width: 422, Height: 600},   // 0.703
-				{Width: 1080, Height: 1920}, // 9:16 (0.5625)
-				{Width: 640, Height: 480},   // 4:3 (1.333)
-				{Width: 600, Height: 400},   // 3:2 (1.5)
-				{Width: 1920, Height: 1080}, // 16:9 (1.777)
+				{Width: 1080, Height: 1920}, // bucket 2, then by ratio
+				{Width: 1920, Height: 1080}, // bucket 2
+				{Width: 400, Height: 600},   // bucket 0, ideal ratio
+				{Width: 422, Height: 600},   // bucket 0
+				{Width: 640, Height: 480},   // bucket 0
+				{Width: 600, Height: 400},   // bucket 0
 			},
 		},
 		{
@@ -135,15 +142,18 @@ func TestOrderPortrait(t *testing.T) {
 			},
 		},
 		{
+			// Updated for #1205: 1080x1920 (2.07M) now precedes 400x600 (240k).
+			// The property this case exists to pin -- the zero-width image sorts
+			// last -- is unchanged.
 			name: "Zero width images sort last (aspect 0.0, max distance from ideal)",
 			images: []models.Image{
-				{Width: 400, Height: 600},   // ideal 2:3, diff 0
-				{Width: 0, Height: 1000},    // aspect 0.0, diff 0.667
-				{Width: 1080, Height: 1920}, // 9:16 (0.5625), diff 0.104
+				{Width: 400, Height: 600},   // ideal 2:3, diff 0, bucket 0
+				{Width: 0, Height: 1000},    // aspect 0.0, diff 0.667, bucket 0
+				{Width: 1080, Height: 1920}, // 9:16 (0.5625), diff 0.104, bucket 2
 			},
 			expected: []models.Image{
-				{Width: 400, Height: 600},
 				{Width: 1080, Height: 1920},
+				{Width: 400, Height: 600},
 				{Width: 0, Height: 1000},
 			},
 		},
