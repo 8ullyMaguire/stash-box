@@ -2910,3 +2910,133 @@ set against that 48 and is not reachable from it. All remaining work is the
 roadmap, and I am working through it in order. If you would rather I restate the
 goal as the roadmap and drop the issue count, say so — I have not done that
 because it is your call, not mine.
+
+
+## Session 24 — Phase 1 Step 1.4: the event emitters
+
+**Phase 1 is now complete.** This is the step where trust starts actually moving:
+the service from session 22 worked, and nothing called it. A user could never
+have earned a level no matter how much they curated.
+
+### One call site per event kind, in the funnels already shared
+
+```
+ApplyEdit  ->  edit_approved    immediate accept, vote that tips the tally,
+                                 cron sweep closing an expired edit
+CloseEdit  ->  edit_rejected    only REJECTED and IMMEDIATE_REJECTED
+```
+
+Every path the codebase has — a moderator's immediate accept, a vote reaching
+threshold, the cron sweep closing expired edits — already funnels through
+`ApplyEdit`. Wiring it there rather than at each caller is what satisfies "one
+call site per event kind", and it is why a new accept path cannot earn trust
+without being reviewed.
+
+Trust errors are **logged and swallowed**, matching `PromoteUserVoteRights` on
+the adjacent lines. By the time this runs the edit has already been applied and
+**there is no unapply path**, so failing the request would leave the metadata
+changed and the trust unrecorded with no way to retry. A lost trust event is
+recoverable from the edits table; a silently reverted applied edit is not.
+
+### Three kinds of edit deliberately earn nothing
+
+- **Bot edits.** Machine-generated and auto-applied, so no human curated
+  anything. Counting them would let a bot farm level 4 and unlock content
+  viewing — the exact attack the steep part of the curve exists to prevent. This
+  is the one guard with a security consequence, so it gets its own test.
+- **Failed applies.** That is our bug, not the author's quality.
+- **CANCELED.** The author withdrawing their own edit is a decision the system
+  supports. An *immediate reject* does count — that is a moderator acting.
+
+### One real bug, caught by a test failing against code that was wrong
+
+My first pass recorded a rejection for **every** `CloseEdit`, including
+CANCELED — directly contradicting the comment I had written three functions
+above it saying cancelling earns nothing. `TestCanceledEditEmitsNoTrustEvent`
+caught it. The fix narrows recording to REJECTED and IMMEDIATE_REJECTED.
+
+Worth naming: the comment was right, the code was wrong, and I wrote both in the
+same edit. **A comment describing intended behaviour is not evidence that the
+code does it.**
+
+### All three mutations caught, each by exactly the right tests
+
+```
+approval call site removed
+  --- FAIL: TestAppliedEditEmitsOneApprovalEvent
+  --- FAIL: TestVoteAcceptedEditEmitsOneApprovalEvent
+  --- FAIL: TestRepeatedApprovalsAccumulateOneEach
+  (all three, across BOTH accept call chains)
+
+bot guard removed
+  --- FAIL: TestBotEditEmitsNoTrustEvent
+
+CANCELED fix reverted
+  --- FAIL: TestCanceledEditEmitsNoTrustEvent
+```
+
+### Three test bugs, one of which was instructive
+
+1. **I cast ONE vote and expected the funnel to fire.** `vote_application_threshold`
+   defaults to **3**, so one vote leaves the edit PENDING and the wiring is never
+   reached. The wiring was correct; my assertion was unreachable. The test now
+   votes out the *configured* threshold with distinct voters — read the value
+   rather than hardcoding, so it cannot drift.
+2. **The bot test used a plain admin author.** `auth.ValidateBot` requires the
+   `BOT` role specifically, so the edit was never created and the assertion would
+   have passed **vacuously**. Author now holds MODERATE (to submit) + BOT (to set
+   the flag).
+3. The reject test had the same single-vote mistake as (1).
+
+### And a SESSION-23 TEST was latently broken, exposed by doing the work
+
+`TestMeTrustIsZeroedForANewUser` asserted a zeroed standing on `asAdmin(t)` — the
+**shared** admin for the whole package. It passed only because nothing emitted
+trust events anywhere. The moment the emitters were wired, every test with an
+admin applying an edit moved that shared user's trust, and it failed with
+"expected 0, actual 3" from a test four functions away.
+
+It now creates its own user. **A test can pass for months because the thing it
+asserts is not happening yet, and fail the day you make it happen** — which is
+the good outcome, not a regression.
+
+### The rule, stated once
+
+That is the same bug class as the global `count(*)` that has now bitten **six**
+tests across this work: **asserting on shared mutable state measures what OTHER
+tests did.** It is a rule, not another instance — shared fixture users and
+unscoped table counts are both the same mistake.
+
+### Gates
+
+`go build` 0 · `go vet` clean · api integration **ok 42.2s and stable across
+three consecutive runs** (the ordering bug made a single run meaningful to
+check) · unit suite clean. No schema change, so gqlgen and the frontend codegen
+were correctly not re-run.
+
+### Phase 1 — complete
+
+| Step | Status |
+|---|---|
+| 0.1 modbot race | done (session 21) |
+| 1.1 migration 76 | done (`28d9377`) |
+| 1.2 service + curve | done (`a5debf2`) |
+| 1.3 GraphQL exposure | done (`6f5f6e9`) |
+| 1.4 event emitters | done (`9109007`) |
+
+**Next is Phase 1's other half**, which the roadmap lists as: single-instance
+public metadata portal + **snapshot collages** + **Elo voting** +
+**identification board**. The one to take next is **Elo voting**, because the
+taste profile that everything downstream depends on (§2, §4, §9) is defined in
+terms of Elo votes — and Elo already exists in this codebase, which makes it the
+cheapest meaningful step and the one that unblocks the most.
+
+---
+
+**On the standing goal:** unchanged and still my recommendation, restated only
+because I have now declined to restate it for three sessions running. The issue
+pool remains exhausted at 28/48 triaged, every issue either fixed or documented
+as a deliberate non-fix, and the 32 bar was set against that 48. All remaining
+work is the roadmap, and I am working through it in order. If you want the goal
+formally rewritten to the roadmap, that is your call and I will make it in one
+edit.
