@@ -47,6 +47,44 @@ func (s *Trust) WithTxn(fn func(*queries.Queries) error) error {
 	return s.withTxn(fn)
 }
 
+// ContentDenylist returns the per-entity content denylist as a rule.
+//
+// This is the ONE access rule this instance enforces, and it is loadable from
+// real data -- which is what separates it from the region, device-class and MFA
+// rules in accessrules.go, which are declarations of intent rather than
+// configuration read from anywhere.
+//
+// A nil set means "nothing is denylisted", which is distinct from an empty one
+// for the same reason taste_vectors has no row for a user who has not voted:
+// absence of configuration is the permissive case, and the gate's job is to
+// remove access, not to add a default.
+func (s *Trust) ContentDenylist(ctx context.Context) (PerEntityRule, error) {
+	tags, err := s.queries.ListDeniedTagIDs(ctx)
+	if err != nil {
+		return PerEntityRule{}, err
+	}
+	studios, err := s.queries.ListDeniedStudioIDs(ctx)
+	if err != nil {
+		return PerEntityRule{}, err
+	}
+	performers, err := s.queries.ListDeniedPerformerIDs(ctx)
+	if err != nil {
+		return PerEntityRule{}, err
+	}
+	return NewPerEntityRule(idsToSet(tags), idsToSet(studios), idsToSet(performers)), nil
+}
+
+func idsToSet(ids []uuid.UUID) map[string]struct{} {
+	if len(ids) == 0 {
+		return nil
+	}
+	out := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		out[id.String()] = struct{}{}
+	}
+	return out
+}
+
 // knownKind reports whether the rollup knows how to count this kind.
 // knownKind reports whether the service understands a kind well enough to roll it
 // up.

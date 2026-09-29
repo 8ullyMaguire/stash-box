@@ -41,6 +41,44 @@ type SceneDraftTag interface {
 	IsSceneDraftTag()
 }
 
+// Access-restriction rules and their enforcement state (SPEC §7.23 D2/D5).
+//
+// The whole point of this type is that `enforced` is reported per rule rather than
+// being a property of the instance. A rule this instance does not enforce is
+// still returned, with the reason and the component that must make the decision --
+// an operator who believes a control is active when it is only being logged has a
+// false picture of their own instance's security, and would not learn otherwise
+// until something they relied on failed.
+type AccessRule struct {
+	// Stable identifier, e.g. "region" or "per_entity_denylist".
+	Name string `json:"name"`
+	// Whether THIS instance makes the decision.
+	//
+	// False does not mean the rule is absent -- it means the decision belongs
+	// somewhere else. Read `enforced_by` and `reason` before concluding anything.
+	Enforced bool `json:"enforced"`
+	// The component that actually makes the decision: "enforced here", or the
+	// proxy / provider the rule is delegated to.
+	State string `json:"state"`
+	// Where the decision is made when `enforced` is false. Names the component so
+	// an unenforced rule points at where to turn it on rather than nowhere.
+	EnforcedBy string `json:"enforced_by"`
+	// Why the rule is not enforced here, or an extra note about an enforced one
+	// (e.g. a denylist with no entries). Empty when there is nothing to add.
+	Reason string `json:"reason"`
+}
+
+// The full picture for one instance: every rule, enforced or not.
+type AccessRuleSet struct {
+	// Every rule, with its state. Nothing is omitted for being unenforced.
+	Rules []AccessRule `json:"rules"`
+	// Only the rules this instance does not enforce, each with a reason.
+	//
+	// Present so a client can render "these controls are not active here" without
+	// re-deriving it from the full list.
+	Unenforced []AccessRule `json:"unenforced"`
+}
+
 type ActivateNewUserInput struct {
 	Name          string    `json:"name"`
 	ActivationKey uuid.UUID `json:"activation_key"`

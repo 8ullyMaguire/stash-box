@@ -143,6 +143,26 @@ type Collage struct {
 	GeneratedAt       time.Time   `db:"generated_at" json:"generated_at"`
 }
 
+type ContentDenylistPerformer struct {
+	PerformerID uuid.UUID          `db:"performer_id" json:"performer_id"`
+	Reason      *string            `db:"reason" json:"reason"`
+	CreatedAt   pgtype.Timestamptz `db:"created_at" json:"created_at"`
+}
+
+type ContentDenylistStudio struct {
+	StudioID  uuid.UUID          `db:"studio_id" json:"studio_id"`
+	Reason    *string            `db:"reason" json:"reason"`
+	CreatedAt pgtype.Timestamptz `db:"created_at" json:"created_at"`
+}
+
+// Entities whose content access is denied by this instance. Can only remove access, never grant it.
+type ContentDenylistTag struct {
+	TagID uuid.UUID `db:"tag_id" json:"tag_id"`
+	// Why this entity is denied. Nullable: an operator may deny without stating why.
+	Reason    *string            `db:"reason" json:"reason"`
+	CreatedAt pgtype.Timestamptz `db:"created_at" json:"created_at"`
+}
+
 type Draft struct {
 	ID        uuid.UUID       `db:"id" json:"id"`
 	UserID    uuid.UUID       `db:"user_id" json:"user_id"`

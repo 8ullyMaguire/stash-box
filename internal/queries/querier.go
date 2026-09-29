@@ -726,6 +726,15 @@ type Querier interface {
 	// (collage_id, timestamp_ms) so this is an index scan and not a sort of the
 	// scene's entire snapshot set.
 	ListCollageSnapshots(ctx context.Context, sceneID uuid.UUID) ([]SceneSnapshot, error)
+	ListDeniedPerformerIDs(ctx context.Context) ([]uuid.UUID, error)
+	ListDeniedStudioIDs(ctx context.Context) ([]uuid.UUID, error)
+	// The tag half of the content denylist, for the access rule that IS enforced.
+	//
+	// Id only: the resolver maps a UUID straight into the rule's id set, and
+	// selecting `reason` would mean every read drags a column no caller uses. An
+	// operator audit reads the reason through a per-entity query, which is the
+	// right shape for "why is this one entity denied" anyway.
+	ListDeniedTagIDs(ctx context.Context) ([]uuid.UUID, error)
 	// The queue read: pending, due, oldest first.
 	//
 	// `FOR UPDATE SKIP LOCKED` and NOT a plain SELECT. Two dispatchers running at once

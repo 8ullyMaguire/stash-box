@@ -68,6 +68,19 @@ type DirectiveRoot struct {
 }
 
 type ComplexityRoot struct {
+	AccessRule struct {
+		Enforced   func(childComplexity int) int
+		EnforcedBy func(childComplexity int) int
+		Name       func(childComplexity int) int
+		Reason     func(childComplexity int) int
+		State      func(childComplexity int) int
+	}
+
+	AccessRuleSet struct {
+		Rules      func(childComplexity int) int
+		Unenforced func(childComplexity int) int
+	}
+
 	BodyModification struct {
 		Description func(childComplexity int) int
 		Location    func(childComplexity int) int
@@ -553,6 +566,7 @@ type ComplexityRoot struct {
 	}
 
 	Query struct {
+		AccessRules                    func(childComplexity int) int
 		CountIncompleteEntities        func(childComplexity int, entityType EntityType, below int) int
 		EloLeaderboard                 func(childComplexity int, entityType EloEntityType, limit *int) int
 		EloMatchup                     func(childComplexity int, entityType EloEntityType) int
@@ -1141,6 +1155,7 @@ type QueryResolver interface {
 	EloMatchup(ctx context.Context, entityType EloEntityType) (*EloMatchup, error)
 	EloRating(ctx context.Context, entityType EloEntityType, id uuid.UUID) (*EloRating, error)
 	EloLeaderboard(ctx context.Context, entityType EloEntityType, limit *int) (*EloLeaderboard, error)
+	AccessRules(ctx context.Context) (*AccessRuleSet, error)
 	ListOpenIdentificationQueries(ctx context.Context, limit *int) ([]IdentificationQuery, error)
 	IdentificationQuery(ctx context.Context, id uuid.UUID) (*IdentificationQuery, error)
 	ResolvedIdentificationQueries(ctx context.Context, entityType IdentificationTargetType, entityID uuid.UUID, limit *int) ([]IdentificationQuery, error)
@@ -1290,6 +1305,50 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 	ec := newExecutionContext(nil, e, nil)
 	_ = ec
 	switch typeName + "." + field {
+
+	case "AccessRule.enforced":
+		if e.ComplexityRoot.AccessRule.Enforced == nil {
+			break
+		}
+
+		return e.ComplexityRoot.AccessRule.Enforced(childComplexity), true
+	case "AccessRule.enforced_by":
+		if e.ComplexityRoot.AccessRule.EnforcedBy == nil {
+			break
+		}
+
+		return e.ComplexityRoot.AccessRule.EnforcedBy(childComplexity), true
+	case "AccessRule.name":
+		if e.ComplexityRoot.AccessRule.Name == nil {
+			break
+		}
+
+		return e.ComplexityRoot.AccessRule.Name(childComplexity), true
+	case "AccessRule.reason":
+		if e.ComplexityRoot.AccessRule.Reason == nil {
+			break
+		}
+
+		return e.ComplexityRoot.AccessRule.Reason(childComplexity), true
+	case "AccessRule.state":
+		if e.ComplexityRoot.AccessRule.State == nil {
+			break
+		}
+
+		return e.ComplexityRoot.AccessRule.State(childComplexity), true
+
+	case "AccessRuleSet.rules":
+		if e.ComplexityRoot.AccessRuleSet.Rules == nil {
+			break
+		}
+
+		return e.ComplexityRoot.AccessRuleSet.Rules(childComplexity), true
+	case "AccessRuleSet.unenforced":
+		if e.ComplexityRoot.AccessRuleSet.Unenforced == nil {
+			break
+		}
+
+		return e.ComplexityRoot.AccessRuleSet.Unenforced(childComplexity), true
 
 	case "BodyModification.description":
 		if e.ComplexityRoot.BodyModification.Description == nil {
@@ -3703,6 +3762,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.PerformerStudio.Studio(childComplexity), true
 
+	case "Query.accessRules":
+		if e.ComplexityRoot.Query.AccessRules == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Query.AccessRules(childComplexity), true
 	case "Query.countIncompleteEntities":
 		if e.ComplexityRoot.Query.CountIncompleteEntities == nil {
 			break
@@ -6179,6 +6244,20 @@ extend type Query {
   three-hundred-vote one just because it is numerically higher.
   """
   eloLeaderboard(entityType: EloEntityType!, limit: Int): EloLeaderboard @hasRole(role: READ)
+
+  """
+  Every access-restriction rule this instance knows about, with its enforcement
+  state (SPEC §7.23 D2/D5).
+
+  Admin-only, because the unenforced list is a security posture report: naming
+  which controls are NOT active is exactly the information a non-admin should
+  not be able to enumerate.
+
+  Returns rules this instance does not enforce as well as ones it does. That is
+  the contract -- a control that appears to exist and does not is worse than one
+  that is visibly missing, because the operator believes they have it.
+  """
+  accessRules: AccessRuleSet! @hasRole(role: ADMIN)
 }
 
 extend type Mutation {
@@ -7821,6 +7900,63 @@ input TagCategoryDestroyInput {
   id: ID!
 }
 `, BuiltIn: false},
+	{Name: "../../graphql/schema/types/trust.graphql", Input: `"""
+Access-restriction rules and their enforcement state (SPEC §7.23 D2/D5).
+
+The whole point of this type is that ` + "`" + `enforced` + "`" + ` is reported per rule rather than
+being a property of the instance. A rule this instance does not enforce is
+still returned, with the reason and the component that must make the decision --
+an operator who believes a control is active when it is only being logged has a
+false picture of their own instance's security, and would not learn otherwise
+until something they relied on failed.
+"""
+type AccessRule {
+  """Stable identifier, e.g. "region" or "per_entity_denylist"."""
+  name: String!
+
+  """
+  Whether THIS instance makes the decision.
+
+  False does not mean the rule is absent -- it means the decision belongs
+  somewhere else. Read ` + "`" + `enforced_by` + "`" + ` and ` + "`" + `reason` + "`" + ` before concluding anything.
+  """
+  enforced: Boolean!
+
+  """
+  The component that actually makes the decision: "enforced here", or the
+  proxy / provider the rule is delegated to.
+  """
+  state: String!
+
+  """
+  Where the decision is made when ` + "`" + `enforced` + "`" + ` is false. Names the component so
+  an unenforced rule points at where to turn it on rather than nowhere.
+  """
+  enforced_by: String!
+
+  """
+  Why the rule is not enforced here, or an extra note about an enforced one
+  (e.g. a denylist with no entries). Empty when there is nothing to add.
+  """
+  reason: String!
+}
+
+"""
+The full picture for one instance: every rule, enforced or not.
+"""
+type AccessRuleSet {
+  """Every rule, with its state. Nothing is omitted for being unenforced."""
+  rules: [AccessRule!]!
+
+  """
+  Only the rules this instance does not enforce, each with a reason.
+
+  Present so a client can render "these controls are not active here" without
+  re-deriving it from the full list.
+  """
+  unenforced: [AccessRule!]!
+}
+`, BuiltIn: false},
 	{Name: "../../graphql/schema/types/user.graphql", Input: `directive @isUserOwner on FIELD_DEFINITION
 directive @hasRole(role: RoleEnum!) on FIELD_DEFINITION
 
@@ -8330,6 +8466,32 @@ var parsedSchema = gqlparser.MustLoadSchema(sources...)
 // childFields_* functions provide shared child field context lookups.
 // Each function is generated once per unique object type, deduplicating the
 // switch statements that were previously inlined in every fieldContext_* function.
+
+func (ec *executionContext) childFields_AccessRule(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "name":
+		return ec.fieldContext_AccessRule_name(ctx, field)
+	case "enforced":
+		return ec.fieldContext_AccessRule_enforced(ctx, field)
+	case "state":
+		return ec.fieldContext_AccessRule_state(ctx, field)
+	case "enforced_by":
+		return ec.fieldContext_AccessRule_enforced_by(ctx, field)
+	case "reason":
+		return ec.fieldContext_AccessRule_reason(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type AccessRule", field.Name)
+}
+
+func (ec *executionContext) childFields_AccessRuleSet(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "rules":
+		return ec.fieldContext_AccessRuleSet_rules(ctx, field)
+	case "unenforced":
+		return ec.fieldContext_AccessRuleSet_unenforced(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type AccessRuleSet", field.Name)
+}
 
 func (ec *executionContext) childFields_BodyModification(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 	switch field.Name {
@@ -11484,6 +11646,185 @@ func (ec *executionContext) field___Type_fields_args(ctx context.Context, rawArg
 // endregion ************************** directives.gotpl **************************
 
 // region    **************************** field.gotpl *****************************
+
+func (ec *executionContext) _AccessRule_name(ctx context.Context, field graphql.CollectedField, obj *AccessRule) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_AccessRule_name(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Name, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_AccessRule_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("AccessRule", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _AccessRule_enforced(ctx context.Context, field graphql.CollectedField, obj *AccessRule) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_AccessRule_enforced(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Enforced, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_AccessRule_enforced(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("AccessRule", field, false, false, errors.New("field of type Boolean does not have child fields"))
+}
+
+func (ec *executionContext) _AccessRule_state(ctx context.Context, field graphql.CollectedField, obj *AccessRule) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_AccessRule_state(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.State, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_AccessRule_state(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("AccessRule", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _AccessRule_enforced_by(ctx context.Context, field graphql.CollectedField, obj *AccessRule) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_AccessRule_enforced_by(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.EnforcedBy, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_AccessRule_enforced_by(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("AccessRule", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _AccessRule_reason(ctx context.Context, field graphql.CollectedField, obj *AccessRule) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_AccessRule_reason(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Reason, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_AccessRule_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("AccessRule", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _AccessRuleSet_rules(ctx context.Context, field graphql.CollectedField, obj *AccessRuleSet) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_AccessRuleSet_rules(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Rules, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []AccessRule) graphql.Marshaler {
+			return ec.marshalNAccessRule2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐAccessRuleᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_AccessRuleSet_rules(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "AccessRuleSet",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_AccessRule(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _AccessRuleSet_unenforced(ctx context.Context, field graphql.CollectedField, obj *AccessRuleSet) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_AccessRuleSet_unenforced(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Unenforced, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []AccessRule) graphql.Marshaler {
+			return ec.marshalNAccessRule2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐAccessRuleᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_AccessRuleSet_unenforced(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "AccessRuleSet",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_AccessRule(ctx, field)
+		},
+	}
+	return fc, nil
+}
 
 func (ec *executionContext) _BodyModification_location(ctx context.Context, field graphql.CollectedField, obj *BodyModification) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
@@ -25112,6 +25453,56 @@ func (ec *executionContext) fieldContext_Query_eloLeaderboard(ctx context.Contex
 	return fc, nil
 }
 
+func (ec *executionContext) _Query_accessRules(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_accessRules(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Query().AccessRules(ctx)
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "ADMIN")
+				if err != nil {
+					var zeroVal *AccessRuleSet
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *AccessRuleSet
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *AccessRuleSet) graphql.Marshaler {
+			return ec.marshalNAccessRuleSet2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐAccessRuleSet(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_accessRules(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_AccessRuleSet(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Query_listOpenIdentificationQueries(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -37999,6 +38390,109 @@ func (ec *executionContext) _SceneDraftTag(ctx context.Context, sel ast.Selectio
 
 // region    **************************** object.gotpl ****************************
 
+var accessRuleImplementors = []string{"AccessRule"}
+
+func (ec *executionContext) _AccessRule(ctx context.Context, sel ast.SelectionSet, obj *AccessRule) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, accessRuleImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("AccessRule")
+		case "name":
+			out.Values[i] = ec._AccessRule_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "enforced":
+			out.Values[i] = ec._AccessRule_enforced(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "state":
+			out.Values[i] = ec._AccessRule_state(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "enforced_by":
+			out.Values[i] = ec._AccessRule_enforced_by(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "reason":
+			out.Values[i] = ec._AccessRule_reason(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferred), math.MaxInt32)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var accessRuleSetImplementors = []string{"AccessRuleSet"}
+
+func (ec *executionContext) _AccessRuleSet(ctx context.Context, sel ast.SelectionSet, obj *AccessRuleSet) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, accessRuleSetImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("AccessRuleSet")
+		case "rules":
+			out.Values[i] = ec._AccessRuleSet_rules(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "unenforced":
+			out.Values[i] = ec._AccessRuleSet_unenforced(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferred), math.MaxInt32)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
 var bodyModificationImplementors = []string{"BodyModification"}
 
 func (ec *executionContext) _BodyModification(ctx context.Context, sel ast.SelectionSet, obj *BodyModification) graphql.Marshaler {
@@ -44260,6 +44754,28 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "accessRules":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_accessRules(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
 		case "listOpenIdentificationQueries":
 			field := field
 
@@ -49222,6 +49738,40 @@ func (ec *executionContext) ___Type(ctx context.Context, sel ast.SelectionSet, o
 // endregion **************************** object.gotpl ****************************
 
 // region    ***************************** type.gotpl *****************************
+
+func (ec *executionContext) marshalNAccessRule2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐAccessRule(ctx context.Context, sel ast.SelectionSet, v AccessRule) graphql.Marshaler {
+	return ec._AccessRule(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNAccessRule2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐAccessRuleᚄ(ctx context.Context, sel ast.SelectionSet, v []AccessRule) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNAccessRule2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐAccessRule(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNAccessRuleSet2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐAccessRuleSet(ctx context.Context, sel ast.SelectionSet, v AccessRuleSet) graphql.Marshaler {
+	return ec._AccessRuleSet(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNAccessRuleSet2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐAccessRuleSet(ctx context.Context, sel ast.SelectionSet, v *AccessRuleSet) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._AccessRuleSet(ctx, sel, v)
+}
 
 func (ec *executionContext) unmarshalNActivateNewUserInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐActivateNewUserInput(ctx context.Context, v any) (ActivateNewUserInput, error) {
 	res, err := ec.unmarshalInputActivateNewUserInput(ctx, v)

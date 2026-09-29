@@ -132,6 +132,20 @@ extend type Query {
   three-hundred-vote one just because it is numerically higher.
   """
   eloLeaderboard(entityType: EloEntityType!, limit: Int): EloLeaderboard @hasRole(role: READ)
+
+  """
+  Every access-restriction rule this instance knows about, with its enforcement
+  state (SPEC §7.23 D2/D5).
+
+  Admin-only, because the unenforced list is a security posture report: naming
+  which controls are NOT active is exactly the information a non-admin should
+  not be able to enumerate.
+
+  Returns rules this instance does not enforce as well as ones it does. That is
+  the contract -- a control that appears to exist and does not is worse than one
+  that is visibly missing, because the operator believes they have it.
+  """
+  accessRules: AccessRuleSet! @hasRole(role: ADMIN)
 }
 
 extend type Mutation {
