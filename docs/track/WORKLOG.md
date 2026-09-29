@@ -4253,3 +4253,93 @@ panic: error creating system users: duplicate key value violates unique constrai
 **Next: Phase 2 step 4 — bounties** (quest × XP multiplier).
 
 ---
+
+
+## Session 35 — authored quests, bounties, claiming (SPEC §7.7, Phase 2 step 5)
+
+Migration 80 · 14 integration tests · **6 / 6 mutants killed** · `make it` green.
+
+### The two quest kinds, and why both exist
+
+| | GENERATED (last step) | AUTHORED (this step) |
+|---|---|---|
+| items | re-derived at read time | **fixed at authoring time** |
+| stored | never | yes |
+| bounty | **cannot have one** | stored |
+
+> A bounty is a **promise by a person**. A generator that could manufacture one
+> would be inventing a reward, and every reward would be unauditable: nobody
+> could say who decided a gap was worth triple.
+
+### The claim is a guarded UPDATE
+
+Never check-then-write — both curators read "unclaimed", both write. The
+`WHERE claimed_by IS NULL` **is** the concurrency control: the UPDATE takes the row
+lock *before* evaluating it.
+
+Three outcomes, not two: **free** → claimed; **yours** → succeeds (a retry must
+not report a loss you didn't take); **someone else's** → `ErrAlreadyClaimed`, a
+*distinct* error, because the client's response differs. Being told is the feature.
+
+A claim is **not** completion. Items leave only when the field is actually filled.
+
+### A test I had to fix twice before it could fail
+
+The release test asserted only that a **thief** is refused — and a release that
+refuses **everyone** passes that.
+
+> Found by mutation: a NULL claimer also produced `ErrAlreadyClaimed`, because
+> `claimed_by = NULL` is **NULL in SQL — never true** — so the update matched no
+> rows and the refusal was **indistinguishable from a correct one**.
+
+Asserting the **owner can also release** is what makes the first half mean
+anything. The mutant dies on that sentence.
+
+### The unreachability check has to be PER TYPE
+
+`parent_studio` is weight 30 for a studio, **zero for a tag** — "link 5 tags to
+their parent studio" is unachievable.
+
+> The same test written against **performers could not have caught this**: `name` is
+> NOT NULL everywhere, so weight zero for a performer but **weight 40 for a TAG**.
+> "Add missing tag names" is perfectly completable; refusing it would be a bug.
+> Same constant, opposite correct answer — the argument against a hard-coded
+> "impossible fields" list.
+
+### I went the wrong way TWICE on a pre-existing failure
+
+My 14 performer fixtures took the archive 180 → **194** and broke
+`TestQueryPerformersSceneCountSort` ("Performer with 0 scenes not found").
+
+1. Raised every `PerPage` to that file's own `allPerformers = 10000` — which
+   **cannot work**: `query.MaxPerPage` is **100**, so the server clamps regardless.
+   The previous session's "fix" had the same flaw and left a comment claiming
+   it was correct.
+2. Filtered by `Names` — a single `%LIKE%`, so a quoted two-name phrase matches
+   nothing, and a counter-derived value matched **another test's** performer.
+
+> **Instrumenting settled it: `total=100`.** The clamp, stated as a fact, instead of
+> four theories.
+
+The real fix: a feature about metadata completion must not inflate a table some
+unrelated test pages through. **Tags** are scored on `details` alone — everything a
+quest fixture needs — and never appear in a performers query. That file is
+**reverted, untouched**.
+
+### Also
+
+Bounties **add** to the trust enum's value (constant pinned against the real map);
+reconciliation re-scores on read, never a stored flag; `Factory.Quest` and
+`Factory.Authored` added. **Recorded a real gap:** no by-id finder for sites, so a
+site quest's items render unnamed until that is filled.
+
+### Verification
+
+| | |
+|---|---|
+| `go build` · `go vet` | pass |
+| integration | 14 pass, **twice in a row** |
+| mutants | **6 / 6 killed** |
+| `make it` | green, 19 packages |
+
+---
