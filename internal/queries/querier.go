@@ -21,6 +21,21 @@ type Querier interface {
 	// ON CONFLICT (user_id) DO UPDATE is required because a user with no rollup row
 	// yet (every new user) has to be created on first event.
 	ApplyTrustEvent(ctx context.Context, arg ApplyTrustEventParams) (UserTrust, error)
+	// Claims a set of snapshots for a collage.
+	//
+	// The WHERE clause on collage_id IS NULL is a claim, not a filter: if a snapshot
+	// was claimed by a concurrent generation between the SELECT and this UPDATE, the
+	// row does not match and is not taken. That is the optimistic-concurrency guard.
+	//
+	// :execrows rather than :exec, and that is load-bearing. Without the returned count
+	// the caller cannot tell a complete claim from a partial one, and a partial claim
+	// produces a collage with fewer frames than its own frame_count says -- a broken
+	// strip that renders as though it were fine. The caller compares the count against
+	// the number it asked for and rolls back on a shortfall.
+	//
+	// array_unnest over a UUID[] is how sqlc passes a set; there is no variadic form
+	// in Postgres and unnest is the idiomatic one.
+	AssignSnapshotsToCollage(ctx context.Context, arg AssignSnapshotsToCollageParams) (int64, error)
 	CancelUserEdits(ctx context.Context, userID uuid.NullUUID) error
 	// Only clear once NO reject votes remain on the edit.
 	//
@@ -36,6 +51,7 @@ type Querier interface {
 	CountEloVotesForEntity(ctx context.Context, arg CountEloVotesForEntityParams) (int64, error)
 	CountNotificationsByUser(ctx context.Context, arg CountNotificationsByUserParams) (int64, error)
 	CountPerformerSearchMatches(ctx context.Context, arg CountPerformerSearchMatchesParams) (interface{}, error)
+	CountSceneSnapshots(ctx context.Context, sceneID uuid.UUID) (int64, error)
 	CountScenesByPerformer(ctx context.Context, performerID uuid.UUID) (int64, error)
 	CountScenesByPerformerIds(ctx context.Context, dollar_1 []uuid.UUID) ([]CountScenesByPerformerIdsRow, error)
 	CountUnreadNotificationsByUserGroupedByType(ctx context.Context, userID uuid.UUID) ([]CountUnreadNotificationsByUserGroupedByTypeRow, error)
@@ -51,6 +67,10 @@ type Querier interface {
 	// pair is new.
 	CountVotesBetweenEntities(ctx context.Context, arg CountVotesBetweenEntitiesParams) (int64, error)
 	CountVotesByType(ctx context.Context, userID uuid.NullUUID) ([]CountVotesByTypeRow, error)
+	// Creates the collage row. source_duration_ms is the duration the sampler
+	// believed; the scene's current duration is read by the caller and stored
+	// alongside it so a stale collage is diagnosable rather than merely wrong-looking.
+	CreateCollage(ctx context.Context, arg CreateCollageParams) (Collage, error)
 	// Draft queries
 	CreateDraft(ctx context.Context, arg CreateDraftParams) (Draft, error)
 	// Edit queries
@@ -110,6 +130,21 @@ type Querier interface {
 	CreateScenePerformers(ctx context.Context, arg []CreateScenePerformersParams) (int64, error)
 	// Scene redirects
 	CreateSceneRedirect(ctx context.Context, arg CreateSceneRedirectParams) error
+	// Snapshot collage queries (SPEC §8, migration 78).
+	//
+	// Two tables with a deliberate split: scene_snapshots is the source of truth
+	// (individual timestamped frames) and collages is a derived selection over them.
+	// See migration 78 for why the split exists and why a snapshot is a timestamp
+	// rather than a stored image.
+	// Adding a snapshot by hand or via the API. collage_id is left NULL: SPEC §8
+	// describes collages as GENERATED, so a snapshot exists in the pool before
+	// anything selects from it.
+	//
+	// The unique (scene_id, timestamp_ms) means a re-add of the same instant is a
+	// constraint violation rather than a duplicate frame that renders as one and
+	// counts twice toward the frame budget. Surfaced as ErrDuplicateSnapshot rather
+	// than a raw 23505 so the caller can say something useful.
+	CreateSceneSnapshot(ctx context.Context, arg CreateSceneSnapshotParams) (SceneSnapshot, error)
 	// Scene tags management
 	CreateSceneTags(ctx context.Context, arg []CreateSceneTagsParams) (int64, error)
 	// Scene URLs
@@ -149,6 +184,17 @@ type Querier interface {
 	// User token queries
 	CreateUserToken(ctx context.Context, arg CreateUserTokenParams) (UserToken, error)
 	DeleteAllSceneFingerprintSubmissions(ctx context.Context, arg DeleteAllSceneFingerprintSubmissionsParams) (int64, error)
+	// Removing a collage. The snapshots it referenced are NOT deleted: the FK is ON
+	// DELETE SET NULL, so they return to the unassigned pool and a later generation can
+	// reuse them. Deleting a user's curated frames because someone re-rolled a collage
+	// would be data loss dressed up as a cascade.
+	DeleteCollage(ctx context.Context, sceneID uuid.UUID) error
+	// Frees a collage's frames without removing the collage row, for the regeneration
+	// path: clear the assignment, sample again, reassign.
+	//
+	// Separate from DeleteCollage because the two are used at different times and
+	// conflating them is how a regeneration ends up deleting curated snapshots.
+	DeleteCollageForScene(ctx context.Context, sceneID uuid.UUID) error
 	DeleteDraft(ctx context.Context, id uuid.UUID) error
 	DeleteEdit(ctx context.Context, id uuid.UUID) error
 	DeleteExpiredDrafts(ctx context.Context, dollar_1 interface{}) error
@@ -178,6 +224,7 @@ type Querier interface {
 	// Scene images
 	DeleteSceneImages(ctx context.Context, sceneID uuid.UUID) error
 	DeleteScenePerformers(ctx context.Context, sceneID uuid.UUID) error
+	DeleteSceneSnapshot(ctx context.Context, id uuid.UUID) error
 	DeleteSceneStudios(ctx context.Context, studioID uuid.NullUUID) error
 	DeleteSceneTagsByScene(ctx context.Context, sceneID uuid.UUID) error
 	DeleteSceneTagsByTag(ctx context.Context, tagID uuid.UUID) error
@@ -258,6 +305,16 @@ type Querier interface {
 	// Get performer appearances for multiple scenes
 	FindSceneAppearancesByIds(ctx context.Context, sceneIds []uuid.UUID) ([]FindSceneAppearancesByIdsRow, error)
 	FindSceneByURL(ctx context.Context, arg FindSceneByURLParams) ([]Scene, error)
+	// The scene's duration, for spacing a collage's frames.
+	//
+	// Returns only `duration`, deliberately. A sampler needs the length and nothing
+	// else, and selecting the whole scene row here would hand the caller a struct it
+	// has no business modifying.
+	//
+	// Deleted scenes are excluded so Generate can tell "this scene is gone" from "this
+	// scene has no duration" -- two different errors with two different fixes, and the
+	// distinction is worth a row.
+	FindSceneDuration(ctx context.Context, id uuid.UUID) (*int, error)
 	// Get URLs for multiple scenes
 	FindSceneUrlsByIds(ctx context.Context, sceneIds []uuid.UUID) ([]SceneUrl, error)
 	FindScenesByFingerprintsExactWithHash(ctx context.Context, hashes []int64) ([]FindScenesByFingerprintsExactWithHashRow, error)
@@ -306,6 +363,7 @@ type Querier interface {
 	// recomputed (see RebuildLevels in internal/service/trust).
 	GetAllUserTrust(ctx context.Context) ([]UserTrust, error)
 	GetChildStudios(ctx context.Context, parentStudioID uuid.NullUUID) ([]Studio, error)
+	GetCollageForScene(ctx context.Context, sceneID uuid.UUID) (Collage, error)
 	GetEditComments(ctx context.Context, editID uuid.UUID) ([]EditComment, error)
 	GetEditCommentsByIds(ctx context.Context, dollar_1 []uuid.UUID) ([]EditComment, error)
 	GetEditPerformerAliases(ctx context.Context, id uuid.UUID) ([]string, error)
@@ -383,6 +441,7 @@ type Querier interface {
 	GetSceneFingerprintScenes(ctx context.Context, fingerprintIds []int) ([]GetSceneFingerprintScenesRow, error)
 	GetScenePerformers(ctx context.Context, sceneID uuid.UUID) ([]GetScenePerformersRow, error)
 	GetScenePhashSeeds(ctx context.Context, sceneID uuid.UUID) ([]GetScenePhashSeedsRow, error)
+	GetSceneSnapshot(ctx context.Context, id uuid.UUID) (SceneSnapshot, error)
 	GetSceneTags(ctx context.Context, sceneID uuid.UUID) ([]Tag, error)
 	GetSceneURLs(ctx context.Context, sceneID uuid.UUID) ([]GetSceneURLsRow, error)
 	GetScenes(ctx context.Context, dollar_1 []uuid.UUID) ([]Scene, error)
@@ -412,6 +471,12 @@ type Querier interface {
 	GetUsers(ctx context.Context, dollar_1 []uuid.UUID) ([]User, error)
 	InviteKeyUsed(ctx context.Context, id uuid.UUID) (*int, error)
 	IsImageUnused(ctx context.Context, id uuid.UUID) (bool, error)
+	// The frames of a collage, in playback order.
+	//
+	// The read path for rendering, covered by a partial index on
+	// (collage_id, timestamp_ms) so this is an index scan and not a sort of the
+	// scene's entire snapshot set.
+	ListCollageSnapshots(ctx context.Context, sceneID uuid.UUID) ([]SceneSnapshot, error)
 	// Over-fetches relative to the requested limit: the service re-sorts by
 	// Rankable (rating, then vote count, then deviation) rather than by rating
 	// alone, so a plain top-N-by-rating is not the top-N-by-Rankable. Over-fetching
@@ -423,6 +488,29 @@ type Querier interface {
 	// LAST by default but the explicit form documents that the ordering is
 	// deliberate.
 	ListEloRatings(ctx context.Context, arg ListEloRatingsParams) ([]EloRating, error)
+	// Every snapshot for a scene, in order, whether or not it is in a collage.
+	//
+	// Ordered by timestamp so a caller rendering a scene's visual index gets frames in
+	// playback order for free, and so a client computing "how far apart are these"
+	// does not have to sort.
+	ListSceneSnapshots(ctx context.Context, sceneID uuid.UUID) ([]SceneSnapshot, error)
+	// Scenes whose visual index is too thin to identify from -- the input to SPEC §8's
+	// curation and preservation quests ("this scene has only 2 snapshots").
+	//
+	// Counts snapshots per scene rather than collages: a scene with 40 snapshots and
+	// no collage is better identified than one with 3 and a 12-frame collage, because
+	// the snapshots are what a user can browse and the collage is a selection over
+	// them.
+	//
+	// Deleted scenes are excluded, matching every other performer/scene query.
+	ListScenesWithInsufficientSnapshots(ctx context.Context, arg ListScenesWithInsufficientSnapshotsParams) ([]ListScenesWithInsufficientSnapshotsRow, error)
+	// The pool a collage generation samples from.
+	//
+	// Excludes snapshots already committed to a collage. On a REgeneration the old
+	// collage's frames are freed first (see ClearCollage), so this returns the whole
+	// pool again -- which is what makes a re-roll able to pick different frames rather
+	// than only from whatever the last generation left behind.
+	ListUnassignedSnapshots(ctx context.Context, sceneID uuid.UUID) ([]SceneSnapshot, error)
 	// One user's history, newest first. Used by the audit view and by tests that
 	// assert the event log is the source of truth.
 	ListUserTrustEvents(ctx context.Context, userID uuid.UUID) ([]TrustEvent, error)

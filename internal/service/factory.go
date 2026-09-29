@@ -21,6 +21,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stashapp/stash-box/internal/email"
 	"github.com/stashapp/stash-box/internal/queries"
+	"github.com/stashapp/stash-box/internal/service/collage"
 	"github.com/stashapp/stash-box/internal/service/draft"
 	"github.com/stashapp/stash-box/internal/service/edit"
 	"github.com/stashapp/stash-box/internal/service/elo"
@@ -53,6 +54,11 @@ func NewFactory(pool *pgxpool.Pool, emailMgr *email.Manager) *Factory {
 		withTxn:  createWithTxnFunc(pool),
 		emailMgr: emailMgr,
 	}
+}
+
+// Collage returns a CollageService instance
+func (f *Factory) Collage() *collage.Service {
+	return collage.NewService(queries.New(f.db), f.withTxn)
 }
 
 // Elo returns an EloService instance

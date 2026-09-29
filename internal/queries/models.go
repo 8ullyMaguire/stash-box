@@ -111,6 +111,16 @@ func (ns NullNotificationType) Value() (driver.Value, error) {
 	return string(ns.NotificationType), nil
 }
 
+type Collage struct {
+	ID                uuid.UUID   `db:"id" json:"id"`
+	SceneID           uuid.UUID   `db:"scene_id" json:"scene_id"`
+	FrameCount        int         `db:"frame_count" json:"frame_count"`
+	Strategy          string      `db:"strategy" json:"strategy"`
+	SourceDurationMs  pgtype.Int8 `db:"source_duration_ms" json:"source_duration_ms"`
+	CurrentDurationMs pgtype.Int8 `db:"current_duration_ms" json:"current_duration_ms"`
+	GeneratedAt       time.Time   `db:"generated_at" json:"generated_at"`
+}
+
 type Draft struct {
 	ID        uuid.UUID       `db:"id" json:"id"`
 	UserID    uuid.UUID       `db:"user_id" json:"user_id"`
@@ -360,6 +370,15 @@ type SceneSearch struct {
 	NetworkAliases []string  `db:"network_aliases" json:"network_aliases"`
 	PerformerNames []string  `db:"performer_names" json:"performer_names"`
 	SceneCode      *string   `db:"scene_code" json:"scene_code"`
+}
+
+type SceneSnapshot struct {
+	ID          uuid.UUID     `db:"id" json:"id"`
+	SceneID     uuid.UUID     `db:"scene_id" json:"scene_id"`
+	TimestampMs int64         `db:"timestamp_ms" json:"timestamp_ms"`
+	CollageID   uuid.NullUUID `db:"collage_id" json:"collage_id"`
+	CreatedBy   uuid.NullUUID `db:"created_by" json:"created_by"`
+	CreatedAt   time.Time     `db:"created_at" json:"created_at"`
 }
 
 type SceneTag struct {
