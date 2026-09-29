@@ -70,6 +70,50 @@ INSERT INTO scene_edits (edit_id, scene_id) VALUES ($1, $2);
 -- name: CreatePerformerEdit :exec
 INSERT INTO performer_edits (edit_id, performer_id) VALUES ($1, $2);
 
+-- Retarget PENDING performer edits from a merged-away performer to the merge survivor.
+--
+-- Issue #943: a merge soft-deletes the source and adds a redirect, but edits still
+-- pointing at the source are left addressing a deleted entity. They can never be
+-- applied and never show up under the surviving performer's edit list.
+--
+-- The target lives in performer_edits, not on edits, so this rewrites the join row.
+-- Only PENDING is touched: an edit that already reached ACCEPTED/REJECTED has a
+-- verdict whose meaning must not change under the author or voters, and rewriting
+-- it would silently re-attribute history.
+--
+-- Returns the number of rows retargeted so callers can log the effect.
+-- name: UpdatePendingPerformerEditsTarget :execrows
+UPDATE performer_edits pe
+SET performer_id = sqlc.arg(new_id)
+FROM edits e
+WHERE e.id = pe.edit_id
+  AND pe.performer_id = sqlc.arg(old_id)
+  AND e.status = 'PENDING';
+
+-- name: UpdatePendingSceneEditsTarget :execrows
+UPDATE scene_edits se
+SET scene_id = sqlc.arg(new_id)
+FROM edits e
+WHERE e.id = se.edit_id
+  AND se.scene_id = sqlc.arg(old_id)
+  AND e.status = 'PENDING';
+
+-- name: UpdatePendingStudioEditsTarget :execrows
+UPDATE studio_edits se
+SET studio_id = sqlc.arg(new_id)
+FROM edits e
+WHERE e.id = se.edit_id
+  AND se.studio_id = sqlc.arg(old_id)
+  AND e.status = 'PENDING';
+
+-- name: UpdatePendingTagEditsTarget :execrows
+UPDATE tag_edits te
+SET tag_id = sqlc.arg(new_id)
+FROM edits e
+WHERE e.id = te.edit_id
+  AND te.tag_id = sqlc.arg(old_id)
+  AND e.status = 'PENDING';
+
 -- name: GetEditsByTag :many
 SELECT e.* FROM edits e
 JOIN tag_edits te ON e.id = te.edit_id

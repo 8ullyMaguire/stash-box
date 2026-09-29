@@ -549,6 +549,14 @@ func (m *PerformerEditProcessor) MergeInto(source *models.Performer, target *mod
 		return err
 	}
 
+	// Update pending edits that target the old performer to point to the new one.
+	if _, err := m.queries.UpdatePendingPerformerEditsTarget(m.context, queries.UpdatePendingPerformerEditsTargetParams{
+		OldID: source.ID,
+		NewID: target.ID,
+	}); err != nil {
+		return err
+	}
+
 	return m.queries.CreatePerformerRedirect(m.context, queries.CreatePerformerRedirectParams{
 		SourceID: source.ID,
 		TargetID: target.ID,

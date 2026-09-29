@@ -652,6 +652,14 @@ func (m *SceneEditProcessor) MergeInto(source queries.Scene, target queries.Scen
 		return err
 	}
 
+	// Update pending edits that target the old scene to point to the new one.
+	if _, err := m.queries.UpdatePendingSceneEditsTarget(m.context, queries.UpdatePendingSceneEditsTargetParams{
+		OldID: source.ID,
+		NewID: target.ID,
+	}); err != nil {
+		return err
+	}
+
 	return m.queries.CreateSceneRedirect(m.context, queries.CreateSceneRedirectParams{
 		SourceID: source.ID,
 		TargetID: target.ID,

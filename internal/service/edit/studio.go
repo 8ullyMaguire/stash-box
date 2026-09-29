@@ -436,6 +436,15 @@ func (m *StudioEditProcessor) mergeInto(sourceID uuid.UUID, targetID uuid.UUID) 
 		return err
 	}
 
+	// Retarget edits still waiting on the deleted source so they address the
+	// survivor. Without this they can never be applied (#943).
+	if _, err = m.queries.UpdatePendingStudioEditsTarget(m.context, queries.UpdatePendingStudioEditsTargetParams{
+		OldID: sourceID,
+		NewID: targetID,
+	}); err != nil {
+		return err
+	}
+
 	return m.queries.CreateStudioRedirect(m.context, queries.CreateStudioRedirectParams{
 		SourceID: sourceID,
 		TargetID: targetID,

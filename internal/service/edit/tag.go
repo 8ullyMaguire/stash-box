@@ -326,6 +326,15 @@ func (m *TagEditProcessor) mergeInto(sourceID uuid.UUID, targetID uuid.UUID) err
 		return err
 	}
 
+	// Retarget edits still waiting on the deleted source so they address the
+	// survivor. Without this they can never be applied (#943).
+	if _, err = m.queries.UpdatePendingTagEditsTarget(m.context, queries.UpdatePendingTagEditsTargetParams{
+		OldID: sourceID,
+		NewID: targetID,
+	}); err != nil {
+		return err
+	}
+
 	return m.queries.CreateTagRedirect(m.context, queries.CreateTagRedirectParams{
 		SourceID: sourceID,
 		TargetID: targetID,

@@ -1454,3 +1454,103 @@ func (q *Queries) UpdateEditData(ctx context.Context, arg UpdateEditDataParams) 
 	)
 	return i, err
 }
+
+const updatePendingPerformerEditsTarget = `-- name: UpdatePendingPerformerEditsTarget :execrows
+UPDATE performer_edits pe
+SET performer_id = $1
+FROM edits e
+WHERE e.id = pe.edit_id
+  AND pe.performer_id = $2
+  AND e.status = 'PENDING'
+`
+
+type UpdatePendingPerformerEditsTargetParams struct {
+	NewID uuid.UUID `db:"new_id" json:"new_id"`
+	OldID uuid.UUID `db:"old_id" json:"old_id"`
+}
+
+// Retarget PENDING performer edits from a merged-away performer to the merge survivor.
+//
+// Issue #943: a merge soft-deletes the source and adds a redirect, but edits still
+// pointing at the source are left addressing a deleted entity. They can never be
+// applied and never show up under the surviving performer's edit list.
+//
+// The target lives in performer_edits, not on edits, so this rewrites the join row.
+// Only PENDING is touched: an edit that already reached ACCEPTED/REJECTED has a
+// verdict whose meaning must not change under the author or voters, and rewriting
+// it would silently re-attribute history.
+//
+// Returns the number of rows retargeted so callers can log the effect.
+func (q *Queries) UpdatePendingPerformerEditsTarget(ctx context.Context, arg UpdatePendingPerformerEditsTargetParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updatePendingPerformerEditsTarget, arg.NewID, arg.OldID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const updatePendingSceneEditsTarget = `-- name: UpdatePendingSceneEditsTarget :execrows
+UPDATE scene_edits se
+SET scene_id = $1
+FROM edits e
+WHERE e.id = se.edit_id
+  AND se.scene_id = $2
+  AND e.status = 'PENDING'
+`
+
+type UpdatePendingSceneEditsTargetParams struct {
+	NewID uuid.UUID `db:"new_id" json:"new_id"`
+	OldID uuid.UUID `db:"old_id" json:"old_id"`
+}
+
+func (q *Queries) UpdatePendingSceneEditsTarget(ctx context.Context, arg UpdatePendingSceneEditsTargetParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updatePendingSceneEditsTarget, arg.NewID, arg.OldID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const updatePendingStudioEditsTarget = `-- name: UpdatePendingStudioEditsTarget :execrows
+UPDATE studio_edits se
+SET studio_id = $1
+FROM edits e
+WHERE e.id = se.edit_id
+  AND se.studio_id = $2
+  AND e.status = 'PENDING'
+`
+
+type UpdatePendingStudioEditsTargetParams struct {
+	NewID uuid.UUID `db:"new_id" json:"new_id"`
+	OldID uuid.UUID `db:"old_id" json:"old_id"`
+}
+
+func (q *Queries) UpdatePendingStudioEditsTarget(ctx context.Context, arg UpdatePendingStudioEditsTargetParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updatePendingStudioEditsTarget, arg.NewID, arg.OldID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const updatePendingTagEditsTarget = `-- name: UpdatePendingTagEditsTarget :execrows
+UPDATE tag_edits te
+SET tag_id = $1
+FROM edits e
+WHERE e.id = te.edit_id
+  AND te.tag_id = $2
+  AND e.status = 'PENDING'
+`
+
+type UpdatePendingTagEditsTargetParams struct {
+	NewID uuid.UUID `db:"new_id" json:"new_id"`
+	OldID uuid.UUID `db:"old_id" json:"old_id"`
+}
+
+func (q *Queries) UpdatePendingTagEditsTarget(ctx context.Context, arg UpdatePendingTagEditsTargetParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updatePendingTagEditsTarget, arg.NewID, arg.OldID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}

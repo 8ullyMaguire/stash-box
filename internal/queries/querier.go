@@ -371,6 +371,22 @@ type Querier interface {
 	UpdateEdit(ctx context.Context, arg UpdateEditParams) (Edit, error)
 	UpdateEditCommentText(ctx context.Context, arg UpdateEditCommentTextParams) (EditComment, error)
 	UpdateEditData(ctx context.Context, arg UpdateEditDataParams) (Edit, error)
+	// Retarget PENDING performer edits from a merged-away performer to the merge survivor.
+	//
+	// Issue #943: a merge soft-deletes the source and adds a redirect, but edits still
+	// pointing at the source are left addressing a deleted entity. They can never be
+	// applied and never show up under the surviving performer's edit list.
+	//
+	// The target lives in performer_edits, not on edits, so this rewrites the join row.
+	// Only PENDING is touched: an edit that already reached ACCEPTED/REJECTED has a
+	// verdict whose meaning must not change under the author or voters, and rewriting
+	// it would silently re-attribute history.
+	//
+	// Returns the number of rows retargeted so callers can log the effect.
+	UpdatePendingPerformerEditsTarget(ctx context.Context, arg UpdatePendingPerformerEditsTargetParams) (int64, error)
+	UpdatePendingSceneEditsTarget(ctx context.Context, arg UpdatePendingSceneEditsTargetParams) (int64, error)
+	UpdatePendingStudioEditsTarget(ctx context.Context, arg UpdatePendingStudioEditsTargetParams) (int64, error)
+	UpdatePendingTagEditsTarget(ctx context.Context, arg UpdatePendingTagEditsTargetParams) (int64, error)
 	UpdatePerformer(ctx context.Context, arg UpdatePerformerParams) (Performer, error)
 	UpdatePerformerRedirects(ctx context.Context, arg UpdatePerformerRedirectsParams) error
 	UpdateScene(ctx context.Context, arg UpdateSceneParams) (Scene, error)
