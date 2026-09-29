@@ -3543,3 +3543,125 @@ integration** · api suite ok 56.6s · sqlc **and** gqlgen idempotent.
 | Snapshot collages, identification board | **next** |
 
 ---
+
+
+## Session 29 — Phase 1, snapshot collages (SPEC §8)
+
+### A snapshot is a timestamp, not an image
+
+The decision everything else follows from. Stash Box is a **metadata server**, and
+this adds no image storage, no blobs, no S3 keys. A snapshot is *"this scene, at
+12:34, is representative"* — a claim about content Stash Box does not have. The
+client resolves it to a frame by seeking the video **it already has**, which is
+what makes a collage work in a browser extension and in Stash App with neither
+uploading anything back.
+
+The alternative (a JPEG per snapshot) was rejected because it makes every instance
+a media host — a different product with a different cost base — and because SPEC §3
+promises collages replicate *"even when full content is not"*. **A timestamp
+replicates in 24 bytes; a JPEG does not.**
+
+Milliseconds, not seconds, because a scene's most identifying frame is often a
+fraction of a second from its neighbour. **Not** constrained against the scene's
+duration: durations are user-submitted and routinely wrong, and a CHECK would reject
+a legitimate snapshot the moment someone corrected a duration downwards.
+
+### The sampling rule, and a bug I found by measuring
+
+The rule targets **positions** across the duration and snaps each to the nearest
+available snapshot. Not "evenly space the available ones". Measured side by side on
+a 30-snapshot pool over 10 minutes:
+
+| rule | span covered |
+|---|---|
+| **this one** | **560 000 ms** |
+| naive | 300 000 ms |
+
+Spacing 30 candidates 16 ways takes every other one and **abandons the back half
+of the scene**. A collage covering half a scene identifies it worse.
+
+**Then a diagnostic found a real bug in my own rule.** With a sparse pool the frames
+came back `19500, 58500, 71500, 65000, 52000, 45500…` — a jumble. Once the frames
+nearest a later target are taken, that target reaches *down* to an earlier
+candidate, so the running order stops matching the target order.
+
+My sparse test asserted only that frames were **distinct**, so it passed. A collage
+renders in slice order, so a jumbled one **plays frames backwards**. Fixed by
+sorting the result — and adding the ordering assertion.
+
+### A second real bug, on the first integration run
+
+A frame reported a fraction of **33.3 instead of 0.33**. `scene_snapshots.timestamp_ms`
+is milliseconds; `scenes.duration` is **seconds**. Both `int64`, so the compiler has
+nothing to say. The fraction was **1000× too large**.
+
+> **Exactly the bug a reasonable-looking type signature hides** — two `int64`s, one
+> named `_ms` and one not. The conversion now happens once, where the value enters
+> the package.
+
+### Three errors where three fixes exist
+
+`ErrNoDuration` (record a duration) · `ErrNotEnoughSnapshots` (add frames) ·
+`ErrSceneNotFound` (404, not a state to render). A sparse scene is **not padded** to
+compliance: a 9-frame collage presented as a 12-frame one is a lie about the scene's
+identifiability.
+
+Regeneration **replaces**, and the previous frames return to the pool rather than
+being deleted — deleting a user's curated snapshots because someone re-rolled would
+be **data loss dressed as a cascade**.
+
+Frames land on slice **midpoints**, not boundaries: a boundary is the cut between two
+shots, and transition frames are the least identifiable frames in a scene.
+
+### Five mutants, four caught
+
+```
+naive rule (space the available pool)   -> TestSelectFramesCoversTheWholeDuration
+duplicate frames when no candidate free -> TestSelectFramesKeepsSparseFrames
+targets are slice boundaries           -> TestUniformTargetsAreSliceMidpoints
+sort removed (the bug just fixed)      -> TestSelectFramesKeepsSparseFrames
+seconds treated as milliseconds         -> TestGenerateProducesAWholeCollage
+```
+
+Getting the first one required **measuring** rather than reasoning. I asserted even
+gaps on a dense pool and assumed that pinned the rule; it does not. Only *span*
+separates them, and only on a pool that covers the full duration.
+
+### One acknowledged gap, written into the test file
+
+Removing the optimistic-concurrency guard on frame assignment **survives**. The
+guard is real — `AssignSnapshotsToCollage` is a *claim* (`WHERE collage_id IS NULL`),
+so two concurrent `Generate` calls each read the same pool and the second's claim
+comes up short. Without the check it commits a collage whose `frame_count` says 16
+while fewer frames are assigned: a broken strip that renders as though it were fine.
+
+Catching it needs two transactions interleaving between the SELECT and the UPDATE,
+which a sequential test cannot produce. The file says so explicitly, names what
+*would* cover it (two concurrent goroutines), and says why that is not written here:
+
+> **A flaky concurrency test is worse than an acknowledged gap** — it fails
+> intermittently, and a test people learn to re-run is not evidence.
+
+### Housekeeping
+
+Removed a stray `77_add_elo_ratings.up.bak` left uncommitted by an earlier session.
+Harmless (the embed glob is `*.sql`, so it was never packaged) but it is a full copy
+of a migration that has since changed, and the next person to read that directory
+would have no way to know which was authoritative.
+
+### Gates
+
+`go build` 0 · `go vet` clean · **10 collage unit + 8 collage integration** · elo
+integration ok · api suite ok 65.2s · sqlc idempotent · **all 78 migrations apply in
+sequence to a clean database**.
+
+### Phase 1 status
+
+| Step | Status |
+|---|---|
+| Step 1.1–1.4 (trust) | done (sessions 22–24) |
+| Elo: tables / engine / service / GraphQL | done (sessions 25–28) |
+| **Snapshot collages** | done (`99e5cb0`) |
+| **Identification board** | **next — last Phase 1 item** |
+
+---
