@@ -2671,3 +2671,126 @@ is why these tests assert on the `Applied` flag.
 `go build` 0 · `go vet` clean · `go test -race ./internal/service/edit/` ok ·
 api integration ok 46.7s · unit suite clean · plans `--check` clean. No frontend
 or schema change, so `pnpm run validate` and sqlc/gqlgen were not re-run.
+
+
+## Session 22 — Phase 1 Step 1: trust levels, service layer
+
+**Phase 1 is now started.** Step 1 was the hard prerequisite the roadmap calls
+out: "public" and "trusted" are not distinguishable without a trust level.
+
+### Migration 76, and a pre-existing bug found on the way
+
+`internal/database/database.go` subtracted a hardcoded constant from the
+database's current version and stepped by the difference:
+
+    const schemaVersion = 75
+    stepNumber := schemaVersion - databaseSchemaVersion
+    if stepNumber != 0 { m.Steps(int(stepNumber)) }
+
+**Any migration numbered above 75 was embedded, shipped, and never applied** — in
+every environment, silently, with no error. My own migration 76 was parsed and
+skipped, and `runMigrations` reported success throughout. Proved it before
+touching anything:
+
+    schema_migrations: version=75 dirty=false
+    trust tables present: 0
+
+Replaced with `m.Up()` and deleted the constant, so a new migration cannot be
+forgotten the same way. Verified: three consecutive `Initialize` calls all reach
+version 76, `dirty=false`.
+
+### The dedup index, and why `NULLS NOT DISTINCT`
+
+`entity_type` and `entity_id` are nullable, and in a plain UNIQUE index Postgres
+treats NULL as distinct from NULL. So the obvious implementation lets an
+entity-less event insert again on **every retry**, double-counting trust for
+exactly the events most likely to be retried. Hence `NULLS NOT DISTINCT` (PG 15+;
+the project targets 18). Mutation-checked: reverting to a plain index fails
+`TestTrustEventsDeduplicateEntitylessEvents` **and nothing else**, which is what
+makes it credible.
+
+### The curve
+
+    L0 Public      0      L3 Curator     200
+    L1 Registered  10     L4 Archivist   750
+    L2 Contributor 50     L5 Steward    2500
+
+Two decisions with safety consequences, each with its own test:
+
+- **Steep above L4.** L4 is the archive/media line. A gentle slope means a
+  spammer who mass-submits acceptable edits unlocks content access. L5 costs over
+  3× L4.
+- **Rejections worth 1 point against 10 for approvals.** If they were equal, a
+  user could reach Curator by mass-submitting edits that get rejected — an
+  attack on the trust system, not an accident.
+
+Rejected edits count at a small *positive* weight, not negative: subtracting them
+would let one bad edit drop a new user below zero, and would make the score
+depend on the order events were applied.
+
+### Two real bugs, both found by tests failing on FIXED code
+
+1. **`SetContentViewingOptIn` did an UPDATE**, so a user with no rollup row got
+   "no rows in result set". But opting in *before* being eligible is the normal
+   case — SPEC §6 describes exactly that. Now creates a zeroed rollup and sets
+   the flag; level stays 0.
+2. **`RecomputeUserTrustTotals` had `GROUP BY user_id`**, so it returned no row
+   for a user with zero events — making it unusable for fix 1. An aggregate over
+   an empty set already yields one row via the COALESCE defaults, so the GROUP BY
+   was not unnecessary, it *was* the bug.
+
+Both mutation-checked, each failing exactly the tests that should fail.
+
+### And one TEST bug worth recording
+
+`TestZeroDeltaEventIsRejected` failed with "expected 1, actual 2" and I first read
+it as the service double-counting. It was the test: the `event()` helper
+generates a fresh entity ID per call, so "recording the same event twice" was
+actually two different events, and counting both was **correct**.
+
+**A failing test is evidence about the code OR the test.** I had assumed the
+code, which is the assumption that costs more.
+
+Related: raising the first threshold to 1 point was caught by
+`TestCurveStartsAtZeroPoints`, not by the level-0 guard — because 0 points still
+maps to Public either way. The guard is sound but redundant there; the structural
+test is what did the work.
+
+### Tooling notes
+
+- **sqlc is not installed on this host.** Built it from the go.mod tool
+  dependency, which pins **v1.29.0** — the same version CI uses
+  (`.github/workflows/build.yml`). A system install would risk generating
+  differently-shaped code.
+- **`sqlc.arg(event_kind)::TEXT` is required.** An unnamed `$2` used only inside
+  `CASE` expressions makes sqlc emit `Column2 interface{}`, which does not
+  compile against a string.
+- sqlc verified idempotent: generated twice, diffed, no change.
+
+### Gates
+
+`go build` 0 · `go vet` clean · api integration ok 49.1s · unit suite clean ·
+10 unit + 11 integration trust tests, all mutation-checked · sqlc idempotent.
+No frontend or gqlgen change, so `pnpm run validate` and gqlgen were not re-run.
+
+### Where the standing goal actually is
+
+**The issue pool is exhausted** — 28 of 48 `help wanted` triaged, every one
+either fixed or documented as a deliberate non-fix, and #583's message fix done.
+The 32 bar was set against that 48 and is not reachable from it.
+
+All remaining work is the roadmap. Phase 1 progress:
+
+| Step | Status |
+|---|---|
+| 0.1 modbot race | done (session 21) |
+| 0.2 baseline | done each session |
+| 1.1 migration 76 | done (`28d9377`) |
+| 1.2 service + curve | done (`a5debf2`) |
+| 1.3 GraphQL exposure | **next** |
+| 1.4 wire the event emitters | after 1.3 |
+
+1.3 exposes `UserTrust` read-only plus the opt-in mutation, and 1.4 is where
+trust actually starts moving: exactly one call site per event kind, in the edit
+apply path.
+---
