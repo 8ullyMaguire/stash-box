@@ -22,6 +22,7 @@ import (
 	"github.com/stashapp/stash-box/internal/email"
 	"github.com/stashapp/stash-box/internal/queries"
 	"github.com/stashapp/stash-box/internal/service/collage"
+	"github.com/stashapp/stash-box/internal/service/completion"
 	"github.com/stashapp/stash-box/internal/service/draft"
 	"github.com/stashapp/stash-box/internal/service/edit"
 	"github.com/stashapp/stash-box/internal/service/elo"
@@ -55,6 +56,11 @@ func NewFactory(pool *pgxpool.Pool, emailMgr *email.Manager) *Factory {
 		withTxn:  createWithTxnFunc(pool),
 		emailMgr: emailMgr,
 	}
+}
+
+// Completion returns a CompletionService instance
+func (f *Factory) Completion() *completion.Service {
+	return completion.NewService(queries.New(f.db))
 }
 
 // Identification returns an IdentificationService instance

@@ -59,6 +59,20 @@ type Querier interface {
 	// How many votes an entity has taken part in, across both sides. Feeds the
 	// leaderboard's "needs more votes" marker and any minimum-confidence filter.
 	CountEloVotesForEntity(ctx context.Context, arg CountEloVotesForEntityParams) (int64, error)
+	// How many entities of a type are under a completion threshold.
+	//
+	// This is the number a generated quest is sized from, and it is why the score is
+	// not stored: the count is recomputed from the same inputs the score is, so a
+	// quest cannot claim there are 500 incomplete performers when 3 were fixed an
+	// hour ago.
+	//
+	// The expression is the per-type weighted sum, written out rather than reached
+	// through a shared view, because each type's fields are different columns and a
+	// view over five shapes would be harder to read than five statements. The
+	// WEIGHTS must match `internal/service/completion`; a divergence here is the one
+	// place the two copies can disagree, and it is why this count is a
+	// "how many are incomplete" rather than a score.
+	CountEntitiesWithCompletionBelow(ctx context.Context, title *string) (int64, error)
 	// How many candidates this user has voted on, anywhere.
 	//
 	// Backs §5's "Detective" leaderboard. Counting through the candidate table rather
@@ -586,6 +600,40 @@ type Querier interface {
 	MarkAllNotificationsRead(ctx context.Context, userID uuid.UUID) error
 	MarkNotificationRead(ctx context.Context, arg MarkNotificationReadParams) error
 	MoveSceneFingerprintSubmissions(ctx context.Context, arg MoveSceneFingerprintSubmissionsParams) ([]uuid.UUID, error)
+	// Completion score inputs (SPEC §7.7).
+	//
+	// These queries gather WHICH FIELDS ARE PRESENT. They deliberately do NOT compute
+	// the score: the weighting and the arithmetic live in
+	// `internal/service/completion`, as a pure function a test can exercise with
+	// hand-built fixtures. Computing the fraction in SQL as well would be a second
+	// copy of the formula, and the two would drift the first time a weight changed.
+	//
+	// So each row here is a set of booleans, and the service turns them into a score.
+	// Which performer fields are filled.
+	//
+	// birthdate_accuracy is the subtle one, and it is why this is a query rather than
+	// a struct scan. SPEC §7.7 counts "missing metadata", and a birthdate recorded as
+	// 1990-01-01 with accuracy 'unknown' is a SPECIFIC FALSE CLAIM rather than an
+	// absence. An absence is obviously worth fixing; a specific false claim reads as
+	// an answer, so a curator who trusts it never goes looking for the real value.
+	// So an uncertain birthdate is reported as ABSENT, not present.
+	//
+	// measurements groups the four size columns: a curator fills them in as a block,
+	// and a per-column score would make a performer with a cup size and no waist
+	// look twice as complete as one with neither.
+	PerformerCompletionInputs(ctx context.Context, id uuid.UUID) (PerformerCompletionInputsRow, error)
+	// Performers missing one field, for a generated quest.
+	//
+	// Birthdate is the interesting filter and the reason this is a query rather than
+	// a scan of PerformerCompletionInputs: the quest "add missing birthdates for 5
+	// performers" is asking for entities where the birthdate is ABSENT **or
+	// UNCERTAIN**, and the second half is the half that matters -- a performer with a
+	// guessed birthdate looks complete to every query that only checks for NULL.
+	//
+	// Ordered by the id for determinism, then bounded by the caller. An unbounded
+	// list of every incomplete performer in the archive is not a quest, it is a
+	// table scan with extra steps.
+	PerformersMissingField(ctx context.Context, limit int32) ([]uuid.UUID, error)
 	// Prepare a fingerprint move by dropping reports and dupe fingerprint submissions
 	PruneSceneFingerprintsForMove(ctx context.Context, arg PruneSceneFingerprintsForMoveParams) ([]PruneSceneFingerprintsForMoveRow, error)
 	// Matchup candidate selection (SPEC §9: "two performers side by side, who do you
@@ -667,6 +715,20 @@ type Querier interface {
 	// candidates at the same time is a real race, and last-write-wins would silently
 	// discard one person's work.
 	ResolveIdentificationQuery(ctx context.Context, arg ResolveIdentificationQueryParams) (IdentificationQuery, error)
+	// Which scene fields are filled.
+	//
+	// duration is first because it is the most heavily weighted scene field and
+	// because the snapshot collage and the identification board both need a time axis:
+	// without a duration neither can render, and a scene with no duration is not
+	// merely under-documented, it is unusable.
+	//
+	// snapshot coverage is a THRESHOLD, not a count, and the threshold is 12 because
+	// SPEC §8's minimum collage is 12 frames. A scene with 11 snapshots cannot
+	// produce a compliant collage, so it scores exactly as a scene with none: a
+	// half-finished collage is not a partial collage, it is no collage.
+	SceneCompletionInputs(ctx context.Context, id uuid.UUID) (SceneCompletionInputsRow, error)
+	// Scenes missing one field, for a generated quest.
+	ScenesMissingField(ctx context.Context, arg ScenesMissingFieldParams) ([]uuid.UUID, error)
 	// Keep the WHERE clause in sync across SearchPerformers, CountPerformerSearchMatches,
 	// and GetPerformerSearchFacets so paging, counts, and facets stay consistent.
 	SearchPerformers(ctx context.Context, arg SearchPerformersParams) ([]uuid.UUID, error)
@@ -701,11 +763,14 @@ type Querier interface {
 	// never by the database. The curve is a product decision and belongs in Go,
 	// where it can be changed without a migration.
 	SetUserTrustLevel(ctx context.Context, arg SetUserTrustLevelParams) (UserTrust, error)
+	SiteCompletionInputs(ctx context.Context, id uuid.UUID) (SiteCompletionInputsRow, error)
 	SoftDeletePerformer(ctx context.Context, id uuid.UUID) (Performer, error)
 	SoftDeleteScene(ctx context.Context, id uuid.UUID) (Scene, error)
 	SoftDeleteStudio(ctx context.Context, id uuid.UUID) (Studio, error)
 	SoftDeleteTag(ctx context.Context, id uuid.UUID) (Tag, error)
+	StudioCompletionInputs(ctx context.Context, id uuid.UUID) (StudioCompletionInputsRow, error)
 	SubmittedHashExists(ctx context.Context, arg SubmittedHashExistsParams) (bool, error)
+	TagCompletionInputs(ctx context.Context, id uuid.UUID) (TagCompletionInputsRow, error)
 	TriggerDownvoteEditNotifications(ctx context.Context, id uuid.UUID) error
 	TriggerEditCommentNotifications(ctx context.Context, id uuid.UUID) error
 	TriggerFailedEditNotifications(ctx context.Context, id uuid.UUID) error
