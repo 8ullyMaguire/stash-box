@@ -125,6 +125,19 @@ func (rs imageRoutes) image(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Set the content type for the bytes we are about to write (#605).
+		//
+		// The resizer does not preserve the source format: a PNG comes back as
+		// WebP (lossless, which does keep the alpha channel) and everything else
+		// comes back as JPEG. Without an explicit header, Go sniffs the body and
+		// the response is labelled application/octet-stream, which browsers
+		// refuse to render -- so a studio logo requested at a reduced size did
+		// not display at all, and a logo that did display lost its
+		// transparency in clients that fell back to a renderer.
+		//
+		// The stored file is untouched: this only affects the response.
+		w.Header().Set("Content-Type", ResizedContentType(data))
+
 		_, writeSpan := otel.Tracer(tracerName).Start(ctx, "image.WriteResponse")
 		_, werr := w.Write(data)
 		tracing.RecordError(writeSpan, werr)
@@ -184,6 +197,31 @@ func (rs imageRoutes) siteImage(w http.ResponseWriter, r *http.Request) {
 	w.Header().Add("Cache-Control", "max-age=604800000")
 	//nolint
 	w.Write(data)
+}
+
+// ResizedContentType returns the Content-Type for bytes produced by
+// image.Resize.
+//
+// The format is decided by the resizer, not by the stored file: PNG in, lossless
+// WebP out (which preserves the alpha channel a studio logo needs), everything
+// else in, JPEG out. Detecting from the bytes rather than from the source image
+// is the only reliable option, because the two do not correspond.
+//
+// Falls back to image/jpeg, matching the resizer's default output, so an
+// unrecognised body is still labelled as an image rather than as
+// application/octet-stream -- which browsers refuse to render (#605).
+func ResizedContentType(data []byte) string {
+	if len(data) >= 12 &&
+		string(data[0:4]) == "RIFF" && string(data[8:12]) == "WEBP" {
+		return "image/webp"
+	}
+	if len(data) >= 3 && data[0] == 0xFF && data[1] == 0xD8 && data[2] == 0xFF {
+		return "image/jpeg"
+	}
+	if len(data) >= 8 && string(data[1:4]) == "PNG" {
+		return "image/png"
+	}
+	return "image/jpeg"
 }
 
 func faviconContentType(data []byte) string {

@@ -58,9 +58,9 @@ func tagEditExplicitNull(
 	}
 	var resp struct {
 		TagEdit *struct {
-			ID       string `json:"id"`
-			Applied  bool   `json:"applied"`
-			Details  struct {
+			ID      string `json:"id"`
+			Applied bool   `json:"applied"`
+			Details struct {
 				Name        *string `json:"name"`
 				Description *string `json:"description"`
 				Category    *struct {
