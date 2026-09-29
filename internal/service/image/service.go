@@ -59,12 +59,13 @@ func (s *Image) Create(ctx context.Context, input models.ImageCreateInput) (*mod
 	}
 
 	// handle image upload
+	var file []byte
 	if input.File != nil {
 		if input.File.Size > int64(10*1024*1024) {
 			return nil, errors.New("file too big")
 		}
 
-		file := make([]byte, input.File.Size)
+		file = make([]byte, input.File.Size)
 		if _, err := input.File.File.Read(file); err != nil {
 			return nil, err
 		}
@@ -96,10 +97,6 @@ func (s *Image) Create(ctx context.Context, input models.ImageCreateInput) (*mod
 		if err := populateImageDimensions(fileReader, &newImage); err != nil {
 			return nil, err
 		}
-
-		if err := storage.Image().WriteFile(file, &newImage); err != nil {
-			return nil, err
-		}
 	} else if input.URL == nil {
 		return nil, errors.New("missing URL or file")
 	}
@@ -116,7 +113,31 @@ func (s *Image) Create(ctx context.Context, input models.ImageCreateInput) (*mod
 	if err != nil {
 		return nil, err
 	}
-	return converter.ImageToModelPtr(dbImage), nil
+
+	image := converter.ImageToModelPtr(dbImage)
+
+	// Write the file only once the row exists, and only when this call is the
+	// one that created it.
+	//
+	// CreateImage upserts on the unique checksum index (#738), so a concurrent
+	// upload of the same bytes can return the OTHER call's row -- a different
+	// id. Writing the file before the insert would leave bytes on disk under an
+	// id that no row references, which DestroyUnusedImages cannot reclaim
+	// because it walks the images table.
+	//
+	// The reverse order has its own hazard: if WriteFile fails the row is
+	// already committed, pointing at a file that does not exist. That is the
+	// lesser of the two -- a missing file is retried by re-uploading, whereas
+	// an orphan file is invisible to the reaper and leaks forever. The insert
+	// therefore goes first and the write is best-effort with the failure
+	// surfaced, so the caller can retry.
+	if input.File != nil && image.ID == newImage.ID {
+		if err := storage.Image().WriteFile(file, &newImage); err != nil {
+			return nil, err
+		}
+	}
+
+	return image, nil
 }
 
 func (s *Image) Destroy(ctx context.Context, id uuid.UUID) error {

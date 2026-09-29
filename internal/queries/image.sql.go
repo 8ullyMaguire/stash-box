@@ -15,6 +15,7 @@ const createImage = `-- name: CreateImage :one
 
 INSERT INTO images (id, url, width, height, checksum)
 VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (checksum) DO UPDATE SET checksum = EXCLUDED.checksum
 RETURNING id, url, width, height, checksum
 `
 
@@ -27,6 +28,29 @@ type CreateImageParams struct {
 }
 
 // Image queries
+//
+// ON CONFLICT (checksum) DO UPDATE is deliberate and is the #738 fix.
+//
+// images.checksum carries a UNIQUE index (images_checksum_idx), so two
+// submissions of the same file that interleave -- both pass the
+// FindByChecksum pre-check, both reach the insert -- previously made the
+// loser fail with a raw pq unique-violation surfaced to the user as
+// "pq: duplicate key value violates unique constraint images_checksum_idx".
+//
+// The service pre-check is not a substitute for the constraint: it is a
+// read followed by a write with no transaction between them, so it cannot
+// prevent the race. Only the database can.
+//
+// DO UPDATE rather than DO NOTHING because this query is :one and must
+// RETURNING a row. The set is a no-op (the existing row already holds these
+// values by definition of the conflict), but it lets a concurrent duplicate
+// resolve to the already-stored image instead of erroring. A draft submitted
+// with an image that another user uploaded a moment earlier should reuse that
+// image, which is exactly what the pre-check path already does.
+//
+// ON CONFLICT (checksum) does not cover the primary key: a repeated id would
+// still raise, which is correct -- that would be a bug, not a duplicate
+// upload.
 func (q *Queries) CreateImage(ctx context.Context, arg CreateImageParams) (Image, error) {
 	row := q.db.QueryRow(ctx, createImage,
 		arg.ID,
