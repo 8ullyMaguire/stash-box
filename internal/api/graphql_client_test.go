@@ -82,6 +82,7 @@ type performerOutput struct {
 	ID              string        `json:"id"`
 	Name            string        `json:"name"`
 	Disambiguation  *string       `json:"disambiguation"`
+	Aliases         []string      `json:"aliases"`
 	Gender          *string       `json:"gender"`
 	Birthdate       *string       `json:"birth_date"`
 	Deathdate       *string       `json:"death_date"`
