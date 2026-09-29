@@ -3789,3 +3789,139 @@ Trust levels + opt-in content viewing + gamification + curation quests + complet
 scores (§6, §7, §12). Plan first, per the standing workflow.
 
 ---
+
+
+## Session 31 — Phase 2 step 1, completion scores (SPEC §7.7)
+
+Plan first: `docs/plans/feature-phase-2-curation-engine.md`, written before any
+code, per the standing workflow. Completion scores are step 1 because **quests are
+generated from them and verified against them** — building quests first means
+writing a generator whose input does not exist yet.
+
+### Two of Phase 2's five items already exist
+
+| Phase 2 item | Status |
+|---|---|
+| trust levels | **done** (migration 76) |
+| opt-in content viewing | **done** (`content_viewing_opt_in`) |
+| gamification | **partial** — XP columns exist, nothing awards them |
+| curation quests | not started |
+| completion scores | not started → **this session** |
+
+So Phase 2 is three pieces, not five, and the first is the one everything reads.
+
+### The score is derived, never stored
+
+Not a performance choice. A stored score is a **second source of truth** next to the
+columns it summarises, and the first time someone fixes a birthdate the score is
+wrong and nothing says so. Nothing in this database has a trigger keeping a stored
+score current, so a stored one **drifts silently**. Same argument as the repo's own
+rule that `proposal_scores` is a VIEW: a decision has to be reproducible from its
+inputs alone.
+
+### A score alone is not enough
+
+SPEC §7.7 wants a number for a progress bar, but a bare number tells a curator
+**that** something is missing and not **what** — and "improve this performer" is not
+a quest. So every score comes with the **named missing fields**, from one pass, so
+the two cannot disagree.
+
+### I built a rule around a column that no longer exists
+
+> The entire birthdate-accuracy rule was built around `birthdate_accuracy`. I read
+> it in **migration 01**. **Migration 42 dropped it**, folding the precision into
+> the value: `'1990'` is year-accurate, `'1990-01-01'` is exact.
+
+That is a *better* encoding than a second column — there is no way for the two to
+disagree. The same class of error twice more: `scene_urls.type` and `site_images`
+do not exist either.
+
+> **A column named in the comment of a migration from six revisions back is not a
+> fact about the database.** The live schema is the only authority, and reading it
+> takes one query.
+
+### The site/urls collapse, and the test that should have caught it
+
+`scene_urls` is `(scene_id, site_id, url)`, so a linked URL **is** a link to its
+site. Scoring them as two fields would credit one URL twice and inflate every scene
+in the archive. One field now, weight 18 (the sum, because the curator's work is the
+same either way).
+
+**The scene total stayed 110 either way** (10 + 8 = 18), so
+`TestSceneWithItsIdentifyingFieldsIsFifty` passed straight through a change to the
+list it describes.
+
+> **A test that passes across a change to the thing it is about is passing for the
+> wrong reason.** The fix is to check the **list**, not the total.
+
+### Six wiring mutations survived every unit test
+
+The formula tests hand the scorer a map of booleans *it believes*, so a scorer that
+maps the wrong **column** to the wrong **field** is perfectly self-consistent:
+
+```
+scene snapshot coverage read from has_image  -> SURVIVES
+scene duration and studio swapped            -> SURVIVES
+performer birthdate read from country        -> SURVIVES
+performer aliases read from urls             -> SURVIVES
+scene performers read from tags              -> SURVIVES
+studio parent read from image                -> SURVIVES
+```
+
+> **The formula tests pass for exactly the wrong reason here.** All six are real
+> bugs. The gap is recorded *in the source file*, not left for someone to infer from
+> a green suite.
+
+### Closing the gap took two passes — and the second found three more
+
+The integration fixtures left aliases, tags and studio-parents **all false**, so
+reading one column from another changed nothing observable.
+
+> **A column never set to true cannot be distinguished from any other column never
+> set to true.** The fix is a fixture that sets every scored column to a
+> *distinguishable* value — some present, some absent, never both-or-neither.
+
+All six die there now.
+
+### One survivor, named rather than papered over
+
+A one-unit perturbation in `percent()`'s half-up tie-breaker is **unobservable**:
+every per-type total (90, 110, 60, 90, 100) is even, so `total/2` lands exactly on
+the midpoint. Closing it would mean either hand-asserting 8100 numbers (a second
+unreadable copy of the formula) or **changing a weight to make a test divide oddly**
+— and the weights are the product decision, not the test's to move.
+
+### Four invented things the compiler and the schema caught
+
+`SetPerformerBirthdateAccuracy` · `CreatePerformerURL` · `CreatePerformerAlias` ·
+`CreateSceneTag` — none exist; the codebase writes those through the edit path. Plus
+one **`-run` pattern that matched no test**, which reported three mutations as `ok`
+because they had never run.
+
+> **A harness that reports `ok` has not proved anything.** The vacuous row looked
+> exactly like a genuine survivor until the pattern was fixed and the test was
+> watched to pass first.
+
+### Gates
+
+`go build` 0 · `go vet` clean · **16 unit + 7 integration** · api suite ok 47.7s ·
+units clean · **sqlc and gqlgen both idempotent** · all 79 migrations apply.
+
+### Phase 2 status
+
+| Step | Item | Status |
+|---|---|---|
+| **1** | **completion scores, all five entity types** | **done** (`c6caa25`) |
+| 2 | GraphQL: expose score + missing list | next |
+| 3 | generated quests | — |
+| 4 | authored quests, bounties, claiming | — |
+| 5 | XP award path through `RecordEvent` | — |
+| 6 | derived badges | — |
+| 7 | activity days + streaks | — |
+
+Multi-user verification (§7.7) is **explicitly out of scope for Phase 2's first
+pass** and recorded in the plan: it changes how edits are accepted, which is the
+most safety-critical code in the repository, and bolting a curation engine beside
+it is not the way to do that.
+
+---
