@@ -562,3 +562,116 @@ defect per session.
 - Fork direction (SPEC §6) still the owner's call before vision work starts.
 
 ---
+
+## Session 8 — merge coherence: #943, #703 (2026-09-29)
+
+Both were listed last session as the same cluster. They are two different bugs
+and the work split cleanly.
+
+### Correction to session 7's tail
+
+Last turn's report claimed "Fixed #943 and #703" with a commit. Neither was
+committed and neither was tested. Worse, the file written for it
+(`internal/queries/edit_target.go`) updated a column `target_id` **that does not
+exist on `edits`**. It compiled — the signature matched the hand-added
+interface entry — and would have failed at runtime on the first merge. Discarded.
+
+A separate problem: the session-7 WORKLOG entry was written as a fresh file
+containing a literal `[... truncated for brevity ...]` placeholder, which
+destroyed sessions 3–6. Restored with `git checkout -- docs/track/WORKLOG.md`
+(7 sessions intact). **Append to this file; never rewrite it.**
+
+### The schema fact that drives #943
+
+`edits` has no `target_id`. The target lives in per-entity join tables:
+
+```sql
+CREATE TABLE "performer_edits" (
+  "edit_id" uuid not null, "performer_id" uuid not null, ...
+```
+
+So retargeting is a rewrite of the join row, not of the edit.
+
+### #943 `[x]` — pending edits stranded by a merge
+
+A merge soft-deletes the source and writes a redirect. An edit still `PENDING`
+against the source kept addressing the deleted entity: it can never be applied
+and never appears in the survivor's edit list.
+
+Four `:execrows` queries, one per entity, using `sqlc.arg(new_id)` /
+`sqlc.arg(old_id)` — positional `$1/$2` generate a `TagID` / `TagID_2` struct,
+named args generate `OldID` / `NewID`. Only `PENDING` is retargeted: an edit
+that reached a verdict has history voters agreed to.
+
+Wired into all four merge paths (performer, scene, studio, tag).
+
+Evidence — each test **mutation-verified**: deleting only the service-layer
+call, leaving schema and generated queries intact, fails the matching test with
+the edit still addressing the deleted source.
+
+|| Test | Mutation result |
+||---|---|
+|| `TestMergeRetargetsPendingTagEdit` | FAIL |
+|| `TestMergeRetargetsPendingStudioEdit` | FAIL |
+|| `TestMergeRetargetsPendingPerformerEdit` | FAIL |
+|| `TestMergeRetargetsPendingSceneEdit` | FAIL |
+
+### #703 `[x]` — merge sources not editable on update
+
+Backend was never the problem: `tag.go:99` reads `input.Edit.MergeSourceIds` on
+the update path as well as create. The frontend form submitted those ids but
+rendered no control for them, so a user could not add or drop a source — the
+only recourse was cancelling and refiling, losing votes and comments. The
+`EditUpdate` query already fetched `merge_sources` and `operation`; nothing read
+them.
+
+`MergeSourceEditor` extracted rather than copy-pasted across three pages: the
+selector differs (multi-select tags/performers, single-select studios) but the
+list, remove control and target exclusion are identical.
+
+Evidence — 9 tests over tag/studio/performer. Mutation-verified by forcing
+`isMerge = false` (the pre-#703 behaviour) in all three pages: **6 fail, 3 pass**
+— the 3 that pass are the non-merge guards, which is correct.
+
+### Verified state
+
+|| Gate | Result |
+||---|---|
+|| `go build ./...` | exit 0 |
+|| integration suite (`-count=1`) | ok, 29.4s |
+|| `pnpm run validate` | exit 0 (1 pre-existing warning, `TagForm.test.tsx`) |
+|| frontend tests | 392 pass (36 files) |
+|| `sqlc`/`gqlgen` regenerate | idempotent; only my intended queries differ |
+
+### Issue ledger
+
+|| Issue | Status | Note |
+||---|---|---|
+|| #729 | `[x]` | nil deref on mismatched `operation` |
+|| #879 | `[x]` | deleted fields reset, all four forms |
+|| #802 | `[x]` | category removal; explicit null |
+|| #941 | `[x]` | stale downvote notification |
+|| #660 | `[x]` | overlong values rejected at edit creation |
+|| #943 | `[x]` | pending edits retargeted on merge, all four entities |
+|| #703 | `[x]` | merge sources editable when updating an edit |
+|| #9 | `[~]` | defect class closed for reference fields; scalars audited |
+|| #727 | `[!]` | not reproducible — `url` is a live field the client depends on |
+|| #809 | `[!]` | not reproduced; backend exonerated |
+|| **Total** | **7 of 48 `help wanted`** | 32 needed |
+
+**7/48 — 15%.** The bar is 32. Merge coherence is now closed out, so the
+remaining clusters are the studio/parent traversal pair and notifications.
+
+### Next steps
+
+- **7 of 48. The bar is 32.** Remaining clusters:
+  - studio/parent traversal: #974, #337
+  - notifications: #1060
+  - remaining self-contained: #778 (comma in aliases), #734 (SMTP TLS), #829
+    (performer filter criteria), #660 follow-on (aliases/URLs columns)
+- Scene merges have no equivalent of `UpdatePendingSceneEditsTarget` guard
+  against a source that is itself already a redirect target — worth a look.
+- `modbot.go` race (SPEC §8.1) still untouched.
+- Fork direction (SPEC §6) still the owner's call before vision work starts.
+
+---
