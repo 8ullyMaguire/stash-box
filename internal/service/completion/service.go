@@ -242,9 +242,31 @@ func (s *Service) CountIncomplete(ctx context.Context, entityType EntityType, be
 // missing something" and the caller scores each one to find out what. Returning the
 // missing fields here would mean a second read of every entity, and the fields are
 // available from the per-entity score the client already fetches.
+// maxIncompletePageSize is the largest page ListIncomplete will fetch.
+//
+// 200 is a scan bound, not a correctness one: the query filters on a computed
+// missing-weight expression, so a large page is a large sort. Callers wanting more
+// page through it with afterID rather than asking for one huge page.
+const maxIncompletePageSize = 200
+
 func (s *Service) ListIncomplete(ctx context.Context, entityType EntityType, minMissing int, afterID *uuid.UUID, pageSize int) ([]uuid.UUID, error) {
-	if pageSize <= 0 || pageSize > 200 {
+	// A page size the CALLER chose is a number it is about to depend on, so
+	// silently substituting a smaller one hands back a short list with no signal.
+	//
+	// Below the floor is a default, because a caller who did not care what page
+	// size it got has made no promise. Above the ceiling is a REFUSAL: the caller
+	// asked for more than this query will fetch, and quietly returning a fifth of
+	// it produces a truncated result that looks complete.
+	//
+	// This was found by a quest test that asked for a 500-item target and got 50
+	// items -- which is correct behaviour for a paging query and a trap for a
+	// caller that treats the result as "everything".
+	if pageSize <= 0 {
 		pageSize = 50
+	}
+	if pageSize > maxIncompletePageSize {
+		return nil, fmt.Errorf("completion: page size %d exceeds the maximum of %d",
+			pageSize, maxIncompletePageSize)
 	}
 	if _, err := TotalWeight(entityType); err != nil {
 		return nil, err
