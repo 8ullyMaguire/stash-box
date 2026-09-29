@@ -42,6 +42,7 @@ import (
 	"github.com/stashapp/stash-box/internal/service/quest"
 	"github.com/stashapp/stash-box/internal/service/scene"
 	"github.com/stashapp/stash-box/internal/service/site"
+	"github.com/stashapp/stash-box/internal/service/streak"
 	"github.com/stashapp/stash-box/internal/service/studio"
 	"github.com/stashapp/stash-box/internal/service/tag"
 	"github.com/stashapp/stash-box/internal/service/trust"
@@ -221,6 +222,11 @@ func (f *Factory) Invite() *invite.Invite {
 // Award returns an AwardService instance.
 func (f *Factory) Award() *award.Service {
 	return award.NewService(f.Trust())
+}
+
+// Streak returns a user's activity streak service.
+func (f *Factory) Streak() *streak.Service {
+	return streak.NewService(queries.New(f.db))
 }
 
 // Badges returns a user's derived badges.
