@@ -141,6 +141,13 @@ const (
 // is not Elo. A rating becomes less certain during a gap in play, so one result
 // should move a long-idle performer further than one who voted yesterday. Passing
 // a fixed value would make time decay a claim the code does not implement.
+// Outcome is one matchup, from the point of view of the rating being updated.
+//
+// The paper's Outcome has three fields. Weight is a fourth, and it is the one
+// this fork adds (SPEC §7.23 D1): a vote cast by a level-4 vanguard with a long
+// record should move a rating further than one cast by a brand-new account, and
+// the way to express that without abandoning Glicko-2 is to scale how much this
+// game is allowed to teach the rating.
 type Outcome struct {
 	Self     Rating
 	Opponent Rating
@@ -148,6 +155,54 @@ type Outcome struct {
 	// ElapsedDays is days since the entity was last rated. Zero means "rated just
 	// now", which is the paper's plain case.
 	ElapsedDays float64
+	// Weight is the voter-trust multiplier for this game, snapshotted when the
+	// vote was cast. Zero and negative values are treated as the baseline rather
+	// than as "no signal": see weightOf below for why a weight of zero must not
+	// mean "this game taught the rating nothing".
+	Weight float64
+}
+
+// weightOf resolves a game to the multiplier the rating delta uses.
+//
+// WHERE the weight goes is the whole design, and the first place I put it was
+// wrong in a way the tests caught.
+//
+// The obvious choice was to scale g(phi_j) in the variance terms, on the
+// reasoning that more evidence should mean more information. It does — and it
+// breaks monotonicity. With w scaling g in both places, v goes as 1/w^2 and
+// deltaSum as w, so the rating moves by
+//
+//	w / (1/phiStar^2 + w^2 * S)
+//
+// which peaks at some interior weight and then DECREASES. A level-4 vanguard's
+// vote would move a rating less than a level-1's. The heavier the vote, the
+// more confident the system becomes and the less the vote can say about it, and
+// past the peak the second effect wins. Every weight above the peak was
+// strictly worse than every weight below it.
+//
+// So the weight scales ONLY deltaSum, which makes it a K-factor: the classic
+// Elo parameter for "how much does this result move me". That is exactly what
+// "a trusted voter's vote counts for more" means, and it is linear in w, so the
+// response is monotonic across the whole legal range.
+//
+// The cost is named rather than hidden: the weight does not enter v, so the
+// deviation is driven by how many games have been played rather than by how
+// much they were weighted. A heavy vote therefore moves a rating without making
+// the system much more certain about it. It is not exactly independent -- delta
+// feeds the volatility solve, so sigma shifts by a few parts in 1e8 relative --
+// but it is a rounding error to the uncertainty and a first-order effect on the
+// rating.
+//
+// That is a real limitation. It is also the standard one: a Glicko system's
+// deviation tracks evidence volume, and "volume" has never meant "how trusted
+// the voter was". Trust-weighting the K instead of the variance is what keeps
+// the ranking responsive; weighting the variance is what made it
+// non-monotonic.
+func weightOf(w float64) float64 {
+	if w <= 0 || math.IsNaN(w) {
+		return 1.0
+	}
+	return w
 }
 
 // Update applies one matchup and returns the new state of Self.
@@ -216,10 +271,16 @@ func (r Rating) UpdateBatch(outcomes []Outcome) Rating {
 	vSum := 0.0
 	muBars := make([]float64, len(outcomes))
 	phiBars := make([]float64, len(outcomes))
+	weights := make([]float64, len(outcomes))
 	for i, o := range outcomes {
 		muBars[i], phiBars[i] = toInternal(o.Opponent.Rating, o.Opponent.Deviation)
 		exp := expectedScore(mu, muBars[i], phiBars[i])
-		vSum += g(phiBars[i]) * g(phiBars[i]) * exp * (1 - exp)
+		// The paper's g(phi_j)^2, UNWEIGHTED. The weight does not go here --
+		// see weightOf for why weighting the variance makes the rating
+		// response non-monotonic in the weight.
+		gj := g(phiBars[i])
+		weights[i] = weightOf(o.Weight)
+		vSum += gj * gj * exp * (1 - exp)
 	}
 	if vSum <= 0 || math.IsNaN(vSum) || math.IsInf(vSum, 0) {
 		// Degenerate batch: E is exactly 0 or 1 for every game, so the results were
@@ -232,9 +293,14 @@ func (r Rating) UpdateBatch(outcomes []Outcome) Rating {
 	// Step 4: delta, the estimated improvement from the outcomes alone.
 	//
 	//	delta = v * SUM_j  g(phi_j) * { s_j - E(mu, mu_j, phi_j) }
+	//
+	// The weight multiplies this term and only this term, which makes it a
+	// K-factor: the single scalar that says how much a result is allowed to
+	// move a rating. At Weight == 1 this is the paper's formula exactly, so
+	// the worked example in glicko_test.go still pins the arithmetic.
 	deltaSum := 0.0
 	for i, o := range outcomes {
-		deltaSum += g(phiBars[i]) * (float64(o.Score) - expectedScore(mu, muBars[i], phiBars[i]))
+		deltaSum += weights[i] * g(phiBars[i]) * (float64(o.Score) - expectedScore(mu, muBars[i], phiBars[i]))
 	}
 	delta := v * deltaSum
 

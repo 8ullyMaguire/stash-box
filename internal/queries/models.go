@@ -648,6 +648,8 @@ type UserTrust struct {
 	ContentViewingOptIn  bool               `db:"content_viewing_opt_in" json:"content_viewing_opt_in"`
 	UpdatedAt            pgtype.Timestamptz `db:"updated_at" json:"updated_at"`
 	BonusPoints          int                `db:"bonus_points" json:"bonus_points"`
+	// Granted status, not derived from level. Feeds elo.VoterWeight at vote-cast time.
+	IsVanguard bool `db:"is_vanguard" json:"is_vanguard"`
 }
 
 type WebhookDelivery struct {

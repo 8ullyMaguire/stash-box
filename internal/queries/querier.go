@@ -694,6 +694,27 @@ type Querier interface {
 	GetUserTrust(ctx context.Context, userID uuid.UUID) (UserTrust, error)
 	GetUserTrustByUserIDs(ctx context.Context, dollar_1 []uuid.UUID) ([]UserTrust, error)
 	GetUsers(ctx context.Context, dollar_1 []uuid.UUID) ([]User, error)
+	// The two facts elo.VoterWeight needs from user_trust: the level band and
+	// whether the user has been granted vanguard status.
+	//
+	// :one, not :many, and deliberately not joined into the vote insert: the trust
+	// row is read BEFORE the rating maths so the weight is a fact about the voter's
+	// state at cast time, and reading it inside the same statement would make the
+	// two orders equivalent while hiding the dependency.
+	//
+	// The contribution score is the same total the award service maintains, so
+	// there is exactly one definition of "how much has this user contributed".
+	//
+	// Rejected edits are EXCLUDED rather than added as negative: the column is the
+	// count of rejections, not a signed tally, and a user with 100 approvals and 2
+	// rejections has contributed 100 things, not 98. Summing them would mean a
+	// heavily-active user with a normal rejection rate scored BELOW a quiet user,
+	// which inverts the intent of weighting by contribution.
+	//
+	// bonus_points is excluded: it is a points value whose magnitude is arbitrary
+	// (a bounty worth 500 would dwarf 500 real contributions), so mixing it into a
+	// count would make the multiplier depend on bounty pricing.
+	GetVoterWeightInputs(ctx context.Context, userID uuid.UUID) (GetVoterWeightInputsRow, error)
 	// Whether THIS user already voted, so the UI can render a vote button as a state
 	// rather than as an action that silently does nothing.
 	HasVotedForCandidate(ctx context.Context, arg HasVotedForCandidateParams) (bool, error)
@@ -984,6 +1005,11 @@ type Querier interface {
 	//
 	// Returning the row lets the service report the resulting rating to the voter
 	// without a second round trip.
+	//
+	// `weight` is passed in, not computed here, for the reason in migration 85: it
+	// is snapshotted at cast time by the service. A SQL-side expression would
+	// silently recompute it on every replay, which is exactly the retroactive
+	// re-weighting the column exists to prevent.
 	RecordEloVote(ctx context.Context, arg RecordEloVoteParams) (EloVote, error)
 	// ON CONFLICT DO NOTHING makes a retried or duplicated event a no-op rather
 	// than a silent double increment. The matching partial state is a real

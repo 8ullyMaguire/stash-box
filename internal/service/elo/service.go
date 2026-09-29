@@ -145,20 +145,46 @@ func (s *Elo) Vote(ctx context.Context, input VoteInput) (*RatingRecord, error) 
 			picked, pickedElapsed, notPickedElapsed = right, input.ElapsedDaysB, input.ElapsedDaysA
 		}
 
+		// The voter's trust, read INSIDE the transaction and BEFORE the maths,
+		// so the weight is a fact about their state at cast time (plan D5).
+		//
+		// A user with no user_trust row at all is every new user, so a missing
+		// row is not an error: it means level 0, not vanguard, no contributions,
+		// which VoterWeight turns into the baseline. Failing here would mean the
+		// first vote a new user ever casts is rejected.
+		weight := 1.0
+		inputs, err := tx.GetVoterWeightInputs(ctx, input.UserID)
+		switch {
+		case err == nil:
+			weight = VoterWeight(inputs.Level, inputs.IsVanguard, inputs.ContributionScore)
+		case errors.Is(err, pgx.ErrNoRows):
+			// No trust rollup yet: the baseline is the correct answer.
+		default:
+			return err
+		}
+
 		// Each side is updated from the pair of pre-match states, with the score
 		// flipped for the loser. Update takes the opponent by value, so neither
 		// Before struct is mutated and the two updates cannot interfere.
+		//
+		// The weight goes on BOTH updates. It is a property of the VOTE, not of
+		// the entity being rated, so the loser's rating must shrink by the same
+		// factor the winner's grew -- otherwise a trusted vote inflates the
+		// winner while the loser barely moves, and the two ratings stop
+		// summing to a constant.
 		pickedAfter := leftBefore.Rating.Update(Outcome{
 			Self:        leftBefore.Rating,
 			Opponent:    rightBefore.Rating,
 			Score:       Win,
 			ElapsedDays: pickedElapsed,
+			Weight:      weight,
 		})
 		notPickedAfter := rightBefore.Rating.Update(Outcome{
 			Self:        rightBefore.Rating,
 			Opponent:    leftBefore.Rating,
 			Score:       Loss,
 			ElapsedDays: notPickedElapsed,
+			Weight:      weight,
 		})
 
 		// Store the vote in DISPLAY order, not in picked/not-picked order. The
@@ -179,6 +205,7 @@ func (s *Elo) Vote(ctx context.Context, input VoteInput) (*RatingRecord, error) 
 			WinnerType: string(left.Type),
 			LoserType:  string(right.Type),
 			PickedSide: int16(input.PickedSide),
+			Weight:     weight,
 		}); err != nil {
 			return err
 		}

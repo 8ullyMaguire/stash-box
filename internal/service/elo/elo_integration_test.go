@@ -134,6 +134,16 @@ func ratedPerformer(t *testing.T, rating int, deviation float64, voteCount int) 
 			WinnerType: string(elo.EntityPerformer),
 			LoserType:  string(elo.EntityPerformer),
 			PickedSide: 0,
+			// Explicit, because RecordEloVote now always sends the weight
+			// column. Go's zero value is 0.0, and the elo_votes_weight_positive
+			// CHECK (migration 85) rejects it -- so omitting this fails the
+			// insert with a constraint violation rather than defaulting to the
+			// baseline. The column's DEFAULT 1.0 only covers raw SQL that omits
+			// the column, not a generated query that sends it.
+			//
+			// This fixture is a hand-written vote, so there is no voter whose
+			// trust to derive a weight from; the baseline is the honest value.
+			Weight: 1.0,
 		})
 		require.NoError(t, err)
 	}
