@@ -4343,3 +4343,78 @@ site quest's items render unnamed until that is filled.
 | `make it` | green, 19 packages |
 
 ---
+
+
+## Session 36 — the XP award path (SPEC §12, Phase 2 step 6)
+
+Migration 81 · `internal/service/award/` · 9 unit + 7 integration · **6 / 6 mutants**.
+
+### The conflict that made this a design change, not a wiring change
+
+```
+Points()          =  count × PointsPerKind[kind]
+quests_completed  =  a COUNT of quests
+```
+
+A bounty is *"this quest is worth extra"* — and there was **no way to record it**.
+`delta=500` on `quest_completed` credits **500 completed quests** and pays 10,000
+points for finishing one, with **no error anywhere**.
+
+> *"How many quests did this person finish"* and *"how much are those quests
+> worth"* are different questions, and **one integer column cannot answer both.**
+
+`bonus_points` is a separate column beside the counts, summed from the **same**
+append-only log. Not a parallel XP counter — same events, same recompute, same
+transaction. Invariant: `points = (counts × weights) + bonus_points`, **both
+halves from `trust_events`**, so a rebuild cannot disagree with an award.
+
+`ApplyTrustEvent` hardcoded a literal `1` per kind — which is **why** every caller
+passed `Delta: 1`. The log already stored the signed delta; the apply path
+**discarded** it.
+
+### A quest is TWO events — the dedup key is why
+
+A rollup moves **one column per kind**; the halves live in two columns. Two kinds
+= two independent dedup keys, each exactly-once. One event would have **one key
+guarding two column movements** — and a guard cannot be exactly-once for both.
+
+| decision | why |
+|---|---|
+| **base recorded FIRST** | a failed bounty leaves *"finished the quest, no bounty"* — reversible and explainable. The reverse leaves a bounty with **no quest**, which cannot be explained by any quest. |
+| **never a zero bounty event** | `delta 0` moves nothing and **still occupies the dedup slot** — so a bounty added later would be **silently discarded as a duplicate**. |
+
+`KindBountyBonus` is deliberately **absent from `PointsPerKind`**, so `knownKind`
+could no longer be keyed off that map — it would have rejected the kind, recorded
+it, and declined to roll it up: exactly the **invisible contribution** the enum
+exists to prevent. Cost: `AllKinds` is no longer *"every kind"*. Accepted, pinned.
+
+The dedup entity is the **quest**, not an item — a five-item quest with an item key
+would pay **five bounties**, and it would read as generosity.
+
+### Two "survivors" that were BAD MUTATIONS
+
+Both died when redone as deletions:
+
+- `0*int(t.BonusPoints)` **does not remove the term**.
+- Hardcoding `1` on the recompute's *other* branches **does not touch the apply path**.
+
+> The script had also **grepped only the unit suite**, so a mutation breaking **five
+> integration tests** read as zero. A survivor *you wrote badly* is still a
+> survivor — the second look is what separates the two cases.
+
+`TestARebuildReproducesTheAward` exists because of that pass: it drifts the rollup
+**by hand** and rebuilds. A recompute that grew the column but not its `CASE` term
+passes every award test and **loses every bounty on the first rebuild** — and the
+rebuild is the *recovery* path, so the loss surfaces when the rollup is already
+known wrong.
+
+### Verification
+
+| | |
+|---|---|
+| `go build` · `go vet` | pass |
+| unit · integration | 9 · 7 pass |
+| mutants | **6 / 6 killed** |
+| `make it` | green, **20 packages** |
+
+---
