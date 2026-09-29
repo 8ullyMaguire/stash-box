@@ -120,6 +120,10 @@ type Querier interface {
 	CountIdentificationVotesForUser(ctx context.Context, userID uuid.UUID) (int64, error)
 	CountNotificationsByUser(ctx context.Context, arg CountNotificationsByUserParams) (int64, error)
 	CountPerformerSearchMatches(ctx context.Context, arg CountPerformerSearchMatchesParams) (interface{}, error)
+	// Total published reviews for an entity, unpaginated. Separate from
+	// GetReviewAverage because the paginated list is capped at 100 by the caller and
+	// a count taken from a capped list is a count of the cap.
+	CountReviewsForEntity(ctx context.Context, arg CountReviewsForEntityParams) (int, error)
 	CountSceneSnapshots(ctx context.Context, sceneID uuid.UUID) (int64, error)
 	CountScenesByPerformer(ctx context.Context, performerID uuid.UUID) (int64, error)
 	CountScenesByPerformerIds(ctx context.Context, dollar_1 []uuid.UUID) ([]CountScenesByPerformerIdsRow, error)
@@ -211,6 +215,35 @@ type Querier interface {
 	CreatePerformerRedirect(ctx context.Context, arg CreatePerformerRedirectParams) error
 	CreatePerformerTattoos(ctx context.Context, arg []CreatePerformerTattoosParams) (int64, error)
 	CreatePerformerURLs(ctx context.Context, arg []CreatePerformerURLsParams) (int64, error)
+	// Reviews (SPEC §7.10, phase 3 step 1).
+	//
+	// EDITING IS AN UPSERT, not a new version, and that is the decision the plan
+	// deferred. Recorded here because the alternative was seriously considered and
+	// the reason for rejecting it is not obvious.
+	//
+	// The case FOR versioning (a review_edits table, history preserved): a rating that
+	// silently changes from 5 to 1 is unfalsifiable, and a contributor who buys
+	// goodwill and then edits the review leaves no trace.
+	//
+	// The reason it is REJECTED for now: the plan's own argument is that "verified
+	// usage" is much weaker without history, and that is true -- but only if
+	// something READS the history. Nothing would. A versioned review with no
+	// moderator view, no diff surface and no query is an append-only table that
+	// doubles write cost and disk and cannot answer a question anyone is asking yet.
+	// Versioning is cheap to add LATER (a history table over the same id), and
+	// expensive to add now in the sense that every read path has to be written twice
+	// from the start.
+	//
+	// What is NOT given up: created_at is preserved across an edit, so "how long has
+	// this person had this opinion" still has an answer, and a rating that changes is
+	// visible as a change of value on the entity page. What IS given up, explicitly:
+	// the intermediate rating is not recoverable.
+	//
+	// The upsert below therefore updates body/rating/updated_at and leaves created_at
+	// alone. It also does NOT touch `verified`, because verification is a moderator's
+	// judgement about a claim, and an author editing prose must not be able to edit
+	// the moderator's verdict along with it.
+	CreateReview(ctx context.Context, arg CreateReviewParams) (Review, error)
 	// Scene queries
 	CreateScene(ctx context.Context, arg CreateSceneParams) (Scene, error)
 	CreateSceneEdit(ctx context.Context, arg CreateSceneEditParams) error
@@ -309,6 +342,12 @@ type Querier interface {
 	DeletePerformerTattoos(ctx context.Context, performerID uuid.UUID) error
 	// Performer URLs
 	DeletePerformerURLs(ctx context.Context, performerID uuid.UUID) error
+	// The author deleting their own review, or a moderator removing it outright.
+	// Returns the row so the caller can confirm WHICH review went; a DELETE that
+	// matches nothing and returns nothing is indistinguishable from success in a
+	// mutation resolver, and a GraphQL client cannot tell a failed delete from a
+	// deleted review.
+	DeleteReview(ctx context.Context, id uuid.UUID) (Review, error)
 	DeleteScene(ctx context.Context, id uuid.UUID) error
 	DeleteSceneFingerprint(ctx context.Context, arg DeleteSceneFingerprintParams) error
 	DeleteSceneFingerprintsByScene(ctx context.Context, sceneID uuid.UUID) error
@@ -420,6 +459,10 @@ type Querier interface {
 	FindPerformerWithRedirect(ctx context.Context, id uuid.UUID) ([]Performer, error)
 	FindPerformersByIds(ctx context.Context, dollar_1 []uuid.UUID) ([]Performer, error)
 	FindPerformersByURL(ctx context.Context, arg FindPerformersByURLParams) ([]Performer, error)
+	FindReview(ctx context.Context, id uuid.UUID) (Review, error)
+	// Used by the upsert path to decide create-vs-update, and by the service to turn a
+	// duplicate submission into an update rather than a constraint error.
+	FindReviewByAuthorAndEntity(ctx context.Context, arg FindReviewByAuthorAndEntityParams) (Review, error)
 	FindScene(ctx context.Context, id uuid.UUID) (Scene, error)
 	// Get performer appearances for multiple scenes
 	FindSceneAppearancesByIds(ctx context.Context, sceneIds []uuid.UUID) ([]FindSceneAppearancesByIdsRow, error)
@@ -564,6 +607,20 @@ type Querier interface {
 	GetPerformerTattoos(ctx context.Context, performerID uuid.UUID) ([]GetPerformerTattoosRow, error)
 	GetPerformerURLs(ctx context.Context, performerID uuid.UUID) ([]GetPerformerURLsRow, error)
 	GetPrimaryEditCommentID(ctx context.Context, editID uuid.UUID) (uuid.UUID, error)
+	// The mean rating for an entity, and the count behind it.
+	//
+	// count(*) is returned alongside because an average of one 5-star review and an
+	// average of four hundred are both "4.2" at different moments, and a directory
+	// that shows a bare number invites reading a single review as a consensus. The
+	// caller decides what to do with a low count; the number itself cannot be
+	// qualified from inside an aggregate.
+	//
+	// count(*) FILTER (WHERE rating IS NOT NULL) rather than count(*): a review with
+	// no rating is a real review and must appear in the total review count, but
+	// including it in the mean would divide by a value that does not exist and drag
+	// the average toward zero. The two numbers are deliberately different and the
+	// struct keeps them apart.
+	GetReviewAverage(ctx context.Context, arg GetReviewAverageParams) (GetReviewAverageRow, error)
 	GetSceneFingerprintScenes(ctx context.Context, fingerprintIds []int) ([]GetSceneFingerprintScenesRow, error)
 	GetScenePerformers(ctx context.Context, sceneID uuid.UUID) ([]GetScenePerformersRow, error)
 	GetScenePhashSeeds(ctx context.Context, sceneID uuid.UUID) ([]GetScenePhashSeedsRow, error)
@@ -617,6 +674,10 @@ type Querier interface {
 	// LAST by default but the explicit form documents that the ordering is
 	// deliberate.
 	ListEloRatings(ctx context.Context, arg ListEloRatingsParams) ([]EloRating, error)
+	// The moderation queue: oldest first, because the queue is worked in arrival
+	// order and "newest first" makes an old report invisible under a constant
+	// trickle of new ones.
+	ListFlaggedReviews(ctx context.Context, arg ListFlaggedReviewsParams) ([]Review, error)
 	// A query's candidates WITH their tallies.
 	//
 	// LEFT JOIN plus count, so a candidate nobody has voted for still appears with
@@ -663,6 +724,16 @@ type Querier interface {
 	// answer is that the board's conclusions are indexed against real metadata, so
 	// finding an entity also finds what was learned about it.
 	ListResolvedQueriesForEntity(ctx context.Context, arg ListResolvedQueriesForEntityParams) ([]IdentificationQuery, error)
+	// A profile page: this author's published reviews, newest first.
+	ListReviewsByAuthor(ctx context.Context, arg ListReviewsByAuthorParams) ([]Review, error)
+	// The entity page: published reviews, newest first.
+	//
+	// `status = 'published'` is in the QUERY, not applied afterwards. A flagged review
+	// is still visible to its author, so the flag-filtered-out-then-re-added
+	// approach leaks moderation state to the client and needs a second scan; and a
+	// removed review must not be countable in the average, which the next query
+	// depends on being consistent about.
+	ListReviewsForEntity(ctx context.Context, arg ListReviewsForEntityParams) ([]Review, error)
 	// Every snapshot for a scene, in order, whether or not it is in a collage.
 	//
 	// Ordered by timestamp so a caller rendering a scene's visual index gets frames in
@@ -886,6 +957,14 @@ type Querier interface {
 	// own choice and is safe to keep.
 	SetContentViewingOptIn(ctx context.Context, arg SetContentViewingOptInParams) (UserTrust, error)
 	SetEditCommentHidden(ctx context.Context, arg SetEditCommentHiddenParams) (EditComment, error)
+	// Moderation. Not restricted to flagged->published: a review can be flagged
+	// directly by a moderator, and a status transition table in SQL would need a
+	// trigger to enforce and a migration every time a state is added.
+	SetReviewStatus(ctx context.Context, arg SetReviewStatusParams) (Review, error)
+	// The moderator's usage verification, separate from SetReviewStatus so that
+	// granting and withdrawing it are different calls and neither can be an
+	// accidental side effect of the other.
+	SetReviewVerified(ctx context.Context, arg SetReviewVerifiedParams) (Review, error)
 	SetScenePerformerAlias(ctx context.Context, arg SetScenePerformerAliasParams) error
 	// The level is written by the service after deriving it from the thresholds,
 	// never by the database. The curve is a product decision and belongs in Go,
@@ -947,6 +1026,9 @@ type Querier interface {
 	UpdatePendingTagEditsTarget(ctx context.Context, arg UpdatePendingTagEditsTargetParams) (int64, error)
 	UpdatePerformer(ctx context.Context, arg UpdatePerformerParams) (Performer, error)
 	UpdatePerformerRedirects(ctx context.Context, arg UpdatePerformerRedirectsParams) error
+	// The author's own review of the same entity, replaced in place. `verified` is
+	// deliberately absent from the SET list: see the note above.
+	UpdateReview(ctx context.Context, arg UpdateReviewParams) (Review, error)
 	UpdateScene(ctx context.Context, arg UpdateSceneParams) (Scene, error)
 	UpdateSceneRedirects(ctx context.Context, arg UpdateSceneRedirectsParams) error
 	UpdateSceneStudios(ctx context.Context, arg UpdateSceneStudiosParams) error

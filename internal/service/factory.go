@@ -40,6 +40,7 @@ import (
 	"github.com/stashapp/stash-box/internal/service/notification"
 	"github.com/stashapp/stash-box/internal/service/performer"
 	"github.com/stashapp/stash-box/internal/service/quest"
+	"github.com/stashapp/stash-box/internal/service/review"
 	"github.com/stashapp/stash-box/internal/service/scene"
 	"github.com/stashapp/stash-box/internal/service/site"
 	"github.com/stashapp/stash-box/internal/service/streak"
@@ -222,6 +223,11 @@ func (f *Factory) Invite() *invite.Invite {
 // Award returns an AwardService instance.
 func (f *Factory) Award() *award.Service {
 	return award.NewService(f.Trust())
+}
+
+// Review returns a review service instance.
+func (f *Factory) Review() *review.Service {
+	return review.NewService(queries.New(f.db))
 }
 
 // Streak returns a user's activity streak service.

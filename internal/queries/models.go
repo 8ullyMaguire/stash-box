@@ -360,6 +360,19 @@ type PerformerUrl struct {
 	SiteID      uuid.UUID `db:"site_id" json:"site_id"`
 }
 
+type Review struct {
+	ID         uuid.UUID          `db:"id" json:"id"`
+	AuthorID   uuid.UUID          `db:"author_id" json:"author_id"`
+	EntityType string             `db:"entity_type" json:"entity_type"`
+	EntityID   uuid.UUID          `db:"entity_id" json:"entity_id"`
+	Rating     *int               `db:"rating" json:"rating"`
+	Body       string             `db:"body" json:"body"`
+	Verified   bool               `db:"verified" json:"verified"`
+	Status     string             `db:"status" json:"status"`
+	CreatedAt  pgtype.Timestamptz `db:"created_at" json:"created_at"`
+	UpdatedAt  pgtype.Timestamptz `db:"updated_at" json:"updated_at"`
+}
+
 type Scene struct {
 	ID             uuid.UUID     `db:"id" json:"id"`
 	Title          *string       `db:"title" json:"title"`
