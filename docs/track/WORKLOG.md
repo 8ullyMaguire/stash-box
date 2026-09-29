@@ -1399,3 +1399,182 @@ test-only exports is a smell worth watching, not a reason to skip the coverage.
 - `modbot.go` race (SPEC §8.1) still untouched.
 
 ---
+
+---
+
+## Session 14 — SPEC §6 decided, #621 fixed (2026-09-29)
+
+### SPEC §6 — fork direction, decided by delegation
+
+The owner delegated the call. Decision recorded in SPEC §6.1: **the
+destination is the federated mesh (§7).**
+
+- **A (port StashForge governance) rejected as the destination.** StashForge
+  reimplemented voting/reputation/proposals on top of stash's models; stash-box
+  has native consensus already (`edit`/`edit_votes`, 4 480 lines). Porting a
+  parallel governance system over an archive that has one is the fork of a
+  different product.
+- **B (contribute back upstream) adopted as a standing constraint**, not a goal.
+  Small diffs, generated code regenerated rather than hand-edited. Every fix in
+  this tracker is shaped that way and most are upstreamable as-is.
+- **C (self-hosted instance) adopted as the prerequisite** the spec already
+  recommended — now largely complete (vips/openexr/openjph, pg_search, the
+  frontend embed, a working integration gate).
+
+The spec's own ordering ("C first, then A") was right about sequencing and wrong
+about the endpoint: A and the mesh looked like alternatives, and they are not.
+The mesh needs StashForge's *capability* but federated and reputation-aware,
+which is what §7 describes and A would deliver single-instance.
+
+**Sequencing unchanged:** the `help wanted` backlog finishes first. Bounded,
+provable defects; it leaves a tree worth building on; it is the most
+upstreamable part. §7 does not start until the bar is met.
+
+One decision left open on purpose: whether Phase 1 ships as one instance or as
+a protocol. That is a genuine technical fork with real cost either way and
+should be decided against code, not in advance.
+
+### #621 `[x]` — deleting a site broke the whole /edits page
+
+  1. Create a new site
+  2. Create a pending edit to create or modify a scene by adding a link of
+     that site type
+  3. Delete the site
+  4. Go to /edits and enjoy your `Error: Failed to load edits.`
+
+`GetMergedURLsForEdit` builds its result from two sources with **different
+lifetime rules**, which is the whole bug:
+
+| source | what it is | when a site is deleted |
+|---|---|---|
+| `current_urls` | `scene_urls`/`performer_urls`/`studio_urls` | foreign key — the row cascades away |
+| `added_urls` | `jsonb_array_elements(data->'new_data'->'added_urls')` | **not a foreign key, not cascaded** |
+
+So the site's own URLs vanished but the pending edit kept a dangling `site_id`
+in its JSON payload. That id reached `URL.site`, declared non-null as
+`site: Site!` (`misc.graphql:25`), so the dataloader's nil became
+
+```
+the requested element is null which the schema does not allow
+path: [findEdit, details, urls, 0, site]
+```
+
+and failed the **entire page** — one bad row taking out every edit on it.
+
+Fixed by joining `sites` in the final SELECT: a URL with no site left to render
+is not in the list at all.
+
+### Three decisions in that fix, stated so they can be argued with
+
+1. **Not relaxing the schema to `site: Site`.** The frontend's `URLFragment`
+   requires `site { id name icon category { ... } }` to render a row, so a null
+   site would not fix the page — it would trade a loud failure for blank rows.
+   A URL whose site is gone has nothing to render.
+2. **Not blocking site deletion**, which the reporter suggested. That is a
+   policy change with a real cost: admins delete sites in bulk, and refusing
+   would block the legitimate case to protect a pending edit the read-time fix
+   already renders correctly. Filtering at read time fixes the reported bug
+   without constraining the operator.
+3. **`urlResolver.Type` hardened too.** It dereferenced the loaded site with no
+   nil check — that is a *panic*, not a GraphQL error, and it is reachable from
+   any model carrying a URL. The schema's non-null promise is not something to
+   dereference blindly.
+
+### Verification
+
+Three SQL mistakes, each caught by regenerating rather than by reasoning:
+
+1. the explanatory comment sat between the CTE close and `SELECT` →
+   `syntax error at or near "SELECT"`;
+2. the old trailing comma after `final_urls` was left dangling;
+3. the `sites` join made `url` **ambiguous** — `sites` has its own `url`
+   column — so `ORDER BY url` failed sqlc's `strict_order_by`.
+
+Mutation-verified by removing only the join:
+
+```
+the requested element is null which the schema does not allow
+path: [findEdit, details, urls, 0, site]
+--- FAIL: TestEditWithURLOfDeletedSiteDoesNotBreakQuery
+--- PASS: TestEditWithURLOfLiveSiteStillResolves
+```
+
+The second test is the guard that gives the first its meaning. Without it,
+"the query succeeded" is satisfiable by dropping every URL unconditionally —
+the same trap #525 walked into, one session earlier.
+
+Both tests go through the real GraphQL query, because the failure is produced
+by gqlgen rejecting a null in a non-null position *while marshalling*; a
+resolver-level assertion cannot observe it.
+
+### A test-authoring error worth recording
+
+My first version of the guard test decoded a `site { id name }` selection into
+a struct with only `id`, and the whole thing failed with
+
+```
+'findEdit.details.urls[0].site' has invalid keys: name
+```
+
+Not a product bug — a decode mismatch in my own test. Worth noting because the
+instinct on seeing that is to suspect the fix, and two sessions ago I removed a
+*correct* test on exactly that instinct (see #525). The difference is that here
+the error named the mismatch precisely; there the mutant simply survived.
+
+### Verified state
+
+| Gate | Result |
+|---|---|
+| `go build ./...` | exit 0 |
+| `go vet ./...` | clean |
+| integration suite (`-count=1`) | ok, 38.1s |
+| unit suite | pass |
+| `sqlc` regenerate | idempotent, no drift |
+
+### Issue ledger
+
+| Issue | Status | Note |
+|---|---|---|
+| #729 | `[x]` | nil deref on mismatched `operation` |
+| #879 | `[x]` | deleted fields reset, all four forms |
+| #802 | `[x]` | category removal; explicit null |
+| #941 | `[x]` | stale downvote notification |
+| #660 | `[x]` | overlong values rejected at edit creation |
+| #943 | `[x]` | pending edits retargeted on merge, all four entities |
+| #703 | `[x]` | merge sources editable when updating an edit |
+| #829 | `[x]` | 11 dropped performer filters implemented |
+| #974 | `[x]` | network performer list includes sub-studios |
+| #337 | `[x]` | favorited network surfaces sub-studio scene edits |
+| #1060 | `[x]` | notification trigger no longer collapses types |
+| #734 | `[x]` | implicit TLS (SMTPS, port 465) supported |
+| #738 | `[x]` | duplicate image upload upserts on the checksum |
+| #649 | `[x]` | image read validates image_location instead of guessing |
+| #621 | `[x]` | deleted site no longer breaks the /edits page |
+| #525 | `[!]` | already fixed upstream in ea06fbf; my tests could not detect it |
+| #778 | `[!]` | premise absent — no scrape mutation; behaviour pinned by tests |
+| #9 | `[~]` | defect class closed for reference fields; scalars audited |
+| #727 | `[!]` | not reproducible — `url` is a live field the client depends on |
+| #809 | `[!]` | not reproduced; backend exonerated |
+| **Total** | **15 of 48 `help wanted`** | 17 needed |
+
+**15/48 — 31%.**
+
+### Next steps
+
+- **15 of 48, bar is 32.** Unopened bounded reports: #1007, #956, #950, #948,
+  #1177, #1205, #583, #605, #1277. Nine left, so at the current pace the bar
+  lands around session 19-20.
+- **#956** (registration still demands an invite key when `require_invite` is
+  false) and **#950** (no warning when creating a performer with the same
+  name+disambiguation) both look like small config/validation defects and are
+  worth taking next — a config check and a uniqueness warning respectively.
+- The recurring lesson from #525 and #621 is now twice demonstrated: **a test
+  that cannot fail is worse than no test**, because it is counted as coverage.
+  Every new test gets mutation-checked before it is believed, and the guard
+  case (live site / existing image) is written alongside the failure case so a
+  blanket fix cannot pass.
+- Fork direction is settled; `docs/PLAN.md` stays unwritten until Phase 1 is
+  specced, which is deliberately after the bar is met.
+- `modbot.go` race (SPEC §8.1) still untouched.
+
+---
