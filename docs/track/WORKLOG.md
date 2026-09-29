@@ -4478,3 +4478,88 @@ re-derive it — which is the part worth writing down.
 | `make it` | green, **21 packages** |
 
 ---
+
+
+## Session 38 — activity days + streaks (Phase 2 step 8) — **PHASE 2 COMPLETE**
+
+`internal/service/streak/` · 9 unit + 5 integration · **8 killed, 2 proven equivalent** · `make it` **22 pkgs**.
+
+### Why derived, and why the reason is STRONGER than for badges
+
+> A badge is a **fact about the past** that stays true. A streak is a **claim about
+> the present** — and it is false the moment they do not.
+
+Stored, the decay must be **written**: a nightly job, a decrementing read, an
+expiry — each a place for the number to be wrong. The worst version **survives
+until the job runs**, so a user who quit a month ago still shows a 40-day streak.
+**The decay is the visible part of the feature.**
+
+### THE RULE, and why `now` is a parameter
+
+> A streak survives being idle for **today only**. Live on today or yesterday,
+> broken from two days back.
+
+The tempting version — `require days[0] == today` — **resets every streak at
+midnight**, so a contributor active yesterday is told at 09:00 today that they have
+none. **Punitive, and the most common way a streak feels broken.** So `now` is
+passed in: the whole package is one calendar-day comparison, and a test that
+cannot name `now` cannot tell live from dead.
+
+**I wrote the rule, then left it out of the code.** The first `currentStreak`
+walked back unconditionally — a user last active in January read as a **1-day
+streak** instead of none. Unit tests missed it (every fixture was recent);
+`TestAnEmptyHistoryIsAZeroStreak` caught a panic in the same pass.
+
+### Two more decisions
+
+- **Deltas are NOT counted.** A `-1` is a real contribution day — the person showed
+  up and was rejected. A positive-count filter would **end the streak of a user
+  whose activity is all rejections**.
+- **Session timezone, not UTC.** A user in UTC+2 active at 00:30 local has not
+  been idle a day just because **UTC calls that yesterday**.
+
+**No elapsed-hours arithmetic anywhere:** a DST day is 23 or 25 hours, so `/24`
+erases a real streak **twice a year, in production only**.
+
+### Two verdicts, and only one is a gap
+
+- `d.Equal` instead of `sameDay` **SURVIVED** — and is **EQUIVALENT**: both operands
+  are midnight-truncated, so there is no sub-day component to disagree about.
+  Kept `sameDay` and **documented why they are interchangeable**.
+- Every other mutant died — including `truncateDay` dropping to UTC, which I only
+  noticed because **the first sweep timed out partway and left a mutant in the
+  file**:
+
+> A partially-completed mutation sweep is **worse than none**: the restore is the
+> part that gets skipped, and the next reading is about someone else's bug.
+
+### Three fixture bugs, each looking exactly like a service bug
+
+| the fixture | why it read as a service bug |
+|---|---|
+| 4 events, same kind, **nil entity** | the dedup index makes that **one row** — 3 dropped, day count 1. *The rollup was right.* |
+| `Truncate(24*time.Hour)` | rounds to a multiple of 24h **since the epoch**, not midnight — **yesterday** in most zones. Every "today" landed a day early; both tests read 0. |
+| offsets **+5 down to −2** | puts the **future** at the top. The service correctly reported a zero current streak. *The sign was backwards.* |
+
+### Verification
+
+| | |
+|---|---|
+| `go build` · `go vet` | clean |
+| unit · integration | **9 · 5 pass** |
+| mutants | **8 killed · 2 equivalent** |
+| `make it` | green, **22 packages** |
+
+### **Phase 2 status: all 8 steps complete.**
+
+| # | Piece | |
+|---|---|---|
+| 1–3 | completion scores + GraphQL | ✅ |
+| 4–5 | generated + authored quests | ✅ |
+| 6 | XP award path | ✅ |
+| 7 | derived badges | ✅ |
+| 8 | activity days + streaks | ✅ |
+
+**Next: Phase 3 — directory for sites/studios, reviews, API, browser extension.**
+
+---
