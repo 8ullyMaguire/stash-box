@@ -1077,6 +1077,17 @@ after the §2.4/§2.6 blockers clear:
 
 ```bash
 cd ~/code-local/go/stash-box
+mkdir -p frontend/build && echo placeholder > frontend/build/index.html
+
+# INTEGRATION suite. The password is not optional: testutil.defaultTestDB is
+# `postgres@localhost/stash-box-test?sslmode=disable` with no credentials, and
+# falling back to it fails as `SASL auth: password authentication failed for
+# user "postgres"` -- a panic in pgDropAll before any test runs, which reads like
+# a broken build rather than a missing password. The harness drops all tables and
+# re-runs migrations on entry to every package, so ANY package passing is proof
+# the newest migration applied; there is no separate migration check to remember.
+export POSTGRES_DB='postgres:smoke_pw@127.0.0.1:5434/stash-box-test?sslmode=disable'
+make it
 
 # 1. module loads (expected: 41)
 mkdir -p frontend/build && echo placeholder > frontend/build/index.html
