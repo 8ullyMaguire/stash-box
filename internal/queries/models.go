@@ -473,6 +473,11 @@ type Site struct {
 	Highlighted bool      `db:"highlighted" json:"highlighted"`
 }
 
+type SiteAlternative struct {
+	SiteID            uuid.UUID `db:"site_id" json:"site_id"`
+	AlternativeSiteID uuid.UUID `db:"alternative_site_id" json:"alternative_site_id"`
+}
+
 type SiteCategory struct {
 	ID          int       `db:"id" json:"id"`
 	Name        string    `db:"name" json:"name"`
@@ -480,6 +485,18 @@ type SiteCategory struct {
 	SortOrder   int       `db:"sort_order" json:"sort_order"`
 	CreatedAt   time.Time `db:"created_at" json:"created_at"`
 	UpdatedAt   time.Time `db:"updated_at" json:"updated_at"`
+}
+
+type SiteDetail struct {
+	SiteID         uuid.UUID          `db:"site_id" json:"site_id"`
+	Pricing        *string            `db:"pricing" json:"pricing"`
+	PaymentMethods []string           `db:"payment_methods" json:"payment_methods"`
+	Features       []string           `db:"features" json:"features"`
+	Pros           []string           `db:"pros" json:"pros"`
+	Cons           []string           `db:"cons" json:"cons"`
+	EthicalLabels  []string           `db:"ethical_labels" json:"ethical_labels"`
+	UpdatedBy      uuid.NullUUID      `db:"updated_by" json:"updated_by"`
+	UpdatedAt      pgtype.Timestamptz `db:"updated_at" json:"updated_at"`
 }
 
 type Studio struct {
