@@ -14,19 +14,16 @@ reconciled below.
 
 ## Step 0 — before any of it
 
-### 0.1 Fix the modbot race
+### 0.1 The modbot race — DONE, do not repeat
 
-`docs/SPEC.md` §8.1 records an unresolved race in `modbot.go`. Phase 1 increases
-notification volume, so fix it first.
+`docs/SPEC.md` §8.1 recorded a race in the edit-apply path. It is fixed: the
+bare `go func()` promoting user vote rights is now a synchronous call, covered by
+`internal/api/edit_vote_promotion_integration_test.go`.
 
-```bash
-# Locate it
-grep -n "go func\|sync\." internal/service/edit/modbot.go
-```
-
-Verification: `go test -race -count=1 ./internal/service/edit/` clean. Do not
-proceed until it passes; a race that only appears under Phase 1's load is much
-harder to attribute.
+**Do not trust `go test -race ./internal/service/edit/` as verification of this
+file.** It passes on the unfixed code, because the package has no concurrent
+test reaching that path. If you re-verify, use the promotion test and confirm
+it fails when the goroutine is restored.
 
 ### 0.2 Record the baseline
 

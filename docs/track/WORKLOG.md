@@ -2584,3 +2584,90 @@ point. **Phase 1 is larger than all 28 issues combined**, and its first step is
 fixing the `modbot.go` race in SPEC §8.1, which has been untouched since it was
 recorded.
 ---
+
+
+## Session 21 — publishing plan, and the modbot.go race is actually fixed
+
+**28 issue plans + 7 feature plans live at `docs/plans/`. The §8.1 race is fixed
+and covered by a test that was verified to fail without the fix.**
+
+### Publishing plan
+
+`docs/plans/publishing-plan.md` records how the two branches get published.
+Verified state before writing it:
+
+    local branch:   master          (NOT main -- upstream uses master)
+    origin:         stashapp/stash-box   (UPSTREAM, not a fork)
+    merge base:     b4b8aef  2026-09-09
+    unpushed:       50 commits ahead, 0 behind
+    own fork:       NONE
+    gh account:     8ullyMaguire
+
+Two things this changed versus the request as stated, both flagged in the plan:
+**the branch is `master`, not `main`**, and **`origin` is upstream** — pushing
+there would target the canonical repository, so a fork has to exist first. The
+plan's recommended shape is one fork, two branches: `issue-fixes` (the 50
+commits, frozen, clean enough for upstream PRs) and `main` (a superset, which
+grows as the roadmap lands). `main` is always a descendant of `issue-fixes`, so
+the merge direction is one-way.
+
+I recommended this rather than asking, since it preserves one history and the
+alternative — two repos — would force the merge anyway.
+
+### §8.1: the race, and a test that could not have existed before
+
+The bare `go func()` in `internal/service/edit/service.go` that promoted user
+vote rights is now a synchronous call. Two things were wrong with it: it outlived
+the request, and it detached from the request context so nothing could cancel it.
+
+**I nearly shipped a fix I had not verified, and caught it by grep.** Earlier in
+this session I applied the change, ran `go test -race` (green), then restored a
+backup and never re-applied it — while writing a doc that claimed the race was
+fixed. `grep 'go func'` on the committed source still found it. The doc now says
+what is true, and the fix is actually applied.
+
+**`go test -race ./internal/service/edit/` passes on the unfixed code and still
+does.** That package has no concurrent test reaching this path, so a clean race
+run was never evidence — the same "green means nothing" trap as #525 and #605, in
+a third shape: a checker that cannot observe the thing it is about.
+
+The test that can: `internal/api/edit_vote_promotion_integration_test.go`
+(3 tests). The primary one asserts the promotion is **complete by the time
+`ApplyEdit` returns** — no sleep, no retry, no `Eventually`. Verified by
+restoring the original goroutine:
+
+    --- FAIL: TestVotePromotionIsCompleteWhenApplyReturns (0.12s)
+
+Deterministic, not flaky. The old behaviour was flaky by nature, which is
+exactly why it survived this long.
+
+**Two traps in this package, both found by the test failing on FIXED code:**
+
+- **Roles go through a per-request dataloader cache.** `userResolver.Roles`
+  reads via `dataloader.For(ctx).UserRolesByID`. A test reading roles through
+  the resolver would see a cached value no matter what the code did — passing for
+  the wrong reason *and* missing the race. The tests read the roles table
+  directly via `dbtest.Factory().User().GetRoles`.
+- **`createTestUser` only copies its `roles` argument into the input when the
+  input is nil.** A non-nil input without `Roles` creates a user with NO roles.
+  And a nil `roles` argument defaults to **Admin**, which implies Vote — so an
+  "author who cannot vote" built that way is promoted trivially and the test
+  proves nothing.
+- **`RoleEnumReadOnly` is never promoted** —
+  `PromoteUserVoteRights` returns nil on seeing it. My first draft used
+  ReadOnly as the "cannot vote yet" role and therefore asserted the opposite of
+  the code.
+
+Each is recorded in the test file, because the next person writing here will hit
+all three.
+
+Also: `config.SetVotePromotionThresholdForTest`, following the existing
+restore-func pattern. `validatePassword` and `approveEdit` were checked for the
+same trap — `approveEdit` calls `t.Errorf`, so it cannot assert a failure, which
+is why these tests assert on the `Applied` flag.
+
+### Gates
+
+`go build` 0 · `go vet` clean · `go test -race ./internal/service/edit/` ok ·
+api integration ok 46.7s · unit suite clean · plans `--check` clean. No frontend
+or schema change, so `pnpm run validate` and sqlc/gqlgen were not re-run.

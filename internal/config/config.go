@@ -478,6 +478,19 @@ func SetEmailCooldownForTest(d time.Duration) func() {
 	return func() { C.EmailCooldown = prev }
 }
 
+// SetVotePromotionThresholdForTest overrides the vote promotion threshold for
+// the duration of a test, returning a func that restores the previous value.
+//
+// It exists because internal/config has no other way to change this, and the
+// promotion path in internal/service/edit is guarded by it. The restore func
+// keeps one test from leaking the value into the next, which would otherwise
+// make the promotion tests order-dependent.
+func SetVotePromotionThresholdForTest(n int) func() {
+	prev := C.VotePromotionThreshold
+	C.VotePromotionThreshold = n
+	return func() { C.VotePromotionThreshold = prev }
+}
+
 // SetImageLocationForTest overrides image_location for the duration of a test
 // and returns a restore function.
 //

@@ -1240,15 +1240,30 @@ func (s *Edit) ApplyEdit(ctx context.Context, editID uuid.UUID, immediate bool) 
 	}
 	updatedEdit = converter.EditToModelPtr(dbEdit)
 
-	// TODO: Maybe use cron instead
+	// Promote the edit author to vote rights once they cross the threshold.
+	//
+	// This used to run in a bare `go func()`. Two problems, both recorded in
+	// docs/SPEC.md §8.1 and fixed here:
+	//
+	//  1. The goroutine outlived the request. A test that applied an edit and
+	//     then asserted on the author's roles raced the goroutine, so the
+	//     assertion was flaky rather than deterministic.
+	//  2. It escaped every cancellation path. `ctx` here is the request
+	//     context, already cancelled by the time the function returns, so the
+	//     only way to give it a lifetime at all is to detach it deliberately --
+	//     and a detached goroutine that writes to the database is exactly the
+	//     shape that turns one slow query into a pool exhaustion under load.
+	//
+	// PromoteUserVoteRights is two cheap indexed reads plus one insert, and it
+	// already returns its own error. The "TODO: Maybe use cron instead" remains
+	// correct for the general case -- if this ever becomes expensive, move it
+	// to a real job queue rather than back to a naked goroutine.
 	if success {
 		userPromotionThreshold := config.GetVotePromotionThreshold()
 		if userPromotionThreshold != nil && updatedEdit.UserID.Valid {
-			go func() {
-				if err := s.PromoteUserVoteRights(context.Background(), updatedEdit.UserID.UUID, *userPromotionThreshold); err != nil {
-					logger.Errorf("Failed to promote user vote rights: %v", err)
-				}
-			}()
+			if err := s.PromoteUserVoteRights(ctx, updatedEdit.UserID.UUID, *userPromotionThreshold); err != nil {
+				logger.Errorf("Failed to promote user vote rights: %v", err)
+			}
 		}
 	}
 

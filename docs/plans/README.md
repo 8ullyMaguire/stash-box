@@ -12,6 +12,7 @@ tests, and the exact command that verifies each step.
 | `NNNN-<slug>.md` | one GitHub issue, numbered, named after the real issue title |
 | `feature-0N-<slug>.md` | one phase of the federated mesh roadmap (`docs/SPEC.md` §7.15) |
 | `generate_plans.py` | regenerates the issue plans from the fixing commits |
+| [`publishing-plan.md`](publishing-plan.md) | how the two branches get published: `issue-fixes` and `main` |
 
 ## Roadmap phases
 
@@ -25,7 +26,9 @@ Start at `feature-00-roadmap.md` for the dependency order and sizing.
 | [`feature-04-federation-preservation.md`](feature-04-federation-preservation.md) | federation protocol, taste-based peering, preservation replication, cross-instance discovery | 01–03 |
 | [`feature-05-mobile-awards-recommendations.md`](feature-05-mobile-awards-recommendations.md) | recommendation engine, annual awards, curation campaigns, mobile app | 01–04 |
 
-**None of these is implemented.** Phases 1 and 2 are each larger than all 26
+**None of these is implemented.** All of it lands on the `main` branch; the
+issue fixes live on `issue-fixes`. See
+[`publishing-plan.md`](publishing-plan.md). Phases 1 and 2 are each larger than all 26
 issues combined, and Phase 4 is a protocol design that cannot be correct before
 Elo produces stable taste vectors — taste is a peering input.
 
