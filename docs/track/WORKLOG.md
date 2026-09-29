@@ -4563,3 +4563,74 @@ erases a real streak **twice a year, in production only**.
 **Next: Phase 3 — directory for sites/studios, reviews, API, browser extension.**
 
 ---
+
+
+## Session 39 — reviews (SPEC §7.10, Phase 3 step 1) — **PHASE 3 BEGINS**
+
+Migration 82 · `internal/service/review/` · 6 unit + 7 integration · **8 / 8 mutants** · `make it` **23 pkgs**.
+
+### A review is NOT an edit — and that inverts the moderation model
+
+> An edit **corrects** the archive (moderation, diff, approval). A review is
+> **opinion about** the archive, public the moment it is written.
+
+Reusing the edit machinery would mean **every opinion needs moderator approval, and
+the directory would be empty.** So: **published on write**, with a flag path for
+the failure case. Cost: a bad review is briefly public. Bounded by keeping
+`SetReviewStatus` a *different call* from `SetReviewVerified`, so neither can be an
+accidental side effect of the other.
+
+### The two decisions the plan deferred, recorded in the SQL
+
+- **Editing is an UPSERT, not a new version.** The case for versioning is real — a
+  rating that silently goes 5 → 1 is unfalsifiable. Rejected because the plan's own
+  argument ("verified usage is weaker without history") is true **only if something
+  reads the history**, and nothing would. A versioned review with no moderator view
+  and no diff surface is an append-only table that **cannot answer a question anyone
+  is asking yet**. Cheap to add later over the same id; **expensive now, because
+  every read path gets written twice from the start.**
+  - **Kept:** `created_at` survives an edit.
+  - **Given up, explicitly:** the intermediate rating is not recoverable.
+- **The upsert does NOT touch `verified`** — an author editing prose must not carry a
+  moderator's verdict with them. `UpdateReview`'s SET list is where that has to live.
+
+### Why the rating is NULLABLE, and it is load-bearing
+
+§7.10 asks for reviews of **a studio's ethics** and **a performer's aliases** —
+neither is 1–5. A `NOT NULL` rating produces a fake 3 that then gets **averaged**.
+
+```
+5, 4, and one unrated  →  4.5 over TWO rated, not 3.0 over three
+```
+
+`count(*) FILTER (WHERE rating IS NOT NULL)`. **Rated and Total are separate fields
+because 4.2 over one review is indistinguishable from a consensus.**
+
+`ErrNotAuthor` is deliberately **not** `ErrNotFound` — "gone" and "not yours" are
+different to a client, and collapsing them **tells an author their review vanished**.
+
+### Two verification findings worth keeping
+
+- sqlc emitted `interface{}` because the **CAST was inside the COALESCE**. Moving it
+  out — `CAST(COALESCE(avg(rating), 0) AS double precision)` — gives the column one
+  type and keeps a type assertion out of the service.
+- **FOUR OF EIGHT MUTANTS WERE ONLY KILLED BY THE INTEGRATION SUITE** — the upsert
+  create branch, `Delete`'s author check, the body and entity-type guards *as
+  reached through `Submit`*.
+
+> A unit-only sweep reports **survivors that are not survivors**. The verdict table
+> needs a fifth row: **KILLED-BY-INTEGRATION**. A unit-only run would have written
+> down a **false pass rate**.
+
+### Verification
+
+| | |
+|---|---|
+| `go build` · `go vet` | clean |
+| unit · integration | **6 · 7 pass** |
+| mutants | **8 / 8 killed** |
+| `make it` | green, **23 packages** |
+
+**Next: Phase 3 step 2 — site directory fields + `site_alternatives`.**
+
+---
