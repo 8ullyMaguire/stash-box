@@ -4054,3 +4054,109 @@ units clean · **sqlc and gqlgen both idempotent**.
 | 7 | activity days + streaks | — |
 
 ---
+
+
+## Session 33 — spec intake: the rewritten specification (SPEC §7.17–§7.22)
+
+### This was an amendment, not an intake
+
+`docs/SPEC.md` §7 **is** an earlier revision of this same vision. So the usual
+intake move — "already covered, reject" — would have deleted the product.
+
+> **Three probes, kept separate: spec text, migrations, Go code.** "In the spec",
+> "specified but unbuilt", and "absent" are three verdicts, not one.
+
+| | spec hits | code |
+|---|---|---|
+| vanguard, onion, attestations, tiers, quorum, alerts | **0** | **0** |
+| capability profile, guilds, adopt-a-site | 1–3 | 0 — already §7.2/§7.12 |
+| "replica" in Go | — | 13 files — all Postgres `REPLICA` identity, **not** preservation |
+
+`replicas_hosted` was **already a column on `user_trust`** (migration 76) with a
+comment naming SPEC §6 — the spec anticipated preservation before this draft
+existed.
+
+### Two rejections, with reasons
+
+**§5.1's P2P swarm layer — REJECTED.** BitTorrent, WebTorrent, DHT, eDonkey2000,
+Kad, IPFS. Three independent grounds:
+
+1. **A different product.** No metadata, no GraphQL, none of the curation or trust
+   machinery. The proposal itself draws the seam: *"full content never moves over
+   onion routing — it moves over the P2P layer."*
+2. **Licence exposure is unresolved.** eMule-lineage references are GPL; this fork
+   is MIT. Embedding them is a distribution event nobody has answered.
+3. **Zero GraphQL surface** — the first proposed subsystem with none, while
+   constraint 3 in §4 makes the schema a compatibility surface for the Stash app.
+
+> Re-routed, not discarded: the content plane is **instance-to-instance**, so a
+> swarm protocol could later plug in behind its interface **without a spec change**
+> — which is the test for whether that addition was the right shape.
+
+**Vanguard influence on gravity — REJECTED in part.** The draft grants vanguards
+*"weighted influence on gravity tuning"*. Adopted except that clause.
+
+> Gravity is an operator control (§7.13), and the draft's **own §2.2** provides the
+> sanctioned path — *"operators can appoint vanguards manually"*. Weighting gravity
+> by user resonance lets a small high-trust group steer **every user's**
+> recommendations. A governance change wearing a gamification costume. Priority and
+> nomination are influence; a vote on the theme is control.
+
+### Auditing my own decision against the spec's *general* rules
+
+Probing for "vanguard" finds §7.20 and stops. The general rule lives elsewhere:
+**§3.3 already states votes are recomputed from rows, never tallied into a
+column.**
+
+> An attestation carrying a bare level would have imported **a second source of
+> truth across an instance boundary** — and a peer storing the level without its
+> events has adopted something it cannot audit. So an attestation carries the claim
+> **plus the supporting event ids**.
+
+An attested level is a **claim**, never a copy: *"I believe this user is level 4"*
+— not *"this user is level 4."*
+
+### §7.16 had gone stale
+
+Four of its five **"No"** rows are now built. Verified on disk, not asserted: four
+service packages exist, migration 79 is the identification board, and the Elo
+implementation touches **no** edit-vote machinery — §7.16's own reasoning, still
+holding. Corrected in a **new dated section** rather than by editing §7.16, so the
+staleness and its correction are both visible.
+
+### Citation audit: three dangling references, two of them pre-existing
+
+The spec cited **§4.3, §4.5, and §12** — none of which exist. §4.3 meant
+*constraint 3 in §4*; §12 meant *§7.12*; one `§7`/`§6` pair was split across a line
+break so a string replace missed it twice.
+
+> Also disambiguated the **proposal's** numbers from the spec's own: *"§4.5 of the
+> proposal"* resolves differently for a mechanical audit and a skimming human, so it
+> now reads *"Section 4.5 of the proposal"*. **56 headings, 0 unresolved.**
+
+### A duplicate plan I nearly created
+
+`feature-04-federation-preservation.md` **already existed** — found only after
+writing a second Phase 4 plan.
+
+> **Two plans for one phase is how two implementations of one table get written
+> from two documents that disagree about column names.**
+
+Its Steps 2–3 fold into the replacement's Steps 2 and 5; its cross-instance
+discovery step is preserved **verbatim** as Step 7b, because it is the one thing
+the new plan did not cover. The old file is a **pointer, not a deletion**, so an
+existing link still resolves.
+
+### Files
+
+| File | |
+|---|---|
+| `docs/SPEC.md` | §7.17–§7.22, v0.2, citation audit clean |
+| `docs/plans/feature-phase-4-federation-mesh.md` | 8 steps + 7b, migration + test + verify each |
+| `docs/track/INTAKE-2026-09-29-federated-mesh-v2.md` | verdicts with reasons |
+| `docs/plans/feature-04-federation-preservation.md` | superseded pointer |
+
+`go.mod` has **no** DHT/BitTorrent/eDonkey/Kad/IPFS dependency, and the plan's
+definition of done makes adding one a **failure**.
+
+---
