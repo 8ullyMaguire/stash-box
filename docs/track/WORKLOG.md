@@ -4160,3 +4160,96 @@ existing link still resolves.
 definition of done makes adding one a **failure**.
 
 ---
+
+
+## Session 34 — generated curation quests (SPEC §7.7, Phase 2 step 3)
+
+`internal/service/quest/` — 10 unit + 13 integration tests, 8 mutants killed.
+
+### The design decision, and why it isn't a performance choice
+
+**A generated quest is never stored.** A curator working from a stored *"5
+performers with no birthdate"* is chasing performers who were **fixed an hour
+ago** — and the drift is invisible: nothing errors, the list is just wrong. Items
+are re-derived at read time; a claimed item vanishes the moment its field is
+filled. The quest has **no completion logic of its own** — the completion score
+*is* the completion logic.
+
+> An item carries the **missing field**, not just the entity. A client holding only
+> an id would have to re-score everything to know what to do, and a client that
+> guessed would produce *"improve this performer"* — not a task anyone can act on.
+
+### Bug 1 — the quest selected by UUID, not by merit
+
+`Generate` truncated to the target **before** sorting, and the candidate query
+pages by id:
+
+> which entities a quest named **depended on when they were created**. A performer
+> created last was crowded out of a quest about the very field it was missing.
+> `SortByUrgency` existed and was **never called**.
+
+Caught because the test **passed alone and failed in a batch** — one candidate
+alone, five better-scoring ones in a batch. Fixed by sorting *before* truncating.
+
+The regression test asserts the **invariant** (every kept item scores at least as
+low as every dropped candidate), not the fixture, because the archive is shared
+across the package:
+
+> A test that merely asserted *"output is sorted"* would have **passed with the
+> bug present** — the output IS sorted, just the wrong subset.
+
+### Bug 2 — a silent page-size truncation
+
+`ListIncomplete` replaced any page size over 200 with **50**. A caller asking for
+500 got 50 items and no signal. The asymmetry is now deliberate:
+
+> below the floor is a **default**, because a caller who did not care made no
+> promise; above the ceiling is a **refusal**, because a caller who asked for more
+> was promised more.
+
+Found by my own test asking for a 500-item target and getting an error naming the
+ceiling — **the correct behaviour, arriving when it was least convenient.**
+
+### My own arithmetic, twice
+
+Two threshold expectations were **off by one**: the count query is
+`score < threshold`, so the threshold is one *above* the score of an entity missing
+exactly the field. Wrote 81 where 82 was right. Derived from the definition
+instead of hand-summing the weights a second time.
+
+### Also fixed: a pre-existing harness race
+
+Every package with a `TestMain` calls `CreateSystemUsers` against the **same
+database**, and `go test` runs packages in parallel:
+
+```
+panic: error creating system users: duplicate key value violates unique constraint "users_name_key"
+```
+
+> Intermittent, and **moves between packages** — so it reads as a flaky test rather
+> than a shared-database collision. `make it` now passes **`-p 1`** with the reason
+> recorded in the Makefile. The real fix is a database per package.
+
+### Verification
+
+| | |
+|---|---|
+| `go build ./...` · `go vet ./...` | pass |
+| unit | 10 pass |
+| integration | 13 pass |
+| mutants | **8 / 8 killed** |
+| `make it` | green, 19 packages |
+
+### Files
+
+| File | |
+|---|---|
+| `internal/service/quest/quest.go` | generator, wording, urgency ordering |
+| `internal/service/quest/quest_test.go` | 10 unit — threshold, wording, ordering |
+| `internal/api/quest_integration_test.go` | 13 integration |
+| `internal/service/completion/service.go` | page-size refusal |
+| `Makefile` | `-p 1` |
+
+**Next: Phase 2 step 4 — bounties** (quest × XP multiplier).
+
+---
