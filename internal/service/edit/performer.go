@@ -231,6 +231,38 @@ func (m *PerformerEditProcessor) applyCreate(data *models.PerformerEditData) err
 		ID: *UUID,
 	}
 
+	// Reject a duplicate before inserting, so the failure names the entity
+	// instead of a Postgres index (#950).
+	//
+	// This mirrors index_active_performers_on_name rather than replacing it:
+	// the index still has the final word if two applies race, but the ordinary
+	// case -- an edit filed for a performer that already exists -- fails here
+	// with something the contributor and the modbot can both act on.
+	//
+	// FindExistingPerformers is the query the frontend already uses for its
+	// duplicate warning, and it matches on the same (name, disambiguation) pair
+	// the index constrains, including treating a nil disambiguation as empty.
+	// FindPerformerByName would have been the wrong tool: it ignores
+	// disambiguation entirely, so it would reject legitimately distinct
+	// performers and miss the case where the disambiguations differ.
+	if data.New.Name != nil {
+		existing, err := m.queries.FindExistingPerformers(m.context, queries.FindExistingPerformersParams{
+			Name:           data.New.Name,
+			Disambiguation: data.New.Disambiguation,
+		})
+		if err != nil {
+			return err
+		}
+
+		for i := range existing {
+			if existing[i].ID == newPerformer.ID {
+				// The same record, e.g. a draft re-applied.
+				continue
+			}
+			return fmt.Errorf("%w: %s", ErrPerformerAlreadyExists, existing[i].Name)
+		}
+	}
+
 	if err := m.ApplyEdit(newPerformer, true, data); err != nil {
 		return err
 	}

@@ -17,6 +17,21 @@ var ErrMergeIDMissing = errors.New("merge target ID is required")
 var ErrMergeTargetIsSource = errors.New("merge target cannot be used as source")
 var ErrNoMergeSources = errors.New("no merge sources found")
 
+// ErrPerformerAlreadyExists is returned when a create edit proposes a
+// performer whose name and disambiguation already match an existing one.
+//
+// The database enforces this with a partial unique index
+// (index_active_performers_on_name, migration 06), so without this check the
+// contributor only finds out when the edit is *applied* -- after it has been
+// voted on and closed -- and gets a raw
+//
+//	pq: duplicate key value violates unique constraint "index_active_performers_on_name"
+//
+// which names a database object rather than the entity that already exists
+// (#950). Failing at apply time is also the worst possible moment: the voters
+// have spent their vote on an edit that can never land.
+var ErrPerformerAlreadyExists = errors.New("a performer with this name and disambiguation already exists")
+
 // InputSpecifiedFunc is function that returns true if the qualified field name
 // was specified in the input. Used to distinguish between nil/empty fields and
 // unspecified fields
