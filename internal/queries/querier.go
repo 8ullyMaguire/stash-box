@@ -11,6 +11,16 @@ import (
 )
 
 type Querier interface {
+	// Applies one event's effect to the rollup, creating the row if absent.
+	//
+	// The totals are incremented rather than recomputed by replaying events, so
+	// recording a trust event is O(1) regardless of how much history a user has.
+	// The signed delta works for both directions: a rejected edit decrements the
+	// same column an approval incremented.
+	//
+	// ON CONFLICT (user_id) DO UPDATE is required because a user with no rollup row
+	// yet (every new user) has to be created on first event.
+	ApplyTrustEvent(ctx context.Context, arg ApplyTrustEventParams) (UserTrust, error)
 	CancelUserEdits(ctx context.Context, userID uuid.NullUUID) error
 	// Only clear once NO reject votes remain on the edit.
 	//
@@ -27,6 +37,7 @@ type Querier interface {
 	CountScenesByPerformerIds(ctx context.Context, dollar_1 []uuid.UUID) ([]CountScenesByPerformerIdsRow, error)
 	CountUnreadNotificationsByUserGroupedByType(ctx context.Context, userID uuid.UUID) ([]CountUnreadNotificationsByUserGroupedByTypeRow, error)
 	CountUserEditsByStatus(ctx context.Context, userID uuid.NullUUID) ([]CountUserEditsByStatusRow, error)
+	CountUserTrustEvents(ctx context.Context, userID uuid.UUID) (int64, error)
 	CountUsers(ctx context.Context) (int64, error)
 	CountVotesByType(ctx context.Context, userID uuid.NullUUID) ([]CountVotesByTypeRow, error)
 	// Draft queries
@@ -276,6 +287,9 @@ type Querier interface {
 	GetAllSceneFingerprints(ctx context.Context, sceneID uuid.UUID) ([]GetAllSceneFingerprintsRow, error)
 	GetAllSiteCategories(ctx context.Context) ([]SiteCategory, error)
 	GetAllTagCategories(ctx context.Context) ([]TagCategory, error)
+	// Every rollup row. Used when a threshold changes and every level must be
+	// recomputed (see RebuildLevels in internal/service/trust).
+	GetAllUserTrust(ctx context.Context) ([]UserTrust, error)
 	GetChildStudios(ctx context.Context, parentStudioID uuid.NullUUID) ([]Studio, error)
 	GetEditComments(ctx context.Context, editID uuid.UUID) ([]EditComment, error)
 	GetEditCommentsByIds(ctx context.Context, dollar_1 []uuid.UUID) ([]EditComment, error)
@@ -354,9 +368,20 @@ type Querier interface {
 	GetUserNotificationSubscriptions(ctx context.Context, userID uuid.UUID) ([]NotificationType, error)
 	GetUserRoles(ctx context.Context, userID uuid.UUID) ([]string, error)
 	GetUserRolesByUserIDs(ctx context.Context, dollar_1 []uuid.UUID) ([]UserRole, error)
+	// Trust level queries (SPEC §6, migration 76).
+	//
+	// trust_events is the source of truth; user_trust is a denormalised rollup of
+	// it. These queries keep the rollup in step with the events, and the two
+	// upserts below are the only places in the codebase allowed to write either
+	// table.
+	GetUserTrust(ctx context.Context, userID uuid.UUID) (UserTrust, error)
+	GetUserTrustByUserIDs(ctx context.Context, dollar_1 []uuid.UUID) ([]UserTrust, error)
 	GetUsers(ctx context.Context, dollar_1 []uuid.UUID) ([]User, error)
 	InviteKeyUsed(ctx context.Context, id uuid.UUID) (*int, error)
 	IsImageUnused(ctx context.Context, id uuid.UUID) (bool, error)
+	// One user's history, newest first. Used by the audit view and by tests that
+	// assert the event log is the source of truth.
+	ListUserTrustEvents(ctx context.Context, userID uuid.UUID) ([]TrustEvent, error)
 	LoadClusterSubmissions(ctx context.Context, fingerprintIds []int) ([]LoadClusterSubmissionsRow, error)
 	LoadLinkedOshashSubmissions(ctx context.Context, phashFingerprintIds []int) ([]LoadLinkedOshashSubmissionsRow, error)
 	MarkAllNotificationsRead(ctx context.Context, userID uuid.UUID) error
@@ -370,6 +395,26 @@ type Querier interface {
 	ReassignStudioFavorites(ctx context.Context, arg ReassignStudioFavoritesParams) error
 	// Reassign to the sentinel user only the deleted user's scene fingerprints that are unique
 	ReassignUniqueSceneFingerprints(ctx context.Context, arg ReassignUniqueSceneFingerprintsParams) error
+	// Rebuilds the totals from the event log.
+	//
+	// This is the recovery path, and the reason trust_events is append-only: if the
+	// rollup ever drifts -- a threshold change, a bug in ApplyTrustEvent, a manual
+	// database edit -- the truth is still replayable. Coalescing SUMs the signed
+	// deltas per kind in one pass rather than replaying row by row.
+	// No GROUP BY: an aggregate over an empty set still returns exactly one row,
+	// with the COALESCE defaults above. GROUP BY made this return NOTHING for a
+	// user with no events, which made it unusable for creating a zeroed rollup --
+	// and that is exactly what SetContentViewingOptIn needs to do for a user
+	// opting in before they are eligible.
+	RecomputeUserTrustTotals(ctx context.Context, userID uuid.UUID) (UserTrust, error)
+	// ON CONFLICT DO NOTHING makes a retried or duplicated event a no-op rather
+	// than a silent double increment. The matching partial state is a real
+	// concern: an edit can be applied twice by a retried request, and without this
+	// the contributor's trust would grow twice for one contribution.
+	//
+	// Returning the row means a duplicate insert reports no rows, which the
+	// service treats as "already recorded" rather than as an error.
+	RecordTrustEvent(ctx context.Context, arg RecordTrustEventParams) (TrustEvent, error)
 	ResetVotes(ctx context.Context, editID uuid.UUID) error
 	// Resolves a set of UUIDs to the type of entity they belong to, used to turn
 	// bare UUIDs in comments into links.
@@ -394,8 +439,20 @@ type Querier interface {
 	SearchScenes(ctx context.Context, arg SearchScenesParams) ([]SearchScenesRow, error)
 	SearchStudios(ctx context.Context, arg SearchStudiosParams) ([]SearchStudiosRow, error)
 	SearchTags(ctx context.Context, arg SearchTagsParams) ([]Tag, error)
+	// The one user-writable field in this table (SPEC §6: high-trust users
+	// EXPLICITLY opt in to viewing content).
+	//
+	// It is deliberately NOT gated on level here. Eligibility (level >= 4) is
+	// derived at read time by the service, because a stored eligibility would go
+	// stale the moment a threshold changed; a stored opt-in is just the user's
+	// own choice and is safe to keep.
+	SetContentViewingOptIn(ctx context.Context, arg SetContentViewingOptInParams) (UserTrust, error)
 	SetEditCommentHidden(ctx context.Context, arg SetEditCommentHiddenParams) (EditComment, error)
 	SetScenePerformerAlias(ctx context.Context, arg SetScenePerformerAliasParams) error
+	// The level is written by the service after deriving it from the thresholds,
+	// never by the database. The curve is a product decision and belongs in Go,
+	// where it can be changed without a migration.
+	SetUserTrustLevel(ctx context.Context, arg SetUserTrustLevelParams) (UserTrust, error)
 	SoftDeletePerformer(ctx context.Context, id uuid.UUID) (Performer, error)
 	SoftDeleteScene(ctx context.Context, id uuid.UUID) (Scene, error)
 	SoftDeleteStudio(ctx context.Context, id uuid.UUID) (Studio, error)

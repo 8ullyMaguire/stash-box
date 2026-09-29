@@ -129,10 +129,10 @@ func ApplyBodyModificationCriterion(query sq.SelectBuilder, table, fkColumn stri
 	case models.CriterionModifierIsNull:
 		// "no modification at all"
 		return query.Where(sq.Expr(
-			"NOT EXISTS (SELECT 1 FROM "+table+" WHERE "+table+"."+fkColumn+" = performers.id)"))
+			"NOT EXISTS (SELECT 1 FROM " + table + " WHERE " + table + "." + fkColumn + " = performers.id)"))
 	case models.CriterionModifierNotNull:
 		return query.Where(sq.Expr(
-			"EXISTS (SELECT 1 FROM "+table+" WHERE "+table+"."+fkColumn+" = performers.id)"))
+			"EXISTS (SELECT 1 FROM " + table + " WHERE " + table + "." + fkColumn + " = performers.id)"))
 	default:
 		return query
 	}

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gofrs/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stashapp/stash-box/internal/models"
 )
 
@@ -462,6 +463,16 @@ type TagSearch struct {
 	Aliases []string  `db:"aliases" json:"aliases"`
 }
 
+type TrustEvent struct {
+	ID         int64              `db:"id" json:"id"`
+	UserID     uuid.UUID          `db:"user_id" json:"user_id"`
+	Kind       string             `db:"kind" json:"kind"`
+	EntityType *string            `db:"entity_type" json:"entity_type"`
+	EntityID   uuid.NullUUID      `db:"entity_id" json:"entity_id"`
+	Delta      int                `db:"delta" json:"delta"`
+	CreatedAt  pgtype.Timestamptz `db:"created_at" json:"created_at"`
+}
+
 type User struct {
 	ID           uuid.UUID     `db:"id" json:"id"`
 	Name         string        `db:"name" json:"name"`
@@ -492,4 +503,16 @@ type UserToken struct {
 	Type      string    `db:"type" json:"type"`
 	CreatedAt time.Time `db:"created_at" json:"created_at"`
 	ExpiresAt time.Time `db:"expires_at" json:"expires_at"`
+}
+
+type UserTrust struct {
+	UserID               uuid.UUID          `db:"user_id" json:"user_id"`
+	Level                int                `db:"level" json:"level"`
+	ApprovedEdits        int                `db:"approved_edits" json:"approved_edits"`
+	RejectedEdits        int                `db:"rejected_edits" json:"rejected_edits"`
+	IdentificationSolves int                `db:"identification_solves" json:"identification_solves"`
+	QuestsCompleted      int                `db:"quests_completed" json:"quests_completed"`
+	ReplicasHosted       int                `db:"replicas_hosted" json:"replicas_hosted"`
+	ContentViewingOptIn  bool               `db:"content_viewing_opt_in" json:"content_viewing_opt_in"`
+	UpdatedAt            pgtype.Timestamptz `db:"updated_at" json:"updated_at"`
 }

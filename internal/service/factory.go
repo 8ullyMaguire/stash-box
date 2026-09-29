@@ -33,6 +33,7 @@ import (
 	"github.com/stashapp/stash-box/internal/service/site"
 	"github.com/stashapp/stash-box/internal/service/studio"
 	"github.com/stashapp/stash-box/internal/service/tag"
+	"github.com/stashapp/stash-box/internal/service/trust"
 	"github.com/stashapp/stash-box/internal/service/user"
 	"github.com/stashapp/stash-box/internal/service/usertoken"
 )
@@ -110,6 +111,11 @@ func (f *Factory) Notification() *notification.Notification {
 
 func (f *Factory) Invite() *invite.Invite {
 	return invite.NewInvite(queries.New(f.db), f.withTxn)
+}
+
+// Trust returns a TrustService instance
+func (f *Factory) Trust() *trust.Trust {
+	return trust.NewTrust(queries.New(f.db), f.withTxn)
 }
 
 // ModAudit returns a ModAuditService instance
