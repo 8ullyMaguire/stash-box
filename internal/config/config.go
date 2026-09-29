@@ -265,12 +265,23 @@ func GetEmailFrom() string {
 	return C.EmailFrom
 }
 
-// GetEmailTLSMode returns the configured STARTTLS policy for the SMTP client.
-// Recognized values: "mandatory" (default), "opportunistic", "none". Anything
-// else falls back to "mandatory" to preserve secure-by-default behavior.
+// GetEmailTLSMode returns the configured transport security mode for the SMTP
+// client.
+//
+// Recognized values:
+//
+//	"mandatory"    STARTTLS is required (default).
+//	"opportunistic" use STARTTLS if the server offers it, otherwise plaintext.
+//	"implicit"     implicit TLS (SMTPS, RFC 8314) -- the connection is wrapped
+//	               in TLS before any SMTP command. Required by port 465, which
+//	               does not speak STARTTLS.
+//	"none"         plaintext, no encryption.
+//
+// Anything else falls back to "mandatory" to preserve secure-by-default
+// behavior.
 func GetEmailTLSMode() string {
 	switch C.EmailTLSMode {
-	case "opportunistic", "none":
+	case "opportunistic", "none", "implicit":
 		return C.EmailTLSMode
 	default:
 		return "mandatory"
@@ -427,6 +438,31 @@ func InitializeDefaults() error {
 // Unmarshal config
 func Initialize() error {
 	return viper.Unmarshal(&C)
+}
+
+// SetEmailSettingsForTest overrides the SMTP connection settings for the
+// duration of a test. It exists because C is unexported and the email package
+// cannot configure the manager it drives from a test otherwise; there is no
+// other production caller.
+//
+// Passing a restore function keeps callers from having to snapshot C themselves.
+func SetEmailSettingsForTest(host string, port int, user, pw, from, tlsMode string) func() {
+	prevHost, prevPort := C.EmailHost, C.EmailPort
+	prevUser, prevPW := C.EmailUser, C.EmailPW
+	prevFrom, prevTLS := C.EmailFrom, C.EmailTLSMode
+
+	C.EmailHost = host
+	C.EmailPort = port
+	C.EmailUser = user
+	C.EmailPW = pw
+	C.EmailFrom = from
+	C.EmailTLSMode = tlsMode
+
+	return func() {
+		C.EmailHost, C.EmailPort = prevHost, prevPort
+		C.EmailUser, C.EmailPW = prevUser, prevPW
+		C.EmailFrom, C.EmailTLSMode = prevFrom, prevTLS
+	}
 }
 
 func GetMissingEmailSettings() []string {

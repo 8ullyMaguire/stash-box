@@ -79,6 +79,26 @@ func (m *Manager) Send(email, subject, text, html string) error {
 		)
 	}
 	switch config.GetEmailTLSMode() {
+	case "implicit":
+		// Implicit TLS (SMTPS, RFC 8314): the TCP connection is wrapped in TLS
+		// before any SMTP command is sent. This is what port 465 expects, and
+		// it is NOT the same thing as STARTTLS (RFC 3207), where the session
+		// starts in plaintext and is upgraded mid-connection.
+		//
+		// go-mail's TLSPolicy only describes STARTTLS behaviour, so there is no
+		// policy that yields implicit TLS -- WithSSL() is the only knob for it.
+		// Using WithSSLPort instead would be wrong here: we already set the port
+		// explicitly above, and per its docs an explicit WithPort takes
+		// precedence and skips the automatic 465 selection.
+		//
+		// Setting the policy to NoTLS as well is deliberate. Implicit TLS servers
+		// do not advertise STARTTLS, so asking for it on an already-encrypted
+		// connection would only risk a spurious failure; the encryption is
+		// established during the dial.
+		opts = append(opts,
+			mail.WithSSL(),
+			mail.WithTLSPolicy(mail.NoTLS),
+		)
 	case "opportunistic":
 		opts = append(opts, mail.WithTLSPolicy(mail.TLSOpportunistic))
 	case "none":
