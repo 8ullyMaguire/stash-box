@@ -1,0 +1,20 @@
+[Unit]
+Description=Stash Box (stash-box fork) metadata server
+Documentation=https://github.com/8ullyMaguire/stash-box
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/stash-box-deploy
+ExecStart=%h/stash-box-deploy/bin/stash-box --config_file %h/stash-box-deploy/config/stash-box-config.yml --host 127.0.0.1 --port 9998
+Restart=on-failure
+RestartSec=5
+# Migrations run at startup against Postgres 18 in a container; give it room
+# before systemd declares the start failed and restarts into a loop.
+TimeoutStartSec=180
+StandardOutput=append:%h/stash-box-deploy/stash-box.log
+StandardError=append:%h/stash-box-deploy/stash-box.log
+
+[Install]
+WantedBy=default.target
