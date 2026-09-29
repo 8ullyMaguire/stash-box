@@ -114,7 +114,7 @@ func (q *Queries) GetEloRatingsByIDs(ctx context.Context, arg GetEloRatingsByIDs
 }
 
 const getEloVotesForUser = `-- name: GetEloVotesForUser :many
-SELECT id, user_id, winner_id, loser_id, winner_type, loser_type, picked_side, created_at FROM elo_votes WHERE user_id = $1 ORDER BY created_at DESC
+SELECT id, user_id, winner_id, loser_id, winner_type, loser_type, picked_side, created_at, weight FROM elo_votes WHERE user_id = $1 ORDER BY created_at DESC
 `
 
 // The user's own votes, newest first. Backs the taste vector (SPEC §2) and the
@@ -141,6 +141,7 @@ func (q *Queries) GetEloVotesForUser(ctx context.Context, userID uuid.UUID) ([]E
 			&i.LoserType,
 			&i.PickedSide,
 			&i.CreatedAt,
+			&i.Weight,
 		); err != nil {
 			return nil, err
 		}
@@ -220,7 +221,7 @@ func (q *Queries) ListEloRatings(ctx context.Context, arg ListEloRatingsParams) 
 const recordEloVote = `-- name: RecordEloVote :one
 INSERT INTO elo_votes (id, user_id, winner_id, loser_id, winner_type, loser_type, picked_side)
 VALUES ($1, $2, $3, $4, $5, $6, $7)
-RETURNING id, user_id, winner_id, loser_id, winner_type, loser_type, picked_side, created_at
+RETURNING id, user_id, winner_id, loser_id, winner_type, loser_type, picked_side, created_at, weight
 `
 
 type RecordEloVoteParams struct {
@@ -261,6 +262,7 @@ func (q *Queries) RecordEloVote(ctx context.Context, arg RecordEloVoteParams) (E
 		&i.LoserType,
 		&i.PickedSide,
 		&i.CreatedAt,
+		&i.Weight,
 	)
 	return i, err
 }

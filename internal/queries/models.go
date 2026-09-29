@@ -202,6 +202,7 @@ type EloVote struct {
 	LoserType  string             `db:"loser_type" json:"loser_type"`
 	PickedSide int16              `db:"picked_side" json:"picked_side"`
 	CreatedAt  pgtype.Timestamptz `db:"created_at" json:"created_at"`
+	Weight     float64            `db:"weight" json:"weight"`
 }
 
 type Fingerprint struct {

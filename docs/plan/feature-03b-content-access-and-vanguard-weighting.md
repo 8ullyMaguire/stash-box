@@ -29,6 +29,19 @@ the objection in this file's "Deviations" section and continue with the rest.
   Re-weighting old votes retroactively silently changes historical rankings and
   is not defensible in an audit.
 
+## 1. Content access gate — **DONE, verified 2026-09-29**
+
+Step 1.1–1.3 are complete: `contentaccess.go` + `contentaccess_test.go` (14 test
+functions, all PASS), wired through `internal/service/trust/service.go`
+(`CanViewContent`) and exposed in `resolver_model_user.go` /
+`resolver_mutation_user.go`, with integration coverage in
+`trust_service_integration_test.go` and `trust_graphql_integration_test.go`.
+Migration sweep killed all mutants.
+
+Note for later steps: the test names are descriptive sentences, **not**
+`TestContentAccess*`, so `-run TestContentAccess` reports `[no tests to run]`.
+Run the whole package instead: `go test ./internal/service/trust/`.
+
 ## 1. Content access gate
 
 ### Step 1.1 — the evaluator
