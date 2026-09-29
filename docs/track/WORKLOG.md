@@ -810,3 +810,125 @@ notifications (#1060), and SMTP TLS (#734).
 - Fork direction (SPEC §6) still the owner's call before vision work starts.
 
 ---
+
+## Session 10 — network traversal #974, #337; notification types #1060 (2026-09-29)
+
+Three issues, two shared root causes. Both are "matched the parent, not its
+descendants" — the same defect in three different surfaces.
+
+### #974 `[x]` — network studio page lists no performers
+
+A network holds no scenes of its own; its content lives on sub-studios. The
+page's **All Scenes** tab filters on `studios.parent_studio_id` and shows
+content. **Performers** passed `studio_id` straight through, and the performer
+query matched it *exactly* against `scenes.studio_id` — so a network returned
+nothing.
+
+The studio filter now covers the studio **and its direct children**, mirroring
+the scene query's `ParentStudio` filter (`scene/query.go:90`) so the two tabs
+on one page cannot disagree. One level only, matching that filter and the
+search triggers' own `TP ON T.parent_studio_id = TP.id`.
+
+`applyPerformerSort` needed no change — its subqueries are studio-agnostic and
+guarded by `if !needsStudioJoin`, so they reuse the corrected alias. Left alone,
+sorting by scene count on a network page would have disagreed with the
+filtered set.
+
+### #337 `[x]` — favorited network doesn't surface sub-studio scene edits
+
+Same root cause, in the edits favorite filter: `studio_favorites.studio_id =
+scenes.studio_id`, exact. Favoriting a network and seeing none of its
+sub-studios' edits meant favoriting every sub-studio by hand.
+
+Added a UNION arm joining scenes → studios and comparing
+`studios.parent_studio_id` against the favorited id. All three traversals now
+agree on what a network contains instead of each having its own idea.
+
+### #1060 `[x]` — fingerprint notification masked by favorites
+
+Different cause, same "two things should both happen" family.
+`TriggerSceneEditNotifications` has one UNION arm per reason a user should hear
+about a scene edit, and collapsed them with `DISTINCT ON (user_id)` — one row
+per user.
+
+That did not *pick* a type, it **deleted** the others. The reader filters on
+the stored type (`FindNotificationsByUser: type = $n`), which is what made the
+loss visible: a user who both favorited the performer and fingerprinted the
+scene kept one row, so filtering by `FINGERPRINTED_SCENE_EDIT` returned nothing
+while the same notification showed under `FAVORITE_PERFORMER_EDIT`.
+
+Dedup key is now `(user_id, type)`. Also note the original had **no ORDER BY**,
+so which arm won was undefined — the bug came and went with the query plan.
+Keying on type removes the nondeterminism rather than hiding it behind a
+priority column.
+
+### Two worthless mutation results I had to discard
+
+Recording these because both initially *looked* like proof:
+
+1. **#974** — dropping the traversal left 2 bind args against 1 placeholder, so
+   all three tests failed on squirrel's `expected 2 arguments`, not on
+   behaviour. Re-mutated with the arg count fixed: the network test fails, the
+   two regression guards pass (correct — pre-#974 a leaf studio already worked
+   and a sub-studio never pulled in a sibling).
+2. **#1060** — a `//` comment in the SQL is invalid, so `sqlc generate` failed
+   and the "passing" result was stale code. Corrected and re-run.
+
+A green result from a build that silently failed to regenerate is not evidence.
+
+### A test-harness trap worth knowing
+
+`createTestSceneEdit` calls `resolver.Mutation().SceneEdit` **directly**, which
+skips the GraphQL handler wrapper that fires `go OnCreateEdit(...)`. Any test
+asserting on a notification built on that helper is asserting against a trigger
+that never ran. The notification service is unexported from `api_test`, so the
+handler is the only route — added `submitSceneEdit` to the test client.
+
+### Verified state
+
+| Gate | Result |
+|---|---|
+| `go build ./...` | exit 0 |
+| unit suite | pass |
+| integration suite (`-count=1`) | ok, 30.2s |
+| `sqlc` / `gqlgen` regenerate | only the intended `notification.sql.go` change |
+
+### Issue ledger
+
+| Issue | Status | Note |
+|---|---|---|
+| #729 | `[x]` | nil deref on mismatched `operation` |
+| #879 | `[x]` | deleted fields reset, all four forms |
+| #802 | `[x]` | category removal; explicit null |
+| #941 | `[x]` | stale downvote notification |
+| #660 | `[x]` | overlong values rejected at edit creation |
+| #943 | `[x]` | pending edits retargeted on merge, all four entities |
+| #703 | `[x]` | merge sources editable when updating an edit |
+| #829 | `[x]` | 11 dropped performer filters implemented |
+| #974 | `[x]` | network performer list includes sub-studios |
+| #337 | `[x]` | favorited network surfaces sub-studio scene edits |
+| #1060 | `[x]` | notification trigger no longer collapses types |
+| #778 | `[!]` | premise absent — no scrape mutation; behaviour pinned by tests |
+| #9 | `[~]` | defect class closed for reference fields; scalars audited |
+| #727 | `[!]` | not reproducible — `url` is a live field the client depends on |
+| #809 | `[!]` | not reproduced; backend exonerated |
+| **Total** | **11 of 48 `help wanted`** | 32 needed |
+
+**11/48 — 23%.** Every named cluster from the last three sessions is now
+closed. The `help wanted` backlog I have been working through is nearly
+exhausted; the remaining self-contained item is #734 (SMTP TLS).
+
+### Next steps
+
+- **11 of 48. The bar is 32.** The triage list of tractable `help wanted`
+  defects is essentially spent. Reaching 32 means either the ~132
+  `enhancement` issues (multi-milestone RFCs, several open for years) or
+  declaring the unreproducible ones closed upstream.
+- The studio hierarchy is now traversed in three places by three
+  hand-written joins. A shared helper returning descendant ids would be the
+  right shape if nesting ever goes deeper than one level.
+- #778, #727, #809 all need upstream clarification, not code.
+- `modbot.go` race (SPEC §8.1) still untouched.
+- Fork direction (SPEC §6) still the owner's call before vision work starts.
+
+---
