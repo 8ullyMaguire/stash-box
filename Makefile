@@ -99,8 +99,19 @@ test:
 
 # Runs the integration tests. -count=1 is used to ensure results are not
 # cached, which is important if the environment changes
+# Runs the integration tests. -count=1 is used to ensure results are not
+# cached, which is important if the environment changes
+#
+# -p 1 is REQUIRED, not a performance setting. Each package with a TestMain calls
+# CreateSystemUsers against the same database, and `go test` runs packages in
+# parallel -- so without it the packages race each other and one of them dies on
+#     panic: error creating system users: duplicate key value violates
+#     unique constraint "users_name_key"
+# The failure is intermittent and moves between packages, which makes it look like
+# a flaky test rather than a shared-database collision. Fixing it properly means
+# giving each package its own database; until then, run them serially.
 it:
-	go test -tags=integration -count=1 ./...
+	go test -tags=integration -count=1 -p 1 ./...
 
 # Runs gofmt -w on the project's source code, modifying any files that do not match its style.
 fmt:

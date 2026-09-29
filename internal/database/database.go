@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"embed"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -20,10 +21,7 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
-const (
-	postgresDriver = "postgres"
-	schemaVersion  = 75
-)
+const postgresDriver = "postgres"
 
 //go:embed migrations/postgres/*.sql
 var migrationsFS embed.FS
@@ -110,13 +108,20 @@ func runMigrations(databasePath string) error {
 
 	m.Log = &migrateLogger{}
 
-	databaseSchemaVersion, _, _ := m.Version()
-	stepNumber := schemaVersion - databaseSchemaVersion
-	if stepNumber != 0 {
-		err = m.Steps(int(stepNumber))
-		if err != nil {
-			return fmt.Errorf("failed to run database migrations: %w", err)
-		}
+	// Migrate to the latest available version, rather than to a hardcoded one.
+	//
+	// This used to subtract a constant `schemaVersion` from the database's
+	// current version and step by the difference. That silently skipped every
+	// migration above the constant: the constant was 75, so migration 76 was
+	// parsed, embedded, shipped and then never applied — in every environment,
+	// with no error. `migrate.Up` is both simpler and correct; it walks to the
+	// newest migration the source actually contains.
+	//
+	// The constant is gone on purpose. Deriving the target from the filesystem
+	// means a new migration cannot be forgotten, and the failure mode of the old
+	// code (silently doing less than it appears to) is not one worth keeping.
+	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
+		return fmt.Errorf("failed to run database migrations: %w", err)
 	}
 
 	return nil
