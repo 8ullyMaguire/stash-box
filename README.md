@@ -1,3 +1,74 @@
+# Stash Box
+
+A metadata-first, discovery-first, preservation-first fork of
+[stashapp/stash-box](https://github.com/stashapp/stash-box), MIT licensed.
+
+**Catalog everything. Curate together. Discover everywhere. Preserve forever.**
+
+Every instance is its own portal, community, and archive — but instances see
+each other, peer based on taste-profile similarity, and help each other preserve
+content. Discovery is the default experience, not a search box. Low-trust users
+get rich metadata and snapshot collages to identify and curate; high-trust users
+who opt in unlock content viewing. Every contribution earns reputation.
+
+### Branches
+
+| Branch | Contents |
+|---|---|
+| `issue-fixes` | Upstream bug fixes only — publishable as PRs against `stashapp/stash-box` |
+| `master` | `issue-fixes` plus the feature roadmap. Always a descendant, so the merge direction is one-way |
+
+### What's built here
+
+Phase 1–2 complete, Phase 3 in progress:
+
+- **Trust levels** — recomputed from event rows, never tallied into a column
+- **Elo / Glicko-2** ranking with personal taste fingerprints
+- **Snapshot collages** and the **identification board**
+- **Completion scores**, **curation quests**, bounties, XP, derived badges, streaks
+- **Directory** for sites and studios, with user reviews
+- **Content access gate** — five conditions as a conjunction, never a disjunction
+- **Webhooks** — SSRF-guarded targets, HMAC-SHA256 signatures, replay windows
+
+### Security work worth knowing about
+
+These are the parts that get found by an exploit rather than by a failing test,
+so they are written first and mutation-tested before any service code exists:
+
+- **Webhook SSRF** — scheme, host, userinfo and *every* resolved IP checked.
+  `169.254.169.254` (cloud credentials), CGNAT `100.64/10`, and
+  `::ffff:127.0.0.1` (IPv4-mapped loopback) are all rejected. Re-validated on
+  **every delivery attempt**, because a hostname that resolves publicly at
+  registration resolves privately at send time.
+- **Webhook signatures** — `hmac.Equal`, not `==`; the timestamp is inside the
+  signed material so a captured delivery cannot be replayed.
+- **Content access** — the draft spec writes five conditions as a disjunction,
+  which makes the weakest control the effective one. Implemented as a
+  conjunction: a vanguard or admin override substitutes for the *level* check
+  and nothing else.
+
+### Testing
+
+`make it` runs the integration suite serially. Every security-critical check has
+a mutation test that proves the test can fail.
+
+## Documentation
+
+- `docs/SPEC.md` — the specification, including every rejection and its reasoning
+- `docs/plan/` — one plan file per feature, each executable by an LLM with no prior context
+- `docs/track/WORKLOG.md` — the session log, including the mistakes
+
+## License
+
+MIT, as upstream.
+
+
+---
+
+## Upstream documentation
+
+Everything below is upstream's README, unmodified.
+
 # stash-box
 
 [![Build](https://github.com/stashapp/stash-box/actions/workflows/build.yml/badge.svg?branch=master&event=push)](https://github.com/stashapp/stash-box/actions/workflows/build.yml)
