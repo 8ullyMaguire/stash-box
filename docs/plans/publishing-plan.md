@@ -4,6 +4,27 @@ Written at the request: "on next clean checkpoint I want to push to github with
 issue solving fork as a branch and the one that not only solves the issues but
 implements new features from the spec as main branch".
 
+## EXECUTED 2026-09-29 — both branches now exist
+
+The recommendation below was written on 2026-09-29 and **not acted on for 45
+commits**. It is now real:
+
+    issue-fixes   b6af8c80   48 issue fixes + 3 build fixes   (publishable upstream)
+    master        d9b8d2be   issue-fixes + 44 feature commits (the roadmap)
+
+`master` was rebased onto `issue-fixes` (44/44, one Makefile conflict resolved in
+favour of `issue-fixes`). `issue-fixes` is an ancestor of `master`, so the merge
+direction is one-way and the roadmap can never remove an upstream fix.
+
+**The split was mechanical; verifying it was not.** Running `issue-fixes`'s own
+suite — rather than assuming a branch frozen at commit 48 was green — found three
+pre-existing upstream defects that master had been masking, including
+`make it` running the integration packages in parallel against one database. Full
+detail and reproduction in `docs/track/WORKLOG.md` session 43.
+
+Both branches verified: `issue-fixes` 12/12 integration on three consecutive
+runs, `master` 25/25.
+
 ## Current state, verified 2026-09-29
 
     local branch:   master

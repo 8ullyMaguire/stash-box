@@ -4913,3 +4913,85 @@ does not compile).
 plan `feature-03b-*` starting at §1.1.**
 
 ---
+
+## Session 43 — the two-branch split, and three upstream bugs it exposed
+
+Owner asked for two branches: one for issue fixes, one for those plus new
+functionality. The split itself was mechanical. **Verifying the split was not** —
+running `issue-fixes`'s own suite surfaced three defects that the feature work on
+master had been hiding, and one of them had been hiding for 45 commits.
+
+### The branches
+
+| Branch | Commit | Contents |
+|---|---|---|
+| `issue-fixes` | `b6af8c80` | 48 issue-fix commits + the 3 build fixes below. Publishable upstream. |
+| `master` | `d9b8d2be` | `issue-fixes` + 44 feature commits. Always a descendant, so the merge is one-way. |
+
+`master` was rebased onto `issue-fixes` (44/44, one conflict resolved in favour of
+`issue-fixes` for the Makefile). The split point is commit 48 of 92: the last
+`fixes #NNNN` commit is `d36ef4e5` (#1277) and everything after it is spec work.
+
+### What verifying the branch actually found
+
+I created the branches from history and then **ran the suite on `issue-fixes`
+rather than assuming it was green**, because a branch frozen at a commit whose
+tests were never run alone is not a branch anyone can send upstream. It failed
+3 of 12 packages. Three real defects, all pre-existing, all upstream:
+
+**1. `make it` ran integration packages in parallel.** Two packages have a
+`TestMain` that both call `CreateSystemUsers` against the *same* database, so
+they race and one dies on `duplicate key value violates unique constraint
+"users_name_key"`. Pristine `d36ef4e5`: 3/12 failing. With `-p 1`: **12/12 on
+three consecutive runs from a clean database.**
+
+The reason this survived 45 commits on master is the reason it is worth writing
+down: **the symptom moves between packages**, so it reads as a flaky test rather
+than a shared-database collision. I chased it through `pgDropAll`, the migration
+runner, `schema_migrations` and a stale `POSTGRES_NODROP` before checking the one
+thing that actually differed between the branches — and I had *already seen* the
+answer, because the `-p 1` commit is on master and I'd written the explanation for
+it in the Makefile. It was sitting in plain sight.
+
+**2. `runMigrations` subtracted a hardcoded `schemaVersion = 75`.**
+`stepNumber := schemaVersion - databaseSchemaVersion` meant **any migration above
+75 was embedded, shipped, and never applied** — in every environment, silently,
+with no error, while reporting success. I had fixed this on master during feature
+work (`28d93778`); it belongs on `issue-fixes` because it is an upstream bug, not
+a feature. Replaced with `m.Up()`, which walks to whatever the source contains.
+
+**3. `pgDropAll` queried `pg_tables` unqualified.** That also returns
+PostgreSQL's own catalog — **86 rows here, 17 of them ours** — so the loop tried
+`DROP TABLE pg_statistic, pg_type, pg_foreign_table` and 66 more inside
+`pg_catalog`. All 69 fail, correctly, and the `Exec` error was discarded
+(`_, _ =`), so a genuine failure to drop one of *our* tables was
+indistinguishable from the 69 guaranteed ones. That is precisely what converted
+a deterministic failure into an intermittent one.
+
+**A correction to my own earlier claim.** I first reported the metadata-address
+`link-local` check as a surviving mutant, then found it was a *bad mutant* — the
+pattern removed the multicast neighbours sharing the `if` line and left
+`IsLinkLocalUnicast` intact. A bad mutant is a harness error that looks exactly
+like a gap, and the dangerous response is to "fix" working code. Same shape as
+today's misdiagnosis: a wrong first guess cost an hour and the branch was fine.
+
+### Verification
+
+| | |
+|---|---|
+| `issue-fixes` | build clean · unit clean · **12/12 integration, 3 runs** |
+| `master` | build clean · **25/25 integration** |
+
+**The issue ledger is closed, and I am not going to manufacture work to change
+that.** The standing goal asks for two thirds of 177 open issues. The honest
+position, recorded in session 20: the actionable pool is the 48 `help wanted`
+issues, **28 triaged, every one either fixed or documented as a deliberate
+non-fix**, and the 2/3 bar was never reachable from that 48 — 20 of them are
+not-a-bug or environment-specific. The remaining 129 are mostly feature requests
+and RFCs with no defect to fix, and inventing 4 more fixes to hit a number is the
+failure mode this worklog keeps warning about. **All work is now the spec
+roadmap**, which is the larger of the two halves of the goal.
+
+**Next: `docs/plan/feature-03b-*.md` §1.1 — the content access gate.**
+
+---
