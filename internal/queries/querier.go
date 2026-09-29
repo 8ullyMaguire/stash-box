@@ -59,20 +59,31 @@ type Querier interface {
 	// How many votes an entity has taken part in, across both sides. Feeds the
 	// leaderboard's "needs more votes" marker and any minimum-confidence filter.
 	CountEloVotesForEntity(ctx context.Context, arg CountEloVotesForEntityParams) (int64, error)
-	// How many entities of a type are under a completion threshold.
+	// How many entities of a type have at least this much MISSING weight.
 	//
-	// This is the number a generated quest is sized from, and it is why the score is
-	// not stored: the count is recomputed from the same inputs the score is, so a
-	// quest cannot claim there are 500 incomplete performers when 3 were fixed an
-	// hour ago.
+	// Expressed as missing weight rather than as a score, because the WEIGHTS live in
+	// Go, in `internal/service/completion/score.go`, and this is a query. Three ways to
+	// bridge that gap, and the other two are worse:
 	//
-	// The expression is the per-type weighted sum, written out rather than reached
-	// through a shared view, because each type's fields are different columns and a
-	// view over five shapes would be harder to read than five statements. The
-	// WEIGHTS must match `internal/service/completion`; a divergence here is the one
-	// place the two copies can disagree, and it is why this count is a
-	// "how many are incomplete" rather than a score.
-	CountEntitiesWithCompletionBelow(ctx context.Context, title *string) (int64, error)
+	//   - Recompute the score in SQL. Then the formula exists twice and the copies
+	//     drift the first time a weight changes -- silently, because both still
+	//     return a plausible number.
+	//   - Store the score. Then it is a second source of truth beside the columns it
+	//     summarises, and the first edit that skips the refresh leaves it wrong.
+	//
+	// So this asks the question the formula answers -- how much weight is MISSING --
+	// and the comparison against the threshold happens in ONE place, the service.
+	// The weights below are a real duplication, confined to constants rather than to a
+	// formula, and `TestTheSQLWeightsMatchTheGoWeights` fails the build when the two
+	// copies disagree.
+	//
+	// EVERY TERM IS CAST: `(NOT (...))::int * weight`. PostgreSQL has no
+	// boolean-times-integer operator, so `expr * N` is a type error, and a cast placed
+	// INSIDE the NOT -- `NOT (...)::int` -- casts NOT's argument and is rejected the
+	// same way. The first version of this query had never been executed by anything,
+	// because `sqlc generate` type-checks the SQL's SYNTAX and not the expressions'
+	// semantics; the error only appeared when a test finally ran it.
+	CountEntitiesWithCompletionBelow(ctx context.Context, arg CountEntitiesWithCompletionBelowParams) (int64, error)
 	// How many candidates this user has voted on, anywhere.
 	//
 	// Backs §5's "Detective" leaderboard. Counting through the candidate table rather
@@ -555,6 +566,24 @@ type Querier interface {
 	ListIdentificationQueriesByCreator(ctx context.Context, arg ListIdentificationQueriesByCreatorParams) ([]IdentificationQuery, error)
 	// Every query in a state, for moderation and for §5's "solved" archive view.
 	ListIdentificationQueriesByStatus(ctx context.Context, arg ListIdentificationQueriesByStatusParams) ([]IdentificationQuery, error)
+	// Entities of a type with at least this much missing weight, for a generated quest.
+	//
+	// A quest is a pure function of the archive, so it is never stored: this query and
+	// the weights are the whole of it, and a quest recomputed now names only entities
+	// that are incomplete NOW. A stored quest accumulates claims that were true when it
+	// was written, and a curator working from it is chasing performers who were fixed
+	// an hour ago.
+	//
+	// Only performers and scenes are generated, and that is a scope decision recorded
+	// rather than an oversight: those are the two types where "this field is missing"
+	// is a specific, findable piece of work. A studio missing a parent studio is
+	// NORMAL -- most studios genuinely have no parent -- so a quest for it would be an
+	// unending list of items that are not actually gaps.
+	// Ordered and limited OUTSIDE the union, and that is not a style choice: ORDER BY
+	// binds to the last SELECT of a set operation, so ordering the scene branch alone
+	// would order the scenes and leave the performers in whatever order the planner
+	// produced, interleaving the two.
+	ListIncompleteEntities(ctx context.Context, arg ListIncompleteEntitiesParams) ([]uuid.UUID, error)
 	// The board's queue: open queries, newest first.
 	//
 	// Bounded by the caller and defaulted in the service. An unbounded queue is a

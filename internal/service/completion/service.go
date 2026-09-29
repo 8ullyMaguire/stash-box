@@ -96,16 +96,16 @@ func (s *Service) Scene(ctx context.Context, id uuid.UUID) (Result, error) {
 		return Result{}, notFoundOr(err)
 	}
 	return Score(EntityScene, map[Field]bool{
-		FieldName:            asBool(row.HasName),
-		FieldDuration:        asBool(row.HasDuration),
-		FieldStudio:          asBool(row.HasStudio),
-		FieldPerformers:      row.HasPerformers,
-		FieldDate:            asBool(row.HasDate),
-		FieldURLs:            row.HasUrls,
-		FieldTags:            row.HasTags,
-		FieldImage:           row.HasImage,
-		FieldDetails:         asBool(row.HasDetails),
-		FieldSnapshotCoverag: row.HasSnapshotCoverage,
+		FieldName:             asBool(row.HasName),
+		FieldDuration:         asBool(row.HasDuration),
+		FieldStudio:           asBool(row.HasStudio),
+		FieldPerformers:       row.HasPerformers,
+		FieldDate:             asBool(row.HasDate),
+		FieldURLs:             row.HasUrls,
+		FieldTags:             row.HasTags,
+		FieldImage:            row.HasImage,
+		FieldDetails:          asBool(row.HasDetails),
+		FieldSnapshotCoverage: row.HasSnapshotCoverage,
 	})
 }
 
@@ -161,36 +161,127 @@ func notFoundOr(err error) error {
 	return err
 }
 
-// COVERAGE NOTE, written here because the unit tests in this package cannot reach
-// the code above and a green suite would otherwise imply they do.
+// CountIncomplete counts entities of a type with at least this much missing
+// weight.
 //
-// `asBool` is fully mutation-checked by `asbool_test.go`. The five
-// `Performer`/`Scene`/`Studio`/`Site`/`Tag` methods are NOT reachable from any test
-// in this file: they take a context and a uuid and read the database, and this
-// package has no database. Five mutations demonstrated that gap rather than
-// asserting it -- every one of them SURVIVED this package's tests:
+// The threshold is MISSING weight rather than a score, and that is the whole
+// point of the query's shape: the weights live here, in Go, and the query
+// duplicates them as SQL constants. Expressing the question as missing weight lets
+// the comparison happen in one place -- this function -- so there is one number
+// that decides, even though two places hold the arithmetic.
 //
-//   a scene's snapshot coverage read from has_image   -> SURVIVES
-//   a scene's duration and studio swapped             -> SURVIVES
-//   a performer's birthdate read from their country    -> SURVIVES
-//   a performer's aliases read from their urls         -> SURVIVES
-//   a scene's performers read from its tags            -> SURVIVES
-//   a studio's parent read from its image              -> SURVIVES
+// `below` is a score in the caller's terms (0-100) and is INVERTED here, because
+// a caller asking "how many are below 50" is thinking in scores and a query
+// counting missing weight is thinking in the other direction. The inversion is
+// here rather than at each call site so a caller cannot get the sense wrong: an
+// inverted threshold counts the entities you did not ask for, and the number looks
+// entirely plausible.
 //
-// All six are real bugs, and none is visible from a pure unit test, because the
-// FORMULA is correct and only the WIRING is wrong. The formula tests pass for
-// exactly the wrong reason here: they hand the scorer a map of booleans it
-// believes, and a scorer that maps the wrong column to the wrong field is
-// perfectly self-consistent when handed a map.
+// Out-of-range thresholds are clamped rather than refused. `below = 0` means "every
+// entity" and `below = 100` means "none", and both are legitimate -- "how complete
+// is this archive overall" is the question an operator most wants answered. A
+// refusal would make the most useful question the one you cannot ask.
+func (s *Service) CountIncomplete(ctx context.Context, entityType EntityType, below int) (int, error) {
+	total, err := TotalWeight(entityType)
+	if err != nil {
+		return 0, err
+	}
+	if below < 0 {
+		below = 0
+	}
+	if below > 100 {
+		below = 100
+	}
+	// An entity is incomplete iff score < below, i.e. missing > total*(100-below)/100.
+	// The query tests `missing >= minMissing`, so minMissing must be the SMALLEST
+	// missing weight that is strictly above the boundary: floor(boundary) + 1.
+	//
+	// The +1 is the whole subtlety and my first version got it wrong. With
+	// `(total*(100-below)+99)/100` a threshold of 50 gives minMissing 45, and an
+	// entity missing exactly 45 of 90 scores exactly 50 -- which is not below 50,
+	// and would be counted. Every entity sitting exactly on the boundary was
+	// reported as needing work.
+	//
+	// The two degenerate cases are the ones that prove it, because they are the
+	// ones a caller actually asks:
+	//
+	//   below = 0   -> boundary = total, minMissing = total+1. Nothing can be
+	//                  missing that much, so the count is 0. Correct: no entity
+	//                  scores below 0.
+	//   below = 100 -> boundary = 0, minMissing = 1. An entity missing at least
+	//                  one weight-unit counts, which is every incomplete one.
+	//                  Correct: only a complete entity scores 100.
+	//
+	// I had these two the wrong way round in the test, which is how the bug
+	// surfaced: "below 0 counts everything" is false, and no amount of staring at
+	// the formula would have shown it as clearly as writing the two extremes down.
+	minMissing := minMissingWeight(total, below)
+
+	count, err := s.queries.CountEntitiesWithCompletionBelow(ctx,
+		queries.CountEntitiesWithCompletionBelowParams{
+			EntityType: string(entityType),
+			MinMissing: minMissing,
+		})
+	if err != nil {
+		return 0, err
+	}
+	return int(count), nil
+}
+
+// ListIncomplete returns incomplete entity ids for a generated quest, one page at
+// a time.
 //
-// Three of the six needed a second pass even in the integration test, and all three
-// were the same mistake: a column never set to TRUE cannot be distinguished from
-// any other column never set to TRUE. The first version of the fixture left
-// aliases, tags and studio-parents all false, so reading one from another changed
-// nothing observable. The fix is a fixture that sets every column to a
-// DISTINGUISHABLE value -- some present, some absent, never both-or-neither.
+// Paged by `afterID` rather than by OFFSET, because OFFSET re-scans every skipped
+// row and a quest queue is read repeatedly -- the fifth page of a quest list would
+// be five times the work of the first. Keyset pagination also does not skip or
+// repeat rows when an entity is fixed mid-walk, which OFFSET does: fixing three
+// performers while paging shifts everything after them by three, and the caller
+// silently sees two entities twice.
 //
-// So the mapping from row column to field is proved in
-// `internal/api/completion_integration_test.go`, and all six mutations die there.
-// This note is here so the gap is not mistaken for coverage when someone reads the
-// unit mutation results in isolation.
+// The returned ids carry no field information: a quest asks "these performers are
+// missing something" and the caller scores each one to find out what. Returning the
+// missing fields here would mean a second read of every entity, and the fields are
+// available from the per-entity score the client already fetches.
+func (s *Service) ListIncomplete(ctx context.Context, entityType EntityType, minMissing int, afterID *uuid.UUID, pageSize int) ([]uuid.UUID, error) {
+	if pageSize <= 0 || pageSize > 200 {
+		pageSize = 50
+	}
+	if _, err := TotalWeight(entityType); err != nil {
+		return nil, err
+	}
+	rows, err := s.queries.ListIncompleteEntities(ctx,
+		queries.ListIncompleteEntitiesParams{
+			EntityType: string(entityType),
+			MinMissing: minMissing,
+			AfterID:    zeroUUID(afterID),
+			PageSize:   pageSize,
+		})
+	if err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+// minMissingWeight is the smallest missing weight that counts as incomplete at a
+// given threshold.
+//
+// EXTRACTED rather than inlined so the tests measure the real function. An earlier
+// version had the arithmetic inline in CountIncomplete and the test re-derived it
+// from the same formula, which is a tautology: the test and the code change
+// together or not at all, and the off-by-one this extracted function now documents
+// would have been invisible to a test that agreed with a buggy implementation.
+func minMissingWeight(total, below int) int {
+	return total*(100-below)/100 + 1
+}
+
+// zeroUUID is the "no cursor" value for a keyset page.
+//
+// The zero uuid rather than a nullable parameter, because `id > NULL` is NULL and
+// the comparison would match nothing -- a keyset query with a null cursor returns
+// an empty page, which looks exactly like "there is nothing left to do".
+func zeroUUID(id *uuid.UUID) uuid.UUID {
+	if id == nil {
+		return uuid.Nil
+	}
+	return *id
+}

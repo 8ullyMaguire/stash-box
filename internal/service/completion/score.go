@@ -66,29 +66,29 @@ type Field string
 // field is a user-facing string: a quest built from a typo'd field name is a quest
 // nobody can complete, and the failure is invisible in the score.
 const (
-	FieldName            Field = "name"
-	FieldAliases         Field = "aliases"
-	FieldGender          Field = "gender"
-	FieldBirthdate       Field = "birthdate"
-	FieldEthnicity       Field = "ethnicity"
-	FieldCountry         Field = "country"
-	FieldEyeColor        Field = "eye_color"
-	FieldHairColor       Field = "hair_color"
-	FieldHeight          Field = "height"
-	FieldMeasurements    Field = "measurements"
-	FieldCareerDates     Field = "career_dates"
-	FieldDetails         Field = "details"
-	FieldURLs            Field = "urls"
-	FieldImage           Field = "image"
-	FieldDate            Field = "date"
-	FieldStudio          Field = "studio"
-	FieldSite            Field = "site"
-	FieldPerformers      Field = "performers"
-	FieldTags            Field = "tags"
-	FieldDuration        Field = "duration"
-	FieldSnapshotCoverag Field = "snapshot_coverage"
-	FieldParentStudio    Field = "parent_studio"
-	FieldRegex           Field = "regex"
+	FieldName             Field = "name"
+	FieldAliases          Field = "aliases"
+	FieldGender           Field = "gender"
+	FieldBirthdate        Field = "birthdate"
+	FieldEthnicity        Field = "ethnicity"
+	FieldCountry          Field = "country"
+	FieldEyeColor         Field = "eye_color"
+	FieldHairColor        Field = "hair_color"
+	FieldHeight           Field = "height"
+	FieldMeasurements     Field = "measurements"
+	FieldCareerDates      Field = "career_dates"
+	FieldDetails          Field = "details"
+	FieldURLs             Field = "urls"
+	FieldImage            Field = "image"
+	FieldDate             Field = "date"
+	FieldStudio           Field = "studio"
+	FieldSite             Field = "site"
+	FieldPerformers       Field = "performers"
+	FieldTags             Field = "tags"
+	FieldDuration         Field = "duration"
+	FieldSnapshotCoverage Field = "snapshot_coverage"
+	FieldParentStudio     Field = "parent_studio"
+	FieldRegex            Field = "regex"
 )
 
 // ValidFor reports whether a field is one this entity type is scored on.
@@ -152,7 +152,21 @@ var (
 
 		{FieldURLs, 10},
 		{FieldImage, 10},
-		{FieldDetails, 10},
+
+		// NO details field, because `performers` has no details column. Same
+		// reasoning as the studio list below, and it was missed there first:
+		// `Score` treats an absent map key as missing, so a weight with no
+		// matching column is a field that is ALWAYS reported missing and can
+		// NEVER be filled. Every performer in the archive would sit permanently
+		// below 80 with "details" in its missing list, a quest would be generated
+		// asking for it, and no curator could ever complete that quest.
+		//
+		// Found by the SQL/Go weight parity test, which is the only test that
+		// compares the scorer's field list against the query's terms. The unit
+		// tests could not see it: they hand `Score` a map, and a map with no
+		// details key is a perfectly ordinary input that the formula handles
+		// correctly. The bug is in the weight LIST, which no unit test consults
+		// against the schema.
 	}
 
 	sceneFields = []fieldWeight{
@@ -185,7 +199,7 @@ var (
 		// weighted as a whole: a scene with 3 of the 12 frames a collage needs is
 		// not meaningfully more complete than one with none, and a per-frame score
 		// would make a barely-started collage look nearly finished.
-		{FieldSnapshotCoverag, 10},
+		{FieldSnapshotCoverage, 10},
 	}
 
 	// A studio is name + urls + logo + parent. There is no details column, so
@@ -331,6 +345,35 @@ func TotalWeight(entityType EntityType) (int, error) {
 		total += fw.Weight
 	}
 	return total, nil
+}
+
+// WeightFor returns the weight a field carries for an entity type.
+//
+// Exists because `fieldWeight` is unexported and there was otherwise NO way to
+// read a single weight from outside the package -- TotalWeight gives the sum and
+// Fields gives the names, and nothing in between. That gap had a real cost: the
+// test that checks the SQL count query against these weights could only compare
+// TOTALS, so a weight that moved between two fields without changing the total
+// (`performer.country` 8 -> 3 and `performer.ethnicity` 3 -> 8) passed silently,
+// and the count query's threshold was then wrong for every row of that type.
+//
+// A sum cannot see a redistribution. A per-field comparison can, and this is the
+// accessor that makes it writable.
+func WeightFor(entityType EntityType, field Field) (int, error) {
+	spec, ok := specs[entityType]
+	if !ok {
+		return 0, fmt.Errorf("%w: %q", ErrUnknownEntityType, entityType)
+	}
+	for _, fw := range spec {
+		if fw.Field == field {
+			return fw.Weight, nil
+		}
+	}
+	// Wrapped in ErrUnknownEntityType because that is the sentinel callers already
+	// handle, and a caller that gets this wrong is asking about a field/type pair
+	// that does not exist -- the same class of mistake as an unknown type.
+	return 0, fmt.Errorf("%w: %q is not scored for a %q",
+		ErrUnknownEntityType, field, entityType)
 }
 
 // Fields returns the fields an entity type is scored on, in weight order.

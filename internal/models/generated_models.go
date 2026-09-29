@@ -123,6 +123,35 @@ type CommentVotedEdit struct {
 
 func (CommentVotedEdit) IsNotificationData() {}
 
+// How complete an entity is, and what is missing.
+//
+// The `score` is for a progress bar and `missing` is for the quest that fills it.
+// They come from one pass so they can never disagree, and `missing` is not optional
+// nicety: a bare number tells a curator THAT something is missing and not WHAT, and
+// "improve this performer" is not a task anyone can act on.
+type Completion struct {
+	// What kind of entity this is a score for.
+	EntityType EntityType `json:"entityType"`
+	// 0-100.
+	//
+	// Rounded, and the same for every reader of the same row. A score that differed
+	// between two clients looking at one performer would be a bug nobody could
+	// reproduce.
+	Score int `json:"score"`
+	// The fields that are absent, most valuable first.
+	//
+	// A field that is present but UNCERTAIN counts as absent: a specific wrong claim
+	// reads as an answer, so nobody goes looking for the real value. A performer whose
+	// birthdate is recorded as "1990" is in this list.
+	Missing []string `json:"missing"`
+	// The weight of every scored field, and the weight earned so far.
+	//
+	// Exposed so a client can render "55 of 110" without keeping its own copy of the
+	// weights, which would be a second source of truth for the same numbers.
+	Total  int `json:"total"`
+	Earned int `json:"earned"`
+}
+
 type DateCriterionInput struct {
 	Value    string            `json:"value"`
 	Modifier CriterionModifier `json:"modifier"`
@@ -1630,6 +1659,71 @@ func (e *EloEntityType) UnmarshalJSON(b []byte) error {
 }
 
 func (e EloEntityType) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+// What kind of entity a completion score is for.
+//
+// The five types SPEC §7.7 names. Closed in the schema rather than a free string so
+// a client cannot ask for a score of a kind that does not exist.
+type EntityType string
+
+const (
+	EntityTypePerformer EntityType = "performer"
+	EntityTypeScene     EntityType = "scene"
+	EntityTypeStudio    EntityType = "studio"
+	EntityTypeSite      EntityType = "site"
+	EntityTypeTag       EntityType = "tag"
+)
+
+var AllEntityType = []EntityType{
+	EntityTypePerformer,
+	EntityTypeScene,
+	EntityTypeStudio,
+	EntityTypeSite,
+	EntityTypeTag,
+}
+
+func (e EntityType) IsValid() bool {
+	switch e {
+	case EntityTypePerformer, EntityTypeScene, EntityTypeStudio, EntityTypeSite, EntityTypeTag:
+		return true
+	}
+	return false
+}
+
+func (e EntityType) String() string {
+	return string(e)
+}
+
+func (e *EntityType) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = EntityType(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid EntityType", str)
+	}
+	return nil
+}
+
+func (e EntityType) MarshalGQL(w io.Writer) {
+	fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *EntityType) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e EntityType) MarshalJSON() ([]byte, error) {
 	var buf bytes.Buffer
 	e.MarshalGQL(&buf)
 	return buf.Bytes(), nil

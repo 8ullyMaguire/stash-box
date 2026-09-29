@@ -1,0 +1,111 @@
+# Completion scores (SPEC §7.7).
+#
+# One type, five places it appears. A performer, a scene, a studio, a site and a
+# tag all get the same shape, because §7.7's "progress bars everywhere" only works
+# if the bar is the same component everywhere -- a client with five near-identical
+# types has five progress-bar implementations and five chances to render one of
+# them wrong.
+
+"""
+How complete an entity is, and what is missing.
+
+The `score` is for a progress bar and `missing` is for the quest that fills it.
+They come from one pass so they can never disagree, and `missing` is not optional
+nicety: a bare number tells a curator THAT something is missing and not WHAT, and
+"improve this performer" is not a task anyone can act on.
+"""
+type Completion {
+  """
+  What kind of entity this is a score for.
+  """
+  entityType: EntityType!
+
+  """
+  0-100.
+
+  Rounded, and the same for every reader of the same row. A score that differed
+  between two clients looking at one performer would be a bug nobody could
+  reproduce.
+  """
+  score: Int!
+
+  """
+  The fields that are absent, most valuable first.
+
+  A field that is present but UNCERTAIN counts as absent: a specific wrong claim
+  reads as an answer, so nobody goes looking for the real value. A performer whose
+  birthdate is recorded as "1990" is in this list.
+  """
+  missing: [String!]!
+
+  """
+  The weight of every scored field, and the weight earned so far.
+
+  Exposed so a client can render "55 of 110" without keeping its own copy of the
+  weights, which would be a second source of truth for the same numbers.
+  """
+  total: Int!
+  earned: Int!
+}
+
+"""
+What kind of entity a completion score is for.
+
+The five types SPEC §7.7 names. Closed in the schema rather than a free string so
+a client cannot ask for a score of a kind that does not exist.
+"""
+enum EntityType {
+  performer
+  scene
+  studio
+  site
+  tag
+}
+
+extend type Performer {
+  """
+  How complete this performer is.
+
+  Reads the database on demand rather than being stored, so it is correct the
+  moment an edit lands rather than whenever something remembered to refresh it.
+  """
+  completion: Completion
+}
+
+extend type Scene {
+  """
+  How complete this scene is.
+
+  The heaviest scene field is `duration`, because the identification board and the
+  snapshot collage both need a time axis -- a scene with no duration is not merely
+  sparse, it cannot be identified.
+  """
+  completion: Completion
+}
+
+extend type Studio {
+  """How complete this studio is."""
+  completion: Completion
+}
+
+extend type Site {
+  """How complete this site is."""
+  completion: Completion
+}
+
+extend type Tag {
+  """How complete this tag is."""
+  completion: Completion
+}
+
+extend type Query {
+  """
+  How many entities of a type are below a completion threshold.
+
+  This is the number a generated quest is sized from, and it is why the score is
+  not stored: the count is recomputed from the same inputs, so a quest can never
+  claim there are 500 incomplete performers when three were fixed an hour ago.
+  """
+  countIncompleteEntities(entityType: EntityType!, below: Int!): Int!
+    @hasRole(role: READ)
+}

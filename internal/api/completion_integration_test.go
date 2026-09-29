@@ -122,7 +122,7 @@ func TestSceneCompletionReadsItsOwnColumns(t *testing.T) {
 	assert.Contains(t, result.Missing, completion.FieldStudio,
 		"this scene has no studio linked, and the studio column is a different "+
 			"column from the duration one")
-	assert.Contains(t, result.Missing, completion.FieldSnapshotCoverag,
+	assert.Contains(t, result.Missing, completion.FieldSnapshotCoverage,
 		"this scene has no snapshots at all, so it cannot have collage coverage")
 }
 
@@ -148,7 +148,7 @@ func TestSnapshotCoverageIsNotTheImageColumn(t *testing.T) {
 	result, err := s.Scene(t.Context(), scene)
 	require.NoError(t, err)
 
-	assert.Contains(t, result.Missing, completion.FieldSnapshotCoverag,
+	assert.Contains(t, result.Missing, completion.FieldSnapshotCoverage,
 		"a scene with no snapshots has no snapshot coverage, and reading that "+
 			"field from has_image would make any scene with a cover photo look "+
 			"collage-ready -- which is exactly what sends a curator to build a "+
@@ -174,7 +174,7 @@ func TestSnapshotCoverageIsAllOrNothing(t *testing.T) {
 	}
 	short, err := s.Scene(t.Context(), scene)
 	require.NoError(t, err)
-	assert.Contains(t, short.Missing, completion.FieldSnapshotCoverag,
+	assert.Contains(t, short.Missing, completion.FieldSnapshotCoverage,
 		"11 of the 12 frames a collage needs is not coverage; a half-finished "+
 			"collage is no collage, and scoring it as partial would fill a quest "+
 			"queue with scenes that are still barely started")
@@ -185,7 +185,7 @@ func TestSnapshotCoverageIsAllOrNothing(t *testing.T) {
 
 	enough, err := s.Scene(t.Context(), scene)
 	require.NoError(t, err)
-	assert.NotContains(t, enough.Missing, completion.FieldSnapshotCoverag,
+	assert.NotContains(t, enough.Missing, completion.FieldSnapshotCoverage,
 		"12 snapshots is a compliant collage, so the field is present")
 }
 

@@ -83,13 +83,17 @@ func TestPerformerWithOnlyABirthdateIsSeventeen(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	assert.Equal(t, 90, result.Total, "the hand-summed total of the performer weights")
+	assert.Equal(t, 80, result.Total,
+		"the hand-summed total of the performer weights. It was 90 until the "+
+			"details field was removed: `performers` has no details column, so "+
+			"that weight could never be earned and every performer was capped at "+
+			"80 with an unfillable gap in its missing list")
 	assert.Equal(t, 15, result.Earned)
-	assert.Equal(t, 17, result.Score, "15/90 rounds to 17")
+	assert.Equal(t, 19, result.Score, "15/80 rounds to 19")
 	assert.Equal(t, []Field{
 		FieldAliases, FieldGender, FieldEthnicity, FieldCountry,
 		FieldEyeColor, FieldHairColor, FieldHeight, FieldMeasurements,
-		FieldCareerDates, FieldURLs, FieldImage, FieldDetails,
+		FieldCareerDates, FieldURLs, FieldImage,
 	}, result.Missing,
 		"the missing list is in WEIGHT order, not alphabetical: the most valuable "+
 			"gap comes first so a quest built from it reads as a priority list")
@@ -147,7 +151,7 @@ func TestSnapshotCoverageIsOneFieldNotAPerFrameScore(t *testing.T) {
 
 	count := 0
 	for _, f := range fields {
-		if f == FieldSnapshotCoverag {
+		if f == FieldSnapshotCoverage {
 			count++
 		}
 	}
@@ -271,11 +275,15 @@ func TestScoringIsDeterministic(t *testing.T) {
 // the scene test); the point here is that the SAME rule gives 17 for 15/90 and
 // would give 16 for a truncating implementation.
 func TestRoundingIsHalfUp(t *testing.T) {
-	// 15/90 = 16.67 -> 17. A truncating implementation gives 16, so this single
+	// 15/80 = 18.75 -> 19. A truncating implementation gives 18, so this single
 	// assertion separates the two.
+	//
+	// Was 15/90 = 16.67 -> 17. Both totals round the same way, so the rounding
+	// rule was never what distinguished them -- the test just happened to survive
+	// the weight change, and the new pair is checked for exactly that reason.
 	result, err := Score(EntityPerformer, map[Field]bool{FieldBirthdate: true})
 	require.NoError(t, err)
-	assert.Equal(t, 17, result.Score, "16.67 must round UP to 17, not truncate to 16")
+	assert.Equal(t, 19, result.Score, "18.75 must round UP to 19, not truncate to 18")
 }
 
 func mustFields(t *testing.T, entityType EntityType) []Field {
@@ -369,7 +377,7 @@ func TestSceneFieldsAreTheOnesTheSchemaSupports(t *testing.T) {
 		FieldTags,
 		FieldImage,
 		FieldDetails,
-		FieldSnapshotCoverag,
+		FieldSnapshotCoverage,
 	}, got,
 		"the scene's scored fields are a claim about what a curator can fix, and "+
 			"a field the schema has no way to fill makes that claim false. The "+

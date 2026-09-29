@@ -104,6 +104,14 @@ type ComplexityRoot struct {
 		Comment func(childComplexity int) int
 	}
 
+	Completion struct {
+		Earned     func(childComplexity int) int
+		EntityType func(childComplexity int) int
+		Missing    func(childComplexity int) int
+		Score      func(childComplexity int) int
+		Total      func(childComplexity int) int
+	}
+
 	DownvoteOwnEdit struct {
 		Edit func(childComplexity int) int
 	}
@@ -434,6 +442,7 @@ type ComplexityRoot struct {
 		BreastType      func(childComplexity int) int
 		CareerEndYear   func(childComplexity int) int
 		CareerStartYear func(childComplexity int) int
+		Completion      func(childComplexity int) int
 		Country         func(childComplexity int) int
 		Created         func(childComplexity int) int
 		CupSize         func(childComplexity int) int
@@ -544,6 +553,7 @@ type ComplexityRoot struct {
 	}
 
 	Query struct {
+		CountIncompleteEntities        func(childComplexity int, entityType EntityType, below int) int
 		EloLeaderboard                 func(childComplexity int, entityType EloEntityType, limit *int) int
 		EloMatchup                     func(childComplexity int, entityType EloEntityType) int
 		EloRating                      func(childComplexity int, entityType EloEntityType, id uuid.UUID) int
@@ -663,6 +673,7 @@ type ComplexityRoot struct {
 
 	Scene struct {
 		Code           func(childComplexity int) int
+		Completion     func(childComplexity int) int
 		Created        func(childComplexity int) int
 		Date           func(childComplexity int) int
 		Deleted        func(childComplexity int) int
@@ -728,6 +739,7 @@ type ComplexityRoot struct {
 
 	Site struct {
 		Category    func(childComplexity int) int
+		Completion  func(childComplexity int) int
 		Created     func(childComplexity int) int
 		Description func(childComplexity int) int
 		Highlighted func(childComplexity int) int
@@ -770,6 +782,7 @@ type ComplexityRoot struct {
 	Studio struct {
 		Aliases      func(childComplexity int) int
 		ChildStudios func(childComplexity int) int
+		Completion   func(childComplexity int) int
 		Created      func(childComplexity int) int
 		Deleted      func(childComplexity int) int
 		ID           func(childComplexity int) int
@@ -799,6 +812,7 @@ type ComplexityRoot struct {
 	Tag struct {
 		Aliases     func(childComplexity int) int
 		Category    func(childComplexity int) int
+		Completion  func(childComplexity int) int
 		Created     func(childComplexity int) int
 		Deleted     func(childComplexity int) int
 		Description func(childComplexity int) int
@@ -1055,6 +1069,8 @@ type PerformerResolver interface {
 	MergedIntoID(ctx context.Context, obj *Performer) (*uuid.UUID, error)
 	Studios(ctx context.Context, obj *Performer, studioID *uuid.UUID) ([]PerformerStudio, error)
 	IsFavorite(ctx context.Context, obj *Performer) (bool, error)
+
+	Completion(ctx context.Context, obj *Performer) (*Completion, error)
 }
 type PerformerDraftResolver interface {
 	Image(ctx context.Context, obj *PerformerDraft) (*Image, error)
@@ -1121,6 +1137,7 @@ type QueryResolver interface {
 	QueryNotifications(ctx context.Context, input QueryNotificationsInput) (*QueryNotificationsResult, error)
 	GetUnreadNotificationCount(ctx context.Context) (*UnreadNotificationCount, error)
 	QueryModAudits(ctx context.Context, input ModAuditQueryInput) (*ModAuditQuery, error)
+	CountIncompleteEntities(ctx context.Context, entityType EntityType, below int) (int, error)
 	EloMatchup(ctx context.Context, entityType EloEntityType) (*EloMatchup, error)
 	EloRating(ctx context.Context, entityType EloEntityType, id uuid.UUID) (*EloRating, error)
 	EloLeaderboard(ctx context.Context, entityType EloEntityType, limit *int) (*EloLeaderboard, error)
@@ -1171,6 +1188,7 @@ type SceneResolver interface {
 	Edits(ctx context.Context, obj *Scene) ([]Edit, error)
 	Created(ctx context.Context, obj *Scene) (*time.Time, error)
 	Updated(ctx context.Context, obj *Scene) (*time.Time, error)
+	Completion(ctx context.Context, obj *Scene) (*Completion, error)
 }
 type SceneDraftResolver interface {
 	Studio(ctx context.Context, obj *SceneDraft) (SceneDraftStudio, error)
@@ -1202,6 +1220,7 @@ type SiteResolver interface {
 
 	Created(ctx context.Context, obj *Site) (*time.Time, error)
 	Updated(ctx context.Context, obj *Site) (*time.Time, error)
+	Completion(ctx context.Context, obj *Site) (*Completion, error)
 }
 type StudioResolver interface {
 	Aliases(ctx context.Context, obj *Studio) ([]string, error)
@@ -1215,6 +1234,7 @@ type StudioResolver interface {
 	Created(ctx context.Context, obj *Studio) (*time.Time, error)
 	Updated(ctx context.Context, obj *Studio) (*time.Time, error)
 	Performers(ctx context.Context, obj *Studio, input PerformerQueryInput) (*PerformerQuery, error)
+	Completion(ctx context.Context, obj *Studio) (*Completion, error)
 }
 type StudioEditResolver interface {
 	Parent(ctx context.Context, obj *StudioEdit) (*Studio, error)
@@ -1229,6 +1249,8 @@ type TagResolver interface {
 
 	Edits(ctx context.Context, obj *Tag) ([]Edit, error)
 	Category(ctx context.Context, obj *Tag) (*TagCategory, error)
+
+	Completion(ctx context.Context, obj *Tag) (*Completion, error)
 }
 type TagCategoryResolver interface {
 	Group(ctx context.Context, obj *TagCategory) (TagGroupEnum, error)
@@ -1365,6 +1387,37 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.CommentVotedEdit.Comment(childComplexity), true
+
+	case "Completion.earned":
+		if e.ComplexityRoot.Completion.Earned == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Completion.Earned(childComplexity), true
+	case "Completion.entityType":
+		if e.ComplexityRoot.Completion.EntityType == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Completion.EntityType(childComplexity), true
+	case "Completion.missing":
+		if e.ComplexityRoot.Completion.Missing == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Completion.Missing(childComplexity), true
+	case "Completion.score":
+		if e.ComplexityRoot.Completion.Score == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Completion.Score(childComplexity), true
+	case "Completion.total":
+		if e.ComplexityRoot.Completion.Total == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Completion.Total(childComplexity), true
 
 	case "DownvoteOwnEdit.edit":
 		if e.ComplexityRoot.DownvoteOwnEdit.Edit == nil {
@@ -3088,6 +3141,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Performer.CareerStartYear(childComplexity), true
+	case "Performer.completion":
+		if e.ComplexityRoot.Performer.Completion == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Performer.Completion(childComplexity), true
 	case "Performer.country":
 		if e.ComplexityRoot.Performer.Country == nil {
 			break
@@ -3644,6 +3703,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.PerformerStudio.Studio(childComplexity), true
 
+	case "Query.countIncompleteEntities":
+		if e.ComplexityRoot.Query.CountIncompleteEntities == nil {
+			break
+		}
+
+		args, err := ec.field_Query_countIncompleteEntities_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.CountIncompleteEntities(childComplexity, args["entityType"].(EntityType), args["below"].(int)), true
 	case "Query.eloLeaderboard":
 		if e.ComplexityRoot.Query.EloLeaderboard == nil {
 			break
@@ -4321,6 +4391,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Scene.Code(childComplexity), true
+	case "Scene.completion":
+		if e.ComplexityRoot.Scene.Completion == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Scene.Completion(childComplexity), true
 	case "Scene.created":
 		if e.ComplexityRoot.Scene.Created == nil {
 			break
@@ -4665,6 +4741,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Site.Category(childComplexity), true
+	case "Site.completion":
+		if e.ComplexityRoot.Site.Completion == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Site.Completion(childComplexity), true
 	case "Site.created":
 		if e.ComplexityRoot.Site.Created == nil {
 			break
@@ -4849,6 +4931,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Studio.ChildStudios(childComplexity), true
+	case "Studio.completion":
+		if e.ComplexityRoot.Studio.Completion == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Studio.Completion(childComplexity), true
 	case "Studio.created":
 		if e.ComplexityRoot.Studio.Created == nil {
 			break
@@ -4999,6 +5087,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Tag.Category(childComplexity), true
+	case "Tag.completion":
+		if e.ComplexityRoot.Tag.Completion == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Tag.Completion(childComplexity), true
 	case "Tag.created":
 		if e.ComplexityRoot.Tag.Created == nil {
 			break
@@ -5598,6 +5692,118 @@ func newExecutionContext(
 }
 
 var sources = []*ast.Source{
+	{Name: "../../graphql/schema/types/completion.graphql", Input: `# Completion scores (SPEC §7.7).
+#
+# One type, five places it appears. A performer, a scene, a studio, a site and a
+# tag all get the same shape, because §7.7's "progress bars everywhere" only works
+# if the bar is the same component everywhere -- a client with five near-identical
+# types has five progress-bar implementations and five chances to render one of
+# them wrong.
+
+"""
+How complete an entity is, and what is missing.
+
+The ` + "`" + `score` + "`" + ` is for a progress bar and ` + "`" + `missing` + "`" + ` is for the quest that fills it.
+They come from one pass so they can never disagree, and ` + "`" + `missing` + "`" + ` is not optional
+nicety: a bare number tells a curator THAT something is missing and not WHAT, and
+"improve this performer" is not a task anyone can act on.
+"""
+type Completion {
+  """
+  What kind of entity this is a score for.
+  """
+  entityType: EntityType!
+
+  """
+  0-100.
+
+  Rounded, and the same for every reader of the same row. A score that differed
+  between two clients looking at one performer would be a bug nobody could
+  reproduce.
+  """
+  score: Int!
+
+  """
+  The fields that are absent, most valuable first.
+
+  A field that is present but UNCERTAIN counts as absent: a specific wrong claim
+  reads as an answer, so nobody goes looking for the real value. A performer whose
+  birthdate is recorded as "1990" is in this list.
+  """
+  missing: [String!]!
+
+  """
+  The weight of every scored field, and the weight earned so far.
+
+  Exposed so a client can render "55 of 110" without keeping its own copy of the
+  weights, which would be a second source of truth for the same numbers.
+  """
+  total: Int!
+  earned: Int!
+}
+
+"""
+What kind of entity a completion score is for.
+
+The five types SPEC §7.7 names. Closed in the schema rather than a free string so
+a client cannot ask for a score of a kind that does not exist.
+"""
+enum EntityType {
+  performer
+  scene
+  studio
+  site
+  tag
+}
+
+extend type Performer {
+  """
+  How complete this performer is.
+
+  Reads the database on demand rather than being stored, so it is correct the
+  moment an edit lands rather than whenever something remembered to refresh it.
+  """
+  completion: Completion
+}
+
+extend type Scene {
+  """
+  How complete this scene is.
+
+  The heaviest scene field is ` + "`" + `duration` + "`" + `, because the identification board and the
+  snapshot collage both need a time axis -- a scene with no duration is not merely
+  sparse, it cannot be identified.
+  """
+  completion: Completion
+}
+
+extend type Studio {
+  """How complete this studio is."""
+  completion: Completion
+}
+
+extend type Site {
+  """How complete this site is."""
+  completion: Completion
+}
+
+extend type Tag {
+  """How complete this tag is."""
+  completion: Completion
+}
+
+extend type Query {
+  """
+  How many entities of a type are below a completion threshold.
+
+  This is the number a generated quest is sized from, and it is why the score is
+  not stored: the count is recomputed from the same inputs, so a quest can never
+  claim there are 500 incomplete performers when three were fixed an hour ago.
+  """
+  countIncompleteEntities(entityType: EntityType!, below: Int!): Int!
+    @hasRole(role: READ)
+}
+`, BuiltIn: false},
 	{Name: "../../graphql/schema/types/config.graphql", Input: `type StashBoxConfig {
   host_url: String!
   require_invite: Boolean!
@@ -8173,6 +8379,22 @@ func (ec *executionContext) childFields_ClusterSceneSubmission(ctx context.Conte
 	return nil, fmt.Errorf("no field named %q was found under type ClusterSceneSubmission", field.Name)
 }
 
+func (ec *executionContext) childFields_Completion(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "entityType":
+		return ec.fieldContext_Completion_entityType(ctx, field)
+	case "score":
+		return ec.fieldContext_Completion_score(ctx, field)
+	case "missing":
+		return ec.fieldContext_Completion_missing(ctx, field)
+	case "total":
+		return ec.fieldContext_Completion_total(ctx, field)
+	case "earned":
+		return ec.fieldContext_Completion_earned(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type Completion", field.Name)
+}
+
 func (ec *executionContext) childFields_Draft(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 	switch field.Name {
 	case "id":
@@ -8659,6 +8881,8 @@ func (ec *executionContext) childFields_Performer(ctx context.Context, field gra
 		return ec.fieldContext_Performer_created(ctx, field)
 	case "updated":
 		return ec.fieldContext_Performer_updated(ctx, field)
+	case "completion":
+		return ec.fieldContext_Performer_completion(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type Performer", field.Name)
 }
@@ -8873,6 +9097,8 @@ func (ec *executionContext) childFields_Scene(ctx context.Context, field graphql
 		return ec.fieldContext_Scene_created(ctx, field)
 	case "updated":
 		return ec.fieldContext_Scene_updated(ctx, field)
+	case "completion":
+		return ec.fieldContext_Scene_completion(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type Scene", field.Name)
 }
@@ -8901,6 +9127,8 @@ func (ec *executionContext) childFields_Site(ctx context.Context, field graphql.
 		return ec.fieldContext_Site_created(ctx, field)
 	case "updated":
 		return ec.fieldContext_Site_updated(ctx, field)
+	case "completion":
+		return ec.fieldContext_Site_completion(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type Site", field.Name)
 }
@@ -8987,6 +9215,8 @@ func (ec *executionContext) childFields_Studio(ctx context.Context, field graphq
 		return ec.fieldContext_Studio_updated(ctx, field)
 	case "performers":
 		return ec.fieldContext_Studio_performers(ctx, field)
+	case "completion":
+		return ec.fieldContext_Studio_completion(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type Studio", field.Name)
 }
@@ -9011,6 +9241,8 @@ func (ec *executionContext) childFields_Tag(ctx context.Context, field graphql.C
 		return ec.fieldContext_Tag_created(ctx, field)
 	case "updated":
 		return ec.fieldContext_Tag_updated(ctx, field)
+	case "completion":
+		return ec.fieldContext_Tag_completion(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type Tag", field.Name)
 }
@@ -10421,6 +10653,28 @@ func (ec *executionContext) field_Query___type_args(ctx context.Context, rawArgs
 	return args, nil
 }
 
+func (ec *executionContext) field_Query_countIncompleteEntities_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "entityType",
+		func(ctx context.Context, v any) (EntityType, error) {
+			return ec.unmarshalNEntityType2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEntityType(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["entityType"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "below",
+		func(ctx context.Context, v any) (int, error) {
+			return ec.unmarshalNInt2int(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["below"] = arg1
+	return args, nil
+}
+
 func (ec *executionContext) field_Query_eloLeaderboard_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -11637,6 +11891,121 @@ func (ec *executionContext) fieldContext_CommentVotedEdit_comment(_ context.Cont
 		},
 	}
 	return fc, nil
+}
+
+func (ec *executionContext) _Completion_entityType(ctx context.Context, field graphql.CollectedField, obj *Completion) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Completion_entityType(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.EntityType, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v EntityType) graphql.Marshaler {
+			return ec.marshalNEntityType2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEntityType(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Completion_entityType(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Completion", field, false, false, errors.New("field of type EntityType does not have child fields"))
+}
+
+func (ec *executionContext) _Completion_score(ctx context.Context, field graphql.CollectedField, obj *Completion) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Completion_score(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Score, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Completion_score(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Completion", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _Completion_missing(ctx context.Context, field graphql.CollectedField, obj *Completion) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Completion_missing(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Missing, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []string) graphql.Marshaler {
+			return ec.marshalNString2ᚕstringᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Completion_missing(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Completion", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _Completion_total(ctx context.Context, field graphql.CollectedField, obj *Completion) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Completion_total(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Total, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Completion_total(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Completion", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _Completion_earned(ctx context.Context, field graphql.CollectedField, obj *Completion) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Completion_earned(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Earned, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Completion_earned(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Completion", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
 func (ec *executionContext) _DownvoteOwnEdit_edit(ctx context.Context, field graphql.CollectedField, obj *DownvoteOwnEdit) (ret graphql.Marshaler) {
@@ -20467,6 +20836,38 @@ func (ec *executionContext) fieldContext_Performer_updated(_ context.Context, fi
 	return graphql.NewScalarFieldContext("Performer", field, false, false, errors.New("field of type Time does not have child fields"))
 }
 
+func (ec *executionContext) _Performer_completion(ctx context.Context, field graphql.CollectedField, obj *Performer) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Performer_completion(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Performer().Completion(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *Completion) graphql.Marshaler {
+			return ec.marshalOCompletion2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐCompletion(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_Performer_completion(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Performer",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_Completion(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _PerformerAppearance_performer(ctx context.Context, field graphql.CollectedField, obj *PerformerAppearance) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -24463,6 +24864,68 @@ func (ec *executionContext) fieldContext_Query_queryModAudits(ctx context.Contex
 	return fc, nil
 }
 
+func (ec *executionContext) _Query_countIncompleteEntities(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_countIncompleteEntities(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().CountIncompleteEntities(ctx, fc.Args["entityType"].(EntityType), fc.Args["below"].(int))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal int
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal int
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_countIncompleteEntities(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_countIncompleteEntities_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Query_eloMatchup(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -26238,6 +26701,38 @@ func (ec *executionContext) fieldContext_Scene_updated(_ context.Context, field 
 	return graphql.NewScalarFieldContext("Scene", field, true, true, errors.New("field of type Time does not have child fields"))
 }
 
+func (ec *executionContext) _Scene_completion(ctx context.Context, field graphql.CollectedField, obj *Scene) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Scene_completion(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Scene().Completion(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *Completion) graphql.Marshaler {
+			return ec.marshalOCompletion2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐCompletion(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_Scene_completion(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Scene",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_Completion(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _SceneDraft_id(ctx context.Context, field graphql.CollectedField, obj *SceneDraft) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -27513,6 +28008,38 @@ func (ec *executionContext) fieldContext_Site_updated(_ context.Context, field g
 	return graphql.NewScalarFieldContext("Site", field, true, true, errors.New("field of type Time does not have child fields"))
 }
 
+func (ec *executionContext) _Site_completion(ctx context.Context, field graphql.CollectedField, obj *Site) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Site_completion(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Site().Completion(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *Completion) graphql.Marshaler {
+			return ec.marshalOCompletion2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐCompletion(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_Site_completion(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Site",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_Completion(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _SiteCategory_id(ctx context.Context, field graphql.CollectedField, obj *SiteCategory) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -28304,6 +28831,38 @@ func (ec *executionContext) fieldContext_Studio_performers(ctx context.Context, 
 	return fc, nil
 }
 
+func (ec *executionContext) _Studio_completion(ctx context.Context, field graphql.CollectedField, obj *Studio) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Studio_completion(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Studio().Completion(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *Completion) graphql.Marshaler {
+			return ec.marshalOCompletion2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐCompletion(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_Studio_completion(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Studio",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_Completion(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _StudioEdit_name(ctx context.Context, field graphql.CollectedField, obj *StudioEdit) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -28820,6 +29379,38 @@ func (ec *executionContext) _Tag_updated(ctx context.Context, field graphql.Coll
 }
 func (ec *executionContext) fieldContext_Tag_updated(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("Tag", field, false, false, errors.New("field of type Time does not have child fields"))
+}
+
+func (ec *executionContext) _Tag_completion(ctx context.Context, field graphql.CollectedField, obj *Tag) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Tag_completion(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Tag().Completion(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *Completion) graphql.Marshaler {
+			return ec.marshalOCompletion2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐCompletion(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_Tag_completion(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Tag",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_Completion(ctx, field)
+		},
+	}
+	return fc, nil
 }
 
 func (ec *executionContext) _TagCategory_id(ctx context.Context, field graphql.CollectedField, obj *TagCategory) (ret graphql.Marshaler) {
@@ -37749,6 +38340,65 @@ func (ec *executionContext) _CommentVotedEdit(ctx context.Context, sel ast.Selec
 	return out
 }
 
+var completionImplementors = []string{"Completion"}
+
+func (ec *executionContext) _Completion(ctx context.Context, sel ast.SelectionSet, obj *Completion) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, completionImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("Completion")
+		case "entityType":
+			out.Values[i] = ec._Completion_entityType(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "score":
+			out.Values[i] = ec._Completion_score(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "missing":
+			out.Values[i] = ec._Completion_missing(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "total":
+			out.Values[i] = ec._Completion_total(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "earned":
+			out.Values[i] = ec._Completion_earned(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferred), math.MaxInt32)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
 var downvoteOwnEditImplementors = []string{"DownvoteOwnEdit", "NotificationData"}
 
 func (ec *executionContext) _DownvoteOwnEdit(ctx context.Context, sel ast.SelectionSet, obj *DownvoteOwnEdit) graphql.Marshaler {
@@ -41805,6 +42455,39 @@ func (ec *executionContext) _Performer(ctx context.Context, sel ast.SelectionSet
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
+		case "completion":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Performer_completion(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -43498,6 +44181,28 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "countIncompleteEntities":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_countIncompleteEntities(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
 		case "eloMatchup":
 			field := field
 
@@ -45096,6 +45801,39 @@ func (ec *executionContext) _Scene(ctx context.Context, sel ast.SelectionSet, ob
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "completion":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Scene_completion(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -46049,6 +46787,39 @@ func (ec *executionContext) _Site(ctx context.Context, sel ast.SelectionSet, obj
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "completion":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Site_completion(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -46641,6 +47412,39 @@ func (ec *executionContext) _Studio(ctx context.Context, sel ast.SelectionSet, o
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "completion":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Studio_completion(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -47022,6 +47826,39 @@ func (ec *executionContext) _Tag(ctx context.Context, sel ast.SelectionSet, obj 
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
+		case "completion":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Tag_completion(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -48870,6 +49707,16 @@ func (ec *executionContext) marshalNEloVoteResult2ᚖgithubᚗcomᚋstashappᚋs
 		return graphql.Null
 	}
 	return ec._EloVoteResult(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalNEntityType2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEntityType(ctx context.Context, v any) (EntityType, error) {
+	var res EntityType
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNEntityType2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEntityType(ctx context.Context, sel ast.SelectionSet, v EntityType) graphql.Marshaler {
+	return v
 }
 
 func (ec *executionContext) marshalNFingerprint2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐFingerprint(ctx context.Context, sel ast.SelectionSet, v Fingerprint) graphql.Marshaler {
@@ -50899,6 +51746,13 @@ func (ec *executionContext) marshalOBreastTypeEnum2ᚖgithubᚗcomᚋstashappᚋ
 		return graphql.Null
 	}
 	return v
+}
+
+func (ec *executionContext) marshalOCompletion2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐCompletion(ctx context.Context, sel ast.SelectionSet, v *Completion) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._Completion(ctx, sel, v)
 }
 
 func (ec *executionContext) unmarshalODateCriterionInput2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐDateCriterionInput(ctx context.Context, v any) (*DateCriterionInput, error) {

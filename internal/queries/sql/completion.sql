@@ -168,34 +168,153 @@ ORDER BY s.created_at, s.id
 LIMIT $2;
 
 -- name: CountEntitiesWithCompletionBelow :one
--- How many entities of a type are under a completion threshold.
+-- How many entities of a type have at least this much MISSING weight.
 --
--- This is the number a generated quest is sized from, and it is why the score is
--- not stored: the count is recomputed from the same inputs the score is, so a
--- quest cannot claim there are 500 incomplete performers when 3 were fixed an
--- hour ago.
+-- Expressed as missing weight rather than as a score, because the WEIGHTS live in
+-- Go, in `internal/service/completion/score.go`, and this is a query. Three ways to
+-- bridge that gap, and the other two are worse:
 --
--- The expression is the per-type weighted sum, written out rather than reached
--- through a shared view, because each type's fields are different columns and a
--- view over five shapes would be harder to read than five statements. The
--- WEIGHTS must match `internal/service/completion`; a divergence here is the one
--- place the two copies can disagree, and it is why this count is a
--- "how many are incomplete" rather than a score.
-SELECT count(*)::bigint
-FROM scenes s
-WHERE NOT s.deleted
-  AND (
-    (NOT (s.title IS NOT NULL AND s.title <> '')) * 0
-    + (NOT (s.duration IS NOT NULL AND s.duration > 0)) * 20
-    + (NOT (s.studio_id IS NOT NULL)) * 15
-    + (NOT EXISTS (SELECT 1 FROM scene_performers sp WHERE sp.scene_id = s.id)) * 20
-    + (NOT (s.date IS NOT NULL)) * 5
-    + (NOT EXISTS (SELECT 1 FROM scene_urls su
-                   WHERE su.scene_id = s.id AND su.type = 'SCENE')) * 10
-    + (NOT EXISTS (SELECT 1 FROM scene_urls su WHERE su.scene_id = s.id)) * 8
-    + (NOT EXISTS (SELECT 1 FROM scene_tags st WHERE st.scene_id = s.id)) * 7
-    + (NOT EXISTS (SELECT 1 FROM scene_images si WHERE si.scene_id = s.id)) * 5
-    + (NOT (s.details IS NOT NULL AND s.details <> '')) * 10
-    + ((SELECT count(*) FROM scene_snapshots ss WHERE ss.scene_id = s.id) < 12) * 10
-  ) >= $1;
+--   - Recompute the score in SQL. Then the formula exists twice and the copies
+--     drift the first time a weight changes -- silently, because both still
+--     return a plausible number.
+--   - Store the score. Then it is a second source of truth beside the columns it
+--     summarises, and the first edit that skips the refresh leaves it wrong.
+--
+-- So this asks the question the formula answers -- how much weight is MISSING --
+-- and the comparison against the threshold happens in ONE place, the service.
+-- The weights below are a real duplication, confined to constants rather than to a
+-- formula, and `TestTheSQLWeightsMatchTheGoWeights` fails the build when the two
+-- copies disagree.
+--
+-- EVERY TERM IS CAST: `(NOT (...))::int * weight`. PostgreSQL has no
+-- boolean-times-integer operator, so `expr * N` is a type error, and a cast placed
+-- INSIDE the NOT -- `NOT (...)::int` -- casts NOT's argument and is rejected the
+-- same way. The first version of this query had never been executed by anything,
+-- because `sqlc generate` type-checks the SQL's SYNTAX and not the expressions'
+-- semantics; the error only appeared when a test finally ran it.
+SELECT
+    CASE sqlc.arg(entity_type)::text
+        WHEN 'performer' THEN (
+            SELECT count(*) FROM performers p
+            WHERE NOT p.deleted AND (
+                + (NOT (p.name IS NOT NULL AND p.name <> ''))::int * 0
+                + (NOT (EXISTS (SELECT 1 FROM performer_aliases pa WHERE pa.performer_id = p.id)))::int * 10
+                + (NOT (p.birthdate IS NOT NULL AND length(p.birthdate) >= 10))::int * 15
+                + (NOT (p.gender IS NOT NULL AND p.gender <> ''))::int * 5
+                + (NOT (p.ethnicity IS NOT NULL AND p.ethnicity <> ''))::int * 3
+                + (NOT (p.country IS NOT NULL AND p.country <> ''))::int * 8
+                + (NOT (p.eye_color IS NOT NULL AND p.eye_color <> ''))::int * 2
+                + (NOT (p.hair_color IS NOT NULL AND p.hair_color <> ''))::int * 2
+                + (NOT (p.height IS NOT NULL))::int * 5
+                + (NOT (p.cup_size IS NOT NULL OR p.band_size IS NOT NULL
+                       OR p.hip_size IS NOT NULL OR p.waist_size IS NOT NULL))::int * 5
+                + (NOT (p.career_start_year IS NOT NULL OR p.career_end_year IS NOT NULL))::int * 5
+                + (NOT (EXISTS (SELECT 1 FROM performer_urls pu WHERE pu.performer_id = p.id)))::int * 10
+                + (NOT (EXISTS (SELECT 1 FROM performer_images pi WHERE pi.performer_id = p.id)))::int * 10
+            ) >= sqlc.arg(min_missing)::int
+        )
+        WHEN 'scene' THEN (
+            SELECT count(*) FROM scenes s
+            WHERE NOT s.deleted AND (
+                + (NOT (s.title IS NOT NULL AND s.title <> ''))::int * 0
+                + (NOT (s.duration IS NOT NULL AND s.duration > 0))::int * 20
+                + (NOT (s.studio_id IS NOT NULL))::int * 15
+                + (NOT (EXISTS (SELECT 1 FROM scene_performers sp WHERE sp.scene_id = s.id)))::int * 20
+                + (NOT (s.date IS NOT NULL))::int * 5
+                + (NOT (EXISTS (SELECT 1 FROM scene_urls su WHERE su.scene_id = s.id)))::int * 18
+                + (NOT (EXISTS (SELECT 1 FROM scene_tags st WHERE st.scene_id = s.id)))::int * 7
+                + (NOT (EXISTS (SELECT 1 FROM scene_images si WHERE si.scene_id = s.id)))::int * 5
+                + (NOT (s.details IS NOT NULL AND s.details <> ''))::int * 10
+                + ((SELECT count(*) FROM scene_snapshots ss WHERE ss.scene_id = s.id) >= 12)::int * 10
+            ) >= sqlc.arg(min_missing)::int
+        )
+        WHEN 'studio' THEN (
+            SELECT count(*) FROM studios st
+            WHERE NOT st.deleted AND (
+                + (NOT (st.name IS NOT NULL AND st.name <> ''))::int * 0
+                + (NOT (EXISTS (SELECT 1 FROM studio_urls su WHERE su.studio_id = st.id)))::int * 40
+                + (NOT (EXISTS (SELECT 1 FROM studio_images si WHERE si.studio_id = st.id)))::int * 30
+                + (NOT (st.parent_studio_id IS NOT NULL))::int * 30
+            ) >= sqlc.arg(min_missing)::int
+        )
+        WHEN 'site' THEN (
+            SELECT count(*) FROM sites si
+            WHERE TRUE AND (
+                + (NOT (si.name IS NOT NULL AND si.name <> ''))::int * 0
+                + (NOT (si.url IS NOT NULL AND si.url <> ''))::int * 35
+                + (NOT (si.description IS NOT NULL AND si.description <> ''))::int * 35
+                + (NOT (si.regex IS NOT NULL AND si.regex <> ''))::int * 30
+            ) >= sqlc.arg(min_missing)::int
+        )
+        WHEN 'tag' THEN (
+            SELECT count(*) FROM tags t
+            WHERE NOT t.deleted AND (
+                + (NOT (t.name IS NOT NULL AND t.name <> ''))::int * 40
+                + (NOT (t.description IS NOT NULL AND t.description <> ''))::int * 60
+            ) >= sqlc.arg(min_missing)::int
+        )
+        ELSE 0
+    END::bigint;
 
+-- name: ListIncompleteEntities :many
+-- Entities of a type with at least this much missing weight, for a generated quest.
+--
+-- A quest is a pure function of the archive, so it is never stored: this query and
+-- the weights are the whole of it, and a quest recomputed now names only entities
+-- that are incomplete NOW. A stored quest accumulates claims that were true when it
+-- was written, and a curator working from it is chasing performers who were fixed
+-- an hour ago.
+--
+-- Only performers and scenes are generated, and that is a scope decision recorded
+-- rather than an oversight: those are the two types where "this field is missing"
+-- is a specific, findable piece of work. A studio missing a parent studio is
+-- NORMAL -- most studios genuinely have no parent -- so a quest for it would be an
+-- unending list of items that are not actually gaps.
+SELECT p.id
+FROM performers p
+WHERE sqlc.arg(entity_type)::text = 'performer' AND NOT p.deleted
+  AND (
+      + (NOT (p.name IS NOT NULL AND p.name <> ''))::int * 0
+      + (NOT (EXISTS (SELECT 1 FROM performer_aliases pa WHERE pa.performer_id = p.id)))::int * 10
+      + (NOT (p.birthdate IS NOT NULL AND length(p.birthdate) >= 10))::int * 15
+      + (NOT (p.gender IS NOT NULL AND p.gender <> ''))::int * 5
+      + (NOT (p.ethnicity IS NOT NULL AND p.ethnicity <> ''))::int * 3
+      + (NOT (p.country IS NOT NULL AND p.country <> ''))::int * 8
+      + (NOT (p.eye_color IS NOT NULL AND p.eye_color <> ''))::int * 2
+      + (NOT (p.hair_color IS NOT NULL AND p.hair_color <> ''))::int * 2
+      + (NOT (p.height IS NOT NULL))::int * 5
+      + (NOT (p.cup_size IS NOT NULL OR p.band_size IS NOT NULL
+                       OR p.hip_size IS NOT NULL OR p.waist_size IS NOT NULL))::int * 5
+      + (NOT (p.career_start_year IS NOT NULL OR p.career_end_year IS NOT NULL))::int * 5
+      + (NOT (EXISTS (SELECT 1 FROM performer_urls pu WHERE pu.performer_id = p.id)))::int * 10
+      + (NOT (EXISTS (SELECT 1 FROM performer_images pi WHERE pi.performer_id = p.id)))::int * 10
+  ) >= sqlc.arg(min_missing)::int
+  AND p.id > COALESCE(sqlc.arg(after_id)::uuid,
+                      '00000000-0000-0000-0000-000000000000'::uuid)
+
+UNION ALL
+
+SELECT s.id
+FROM scenes s
+WHERE sqlc.arg(entity_type)::text = 'scene' AND NOT s.deleted
+  AND (
+      + (NOT (s.title IS NOT NULL AND s.title <> ''))::int * 0
+      + (NOT (s.duration IS NOT NULL AND s.duration > 0))::int * 20
+      + (NOT (s.studio_id IS NOT NULL))::int * 15
+      + (NOT (EXISTS (SELECT 1 FROM scene_performers sp WHERE sp.scene_id = s.id)))::int * 20
+      + (NOT (s.date IS NOT NULL))::int * 5
+      + (NOT (EXISTS (SELECT 1 FROM scene_urls su WHERE su.scene_id = s.id)))::int * 18
+      + (NOT (EXISTS (SELECT 1 FROM scene_tags st WHERE st.scene_id = s.id)))::int * 7
+      + (NOT (EXISTS (SELECT 1 FROM scene_images si WHERE si.scene_id = s.id)))::int * 5
+      + (NOT (s.details IS NOT NULL AND s.details <> ''))::int * 10
+      + ((SELECT count(*) FROM scene_snapshots ss WHERE ss.scene_id = s.id) >= 12)::int * 10
+  ) >= sqlc.arg(min_missing)::int
+  AND s.id > COALESCE(sqlc.arg(after_id)::uuid,
+                      '00000000-0000-0000-0000-000000000000'::uuid)
+
+-- Ordered and limited OUTSIDE the union, and that is not a style choice: ORDER BY
+-- binds to the last SELECT of a set operation, so ordering the scene branch alone
+-- would order the scenes and leave the performers in whatever order the planner
+-- produced, interleaving the two.
+ORDER BY id
+LIMIT sqlc.arg(page_size)::int;
