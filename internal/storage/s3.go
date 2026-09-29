@@ -55,6 +55,42 @@ func (s *S3Backend) DestroyFile(image *models.Image) error {
 	return nil
 }
 
+// FileExists reports whether the object is present in the bucket.
+//
+// StatObject is the S3 equivalent of the os.Stat in the file backend, and
+// NoSuchKey is S3's "not found" -- unlike the file backend, a misconfigured
+// endpoint surfaces as an error here rather than as "absent", which is the
+// behaviour the image service relies on to tell the two apart (#948).
+func (s *S3Backend) FileExists(image *models.Image) (bool, error) {
+	if image.RemoteURL != nil {
+		return true, nil
+	}
+
+	s3config := config.GetS3Config()
+	minioClient, err := minio.New(s3config.Endpoint, &minio.Options{
+		Creds:  credentials.NewStaticV4(s3config.AccessKey, s3config.Secret, ""),
+		Secure: true,
+	})
+	if err != nil {
+		return false, err
+	}
+
+	_, err = minioClient.StatObject(
+		context.TODO(),
+		s3config.Bucket,
+		shardedKey(image.ID.String()),
+		minio.StatObjectOptions{},
+	)
+	if err != nil {
+		if minio.ToErrorResponse(err).Code == "NoSuchKey" {
+			return false, nil
+		}
+		return false, err
+	}
+
+	return true, nil
+}
+
 func uploadS3File(client *minio.Client, file []byte, bucket string, id string, headers map[string]string) error {
 	ctx := context.TODO()
 

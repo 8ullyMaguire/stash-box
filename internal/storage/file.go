@@ -64,6 +64,31 @@ func (s *FileBackend) ReadFile(image models.Image) (io.ReadCloser, int64, error)
 	return file, stat.Size(), err
 }
 
+// FileExists reports whether the image file is present on disk.
+//
+// A missing image_location is reported as an error rather than "not present",
+// so the caller can tell "the image is gone" (retry the write) from "this
+// instance stores images somewhere I cannot see" (a configuration problem, and
+// reporting every image as absent would thrash the write path). ReadFile
+// validates the same way (#649), and for the same reason.
+func (s *FileBackend) FileExists(image *models.Image) (bool, error) {
+	if image.RemoteURL != nil {
+		// Remote images are not stored locally; there is no file to look for.
+		return true, nil
+	}
+
+	if err := config.ValidateImageLocation(); err != nil {
+		return false, err
+	}
+
+	path := GetImagePath(config.GetImageLocation(), image.ID.String())
+	exists, err := utils.FileExists(path)
+	if err != nil && os.IsNotExist(err) {
+		return false, nil
+	}
+	return exists, err
+}
+
 func GetImagePath(imageDir string, id string) string {
 	return filepath.Join(imageDir, shardedKey(id))
 }

@@ -83,8 +83,40 @@ func (s *Image) Create(ctx context.Context, input models.ImageCreateInput) (*mod
 		}
 
 		// if image already exists, just return it
+		//
+		// ...but only if its file is actually there (#948).
+		//
+		// The row and the file are two separate facts, and the row is written
+		// first -- the write below is deliberately after the insert, so that a
+		// failed write cannot leave an orphan file that DestroyUnusedImages
+		// cannot find (#738). The cost of that ordering is that a row can exist
+		// with no bytes behind it.
+		//
+		// That state is permanent. Every later upload of the same bytes
+		// short-circuits here and returns the broken row, so re-uploading can
+		// never repair it -- which is the reported symptom: rare, always the
+		// same image, immune to retrying, and needing a site admin to add the
+		// image by hand.
+		//
+		// A missing file is therefore treated as absent, and the dead row is
+		// deleted so the retry below runs cleanly. The id cannot be reused:
+		// the row is keyed by id and holds the checksum, so overwriting it
+		// would mean writing new bytes under a path the old id already claims.
+		// Deleting and reinserting gives the repaired image a fresh id, and
+		// DeleteImage also drops the join-table rows, so the broken row stops
+		// appearing anywhere.
 		if existing != nil {
-			return existing, nil
+			exists, err := storage.Image().FileExists(existing)
+			if err != nil {
+				return nil, err
+			}
+			if exists {
+				return existing, nil
+			}
+
+			if err := s.queries.DeleteImage(ctx, existing.ID); err != nil {
+				return nil, err
+			}
 		}
 
 		// set the checksum in the new image
