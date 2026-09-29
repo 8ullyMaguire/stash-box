@@ -465,6 +465,20 @@ func SetEmailSettingsForTest(host string, port int, user, pw, from, tlsMode stri
 	}
 }
 
+// SetImageLocationForTest overrides image_location for the duration of a test
+// and returns a restore function.
+//
+// Like SetEmailSettingsForTest, this exists only because C is unexported and
+// the storage package has to exercise config-dependent behaviour from a test.
+// C.ImageLocation is empty in the test environment, which is precisely the
+// condition #649 is about, so a test that could not set it could not cover the
+// bug. There is no production caller.
+func SetImageLocationForTest(loc string) func() {
+	prev := C.ImageLocation
+	C.ImageLocation = loc
+	return func() { C.ImageLocation = prev }
+}
+
 func GetMissingEmailSettings() []string {
 	if !GetRequireActivation() {
 		return nil

@@ -41,6 +41,18 @@ func (s *FileBackend) DestroyFile(image *models.Image) error {
 }
 
 func (s *FileBackend) ReadFile(image models.Image) (io.ReadCloser, int64, error) {
+	// Validate before deriving the path, for the same reason WriteFile does.
+	//
+	// Without this, GetImageLocation() returns "" and filepath.Join("", "ab/cd")
+	// collapses to the RELATIVE path "ab/cd" -- so the read is attempted against
+	// the process working directory and fails with a bare "no such file or
+	// directory" that says nothing about the real cause. Worse, the write path
+	// had the same hole before it was validated, which is how files ended up
+	// scattered in the working directory in the first place (#649).
+	if err := config.ValidateImageLocation(); err != nil {
+		return nil, 0, err
+	}
+
 	fileDir := config.GetImageLocation()
 	path := GetImagePath(fileDir, image.ID.String())
 	stat, err := os.Stat(path)
