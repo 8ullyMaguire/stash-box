@@ -1,0 +1,17 @@
+-- scenes.title widened from varchar(255) to text (ported from upstream #1262).
+--
+-- RENUMBERED from upstream's 76. Upstream has no migration 76_add_user_trust, so
+-- its 76 is free; this fork added 76_add_user_trust for the trust rollup, and two
+-- files claiming version 76 is a hard startup failure:
+--
+--   failed to create migration source: duplicate migration file: 76_scene_title_text.up.sql
+--
+-- golang-migrate keys on the numeric prefix, so the two collided and every
+-- integration test that boots a database failed. Renumbered to 88, above this
+-- fork's 87_content_denylist, so it still runs last and its ordering relative to
+-- 75_scene_title_trgm_index is unchanged.
+--
+-- 75 builds a GIN trgm index on title while it is still varchar(255); widening to
+-- text afterwards keeps the index valid and lets it store longer values, which is
+-- why this must run AFTER 75 and not before.
+ALTER TABLE "scenes" ALTER COLUMN "title" TYPE text;
