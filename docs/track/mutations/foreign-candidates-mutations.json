@@ -1,0 +1,62 @@
+{
+  "package": "internal/api",
+  "baseline": "TestForeignCandidate",
+  "mutations": [
+    {
+      "label": "F2 READ: ForeignCandidate gains a local performer id -- the vote edge, exposed",
+      "file": "../../graphql/schema/types/federation.graphql",
+      "old": "  remote_id: String!",
+      "new": "  remote_id: String!\n  performer_id: ID!",
+      "test": "TestForeignCandidate"
+    },
+    {
+      "label": "F2 READ: ForeignCandidate gains a bare id (a local identity by another name)",
+      "file": "../../graphql/schema/types/federation.graphql",
+      "old": "  remote_id: String!",
+      "new": "  remote_id: String!\n  id: ID!",
+      "test": "TestForeignCandidate"
+    },
+    {
+      "label": "F2 READ: ForeignCandidate gains a local entity_id",
+      "file": "../../graphql/schema/types/federation.graphql",
+      "old": "  remote_id: String!",
+      "new": "  remote_id: String!\n  entity_id: ID!",
+      "test": "TestForeignCandidate"
+    },
+    {
+      "label": "F2 READ: ForeignCandidate gains a vote weight (remote weight summed locally)",
+      "file": "../../graphql/schema/types/federation.graphql",
+      "old": "  remote_id: String!",
+      "new": "  remote_id: String!\n  weight: Float!",
+      "test": "TestForeignCandidate"
+    },
+    {
+      "label": "F2 READ: a mutation appears that accepts a foreign candidate",
+      "file": "../../graphql/schema/types/federation.graphql",
+      "old": "  federation_peer_delete(id: ID!): Boolean! @hasRole(role: ADMIN)",
+      "new": "  federation_peer_delete(id: ID!): Boolean! @hasRole(role: ADMIN)\n  federation_candidate_accept(remote_id: String!): Boolean! @hasRole(role: ADMIN)",
+      "test": "TestForeignCandidate"
+    },
+    {
+      "label": "AUTHZ: the query loses its ADMIN requirement",
+      "file": "../../graphql/schema/types/federation.graphql",
+      "old": "  federation_foreign_candidates(query_id: ID!): [ForeignCandidate!]! @hasRole(role: ADMIN)",
+      "new": "  federation_foreign_candidates(query_id: ID!): [ForeignCandidate!]!",
+      "test": "TestForeignCandidate"
+    },
+    {
+      "label": "PREMISE: the query is renamed away entirely",
+      "file": "../../graphql/schema/types/federation.graphql",
+      "old": "  federation_foreign_candidates(query_id: ID!): [ForeignCandidate!]! @hasRole(role: ADMIN)",
+      "new": "  federation_other_thing(query_id: ID!): [ForeignCandidate!]! @hasRole(role: ADMIN)",
+      "test": "TestForeignCandidate"
+    },
+    {
+      "label": "PREMISE: the type is renamed, so the boundary test reads nothing and passes vacuously",
+      "file": "../../graphql/schema/types/federation.graphql",
+      "old": "type ForeignCandidate {",
+      "new": "type ForeignCandidateRenamed {",
+      "test": "TestForeignCandidate"
+    }
+  ]
+}

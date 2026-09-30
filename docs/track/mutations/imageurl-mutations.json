@@ -1,0 +1,69 @@
+{
+  "package": "internal/service/federation",
+  "baseline": "TestValidateImageURL",
+  "mutations": [
+    {
+      "label": "RULE 3: the scheme allowlist is dropped, so file:// is stored",
+      "file": "imageurl.go",
+      "old": "\tif !allowedImageSchemes[scheme] {",
+      "new": "\tif false {",
+      "test": "TestValidateImageURLRefuses"
+    },
+    {
+      "label": "RULE 3: the scheme allowlist admits everything (data:, javascript:)",
+      "file": "imageurl.go",
+      "old": "\tif !allowedImageSchemes[scheme] {",
+      "new": "\tif scheme == \"\" {",
+      "test": "TestValidateImageURLRefuses"
+    },
+    {
+      "label": "RULE 3: the filesystem-marker check is dropped (traversal and /etc/ walk in)",
+      "file": "imageurl.go",
+      "old": "\tif hasPathMarker(raw) {",
+      "new": "\tif false {",
+      "test": "TestValidateImageURLRefuses"
+    },
+    {
+      "label": "RULE 3: the marker check becomes case-SENSITIVE (ETC/ bypasses it)",
+      "file": "imageurl.go",
+      "old": "\tlowered := strings.ToLower(s)\n\tfor _, marker := range pathMarkers {\n\t\tif strings.Contains(lowered, marker) {",
+      "new": "\tfor _, marker := range pathMarkers {\n\t\tif strings.Contains(s, marker) {",
+      "test": "TestValidateImageURLRefuses"
+    },
+    {
+      "label": "RULE 3: the host check is dropped, so http:///x is stored",
+      "file": "imageurl.go",
+      "old": "\tif u.Hostname() == \"\" {\n\t\treturn fmt.Errorf(\"no host\")\n\t}",
+      "new": "",
+      "test": "TestValidateImageURLRefuses"
+    },
+    {
+      "label": "OVER-STRICT: the guard refuses any host with a dot in it (ordinary images break)",
+      "file": "imageurl.go",
+      "old": "\tif u.Hostname() == \"\" {\n\t\treturn fmt.Errorf(\"no host\")\n\t}",
+      "new": "\tif u.Hostname() == \"\" || strings.Contains(u.Hostname(), \".\") {\n\t\treturn fmt.Errorf(\"no host\")\n\t}",
+      "test": "TestValidateImageURLAllows"
+    },
+    {
+      "label": "OVER-STRICT: the whole url is scanned with the F1 question predicate (every image refused)",
+      "file": "imageurl.go",
+      "old": "\tif hasPathMarker(raw) {",
+      "new": "\tif IsSuspiciousValue(raw) {",
+      "test": "TestValidateImageURLAllows"
+    },
+    {
+      "label": "OVER-STRICT: an unresolvable-looking host is refused (the box never fetches it)",
+      "file": "imageurl.go",
+      "old": "\tscheme := strings.ToLower(u.Scheme)",
+      "new": "\tscheme := strings.ToLower(u.Scheme)\n\tif strings.HasSuffix(u.Hostname(), \".corp\") || strings.HasPrefix(u.Hostname(), \"192.\") {\n\t\treturn fmt.Errorf(\"unreachable host\")\n\t}",
+      "test": "TestValidateImageURLAllows"
+    },
+    {
+      "label": "RULE 3: the scheme allowlist accepts an empty scheme (so \"\" and \"/etc/passwd\" get in)",
+      "file": "imageurl.go",
+      "old": "\tif !allowedImageSchemes[scheme] {",
+      "new": "\tif scheme != \"nope\" {",
+      "test": "TestValidateImageURL"
+    }
+  ]
+}

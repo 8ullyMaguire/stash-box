@@ -1,0 +1,84 @@
+{
+  "package": "internal/service/edit",
+  "baseline": "TestAllowUpdateEdit|TestThresholdIsNotAdminOnly|TestAdminBypass|TestValidateEditUpdateStill|TestClampEditUpdate|TestUpdateTagEditAuthority|TestTrustLookupErrorFailsClosed",
+  "mutations": [
+    {
+      "label": "AUTHORITY: the threshold is never consulted",
+      "file": "service.go",
+      "old": "\treturn allowUpdateEdit(false, minLevel, level), nil",
+      "new": "\treturn false, nil",
+      "test": "TestUpdateTagEditAuthority"
+    },
+    {
+      "label": "AUTHORITY: call site forces isAdmin=true (the mutation that SURVIVED the unit tests)",
+      "file": "service.go",
+      "old": "\treturn allowUpdateEdit(false, minLevel, level), nil",
+      "new": "\treturn allowUpdateEdit(true, minLevel, level), nil",
+      "test": "TestUpdateTagEditAuthority"
+    },
+    {
+      "label": "OFF-BY-ONE: threshold becomes exclusive",
+      "file": "service.go",
+      "old": "\treturn int(level) >= clamped",
+      "new": "\treturn int(level) > clamped",
+      "test": "TestUpdateTagEditAuthority"
+    },
+    {
+      "label": "CLAMP: the 0 sentinel is dropped",
+      "file": "../../config/config.go",
+      "old": "\tif v < 1 {\n\t\t// Catches both -1 (the explicit creator-only sentinel) and 0 (which is\n\t\t// LevelPublic, and must not mean \"no minimum\").\n\t\treturn -1\n\t}",
+      "new": "\tif v < 0 {\n\t\treturn -1\n\t}",
+      "test": "TestClampEditUpdate"
+    },
+    {
+      "label": "CLAMP: the upper bound is dropped",
+      "file": "../../config/config.go",
+      "old": "\tif v > int(trust.LevelSteward) {\n\t\treturn int(trust.LevelSteward)\n\t}",
+      "new": "",
+      "test": "TestClampEditUpdate"
+    },
+    {
+      "label": "FAIL-OPEN: a trust lookup error is treated as trusted",
+      "file": "service.go",
+      "old": "\t\treturn false, err\n\t}\n\n\treturn allowUpdateEdit(false, minLevel, level), nil",
+      "new": "\t\treturn allowUpdateEdit(false, minLevel, trust.LevelSteward), nil\n\t}\n\n\treturn allowUpdateEdit(false, minLevel, level), nil",
+      "test": "TestTrustLookupErrorFailsClosed"
+    },
+    {
+      "label": "ORTHOGONAL RULE: closed-edit check dropped",
+      "file": "service.go",
+      "old": "\tif edit.ClosedAt != nil {\n\t\treturn ErrUpdateClosedEdit\n\t}\n",
+      "new": "",
+      "test": "TestValidateEditUpdateStill"
+    },
+    {
+      "label": "ORTHOGONAL RULE: update limit dropped",
+      "file": "service.go",
+      "old": "\tif edit.UpdateCount >= config.GetEditUpdateLimit() {\n\t\treturn ErrUpdateLimit\n\t}\n",
+      "new": "",
+      "test": "TestValidateEditUpdateStill"
+    },
+    {
+      "label": "ORTHOGONAL RULE: update limit off-by-one",
+      "file": "service.go",
+      "old": "\tif edit.UpdateCount >= config.GetEditUpdateLimit() {\n\t\treturn ErrUpdateLimit\n\t}\n",
+      "new": "\tif edit.UpdateCount > config.GetEditUpdateLimit() {\n\t\treturn ErrUpdateLimit\n\t}\n",
+      "test": "TestValidateEditUpdateStill"
+    },
+    {
+      "label": "PREMISE: the admin role check is gone",
+      "file": "service.go",
+      "old": "\tif auth.IsRole(ctx, models.RoleEnumAdmin) {\n\t\treturn true, nil\n\t}\n",
+      "new": "",
+      "test": "TestUpdateTagEditAuthority"
+    },
+    {
+      "label": "PREMISE: ownership no longer short-circuits",
+      "file": "service.go",
+      "old": "\tif edit.UserID.UUID == userID {\n\t\treturn true, nil\n\t}\n",
+      "new": "",
+      "test": "TestUpdateTagEditAuthority"
+    }
+  ],
+  "tags": "integration"
+}

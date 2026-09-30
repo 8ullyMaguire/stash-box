@@ -1,0 +1,55 @@
+{
+  "package": "internal/service/federation",
+  "baseline": "TestDialGuard",
+  "mutations": [
+    {
+      "label": "RULE 2: the dial-time check is removed entirely (the rebinding window reopens)",
+      "file": "dialguard.go",
+      "old": "\tif err := ValidateBaseURL(ctx, p.BaseURL, r); err != nil {\n\t\treturn fmt.Errorf(\"peer %s refused: %w\", p.InstanceID, err)\n\t}",
+      "new": "\t_ = p",
+      "test": "TestDialGuard"
+    },
+    {
+      "label": "RULE 2: the dial-time check runs but its result is discarded",
+      "file": "dialguard.go",
+      "old": "\tif err := ValidateBaseURL(ctx, p.BaseURL, r); err != nil {\n\t\treturn fmt.Errorf(\"peer %s refused: %w\", p.InstanceID, err)\n\t}",
+      "new": "\t_ = ValidateBaseURL(ctx, p.BaseURL, r)",
+      "test": "TestDialGuard"
+    },
+    {
+      "label": "FAIL-CLOSED: a nil resolver is passed as a valid peer",
+      "file": "dialguard.go",
+      "old": "\tif err := ValidateBaseURL(ctx, p.BaseURL, r); err != nil {",
+      "new": "\tif err := ValidateBaseURLAllowingNil(ctx, p.BaseURL); err != nil {",
+      "test": "TestDialGuard"
+    },
+    {
+      "label": "DEGENERATE: a peer with no base url is allowed through",
+      "file": "dialguard.go",
+      "old": "\tif p.BaseURL == \"\" {\n\t\treturn fmt.Errorf(\"peer %s has no base url to dial\", p.InstanceID)\n\t}",
+      "new": "",
+      "test": "TestDialGuard"
+    },
+    {
+      "label": "REBINDING: only the FIRST resolved address is checked (the classic rebinding bypass)",
+      "file": "baseurl.go",
+      "old": "\tif err := webhook.ValidateTarget(raw, ips); err != nil {\n\t\treturn err\n\t}",
+      "new": "\tif len(ips) > 0 {\n\t\tif err := webhook.ValidateTarget(raw, ips[:1]); err != nil {\n\t\t\treturn err\n\t\t}\n\t}",
+      "test": "TestDialGuard"
+    },
+    {
+      "label": "REBINDING: the resolved addresses are discarded and the literal host is re-checked instead",
+      "file": "baseurl.go",
+      "old": "\tips, err := r.LookupIP(ctx, u.Hostname())\n\tif err != nil {",
+      "new": "\tips, err := r.LookupIP(ctx, u.Hostname())\n\tif len(ips) > 0 {\n\t\tips = ips[:1]\n\t}\n\tif err != nil {",
+      "test": "TestDialGuard"
+    },
+    {
+      "label": "SCHEME: the scheme check is dropped, so file:// is dialed",
+      "file": "baseurl.go",
+      "old": "\tif err := webhook.ValidateTarget(raw, ips); err != nil {\n\t\treturn err\n\t}",
+      "new": "\tif err := checkNoPathComponent(raw); err != nil {\n\t\treturn err\n\t}",
+      "test": "TestDialGuard"
+    }
+  ]
+}

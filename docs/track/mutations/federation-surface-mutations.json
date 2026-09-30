@@ -1,0 +1,84 @@
+{
+  "package": "internal/api",
+  "baseline": "TestAdminCannotRegisterAnUnsafePeer|TestUpdatingToAnUnsafeUrlIsRefused|TestFederationPeerSurface|TestPeerSurfaceRequiresAdmin",
+  "tags": "integration",
+  "mutations": [
+    {
+      "label": "R074 AT THE SURFACE: Create stops validating base_url (the guard the operator surface exists to make reachable)",
+      "file": "../service/federation/service.go",
+      "old": "\tif err := ValidateBaseURL(ctx, in.BaseURL, s.resolver); err != nil {\n\t\treturn Peer{}, fmt.Errorf(\"peer %q: %w\", in.Name, err)\n\t}\n\n\t// Unreachable: the check above",
+      "new": "\t// Unreachable: the check above",
+      "test": "TestAdminCannotRegisterAnUnsafePeer"
+    },
+    {
+      "label": "R074 AT THE SURFACE: Update stops validating base_url (an edit is the cheap bypass)",
+      "file": "../service/federation/service.go",
+      "old": "\tif err := ValidateBaseURL(ctx, in.BaseURL, s.resolver); err != nil {\n\t\treturn Peer{}, fmt.Errorf(\"peer %q: %w\", in.Name, err)\n\t}\n\n\trow, err := s.queries.UpdateFederationPeer",
+      "new": "\trow, err := s.queries.UpdateFederationPeer",
+      "test": "TestUpdatingToAnUnsafeUrlIsRefused"
+    },
+    {
+      "label": "TRUST WEIGHT: range reverts to [0,1] and 0 is silently defaulted to 0.5",
+      "file": "../service/federation/service.go",
+      "old": "\tif in.TrustWeight <= 0 || in.TrustWeight > 1 {\n\t\treturn Peer{}, fmt.Errorf(\"trust weight must be in (0,1], got %v\", in.TrustWeight)\n\t}",
+      "new": "\tif in.TrustWeight < 0 || in.TrustWeight > 1 {\n\t\treturn Peer{}, fmt.Errorf(\"trust weight must be in [0,1], got %v\", in.TrustWeight)\n\t}",
+      "test": "TestFederationPeerSurface"
+    },
+    {
+      "label": "DEFAULT: an omitted trust_weight becomes 0 instead of 0.5",
+      "file": "resolver_federation.go",
+      "old": "\tweight := 0.5\n\tif input.TrustWeight != nil {\n\t\tweight = *input.TrustWeight\n\t}",
+      "new": "\tweight := 0.0\n\tif input.TrustWeight != nil {\n\t\tweight = *input.TrustWeight\n\t}",
+      "test": "TestFederationPeerSurface"
+    },
+    {
+      "label": "DEFAULT: an omitted trust_weight is passed through as the Go zero value",
+      "file": "resolver_federation.go",
+      "old": "\tweight := 0.5\n\tif input.TrustWeight != nil {\n\t\tweight = *input.TrustWeight\n\t}",
+      "new": "\tvar weight float64\n\tif input.TrustWeight != nil {\n\t\tweight = *input.TrustWeight\n\t}",
+      "test": "TestFederationPeerSurface"
+    },
+    {
+      "label": "DEFAULT: enabled defaults to false, so a new peer is invisible",
+      "file": "resolver_federation.go",
+      "old": "\tenabled := true\n\tif input.Enabled != nil {\n\t\tenabled = *input.Enabled\n\t}",
+      "new": "\tvar enabled bool\n\tif input.Enabled != nil {\n\t\tenabled = *input.Enabled\n\t}",
+      "test": "TestFederationPeerSurface"
+    },
+    {
+      "label": "LAST SEEN: a never-contacted peer reports the zero time instead of null",
+      "file": "resolver_federation.go",
+      "old": "\tif p.LastSeenAt != nil {\n\t\ts := p.LastSeenAt.UTC().Format(time.RFC3339)\n\t\tm.LastSeenAt = &s\n\t}",
+      "new": "\ts := time.Time{}.UTC().Format(time.RFC3339)\n\tm.LastSeenAt = &s",
+      "test": "TestFederationPeerSurface"
+    },
+    {
+      "label": "DELETE: deleting a missing peer is an error rather than idempotent success",
+      "file": "resolver_federation.go",
+      "old": "\t\tif errors.Is(err, federation.ErrNotFound) {\n\t\t\t// Already gone. Deleting is idempotent from the operator's point of\n\t\t\t// view: the state they asked for is the state they have.\n\t\t\treturn true, nil\n\t\t}",
+      "new": "",
+      "test": "TestFederationPeerSurface"
+    },
+    {
+      "label": "ROLE: the query loses its @hasRole(ADMIN) requirement",
+      "file": "../../graphql/schema/types/federation.graphql",
+      "old": "  federation_peers: [FederationPeer!]! @hasRole(role: ADMIN)",
+      "new": "  federation_peers: [FederationPeer!]!",
+      "test": "TestPeerSurfaceRequiresAdmin"
+    },
+    {
+      "label": "ROLE: the create mutation loses its @hasRole(ADMIN) requirement",
+      "file": "../../graphql/schema/types/federation.graphql",
+      "old": "  federation_peer_create(input: FederationPeerCreateInput!): FederationPeer! @hasRole(role: ADMIN)",
+      "new": "  federation_peer_create(input: FederationPeerCreateInput!): FederationPeer!",
+      "test": "TestPeerSurfaceRequiresAdmin"
+    },
+    {
+      "label": "F2: a mutation appears that lets foreign evidence become a local candidate",
+      "file": "../../graphql/schema/types/federation.graphql",
+      "old": "  federation_peer_delete(id: ID!): Boolean! @hasRole(role: ADMIN)",
+      "new": "  federation_peer_delete(id: ID!): Boolean! @hasRole(role: ADMIN)\n\n  \"\"\"Apply a peer's answer as a local candidate. F2 forbids this.\"\"\"\n  federation_apply_foreign_candidate(peer_id: ID!, candidate_id: ID!): Boolean! @hasRole(role: ADMIN)",
+      "test": "TestPeerSurfaceRequiresAdmin"
+    }
+  ]
+}

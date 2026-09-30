@@ -1,0 +1,27 @@
+{
+  "package": "internal/converter",
+  "baseline": "TestUpdatePerformerFromUpdateInputRetainsValueOnNilInput",
+  "mutations": [
+    {
+      "label": "#9 FIXED?: the converter clears the field when the input is nil (the fix lands)",
+      "file": "converter.go",
+      "old": "\tif input.Birthdate != nil {\n\t\tperformer.BirthDate = input.Birthdate\n\t}",
+      "new": "\tperformer.BirthDate = input.Birthdate",
+      "test": "TestUpdatePerformerFromUpdateInputRetainsValueOnNilInput"
+    },
+    {
+      "label": "#9 PATTERN: the SCENE converter is fixed while the performer one is not",
+      "file": "converter.go",
+      "old": "\tif input.Details != nil {\n\t\tscene.Details = input.Details\n\t}",
+      "new": "\tscene.Details = input.Details",
+      "test": "TestUpdateSceneFromUpdateInputRetainsValueOnNilInput"
+    },
+    {
+      "label": "#9: the converter writes a placeholder instead of retaining the value (retention is a coincidence, not the rule)",
+      "file": "converter.go",
+      "old": "\tif input.Birthdate != nil {\n\t\tperformer.BirthDate = input.Birthdate\n\t}",
+      "new": "\tunknown := \"0000-00-00\"\n\tperformer.BirthDate = &unknown",
+      "test": "TestUpdatePerformerFromUpdateInputRetainsValueOnNilInput"
+    }
+  ]
+}

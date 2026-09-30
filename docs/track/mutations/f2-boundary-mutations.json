@@ -1,0 +1,63 @@
+{
+  "package": "internal/service/federation",
+  "baseline": "TestAForeignCandidate|TestNoLocalEntityId|TestRecordRefuses",
+  "tags": "integration",
+  "mutations": [
+    {
+      "label": "F2 CORE: the evidence table gains a local entity_id column (the vote edge)",
+      "file": "../../database/migrations/postgres/89_identification_federation.up.sql",
+      "old": "    \"remote_entity_id\" VARCHAR(255) NOT NULL,",
+      "new": "    \"remote_entity_id\" VARCHAR(255) NOT NULL,\n    \"entity_id\" UUID REFERENCES \"performers\" (\"id\") ON DELETE SET NULL,",
+      "test": "TestAForeignCandidate"
+    },
+    {
+      "label": "F2 CORE: Record resolves the peer's id against a LOCAL performer and writes it",
+      "file": "store.go",
+      "old": "\t\t_, err := s.queries.CreateForeignCandidate(ctx, queries.CreateForeignCandidateParams{",
+      "new": "\t\tif local, lerr := s.queries.FindPerformerByID(ctx, uuid.FromStringOrNil(c.PeerID)); lerr == nil && local != nil {\n\t\t\t_, _ = s.queries.UpdatePerformer(ctx, queries.UpdatePerformerParams{ID: local.ID, Name: c.Name})\n\t\t}\n\t\t_, err := s.queries.CreateForeignCandidate(ctx, queries.CreateForeignCandidateParams{",
+      "test": "TestAForeignCandidate"
+    },
+    {
+      "label": "F2 CORE: the peer's suggester count is folded into a local weight column",
+      "file": "../../database/migrations/postgres/89_identification_federation.up.sql",
+      "old": "    \"remote_vote_count\" INTEGER NOT NULL DEFAULT 0,",
+      "new": "    \"remote_vote_count\" INTEGER NOT NULL DEFAULT 0,\n    \"local_weight\" DOUBLE PRECISION NOT NULL DEFAULT 0,",
+      "test": "TestAForeignCandidate"
+    },
+    {
+      "label": "F2 ATTRIBUTION: Record accepts a nil local query id (a peer may then address any query by guessing)",
+      "file": "store.go",
+      "old": "\tif queryID == uuid.Nil {\n\t\treturn 0, fmt.Errorf(\"foreign evidence needs a local query id\")\n\t}",
+      "new": "",
+      "test": "TestRecordRefuses"
+    },
+    {
+      "label": "F2 ATTRIBUTION: Record accepts a nil peer id (a remote string selects the local row)",
+      "file": "store.go",
+      "old": "\tif peerID == uuid.Nil {\n\t\treturn 0, fmt.Errorf(\"foreign evidence needs a local peer id\")\n\t}",
+      "new": "",
+      "test": "TestRecordRefuses"
+    },
+    {
+      "label": "F2 ATTRIBUTION: Record no longer skips an answer with no remote id (distinct answers collapse into one row)",
+      "file": "store.go",
+      "old": "\t\tif c.PeerID == \"\" {\n\t\t\tcontinue\n\t\t}",
+      "new": "",
+      "test": "TestRecordRefuses"
+    },
+    {
+      "label": "F2 TYPE: StoredCandidate gains a LocalPerformerID field",
+      "file": "store.go",
+      "old": "type StoredCandidate struct {",
+      "new": "type StoredCandidate struct {\n\tLocalPerformerID *uuid.UUID",
+      "test": "TestNoLocalEntityId"
+    },
+    {
+      "label": "F2 TYPE: RemoteCandidate gains an EntityID field with no remote marker",
+      "file": "wire.go",
+      "old": "type RemoteCandidate struct {",
+      "new": "type RemoteCandidate struct {\n\tEntityID string",
+      "test": "TestNoLocalEntityId"
+    }
+  ]
+}

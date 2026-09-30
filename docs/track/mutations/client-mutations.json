@@ -1,0 +1,62 @@
+{
+  "package": "internal/service/federation",
+  "baseline": "TestBroadcast",
+  "mutations": [
+    {
+      "label": "F1 DEAD GUARD: the validation call is reverted to error(nil) != nil (the defect as shipped)",
+      "file": "client.go",
+      "old": "\tif err := q.Validate(); err != nil {",
+      "new": "\tif err := error(nil); err != nil {",
+      "test": "TestBroadcast|TestAskable"
+    },
+    {
+      "label": "F1: the validation result is discarded",
+      "file": "client.go",
+      "old": "\tif err := q.Validate(); err != nil {\n\t\treturn BroadcastResult{}, fmt.Errorf(\"refusing to broadcast: %w\", err)\n\t}",
+      "new": "\t_ = q.Validate()",
+      "test": "TestBroadcast|TestAskable"
+    },
+    {
+      "label": "F1: a per-peer refusal replaces the whole-broadcast refusal (the question still reaches the wire)",
+      "file": "client.go",
+      "old": "\tif err := q.Validate(); err != nil {\n\t\treturn BroadcastResult{}, fmt.Errorf(\"refusing to broadcast: %w\", err)\n\t}",
+      "new": "\tqErr := q.Validate()",
+      "test": "TestBroadcast|TestAskable"
+    },
+    {
+      "label": "RULE 2 DIAL: the dial-time guard is removed entirely (the rebinding window reopens)",
+      "file": "client.go",
+      "old": "\tif err := dialGuard(peerCtx, p, c.resolver); err != nil {\n\t\treturn nil, err\n\t}",
+      "new": "",
+      "test": "TestBroadcast|TestAskable"
+    },
+    {
+      "label": "RULE 2 DIAL: the guard runs but its result is discarded",
+      "file": "client.go",
+      "old": "\tif err := dialGuard(peerCtx, p, c.resolver); err != nil {\n\t\treturn nil, err\n\t}",
+      "new": "\t_ = dialGuard(peerCtx, p, c.resolver)",
+      "test": "TestBroadcast|TestAskable"
+    },
+    {
+      "label": "RULE 2 DIAL: the guard ignores the injected resolver and uses the real one (tests would hit DNS)",
+      "file": "client.go",
+      "old": "\tif err := dialGuard(peerCtx, p, c.resolver); err != nil {",
+      "new": "\tif err := dialGuard(peerCtx, p, nil); err != nil {",
+      "test": "TestBroadcast|TestAskable"
+    },
+    {
+      "label": "ASKABLE: the trust-weight gate is dropped from Askable (any peer may be dialled)",
+      "file": "peer.go",
+      "old": "\tif p.TrustWeight <= 0 || p.TrustWeight > 1 {\n\t\treturn false\n\t}\n\treturn Fresh(p.LastSeenAt)",
+      "new": "\treturn Fresh(p.LastSeenAt)",
+      "test": "TestBroadcast|TestAskable"
+    },
+    {
+      "label": "FRESHNESS (F3): a stale peer is considered askable",
+      "file": "peer.go",
+      "old": "\treturn Fresh(p.LastSeenAt)",
+      "new": "\treturn true",
+      "test": "TestBroadcast|TestAskable"
+    }
+  ]
+}

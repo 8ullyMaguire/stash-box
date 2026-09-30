@@ -1,0 +1,55 @@
+{
+  "package": "internal/service/federation",
+  "baseline": "TestCreate|TestUpdate|TestRegistry",
+  "mutations": [
+    {
+      "label": "WIRING: Create stops validating base_url entirely",
+      "file": "service.go",
+      "old": "\tif err := ValidateBaseURL(ctx, in.BaseURL, s.resolver); err != nil {\n\t\treturn Peer{}, fmt.Errorf(\"peer %q: %w\", in.Name, err)\n\t}\n\n\t// Unreachable: the check above",
+      "new": "\t// Unreachable: the check above",
+      "test": "TestCreate"
+    },
+    {
+      "label": "WIRING: Update stops validating base_url",
+      "file": "service.go",
+      "old": "\tif err := ValidateBaseURL(ctx, in.BaseURL, s.resolver); err != nil {\n\t\treturn Peer{}, fmt.Errorf(\"peer %q: %w\", in.Name, err)\n\t}\n\n\trow, err := s.queries.UpdateFederationPeer",
+      "new": "\trow, err := s.queries.UpdateFederationPeer",
+      "test": "TestUpdate"
+    },
+    {
+      "label": "WIRING: only Create validates, Update is left unguarded",
+      "file": "service.go",
+      "old": "\tif err := ValidateBaseURL(ctx, in.BaseURL, s.resolver); err != nil {\n\t\treturn Peer{}, fmt.Errorf(\"peer %q: %w\", in.Name, err)\n\t}\n\n\trow, err := s.queries.UpdateFederationPeer",
+      "new": "\tif err := ValidateBaseURL(ctx, in.BaseURL, netResolver{}); err != nil {\n\t\treturn Peer{}, fmt.Errorf(\"peer %q: %w\", in.Name, err)\n\t}\n\n\trow, err := s.queries.UpdateFederationPeer",
+      "test": "TestUpdate"
+    },
+    {
+      "label": "WIRING: validation moved AFTER the insert (validates too late to matter)",
+      "file": "service.go",
+      "old": "\tif err := ValidateBaseURL(ctx, in.BaseURL, s.resolver); err != nil {\n\t\treturn Peer{}, fmt.Errorf(\"peer %q: %w\", in.Name, err)\n\t}\n\n\t// Unreachable: the check above",
+      "new": "\tweight := in.TrustWeight\n\t_ = ValidateBaseURL(ctx, in.BaseURL, s.resolver)\n\n\t// Unreachable: the check above",
+      "test": "TestCreate"
+    },
+    {
+      "label": "WIRING: name/instance checks reordered after DNS (a network round trip for nothing)",
+      "file": "service.go",
+      "old": "\tif in.Name == \"\" {\n\t\treturn Peer{}, fmt.Errorf(\"a peer needs a name\")\n\t}\n\tif in.InstanceID == \"\" {\n\t\treturn Peer{}, fmt.Errorf(\"a peer needs an instance id\")\n\t}",
+      "new": "\tif err := ValidateBaseURL(ctx, in.BaseURL, s.resolver); err != nil {\n\t\treturn Peer{}, err\n\t}\n\tif in.Name == \"\" {\n\t\treturn Peer{}, fmt.Errorf(\"a peer needs a name\")\n\t}\n\tif in.InstanceID == \"\" {\n\t\treturn Peer{}, fmt.Errorf(\"a peer needs an instance id\")\n\t}",
+      "test": "TestCreateValidatesBeforeAnyOtherCheck"
+    },
+    {
+      "label": "UPDATE: weight of zero accepted (the CHECK forbids it)",
+      "file": "service.go",
+      "old": "\tif in.TrustWeight <= 0 || in.TrustWeight > 1 {\n\t\treturn Peer{}, fmt.Errorf(\"cannot update peer %q: trust weight must be in (0,1], got %v\",\n\t\t\tin.Name, in.TrustWeight)\n\t}",
+      "new": "\tif in.TrustWeight > 1 {\n\t\treturn Peer{}, fmt.Errorf(\"cannot update peer %q: trust weight must be in (0,1], got %v\",\n\t\t\tin.Name, in.TrustWeight)\n\t}",
+      "test": "TestUpdateRejectsInvalidInput"
+    },
+    {
+      "label": "UPDATE: nil id accepted as a valid update",
+      "file": "service.go",
+      "old": "\tif in.ID == uuid.Nil {\n\t\treturn Peer{}, ErrNotFound\n\t}",
+      "new": "",
+      "test": "TestUpdateRejectsInvalidInput"
+    }
+  ]
+}

@@ -940,13 +940,20 @@ below was checked by search on 2026-09-29.
 | D7 | **Mobile app and browser extension are named first-class deliverables.** | Already in §7.11; promoted from implied to explicit. |
 | D8 | **Sync cadence and air-gap bundles are operator-configurable.** | Already in §7.17.4; this paste states it more firmly. |
 
-#### 7.23.1a Implementation status, re-measured 2026-09-30 21:50
+#### 7.23.1a Implementation status, re-measured 2026-09-30 22:10
 
 **D2 IS COMPLETE and is marked implemented.** All six steps are in one branch,
 mutation-tested, with build/vet/gofmt clean and the suite green at the commit that
 records it. The condition that held this open for two sessions — step 5's client
 living in an untracked file elsewhere — was resolved by bringing that file over
 (`9e794f9c`), not by waiting on the session that owned it.
+
+**Start at `docs/track/HANDOFF-R074.md`.** It carries the first action verbatim,
+the environment block, every gate with its output, the four things to know before
+touching this code, what was deliberately *not* done and why, and the traps paid
+for as rules. The mutation obligation is committed beside it at
+`docs/track/mutations/` — 85 mutations across ten specs, runnable — so the claims
+here can be re-verified rather than trusted.
 
 The verdict sat unreadable while the blocker was real, which was the right call
 then and is worth recording now: a row saying "done" against a half-landed branch

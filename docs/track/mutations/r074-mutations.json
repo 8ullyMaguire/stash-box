@@ -1,0 +1,97 @@
+{
+  "package": "internal/service/federation",
+  "baseline": "TestValidateBaseURL|TestPathScanner|TestScanner|TestScanner",
+  "mutations": [
+    {
+      "label": "webhook's every-address check: federation validates only the first IP",
+      "file": "baseurl.go",
+      "old": "\tif err := webhook.ValidateTarget(raw, ips); err != nil {\n\t\treturn err\n\t}",
+      "new": "\tif err := webhook.ValidateTarget(raw, ips[:1]); err != nil {\n\t\treturn err\n\t}",
+      "test": "TestValidateBaseURLRejectsUnsafeAddresses"
+    },
+    {
+      "label": "R074 rule 1: peer URL no longer checked for a filesystem path",
+      "file": "baseurl.go",
+      "old": "\tif err := checkNoPathComponent(raw); err != nil {\n\t\treturn err\n\t}\n\treturn nil",
+      "new": "\treturn nil",
+      "test": "TestValidateBaseURLRejectsUnsafeAddresses"
+    },
+    {
+      "label": "R074 rule 1 narrowed to path only (query and fragment unchecked)",
+      "file": "baseurl.go",
+      "old": "for _, part := range []string{u.Path, u.RawQuery, u.Fragment} {",
+      "new": "for _, part := range []string{u.Path} {",
+      "test": "TestValidateBaseURLRejectsUnsafeAddresses"
+    },
+    {
+      "label": "fail-closed: a nil resolver is treated as a valid peer",
+      "file": "baseurl.go",
+      "old": "\tif r == nil {\n\t\treturn ErrNoResolver\n\t}",
+      "new": "\tif r == nil {\n\t\tr = netResolver{}\n\t}",
+      "test": "TestValidateBaseURLFailsClosed"
+    },
+    {
+      "label": "fail-closed: only a hardcoded literal address is checked, ignoring what resolved",
+      "file": "baseurl.go",
+      "old": "\tif err := webhook.ValidateTarget(raw, ips); err != nil {\n\t\treturn err\n\t}",
+      "new": "\tif err := webhook.ValidateTarget(raw, []net.IP{net.ParseIP(\"93.184.216.34\")}); err != nil {\n\t\treturn err\n\t}",
+      "test": "TestValidateBaseURLFailsClosed|TestValidateBaseURLRejectsUnsafeAddresses"
+    },
+    {
+      "label": "guard bypass: the delegated webhook validation is dropped",
+      "file": "baseurl.go",
+      "old": "\tif err := webhook.ValidateTarget(raw, ips); err != nil {\n\t\treturn err\n\t}",
+      "new": "\t_ = ips",
+      "test": "TestValidateBaseURLRejectsUnsafeAddresses"
+    },
+    {
+      "label": "guard bypass: the no-host check is dropped",
+      "file": "baseurl.go",
+      "old": "\tif u.Hostname() == \"\" {\n\t\treturn &webhook.ErrUnsafeTarget{Host: raw, Reason: \"no host\"}\n\t}",
+      "new": "",
+      "test": "TestValidateBaseURLRejectsUnsafeAddresses"
+    },
+    {
+      "label": "scanner: quoted-name-only regex, so images.url goes unwatched",
+      "file": "schema_scan.go",
+      "old": "`(?i)(?:\"(` + addressAlternation() + `)\"|\\b(` + addressAlternation() + `)\\b)\\s+",
+      "new": "`(?i)\"(` + addressAlternation() + `)\"\\s+",
+      "test": "TestPathScannerMatchesUnquotedColumn|TestScannerFindsTheSeven"
+    },
+    {
+      "label": "scanner: substring matching, so director TEXT becomes a path column",
+      "file": "schema_scan.go",
+      "old": "`(?i)(?:\"(` + addressAlternation() + `)\"|\\b(` + addressAlternation() + `)\\b)\\s+",
+      "new": "`(?i)(?:\"?(?:` + addressAlternation() + `))\\s+",
+      "test": "TestScannerDoesNotCountSubstrings|TestScannerReadsTheWholeTree"
+    },
+    {
+      "label": "scanner: comments are parsed as columns",
+      "file": "schema_scan.go",
+      "old": "\t\t\tif strings.HasPrefix(trimmed, \"--\") {\n\t\t\t\tcontinue\n\t\t\t}",
+      "new": "",
+      "test": "TestScannerIgnoresComments"
+    },
+    {
+      "label": "scanner: down migrations are read as schema",
+      "file": "schema_scan.go",
+      "old": "\t\tif !strings.HasSuffix(path, \".up.sql\") {\n\t\t\treturn nil\n\t\t}",
+      "new": "",
+      "test": "TestScannerIgnoresDownMigrations"
+    },
+    {
+      "label": "scanner: recursion dropped, so only the top directory is read",
+      "file": "schema_scan.go",
+      "old": "\terr := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {",
+      "new": "\terr := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {\n\t\tif info.IsDir() && path != dir {\n\t\t\treturn filepath.SkipDir\n\t\t}",
+      "test": "TestScannerReadsTheWholeTree"
+    },
+    {
+      "label": "scanner: text types dropped, so no column is address-shaped",
+      "file": "schema_scan.go",
+      "old": "(?:text|varchar|character\\s+varying|inet|cidr|citext)\\b",
+      "new": "(?:inet|cidr)\\b",
+      "test": "TestScannerFindsTheSeven|TestPathScannerMatchesUnquotedColumn"
+    }
+  ]
+}
