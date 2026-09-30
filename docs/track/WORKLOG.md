@@ -5665,3 +5665,29 @@ test` without `-p 1`. Packages share one database, so running them in parallel h
 them truncate each other's tables. The Makefile says so in a comment; the clause I
 added did not, and it produced a failure signature indistinguishable from a real
 regression.
+
+## 2026-10-01 00:55 — goal-check predicate: all nine clauses pass
+
+Final run against an isolated database, `sb-verify-c2`, so no concurrent session
+could perturb it:
+
+    C1 PRs decided            PASS  all 45 open PRs decided
+    C2 reasons present        PASS  cites SPEC.md section 0
+    C2 issues dispositioned   PASS  177 rows, every one decided
+    C3 spec/plan built        PASS  both plan documents Built
+    C4 narrow merged          PASS  issue-fixes is an ancestor of master
+    C5 migrations coherent    PASS  no duplicate numbers
+    C6 suite                  PASS  29 packages green
+    C6b integration suite     PASS  30 packages green   <- new
+    C7 build clean            PASS  build, vet, gofmt
+
+`C6b` is the clause that matters most and it did not exist a day ago. `C6` ran
+`go test ./...` **without** `-tags=integration`, so every integration test in this
+fork — the R074 guards, the D2 federation boundaries, the streak logic — was
+invisible to the goal check. It had been reporting PASS while testing
+approximately half the suite.
+
+**A completion predicate that does not run the tests you care about is a
+predicate about the wrong thing.** It passed, correctly, for the subset it chose
+to look at; the flaw is in the choice, and nothing about the output would have
+revealed it.
