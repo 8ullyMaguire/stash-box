@@ -57,6 +57,7 @@ func (s *FileBackend) ReadFile(image models.Image) (io.ReadCloser, int64, error)
 	path := GetImagePath(fileDir, image.ID.String())
 	file, err := os.Open(path)
 	if err != nil {
+		file.Close()
 		return nil, 0, err
 	}
 	stat, err := file.Stat()
