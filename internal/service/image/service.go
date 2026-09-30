@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/stashapp/stash-box/internal/image/cache"
 	"github.com/stashapp/stash-box/internal/models"
 	"github.com/stashapp/stash-box/internal/queries"
+	"github.com/stashapp/stash-box/internal/service/federation"
 	"github.com/stashapp/stash-box/internal/service/loadutil"
 	"github.com/stashapp/stash-box/internal/storage"
 )
@@ -55,6 +57,26 @@ func (s *Image) Create(ctx context.Context, input models.ImageCreateInput) (*mod
 
 	// set RemoteURL from URL
 	if input.URL != nil {
+		// R074 rule 3: images.url is the one ADDRESS-SHAPED column this box
+		// SERVES rather than stores, which makes it the highest-value target of
+		// the remaining five. A client that renders it will be handed whatever
+		// is here, so a stored file:// or an internal path is not a metadata leak
+		// -- it is something the instance hands to a browser or fetches on a
+		// user's behalf.
+		//
+		// Only the URL path is guarded. The file-upload branch below never sets
+		// RemoteURL, so there is nothing there to validate and no rule is being
+		// skipped by leaving it alone.
+		//
+		// This is NOT ValidateBaseURL, and deliberately so. That function resolves
+		// in DNS because a peer is a host this box dials. An image URL is a host a
+		// CLIENT fetches: the box never connects to it, so a name that does not
+		// resolve from here may resolve perfectly well from a user's machine, and
+		// refusing it here would reject legitimate rows. What matters is the SHAPE
+		// -- scheme and any local-file reference in the path -- not reachability.
+		if err := federation.ValidateImageURL(*input.URL); err != nil {
+			return nil, fmt.Errorf("image url %q: %w", *input.URL, err)
+		}
 		newImage.RemoteURL = input.URL
 	}
 
