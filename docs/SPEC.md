@@ -940,12 +940,12 @@ below was checked by search on 2026-09-29.
 | D7 | **Mobile app and browser extension are named first-class deliverables.** | Already in §7.11; promoted from implied to explicit. |
 | D8 | **Sync cadence and air-gap bundles are operator-configurable.** | Already in §7.17.4; this paste states it more firmly. |
 
-#### 7.23.1a Implementation status, measured 2026-09-30
+#### 7.23.1a Implementation status, measured 2026-09-30 19:40
 
-**D2 is NOT implemented and is not marked as such.** It is at step 5 of 6, and
-the sixth step does not exist yet. Recording the steps rather than a verdict,
-because a row that says "done" against four of six steps is the kind of claim
-this repo keeps having to retract.
+**D2 is NOT complete, and is not marked as such.** Five of six steps are done and
+the sixth is half done. Recording the steps rather than a verdict, because a row
+that says "done" against four of six steps is the kind of claim this repo keeps
+having to retract.
 
 | D2 step | State | Commit |
 |---|---|---|
@@ -953,21 +953,57 @@ this repo keeps having to retract.
 | 2 — freshness rule | done | `1d64e70a` |
 | 3 — taste-based peer selection | done | `f5601107` |
 | 4 — broadcast payload + F1 content guard | done | `7704600c` |
-| 5 — client + local storage of answers | half done | `d3934900` (store); client in flight, owned by another session |
-| 6 — wiring to a resolution + operator surface | **not started** | — |
+| 5 — client + local storage of answers | **store done and now tested**; client still in flight | `d3934900` (store), F2 test `pending-commit` |
+| 6 — wiring to a resolution + operator surface | **write path done**, read-only query not started | `e2ee78b1`, `8338a797` |
+
+### Against D2's own definition of done
+
+Six items, checked rather than asserted:
+
+| Requirement | State |
+|---|---|
+| `go build ./...`, `go vet ./...` clean | **met** |
+| `go test ./...` green, no test deleted or weakened | **met** — 29 packages, 11 consecutive runs |
+| Every mutation in the plan killed, or the missing test written | **met** — 50 killed across five harnesses; the two that survived first were fixed in the tests, not by weakening the code |
+| Broadcast payload has no field capable of holding media, proven by reflection | **met** — `TestWireFieldTypesAreClosed`, `TestWireHasNoURLOrPathField` (`7704600c`) |
+| A foreign candidate provably cannot reach the local vote path, **proven by a test that attempts it and expects a rejection** | **met, and it was NOT before** — see below |
+| SPEC §7.23 D2 marked implemented; D6's deferral recorded | **D2 NOT marked implemented** (correctly — step 6's read path is absent). D6's deferral recorded below |
+
+**The F2 item was unmet until this session, and the reason is worth recording.**
+`store.go` — the F2 boundary itself — was committed as `d3934900` with **no test
+at all**. The two things that stood in for one both fall short of "attempts it
+and expects a rejection": `TestRegistryCannotWriteForeignEvidence` asserts the
+registry exposes no `Suggest`/`Vote`/`Resolve` method, which is a claim about
+names and a rename would defeat it; and migration 89's comments argue the case,
+which is a claim about the schema and not the schema.
+
+`f2_boundary_integration_test.go` now attempts the crossing for real: a peer's id
+is spelled as an existing local performer's uuid, recorded as an answer, and the
+test shows no local performer was created or attached, that
+`identification_foreign_candidates` has no column capable of pointing at a local
+entity, and that the peer's 500 suggestions bought no local weight. 8 mutations,
+8 killed, including adding the `entity_id` column and resolving a remote id
+against a real performer.
+
+Two of those 8 survived the first version of the test, and both were the test's
+fault: `assert.Error` was satisfied by the **foreign key** rejecting `uuid.Nil`
+once the guard was removed, so the test passed while the guard was gone. The
+assertion is now on the guard's own error message, which is what distinguishes
+"refused deliberately" from "refused by the database by accident".
 
 **D6 is deferred, with its reason.** Guilds, mentorship, adoption, a public
 roadmap and voting are a community layer, and nothing in the identification
 federation work needs them. Deferring D6 costs D2 nothing, and building D6 before
-D2 step 6 would mean a ranking and gamification surface over evidence that
-cannot yet reach the operator. It stays deferred until D2 step 6 is closed.
+D2's read path exists would mean a ranking and gamification surface over evidence
+no operator can yet query. It stays deferred until D2 step 6 is closed.
 
-**R074's receiving guard is built but NOT WIRED** (`r074-receiving-guard`,
-`23da1f6a`). `internal/service/federation/baseurl.go` validates
-`federation_peers.base_url` and `schema_scan.go` watches the seven
-address-shaped columns, but `CreateFederationPeer`/`UpdateFederationPeer` have
-no Go caller — they belong to step 6. Until step 6 calls `ValidateBaseURL` at
-write time, the guard is unreachable code. Full note: `docs/track/HANDOFF-R074.md`.
+**R074's receiving guard is built, wired and REACHABLE** (`r074-receiving-guard`).
+`internal/service/federation/baseurl.go` validates `federation_peers.base_url`,
+`service.go` calls it from both `Create` and `Update`, `schema_scan.go` watches
+the seven address-shaped columns, and the operator surface calls those
+(`e2ee78b1`, `8338a797`). An integration test asserts the rule in operator terms:
+an ADMIN cannot register or repoint a peer at `169.254.169.254`. Full note:
+`docs/track/HANDOFF-R074.md`.
 
 #### 7.23.2 Already present — recorded so the plan does not rebuild them
 
