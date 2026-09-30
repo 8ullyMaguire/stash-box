@@ -270,3 +270,31 @@ place a reasonable person would choose differently.
 2. **Rule 1 on the other four columns** — scanner only, by choice.
 3. **#583** is a partial fix with no dedicated test; recorded as such.
 4. The feature roadmap (17 RFCs, feature-01…05) is untouched.
+
+## A stale note in the goal file, and the trap behind it
+
+The goal described `TestMarkSpecificNotificationRead` as a known pre-existing
+order-dependent failure — "fails in the suite, passes in isolation". **It has not
+failed in 14 consecutive full-suite runs**, and it now passes inside the full
+435-test `internal/api` package run (0.51s).
+
+The reason it looked absent is worth more than the fact that it passes:
+
+```
+$ go test ./internal/api/ -run TestMarkSpecificNotificationRead
+ok  ... [no tests to run]
+```
+
+The file is `//go:build integration`, so a bare `go test` does not run it at all.
+Only `make it` does, because it passes `-tags=integration`. **A test that reports
+`[no tests to run]` is a green result that measured nothing** — and it is the same
+shape as the "a test that matches zero things passes" trap the goal warns about,
+one level up. If you are checking an integration-tagged test, the tag is part of
+the command or the check is void.
+
+Its fixture polls for the real condition (`awaitUnreadCountsAbove`, requiring both
+`Total` and `Urgent` to rise) rather than sleeping, so the fixed-latency race the
+note described was designed out rather than left latent.
+
+**Do not "fix" it again by loosening the assertion.** If it starts failing, the
+cause is a new fixture problem, not the old sleep.
