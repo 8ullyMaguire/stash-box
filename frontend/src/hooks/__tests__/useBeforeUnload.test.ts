@@ -40,7 +40,9 @@ describe("useBeforeUnload", () => {
 
     const added = addSpy.mock.calls.filter((c) => c[0] === "beforeunload");
     expect(added).toHaveLength(1);
-    expect(removeSpy.mock.calls.filter((c) => c[0] === "beforeunload")).toHaveLength(0);
+    expect(
+      removeSpy.mock.calls.filter((c) => c[0] === "beforeunload"),
+    ).toHaveLength(0);
   });
 
   // The regression guard. On the buggy version this fails with 1 !== 0, because
@@ -50,7 +52,9 @@ describe("useBeforeUnload", () => {
     const removeSpy = vi.spyOn(window, "removeEventListener");
 
     const { unmount } = renderHook(() => useBeforeUnload());
-    const listener = addSpy.mock.calls.find((c) => c[0] === "beforeunload")?.[1];
+    const listener = addSpy.mock.calls.find(
+      (c) => c[0] === "beforeunload",
+    )?.[1];
 
     unmount();
 
@@ -73,8 +77,12 @@ describe("useBeforeUnload", () => {
       unmount();
     }
 
-    const added = addSpy.mock.calls.filter((c) => c[0] === "beforeunload").length;
-    const removed = removeSpy.mock.calls.filter((c) => c[0] === "beforeunload").length;
+    const added = addSpy.mock.calls.filter(
+      (c) => c[0] === "beforeunload",
+    ).length;
+    const removed = removeSpy.mock.calls.filter(
+      (c) => c[0] === "beforeunload",
+    ).length;
 
     expect(added).toBe(removed);
     expect(added).toBe(3);

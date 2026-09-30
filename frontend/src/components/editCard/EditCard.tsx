@@ -76,7 +76,6 @@ const EditCardComponent: FC<Props> = (props) => {
             <b className="me-2">Status:</b>
             <EditStatus {...edit} />
             <EditExpiration edit={edit} />
-            {!compact && <VoteBar edit={edit} />}
           </div>
         </div>
       </Card.Header>
@@ -108,6 +107,7 @@ const EditCardComponent: FC<Props> = (props) => {
                   />
                 ))}
                 <AddComment editID={edit.id} />
+                {!compact && <VoteBar edit={edit} />}
               </Col>
             </Row>
           </>
