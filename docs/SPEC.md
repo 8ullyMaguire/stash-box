@@ -953,7 +953,7 @@ having to retract.
 | 2 — freshness rule | done | `1d64e70a` |
 | 3 — taste-based peer selection | done | `f5601107` |
 | 4 — broadcast payload + F1 content guard | done | `7704600c` |
-| 5 — client + local storage of answers | **store done and now tested**; client still in flight | `d3934900` (store), F2 test `pending-commit` |
+| 5 — client + local storage of answers | **store done and now tested**; client still in flight | `d3934900` (store), F2 test `f07cc48d` |
 | 6 — wiring to a resolution + operator surface | **write path done**, read-only query not started | `e2ee78b1`, `8338a797` |
 
 ### Against D2's own definition of done
