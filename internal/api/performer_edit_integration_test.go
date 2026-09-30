@@ -181,6 +181,18 @@ func (s *performerEditTestRunner) verifyPerformerEditDetails(input models.Perfor
 		assert.True(s.t, input.BreastType.IsValid() && (input.BreastType.String() == *performerDetails.BreastType))
 	}
 
+	if input.Genitals == nil {
+		assert.Nil(s.t, performerDetails.Genitals)
+	} else {
+		assert.True(s.t, input.Genitals.IsValid() && (input.Genitals.String() == *performerDetails.Genitals))
+	}
+
+	if input.PenisLength == nil {
+		assert.Nil(s.t, performerDetails.PenisLength)
+	} else {
+		assert.True(s.t, *input.PenisLength == *performerDetails.PenisLength)
+	}
+
 	if input.CareerStartYear == nil {
 		assert.Nil(s.t, performerDetails.CareerStartYear)
 	} else {
@@ -294,6 +306,18 @@ func (s *performerEditTestRunner) verifyPerformerEdit(input models.PerformerEdit
 		assert.Nil(s.t, performer.BreastType)
 	} else {
 		assert.Equal(s.t, input.BreastType.String(), performer.BreastType.String())
+	}
+
+	if input.Genitals == nil {
+		assert.Nil(s.t, performer.Genitals)
+	} else {
+		assert.Equal(s.t, input.Genitals.String(), performer.Genitals.String())
+	}
+
+	if input.PenisLength == nil {
+		assert.Nil(s.t, performer.PenisLength)
+	} else {
+		assert.Equal(s.t, *input.PenisLength, *performer.PenisLength)
 	}
 
 	if input.CareerStartYear == nil {
@@ -1266,6 +1290,7 @@ func (s *performerEditTestRunner) testApplyModifyPerformerEnumFields() {
 	initialHairColor := models.HairColorEnumBlonde
 	initialEyeColor := models.EyeColorEnumBlue
 	initialBreastType := models.BreastTypeEnumNatural
+	initialGenitals := models.GenitalEnumCirPenis
 
 	performerCreateInput := models.PerformerCreateInput{
 		Name:       "Enum Test Performer",
@@ -1274,6 +1299,7 @@ func (s *performerEditTestRunner) testApplyModifyPerformerEnumFields() {
 		HairColor:  &initialHairColor,
 		EyeColor:   &initialEyeColor,
 		BreastType: &initialBreastType,
+		Genitals:   &initialGenitals,
 	}
 	createdPerformer, err := s.createTestPerformer(&performerCreateInput)
 	assert.NoError(s.t, err)
@@ -1283,6 +1309,7 @@ func (s *performerEditTestRunner) testApplyModifyPerformerEnumFields() {
 	newHairColor := models.HairColorEnumBrunette
 	newEyeColor := models.EyeColorEnumGreen
 	newBreastType := models.BreastTypeEnumFake
+	newGenitals := models.GenitalEnumUncirPenis
 
 	performerEditDetailsInput := models.PerformerEditDetailsInput{
 		Gender:     &newGender,
@@ -1290,6 +1317,7 @@ func (s *performerEditTestRunner) testApplyModifyPerformerEnumFields() {
 		HairColor:  &newHairColor,
 		EyeColor:   &newEyeColor,
 		BreastType: &newBreastType,
+		Genitals:   &newGenitals,
 	}
 
 	id := createdPerformer.UUID()
@@ -1313,6 +1341,7 @@ func (s *performerEditTestRunner) testApplyModifyPerformerEnumFields() {
 	assert.Equal(s.t, newHairColor.String(), modifiedPerformer.HairColor.String())
 	assert.Equal(s.t, newEyeColor.String(), modifiedPerformer.EyeColor.String())
 	assert.Equal(s.t, newBreastType.String(), modifiedPerformer.BreastType.String())
+	assert.Equal(s.t, newGenitals.String(), modifiedPerformer.Genitals.String())
 }
 
 func TestApplyModifyPerformerEnumFields(t *testing.T) {
