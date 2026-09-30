@@ -672,6 +672,13 @@ type Querier interface {
 	// unfilled site and a site whose details were emptied are distinguishable. A site
 	// row with no site_details row means "unknown", which is not the same as "empty".
 	GetSiteDetails(ctx context.Context, siteID uuid.UUID) (SiteDetail, error)
+	// Case-insensitive, matching the Find<entity>ByName convention used for tags,
+	// studios and performers. Needed to resolve an id for a site that already
+	// exists: site name carries a unique index, so a name lookup is sufficient and
+	// avoids inventing a uuid. Returns a slice rather than a single row so a
+	// duplicated name (only possible if the index is absent) degrades to "take the
+	// first" instead of erroring the caller.
+	GetSitesByName(ctx context.Context, upper interface{}) ([]Site, error)
 	GetStudioAliases(ctx context.Context, studioID uuid.UUID) ([]string, error)
 	GetStudioImages(ctx context.Context, studioID uuid.UUID) ([]uuid.UUID, error)
 	GetStudioURLs(ctx context.Context, studioID uuid.UUID) ([]StudioUrl, error)

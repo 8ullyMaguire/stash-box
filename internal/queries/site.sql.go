@@ -123,6 +123,47 @@ func (q *Queries) GetSite(ctx context.Context, id uuid.UUID) (Site, error) {
 	return i, err
 }
 
+const getSitesByName = `-- name: GetSitesByName :many
+SELECT id, name, description, url, regex, valid_types, created_at, updated_at, category_id, highlighted FROM sites WHERE UPPER(name) = UPPER($1)
+`
+
+// Case-insensitive, matching the Find<entity>ByName convention used for tags,
+// studios and performers. Needed to resolve an id for a site that already
+// exists: site name carries a unique index, so a name lookup is sufficient and
+// avoids inventing a uuid. Returns a slice rather than a single row so a
+// duplicated name (only possible if the index is absent) degrades to "take the
+// first" instead of erroring the caller.
+func (q *Queries) GetSitesByName(ctx context.Context, upper interface{}) ([]Site, error) {
+	rows, err := q.db.Query(ctx, getSitesByName, upper)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Site{}
+	for rows.Next() {
+		var i Site
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Description,
+			&i.Url,
+			&i.Regex,
+			&i.ValidTypes,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.CategoryID,
+			&i.Highlighted,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const updateSite = `-- name: UpdateSite :one
 UPDATE sites
 SET name = $2, description = $3, url = $4, regex = $5, valid_types = $6, category_id = $7, highlighted = $8, updated_at = now()
