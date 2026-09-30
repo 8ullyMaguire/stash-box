@@ -1,8 +1,16 @@
 # R074 — the receiving-end guard for `stash-box`
 
-**Status: the guard exists and is proven. It is NOT yet called by anything.**
-That sentence is the most important one on this page and it is the first thing
-the next session must resolve.
+**Status: the guard is built, proven, and WIRED** (`e2ee78b1`, third session).
+`service.go` calls `ValidateBaseURL` from both `Create` and `Update`, and
+`Factory.Federation()` is registered.
+
+**Still not reachable in production:** nothing calls `Factory.Federation()`, and
+the only caller would be the GraphQL operator surface (D2 step 6's other half,
+deliberately not built here because the D2 session owns it). The precise claim is
+therefore: *the guard covers every path this package owns*, and a caller building
+its own `queries.New(f.db)` handle from the pool could still bypass it.
+
+**The top open item is dial-time re-validation.** See "Open items" below.
 
 Session: 2026-09-30 ~17:10–17:45, agent profile `coding-2`.
 Branch: `r074-receiving-guard`, forked from `master` at `d3934900`.
@@ -175,36 +183,39 @@ check, do not add a test.**
 
 ## Open items, in priority order
 
-1. **The guard is not called.** `CreateFederationPeer` / `UpdateFederationPeer`
-   have **no Go caller** — `grep -rn 'CreateFederationPeer' --include='*.go'`
-   returns only generated code. The registry service is D2 **step 6**, which does
-   not exist yet (`internal/service/federation/` has no `service.go`). So nothing
-   can write a `base_url` yet, which is also why the hole is currently
-   theoretical. **When step 6 lands, `ValidateBaseURL` must be called at write
-   time, or this file is dead code.** Rule 2 in `HANDOFF-SPLIT.md` §4 also
-   requires validation **at dial time** — a URL that validated on insert can
-   resolve differently later.
-2. **Rules 1 and 3 have a scanner, not a runtime guard.** The five stored-URL
+1. **Re-validate at dial time.** Rule 2 wants the check on the way out as well as
+   the way in, and the rebinding window is the whole reason `ValidateTargetURL`
+   resolves in the first place. **This belongs with whoever lands `client.go`** —
+   the dialer is an untracked file in the shared tree owned by the D2 session, so
+   writing a dial-time check here would mean writing a second dialer.
+2. **The GraphQL operator surface.** D2 step 6's other half. Nothing calls
+   `Factory.Federation()` until it exists. Deliberately not built here to avoid
+   colliding with the session that owns D2.
+3. **Rules 1 and 3 have a scanner, not a runtime guard.** The five stored-URL
    columns (`performer_urls.url`, `studio_urls.url`, `scene_urls.url`,
    `sites.url`, `images.url`) are operator-typed inbound references. The scanner
-   reports them; it does not block them. Deciding whether any of them needs a
-   write-time value check is an owner decision, and it interacts with PR #736
-   (declined above because it removes `images.url`).
-3. **`docs/SPEC.md` §7.23 / the commons half of the alignment** — not written.
-   Time ran out; the goal's exit condition lists it and it is not done.
-4. **D2 is still at step 5 of 6** in the shared tree, owned by the `coding`
-   profile. Untouched by this session.
+   reports them; it does not block them. An owner decision, and it interacts with
+   PR #736 (declined partly because it removes `images.url`).
+4. **A `CHECK` constraint is not possible and that is worth knowing.** Postgres
+   cannot resolve DNS in a constraint, so "does this host resolve to a private
+   address" can only be enforced in Go. The schema-level backstop available
+   instead is a scheme check (`base_url LIKE 'http%' OR 'https%'`), which would
+   stop `file://` at the database. Not done; recorded as the available option.
+5. **`docs/SPEC.md` §7.23 D2 row** — §7A now carries the alignment, and §7.23.1a
+   carries the step state. D2 is still not complete (step 6 unfinished).
+6. **D2 step 5's client** is still in flight in the shared tree.
 
 ## What this repo owes the other profile — status
 
 | Item | State |
 |---|---|
-| R074 receiving guard on `base_url` | **Built, proven, not wired** (item 1) |
+| R074 receiving guard on `base_url` | **Built, proven, wired** (`e2ee78b1`). Not reachable until the operator surface exists |
 | R074 scanner for the 7 columns | **Built, proven** |
-| Commons half of the alignment in `SPEC.md` | Not done (item 3) |
+| Commons half of the alignment in `SPEC.md` | **Done** — `docs/SPEC.md` §7A, `217bd789` |
+| Dial-time re-validation (rule 2's second half) | **Open** — belongs with whoever lands `client.go` |
 
 `~/code-local/worktrees/stashforge/docs/HANDOFF-SPLIT.md` §4 needs one line
-changed: it says the receiving half "does not exist". It now exists for
-`base_url`. It still does not exist for the five stored-URL columns, and it is
-not wired to a write path. **That edit is deliberately not made here** — the
-stashforge worktree belongs to another profile.
+changed: it says the receiving half "does not exist". It now exists and is wired
+for `base_url` (third session). It still does not exist for the five stored-URL
+columns, and the dial-time half is still open. **That edit is deliberately not
+made here** — the stashforge worktree belongs to another profile.
