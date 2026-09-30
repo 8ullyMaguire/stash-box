@@ -30,6 +30,7 @@ import {
   type SceneEditDetailsInput,
   ValidSiteTypeEnum,
 } from "src/graphql";
+import { usePendingURLField } from "src/hooks";
 import { useBeforeUnload } from "src/hooks/useBeforeUnload";
 import {
   formatDuration,
@@ -99,6 +100,7 @@ const SceneForm: FC<SceneProps> = ({
       images: initial?.images ?? scene?.images ?? [],
       studio: initial?.studio ?? scene?.studio ?? undefined,
       tags: initial?.tags ?? scene?.tags ?? [],
+      pendingUrl: "",
       performers: (initial?.performers ?? scene?.performers ?? []).map((p) => ({
         performerId: p.performer.id,
         name: p.performer.name,
@@ -122,6 +124,7 @@ const SceneForm: FC<SceneProps> = ({
   });
 
   const lens = useLens({ control });
+  const onPendingURLChange = usePendingURLField(setValue, "pendingUrl");
 
   const fieldData = watch();
   const [oldSceneChanges, newSceneChanges] = useMemo(
@@ -339,6 +342,7 @@ const SceneForm: FC<SceneProps> = ({
       error: errors.urls?.find?.((u) => u?.url?.message)?.url?.message,
       tab: "links",
     },
+    { error: errors.pendingUrl?.message, tab: "links" },
   ].filter((e) => e.error) as { error: string; tab: string }[];
 
   return (
@@ -538,6 +542,8 @@ const SceneForm: FC<SceneProps> = ({
             lens={lens.focus("urls").defined()}
             type={ValidSiteTypeEnum.SCENE}
             errors={errors.urls}
+            pendingURLError={errors.pendingUrl?.message}
+            onPendingURLChange={onPendingURLChange}
           />
 
           <NavButtons onNext={() => setActiveTab("images")} />

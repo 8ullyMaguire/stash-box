@@ -211,10 +211,13 @@ describe("TagForm", () => {
         return labelEl.closest(".mb-3") as HTMLElement;
       })();
       await selectReactSelect(user, "Activity", categoryGroup);
-      // Clear the selection.
-      await user.click(
-        categoryGroup.querySelector(".react-select__clear-indicator")!,
+      // Clear the selection. Asserted rather than non-null asserted: a missing
+      // clear indicator should fail naming the element, not as a click on null.
+      const clearIndicator = categoryGroup.querySelector(
+        ".react-select__clear-indicator",
       );
+      expect(clearIndicator).not.toBeNull();
+      await user.click(clearIndicator as Element);
       await fillNote(user);
       await user.click(screen.getByRole("button", { name: "Submit Edit" }));
 

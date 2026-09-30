@@ -1125,8 +1125,8 @@ type PerformerEditResolver interface {
 
 	BreastType(ctx context.Context, obj *PerformerEdit) (*BreastTypeEnum, error)
 
-	AddedImages(ctx context.Context, obj *PerformerEdit) ([]Image, error)
-	RemovedImages(ctx context.Context, obj *PerformerEdit) ([]Image, error)
+	AddedImages(ctx context.Context, obj *PerformerEdit) ([]*Image, error)
+	RemovedImages(ctx context.Context, obj *PerformerEdit) ([]*Image, error)
 
 	Aliases(ctx context.Context, obj *PerformerEdit) ([]string, error)
 	Urls(ctx context.Context, obj *PerformerEdit) ([]URL, error)
@@ -1245,8 +1245,8 @@ type SceneEditResolver interface {
 	RemovedPerformers(ctx context.Context, obj *SceneEdit) ([]PerformerAppearance, error)
 	AddedTags(ctx context.Context, obj *SceneEdit) ([]Tag, error)
 	RemovedTags(ctx context.Context, obj *SceneEdit) ([]Tag, error)
-	AddedImages(ctx context.Context, obj *SceneEdit) ([]Image, error)
-	RemovedImages(ctx context.Context, obj *SceneEdit) ([]Image, error)
+	AddedImages(ctx context.Context, obj *SceneEdit) ([]*Image, error)
+	RemovedImages(ctx context.Context, obj *SceneEdit) ([]*Image, error)
 	AddedFingerprints(ctx context.Context, obj *SceneEdit) ([]Fingerprint, error)
 	RemovedFingerprints(ctx context.Context, obj *SceneEdit) ([]Fingerprint, error)
 
@@ -1281,8 +1281,8 @@ type StudioResolver interface {
 }
 type StudioEditResolver interface {
 	Parent(ctx context.Context, obj *StudioEdit) (*Studio, error)
-	AddedImages(ctx context.Context, obj *StudioEdit) ([]Image, error)
-	RemovedImages(ctx context.Context, obj *StudioEdit) ([]Image, error)
+	AddedImages(ctx context.Context, obj *StudioEdit) ([]*Image, error)
+	RemovedImages(ctx context.Context, obj *StudioEdit) ([]*Image, error)
 
 	Images(ctx context.Context, obj *StudioEdit) ([]Image, error)
 	Urls(ctx context.Context, obj *StudioEdit) ([]URL, error)
@@ -7403,8 +7403,8 @@ type PerformerEdit {
   removed_tattoos: [BodyModification!]
   added_piercings: [BodyModification!]
   removed_piercings: [BodyModification!]
-  added_images: [Image!]
-  removed_images: [Image!]
+  added_images: [Image]
+  removed_images: [Image]
   draft_id: ID
 
   aliases: [String!]!
@@ -7795,8 +7795,8 @@ type SceneEdit {
   removed_performers: [PerformerAppearance!]
   added_tags: [Tag!]
   removed_tags: [Tag!]
-  added_images: [Image!]
-  removed_images: [Image!]
+  added_images: [Image]
+  removed_images: [Image]
   added_fingerprints: [Fingerprint!]
   removed_fingerprints: [Fingerprint!]
   duration: Int
@@ -8061,8 +8061,8 @@ type StudioEdit {
   added_urls: [URL!]
   removed_urls: [URL!]
   parent: Studio
-  added_images: [Image!]
-  removed_images: [Image!]
+  added_images: [Image]
+  removed_images: [Image]
   added_aliases: [String!]
   removed_aliases: [String!]
 
@@ -23243,8 +23243,8 @@ func (ec *executionContext) _PerformerEdit_added_images(ctx context.Context, fie
 			return ec.Resolvers.PerformerEdit().AddedImages(ctx, obj)
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []Image) graphql.Marshaler {
-			return ec.marshalOImage2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐImageᚄ(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v []*Image) graphql.Marshaler {
+			return ec.marshalOImage2ᚕᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐImage(ctx, selections, v)
 		},
 		true,
 		false,
@@ -23275,8 +23275,8 @@ func (ec *executionContext) _PerformerEdit_removed_images(ctx context.Context, f
 			return ec.Resolvers.PerformerEdit().RemovedImages(ctx, obj)
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []Image) graphql.Marshaler {
-			return ec.marshalOImage2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐImageᚄ(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v []*Image) graphql.Marshaler {
+			return ec.marshalOImage2ᚕᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐImage(ctx, selections, v)
 		},
 		true,
 		false,
@@ -28750,8 +28750,8 @@ func (ec *executionContext) _SceneEdit_added_images(ctx context.Context, field g
 			return ec.Resolvers.SceneEdit().AddedImages(ctx, obj)
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []Image) graphql.Marshaler {
-			return ec.marshalOImage2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐImageᚄ(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v []*Image) graphql.Marshaler {
+			return ec.marshalOImage2ᚕᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐImage(ctx, selections, v)
 		},
 		true,
 		false,
@@ -28782,8 +28782,8 @@ func (ec *executionContext) _SceneEdit_removed_images(ctx context.Context, field
 			return ec.Resolvers.SceneEdit().RemovedImages(ctx, obj)
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []Image) graphql.Marshaler {
-			return ec.marshalOImage2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐImageᚄ(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v []*Image) graphql.Marshaler {
+			return ec.marshalOImage2ᚕᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐImage(ctx, selections, v)
 		},
 		true,
 		false,
@@ -30366,8 +30366,8 @@ func (ec *executionContext) _StudioEdit_added_images(ctx context.Context, field 
 			return ec.Resolvers.StudioEdit().AddedImages(ctx, obj)
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []Image) graphql.Marshaler {
-			return ec.marshalOImage2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐImageᚄ(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v []*Image) graphql.Marshaler {
+			return ec.marshalOImage2ᚕᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐImage(ctx, selections, v)
 		},
 		true,
 		false,
@@ -30398,8 +30398,8 @@ func (ec *executionContext) _StudioEdit_removed_images(ctx context.Context, fiel
 			return ec.Resolvers.StudioEdit().RemovedImages(ctx, obj)
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []Image) graphql.Marshaler {
-			return ec.marshalOImage2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐImageᚄ(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v []*Image) graphql.Marshaler {
+			return ec.marshalOImage2ᚕᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐImage(ctx, selections, v)
 		},
 		true,
 		false,
@@ -54076,21 +54076,15 @@ func (ec *executionContext) marshalOIdentificationTargetType2ᚖgithubᚗcomᚋs
 	return v
 }
 
-func (ec *executionContext) marshalOImage2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐImageᚄ(ctx context.Context, sel ast.SelectionSet, v []Image) graphql.Marshaler {
+func (ec *executionContext) marshalOImage2ᚕᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐImage(ctx context.Context, sel ast.SelectionSet, v []*Image) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
 	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
 		fc := graphql.GetFieldContext(ctx)
 		fc.Result = &v[i]
-		return ec.marshalNImage2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐImage(ctx, sel, v[i])
+		return ec.marshalOImage2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐImage(ctx, sel, v[i])
 	})
-
-	for _, e := range ret {
-		if e == graphql.Null {
-			return graphql.Null
-		}
-	}
 
 	return ret
 }
