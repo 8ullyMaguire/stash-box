@@ -128,16 +128,34 @@ def c2_issues_dispositioned():
                     + (" ..." if len(missing) > 10 else ""))
                 return
 
-    outstanding = [(int(n), t.strip(), s.strip()) for n, t, _, s in rows
-                   if s.strip().lower() in ("relevant", "planned", "todo", "open")]
+    # A DECIDED row is one with an outcome: fixed (a commit is named), declined,
+    # feature-request, or partially-fixed. A row marked `bug` or `spec-collision`
+    # is real work that has not been done, and the goal is not complete while any
+    # exist. This is the same disposition-vs-decided distinction as the PR clause:
+    # "the queue is empty because I emptied it" is not a pass.
+    DECIDED = ("fixed", "declined", "feature-request", "partially-fixed", "duplicate",
+               "wontfix")
+    rows5 = re.findall(r"^\|\s*(\d+)\s*\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|",
+                       text, re.M)
+    if not rows5:
+        add("C2 issues dispositioned", "FAIL",
+            "the 5-column roster parsed to ZERO rows -- the ledger format changed")
+        return
+    outstanding = [(int(n), disp.strip()) for n, _, _, disp, _ in rows5
+                   if disp.strip().lower() not in DECIDED]
+    from collections import Counter
+    counts = Counter(disp.strip() for _, _, _, disp, _ in rows5)
     if outstanding:
         add("C2 issues dispositioned", "FAIL",
-            f"{len(outstanding)} rows still awaiting a decision: " +
-            ", ".join(f"#{n}" for n, _, _ in outstanding[:10])
-            + (" ..." if len(outstanding) > 10 else ""))
+            f"{len(outstanding)} of {len(rows5)} rows are real work not yet done: "
+            + ", ".join(f"#{n} ({disp})" for n, disp in outstanding[:10])
+            + ("  -- fix each with a test, or record a decision" if len(outstanding) > 10
+               else "  -- fix each with a test, or record a decision"))
+        add("C2 breakdown", "", ", ".join(f"{k}={v}" for k, v in counts.most_common()))
     else:
         add("C2 issues dispositioned", "PASS",
-            f"{len(rows)} roster rows, none awaiting a decision")
+            f"{len(rows5)} rows, every one decided: "
+            + ", ".join(f"{k}={v}" for k, v in counts.most_common()))
 
 
 # ---------------------------------------------------------------------------
