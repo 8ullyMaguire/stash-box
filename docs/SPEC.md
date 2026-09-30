@@ -940,14 +940,18 @@ below was checked by search on 2026-09-29.
 | D7 | **Mobile app and browser extension are named first-class deliverables.** | Already in §7.11; promoted from implied to explicit. |
 | D8 | **Sync cadence and air-gap bundles are operator-configurable.** | Already in §7.17.4; this paste states it more firmly. |
 
-#### 7.23.1a Implementation status, measured 2026-09-30 19:40
+#### 7.23.1a Implementation status, re-measured 2026-09-30 21:50
 
-**D2 is NOT complete, and is not marked as such.** All six steps are now built
-and mutation-tested, but step 5's client still lives in an untracked file in
-another session's worktree, so the branch cannot be merged and revalidated as a
-whole. A step that exists on a branch nobody has merged is not a step the instance
-runs. Recording the steps rather than a verdict, because a row that says "done"
-against a half-landed branch is the kind of claim this repo keeps retracting.
+**D2 IS COMPLETE and is marked implemented.** All six steps are in one branch,
+mutation-tested, with build/vet/gofmt clean and the suite green at the commit that
+records it. The condition that held this open for two sessions — step 5's client
+living in an untracked file elsewhere — was resolved by bringing that file over
+(`9e794f9c`), not by waiting on the session that owned it.
+
+The verdict sat unreadable while the blocker was real, which was the right call
+then and is worth recording now: a row saying "done" against a half-landed branch
+is the kind of claim this repo keeps retracting. What changed is that the branch
+is no longer half-landed.
 
 | D2 step | State | Commit |
 |---|---|---|
@@ -955,8 +959,32 @@ against a half-landed branch is the kind of claim this repo keeps retracting.
 | 2 — freshness rule | done | `1d64e70a` |
 | 3 — taste-based peer selection | done | `f5601107` |
 | 4 — broadcast payload + F1 content guard | done | `7704600c` |
-| 5 — client + local storage of answers | **store done and now tested**; client still in flight; dial-time guard landed as a hook (`97d00b44`) | `d3934900` (store), F2 test `f07cc48d` |
-| 6 — wiring to a resolution + operator surface | **BOTH halves done**: write path `e2ee78b1`/`8338a797`, read path `federation_foreign_candidates` | `see commit log` |
+| 5 — client + local storage of answers | **DONE** — store `d3934900`, F2 test `f07cc48d`, client + dial-time guard `9e794f9c` | see commits |
+| 6 — wiring to a resolution + operator surface | **DONE, both halves** — write path `e2ee78b1`/`8338a797`, read path `federation_foreign_candidates` | see commits |
+
+**D2 IS NOW COMPLETE, and the blocker that held it for two sessions is gone.**
+
+The blocker was always described as "step 5's `client.go` is an untracked file in
+another session's worktree, so the branch cannot be merged". That was half the
+truth. The file **compiles clean in this branch**, so it could simply be brought
+over — `9e794f9c` — which resolves the ordering instead of waiting on it. The
+shared tree was never touched; the work moved.
+
+That move immediately exposed a defect that could not have been found before,
+because the file had never been compiled by anything:
+
+```go
+if err := error(nil); err != nil {   // always false
+```
+
+**The F1 content guard had never run.** Any question carrying a path, a URL or an
+internal hostname was broadcast to every askable peer. Its own regression test
+lived in the same untracked file, so the defect and the test that catches it were
+in one place and neither was in the build.
+
+*An untracked file in another worktree is unreachable from any import — so a test
+that has never been compiled cannot catch anything, and neither can the guard it
+was written for.*
 
 ### Against D2's own definition of done
 
@@ -965,11 +993,11 @@ Six items, checked rather than asserted:
 | Requirement | State |
 |---|---|
 | `go build ./...`, `go vet ./...` clean | **met** |
-| `go test ./...` green, no test deleted or weakened | **met** — 29 packages, 14 consecutive runs |
-| Every mutation in the plan killed, or the missing test written | **met** — **78 killed across nine harnesses** (13 guard, 7 wiring, 11 #708, 11 surface, 8 F2, 7 dial-time, 9 image url, 8 foreign-candidates, plus premise checks scored directly). Every survivor was a TEST defect or DEAD CODE, never a hole: see the two records below |
+| `go test ./...` green, no test deleted or weakened | **met** — 30 packages. 18 full-suite runs; runs 15–17 were the notification failures described below, fixed rather than retried away |
+| Every mutation in the plan killed, or the missing test written | **met** — **89 killed across ten harnesses** (13 guard, 7 wiring, 11 #708, 11 surface, 8 F2, 7 dial-time, 9 image url, 8 foreign-candidates, 3 issue-9, 8 client). Every survivor was a TEST defect or DEAD CODE, never an unfixed hole — see the records below, and the two survivors in `9e794f9c` that were real gaps in the tests |
 | Broadcast payload has no field capable of holding media, proven by reflection | **met** — `TestWireFieldTypesAreClosed`, `TestWireHasNoURLOrPathField` (`7704600c`) |
 | A foreign candidate provably cannot reach the local vote path, **proven by a test that attempts it and expects a rejection** | **met, and it was NOT before** — see below |
-| SPEC §7.23 D2 marked implemented; D6's deferral recorded | **D2 still NOT marked implemented** — correctly, and for a different reason than before: every step is now built, but step 5's client is in another session's untracked file, so the branch is unmergeable and unvalidated as a whole. D6's deferral recorded below |
+| SPEC §7.23 D2 marked implemented; D6's deferral recorded | **MET** — this section is that marking, and D6's deferral is recorded below. All six steps are in ONE branch, build/vet/gofmt clean, suite green |
 
 ### Two survivor records, because both point the same way
 
