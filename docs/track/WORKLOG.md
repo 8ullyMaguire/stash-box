@@ -5230,3 +5230,62 @@ ownership contradicts merged #1219), 736 declined (breaks
 761 declined (a config option that silently DROPS fingerprints is a product
 call), 871 declined (draft, 483 lines, mostly generated). **Every open PR now
 has a recorded decision: 26 ported, 19 declined.**
+
+## 2026-09-30 — the two `help wanted` issues that had no recorded decision
+
+Measured across the whole queue rather than taken from the earlier count, which
+was wrong: there are **zero `bug`-labelled issues** in `issues-open.json`. The 48
+`help wanted` issues are the defect pool, and 46 of them were already
+dispositioned. These two were not.
+
+### #9 — [Bug Report] Fields updated to NULL are ignored — **LIVE, still reproduces**
+
+A real defect, open since 2019, and it is a pattern rather than one bug:
+`PerformerUpdateInput` models every optional field as `*string`, and gqlgen
+unmarshals "absent" and "explicitly null" to the same nil pointer, so
+`if input.X != nil { performer.X = input.X }` is right for absent and silently
+wrong for null. 25 nil-guarded fields across `UpdatePerformerFromUpdateInput` and
+`UpdateSceneFromUpdateInput`; `UpdateSiteFromUpdateInput` does not use the idiom and
+is unaffected.
+
+**The fix is not to drop the guards** — absent must keep meaning absent, and the
+SQL below already writes every column unconditionally, so the whole layer beneath
+the converter can store NULL. Only the input *type* cannot ask for it. That is a
+generated-model and API change, so this session recorded it with tests rather than
+patching it. `af1254af`, 3 mutations killed.
+
+`UpdateSiteFromUpdateInput` having 0 nil-guards is the evidence that this is a
+convention rather than a framework property — the same codebase does both.
+
+### #100 — [RFC] More user roles — **already satisfied, by other means**
+
+Proposes `FINGERPRINT_READ` and `FINGERPRINT_SUBMIT`. Neither role exists. But the
+*split it asks for* does, using the existing role set: fingerprint **reading** is
+`@hasRole(role: READ)` and fingerprint **submitting** is `@hasRole(role: VOTE)`
+(`graphql/schema/types/identification.graphql:182-245`). A user who can look but
+not vote is exactly the `FINGERPRINT_READ` role, expressed as an existing
+permission.
+
+The second half — default roles for open registration — remains a product
+decision and is **not** satisfied. Recorded as declined-for-now with that
+outstanding, rather than closed as done.
+
+### Also corrected, and it is the more useful finding
+
+`TestMarkSpecificNotificationRead` was described in the goal as a known
+order-dependent failure. It has not failed in 14 full-suite runs and passes inside
+a full 435-test package run. The trap that made it *look* broken:
+
+```
+$ go test ./internal/api/ -run TestMarkSpecificNotificationRead
+ok  ... [no tests to run]
+```
+
+The file is `//go:build integration`; only `make it` passes the tag. **A
+`[no tests to run]` result is a green result that measured nothing.**
+
+But it is **unproven, not fixed**: a 5-run stress loop hit one FAIL, and the cause
+was my own harness running two copies of the loop against one database, dying in
+`pgDropAll` with `deadlock detected (SQLSTATE 40P01)`. Repeated measurement has to
+be one backgrounded loop; and match processes by `comm`, because `pkill -f` on a
+command string matches the shell running the pkill and kills the tool call.
