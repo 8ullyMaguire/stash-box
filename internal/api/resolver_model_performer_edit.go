@@ -54,6 +54,18 @@ func (r *performerEditResolver) BreastType(ctx context.Context, obj *models.Perf
 	return &ret, nil
 }
 
+// Genitals was added by upstream #1269. Kept alongside the #1225 change below,
+// which widened these three resolvers to []*models.Image so a pruned image stays
+// a null in place rather than shifting the array.
+func (r *performerEditResolver) Genitals(ctx context.Context, obj *models.PerformerEdit) (*models.GenitalEnum, error) {
+	var ret models.GenitalEnum
+	if obj.Genitals == nil || !utils.ResolveEnumString(*obj.Genitals, &ret) {
+		return nil, nil
+	}
+
+	return &ret, nil
+}
+
 func (r *performerEditResolver) AddedImages(ctx context.Context, obj *models.PerformerEdit) ([]*models.Image, error) {
 	return imageList(ctx, obj.AddedImages)
 }

@@ -377,6 +377,7 @@ type ComplexityRoot struct {
 		Ethnicity       func(childComplexity int) int
 		EyeColor        func(childComplexity int) int
 		Gender          func(childComplexity int) int
+		Genitals        func(childComplexity int) int
 		HairColor       func(childComplexity int) int
 		Height          func(childComplexity int) int
 		HipSize         func(childComplexity int) int
@@ -387,6 +388,7 @@ type ComplexityRoot struct {
 		MergedIds       func(childComplexity int) int
 		MergedIntoID    func(childComplexity int) int
 		Name            func(childComplexity int) int
+		PenisLength     func(childComplexity int) int
 		Piercings       func(childComplexity int) int
 		QueryScenes     func(childComplexity int, input SceneQueryInput) int
 		SceneCount      func(childComplexity int) int
@@ -415,6 +417,7 @@ type ComplexityRoot struct {
 		Ethnicity       func(childComplexity int) int
 		EyeColor        func(childComplexity int) int
 		Gender          func(childComplexity int) int
+		Genitals        func(childComplexity int) int
 		HairColor       func(childComplexity int) int
 		Height          func(childComplexity int) int
 		ID              func(childComplexity int) int
@@ -446,11 +449,13 @@ type ComplexityRoot struct {
 		Ethnicity        func(childComplexity int) int
 		EyeColor         func(childComplexity int) int
 		Gender           func(childComplexity int) int
+		Genitals         func(childComplexity int) int
 		HairColor        func(childComplexity int) int
 		Height           func(childComplexity int) int
 		HipSize          func(childComplexity int) int
 		Images           func(childComplexity int) int
 		Name             func(childComplexity int) int
+		PenisLength      func(childComplexity int) int
 		Piercings        func(childComplexity int) int
 		RemovedAliases   func(childComplexity int) int
 		RemovedImages    func(childComplexity int) int
@@ -684,6 +689,7 @@ type ComplexityRoot struct {
 
 	StashBoxConfig struct {
 		EditUpdateLimit            func(childComplexity int) int
+		EnableGenitalAttributes    func(childComplexity int) int
 		GuidelinesURL              func(childComplexity int) int
 		HostURL                    func(childComplexity int) int
 		MinDestructiveVotingPeriod func(childComplexity int) int
@@ -978,6 +984,7 @@ type PerformerEditResolver interface {
 	HairColor(ctx context.Context, obj *PerformerEdit) (*HairColorEnum, error)
 
 	BreastType(ctx context.Context, obj *PerformerEdit) (*BreastTypeEnum, error)
+	Genitals(ctx context.Context, obj *PerformerEdit) (*GenitalEnum, error)
 
 	AddedImages(ctx context.Context, obj *PerformerEdit) ([]*Image, error)
 	RemovedImages(ctx context.Context, obj *PerformerEdit) ([]*Image, error)
@@ -2731,6 +2738,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Performer.Gender(childComplexity), true
+	case "Performer.genitals":
+		if e.ComplexityRoot.Performer.Genitals == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Performer.Genitals(childComplexity), true
 	case "Performer.hair_color":
 		if e.ComplexityRoot.Performer.HairColor == nil {
 			break
@@ -2791,6 +2804,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Performer.Name(childComplexity), true
+	case "Performer.penis_length":
+		if e.ComplexityRoot.Performer.PenisLength == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Performer.PenisLength(childComplexity), true
 	case "Performer.piercings":
 		if e.ComplexityRoot.Performer.Piercings == nil {
 			break
@@ -2940,6 +2959,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.PerformerDraft.Gender(childComplexity), true
+	case "PerformerDraft.genitals":
+		if e.ComplexityRoot.PerformerDraft.Genitals == nil {
+			break
+		}
+
+		return e.ComplexityRoot.PerformerDraft.Genitals(childComplexity), true
 	case "PerformerDraft.hair_color":
 		if e.ComplexityRoot.PerformerDraft.HairColor == nil {
 			break
@@ -3109,6 +3134,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.PerformerEdit.Gender(childComplexity), true
+	case "PerformerEdit.genitals":
+		if e.ComplexityRoot.PerformerEdit.Genitals == nil {
+			break
+		}
+
+		return e.ComplexityRoot.PerformerEdit.Genitals(childComplexity), true
 	case "PerformerEdit.hair_color":
 		if e.ComplexityRoot.PerformerEdit.HairColor == nil {
 			break
@@ -3139,6 +3170,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.PerformerEdit.Name(childComplexity), true
+	case "PerformerEdit.penis_length":
+		if e.ComplexityRoot.PerformerEdit.PenisLength == nil {
+			break
+		}
+
+		return e.ComplexityRoot.PerformerEdit.PenisLength(childComplexity), true
 	case "PerformerEdit.piercings":
 		if e.ComplexityRoot.PerformerEdit.Piercings == nil {
 			break
@@ -4325,6 +4362,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.StashBoxConfig.EditUpdateLimit(childComplexity), true
+	case "StashBoxConfig.enable_genital_attributes":
+		if e.ComplexityRoot.StashBoxConfig.EnableGenitalAttributes == nil {
+			break
+		}
+
+		return e.ComplexityRoot.StashBoxConfig.EnableGenitalAttributes(childComplexity), true
 	case "StashBoxConfig.guidelines_url":
 		if e.ComplexityRoot.StashBoxConfig.GuidelinesURL == nil {
 			break
@@ -5106,6 +5149,7 @@ var sources = []*ast.Source{
   require_scene_draft: Boolean!
   edit_update_limit: Int!
   require_tag_role: Boolean!
+  enable_genital_attributes: Boolean!
 }
 `, BuiltIn: false},
 	{Name: "../../graphql/schema/types/draft.graphql", Input: `type DraftSubmissionStatus {
@@ -5657,6 +5701,13 @@ enum BreastTypeEnum {
   NA
 }
 
+enum GenitalEnum {
+  CIR_PENIS
+  UNCIR_PENIS
+  NAT_VAGINA
+  CONS_VAGINA
+}
+
 type Measurements {
   cup_size: String
   band_size: Int
@@ -5741,6 +5792,9 @@ type Performer {
   waist_size: Int
   hip_size: Int
   breast_type: BreastTypeEnum
+  genitals: GenitalEnum
+  """Length in cm"""
+  penis_length: Int
   career_start_year: Int
   career_end_year: Int
   tattoos: [BodyModification!]
@@ -5796,6 +5850,8 @@ input PerformerCreateInput {
   waist_size: Int
   hip_size: Int
   breast_type: BreastTypeEnum
+  genitals: GenitalEnum
+  penis_length: Int
   career_start_year: Int
   career_end_year: Int
   tattoos: [BodyModificationInput!]
@@ -5823,6 +5879,8 @@ input PerformerUpdateInput {
   waist_size: Int
   hip_size: Int
   breast_type: BreastTypeEnum
+  genitals: GenitalEnum
+  penis_length: Int
   career_start_year: Int
   career_end_year: Int
   tattoos: [BodyModificationInput!]
@@ -5852,6 +5910,8 @@ input PerformerEditDetailsInput {
   waist_size: Int
   hip_size: Int
   breast_type: BreastTypeEnum
+  genitals: GenitalEnum
+  penis_length: Int
   career_start_year: Int
   career_end_year: Int
   tattoos: [BodyModificationInput!]
@@ -5896,6 +5956,9 @@ type PerformerEdit {
   waist_size: Int
   hip_size: Int
   breast_type: BreastTypeEnum
+  genitals: GenitalEnum
+  """Length in cm"""
+  penis_length: Int
   career_start_year: Int
   career_end_year: Int
   added_tattoos: [BodyModification!]
@@ -6046,6 +6109,7 @@ type PerformerDraft {
   height: String
   measurements: String
   breast_type: String
+  genitals: String
   tattoos: String
   piercings: String
   career_start_year: Int
@@ -6069,6 +6133,7 @@ input PerformerDraftInput {
   height: String
   measurements: String
   breast_type: String
+  genitals: String
   tattoos: String
   piercings: String
   career_start_year: Int
@@ -7566,6 +7631,10 @@ func (ec *executionContext) childFields_Performer(ctx context.Context, field gra
 		return ec.fieldContext_Performer_hip_size(ctx, field)
 	case "breast_type":
 		return ec.fieldContext_Performer_breast_type(ctx, field)
+	case "genitals":
+		return ec.fieldContext_Performer_genitals(ctx, field)
+	case "penis_length":
+		return ec.fieldContext_Performer_penis_length(ctx, field)
 	case "career_start_year":
 		return ec.fieldContext_Performer_career_start_year(ctx, field)
 	case "career_end_year":
@@ -7894,6 +7963,8 @@ func (ec *executionContext) childFields_StashBoxConfig(ctx context.Context, fiel
 		return ec.fieldContext_StashBoxConfig_edit_update_limit(ctx, field)
 	case "require_tag_role":
 		return ec.fieldContext_StashBoxConfig_require_tag_role(ctx, field)
+	case "enable_genital_attributes":
+		return ec.fieldContext_StashBoxConfig_enable_genital_attributes(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type StashBoxConfig", field.Name)
 }
@@ -17356,6 +17427,52 @@ func (ec *executionContext) fieldContext_Performer_breast_type(_ context.Context
 	return graphql.NewScalarFieldContext("Performer", field, false, false, errors.New("field of type BreastTypeEnum does not have child fields"))
 }
 
+func (ec *executionContext) _Performer_genitals(ctx context.Context, field graphql.CollectedField, obj *Performer) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Performer_genitals(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Genitals, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *GenitalEnum) graphql.Marshaler {
+			return ec.marshalOGenitalEnum2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐGenitalEnum(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_Performer_genitals(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Performer", field, false, false, errors.New("field of type GenitalEnum does not have child fields"))
+}
+
+func (ec *executionContext) _Performer_penis_length(ctx context.Context, field graphql.CollectedField, obj *Performer) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Performer_penis_length(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.PenisLength, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *int) graphql.Marshaler {
+			return ec.marshalOInt2ᚖint(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_Performer_penis_length(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Performer", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
 func (ec *executionContext) _Performer_career_start_year(ctx context.Context, field graphql.CollectedField, obj *Performer) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -18223,6 +18340,29 @@ func (ec *executionContext) fieldContext_PerformerDraft_breast_type(_ context.Co
 	return graphql.NewScalarFieldContext("PerformerDraft", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
+func (ec *executionContext) _PerformerDraft_genitals(ctx context.Context, field graphql.CollectedField, obj *PerformerDraft) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_PerformerDraft_genitals(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Genitals, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
+			return ec.marshalOString2ᚖstring(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_PerformerDraft_genitals(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("PerformerDraft", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
 func (ec *executionContext) _PerformerDraft_tattoos(ctx context.Context, field graphql.CollectedField, obj *PerformerDraft) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -18800,6 +18940,52 @@ func (ec *executionContext) _PerformerEdit_breast_type(ctx context.Context, fiel
 }
 func (ec *executionContext) fieldContext_PerformerEdit_breast_type(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("PerformerEdit", field, true, true, errors.New("field of type BreastTypeEnum does not have child fields"))
+}
+
+func (ec *executionContext) _PerformerEdit_genitals(ctx context.Context, field graphql.CollectedField, obj *PerformerEdit) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_PerformerEdit_genitals(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.PerformerEdit().Genitals(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *GenitalEnum) graphql.Marshaler {
+			return ec.marshalOGenitalEnum2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐGenitalEnum(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_PerformerEdit_genitals(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("PerformerEdit", field, true, true, errors.New("field of type GenitalEnum does not have child fields"))
+}
+
+func (ec *executionContext) _PerformerEdit_penis_length(ctx context.Context, field graphql.CollectedField, obj *PerformerEdit) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_PerformerEdit_penis_length(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.PenisLength, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *int) graphql.Marshaler {
+			return ec.marshalOInt2ᚖint(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_PerformerEdit_penis_length(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("PerformerEdit", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
 func (ec *executionContext) _PerformerEdit_career_start_year(ctx context.Context, field graphql.CollectedField, obj *PerformerEdit) (ret graphql.Marshaler) {
@@ -25109,6 +25295,29 @@ func (ec *executionContext) fieldContext_StashBoxConfig_require_tag_role(_ conte
 	return graphql.NewScalarFieldContext("StashBoxConfig", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
+func (ec *executionContext) _StashBoxConfig_enable_genital_attributes(ctx context.Context, field graphql.CollectedField, obj *StashBoxConfig) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_StashBoxConfig_enable_genital_attributes(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.EnableGenitalAttributes, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_StashBoxConfig_enable_genital_attributes(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("StashBoxConfig", field, false, false, errors.New("field of type Boolean does not have child fields"))
+}
+
 func (ec *executionContext) _Studio_id(ctx context.Context, field graphql.CollectedField, obj *Studio) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -30155,7 +30364,7 @@ func (ec *executionContext) unmarshalInputPerformerCreateInput(ctx context.Conte
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"name", "disambiguation", "aliases", "gender", "urls", "birthdate", "deathdate", "ethnicity", "country", "eye_color", "hair_color", "height", "cup_size", "band_size", "waist_size", "hip_size", "breast_type", "career_start_year", "career_end_year", "tattoos", "piercings", "image_ids", "draft_id"}
+	fieldsInOrder := [...]string{"name", "disambiguation", "aliases", "gender", "urls", "birthdate", "deathdate", "ethnicity", "country", "eye_color", "hair_color", "height", "cup_size", "band_size", "waist_size", "hip_size", "breast_type", "genitals", "penis_length", "career_start_year", "career_end_year", "tattoos", "piercings", "image_ids", "draft_id"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -30281,6 +30490,20 @@ func (ec *executionContext) unmarshalInputPerformerCreateInput(ctx context.Conte
 				return it, err
 			}
 			it.BreastType = data
+		case "genitals":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("genitals"))
+			data, err := ec.unmarshalOGenitalEnum2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐGenitalEnum(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Genitals = data
+		case "penis_length":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("penis_length"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.PenisLength = data
 		case "career_start_year":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("career_start_year"))
 			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
@@ -30369,7 +30592,7 @@ func (ec *executionContext) unmarshalInputPerformerDraftInput(ctx context.Contex
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"id", "disambiguation", "name", "aliases", "gender", "birthdate", "deathdate", "urls", "ethnicity", "country", "eye_color", "hair_color", "height", "measurements", "breast_type", "tattoos", "piercings", "career_start_year", "career_end_year", "image"}
+	fieldsInOrder := [...]string{"id", "disambiguation", "name", "aliases", "gender", "birthdate", "deathdate", "urls", "ethnicity", "country", "eye_color", "hair_color", "height", "measurements", "breast_type", "genitals", "tattoos", "piercings", "career_start_year", "career_end_year", "image"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -30481,6 +30704,13 @@ func (ec *executionContext) unmarshalInputPerformerDraftInput(ctx context.Contex
 				return it, err
 			}
 			it.BreastType = data
+		case "genitals":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("genitals"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Genitals = data
 		case "tattoos":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("tattoos"))
 			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
@@ -30532,7 +30762,7 @@ func (ec *executionContext) unmarshalInputPerformerEditDetailsInput(ctx context.
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"name", "disambiguation", "aliases", "gender", "urls", "birthdate", "deathdate", "ethnicity", "country", "eye_color", "hair_color", "height", "cup_size", "band_size", "waist_size", "hip_size", "breast_type", "career_start_year", "career_end_year", "tattoos", "piercings", "image_ids", "draft_id"}
+	fieldsInOrder := [...]string{"name", "disambiguation", "aliases", "gender", "urls", "birthdate", "deathdate", "ethnicity", "country", "eye_color", "hair_color", "height", "cup_size", "band_size", "waist_size", "hip_size", "breast_type", "genitals", "penis_length", "career_start_year", "career_end_year", "tattoos", "piercings", "image_ids", "draft_id"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -30658,6 +30888,20 @@ func (ec *executionContext) unmarshalInputPerformerEditDetailsInput(ctx context.
 				return it, err
 			}
 			it.BreastType = data
+		case "genitals":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("genitals"))
+			data, err := ec.unmarshalOGenitalEnum2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐGenitalEnum(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Genitals = data
+		case "penis_length":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("penis_length"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.PenisLength = data
 		case "career_start_year":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("career_start_year"))
 			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
@@ -31131,7 +31375,7 @@ func (ec *executionContext) unmarshalInputPerformerUpdateInput(ctx context.Conte
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"id", "name", "disambiguation", "aliases", "gender", "urls", "birthdate", "deathdate", "ethnicity", "country", "eye_color", "hair_color", "height", "cup_size", "band_size", "waist_size", "hip_size", "breast_type", "career_start_year", "career_end_year", "tattoos", "piercings", "image_ids"}
+	fieldsInOrder := [...]string{"id", "name", "disambiguation", "aliases", "gender", "urls", "birthdate", "deathdate", "ethnicity", "country", "eye_color", "hair_color", "height", "cup_size", "band_size", "waist_size", "hip_size", "breast_type", "genitals", "penis_length", "career_start_year", "career_end_year", "tattoos", "piercings", "image_ids"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -31264,6 +31508,20 @@ func (ec *executionContext) unmarshalInputPerformerUpdateInput(ctx context.Conte
 				return it, err
 			}
 			it.BreastType = data
+		case "genitals":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("genitals"))
+			data, err := ec.unmarshalOGenitalEnum2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐGenitalEnum(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Genitals = data
+		case "penis_length":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("penis_length"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.PenisLength = data
 		case "career_start_year":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("career_start_year"))
 			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
@@ -37681,6 +37939,10 @@ func (ec *executionContext) _Performer(ctx context.Context, sel ast.SelectionSet
 			out.Values[i] = ec._Performer_hip_size(ctx, field, obj)
 		case "breast_type":
 			out.Values[i] = ec._Performer_breast_type(ctx, field, obj)
+		case "genitals":
+			out.Values[i] = ec._Performer_genitals(ctx, field, obj)
+		case "penis_length":
+			out.Values[i] = ec._Performer_penis_length(ctx, field, obj)
 		case "career_start_year":
 			out.Values[i] = ec._Performer_career_start_year(ctx, field, obj)
 		case "career_end_year":
@@ -38195,6 +38457,8 @@ func (ec *executionContext) _PerformerDraft(ctx context.Context, sel ast.Selecti
 			out.Values[i] = ec._PerformerDraft_measurements(ctx, field, obj)
 		case "breast_type":
 			out.Values[i] = ec._PerformerDraft_breast_type(ctx, field, obj)
+		case "genitals":
+			out.Values[i] = ec._PerformerDraft_genitals(ctx, field, obj)
 		case "tattoos":
 			out.Values[i] = ec._PerformerDraft_tattoos(ctx, field, obj)
 		case "piercings":
@@ -38463,6 +38727,41 @@ func (ec *executionContext) _PerformerEdit(ctx context.Context, sel ast.Selectio
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "genitals":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._PerformerEdit_genitals(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "penis_length":
+			out.Values[i] = ec._PerformerEdit_penis_length(ctx, field, obj)
 		case "career_start_year":
 			out.Values[i] = ec._PerformerEdit_career_start_year(ctx, field, obj)
 		case "career_end_year":
@@ -42463,6 +42762,11 @@ func (ec *executionContext) _StashBoxConfig(ctx context.Context, sel ast.Selecti
 			}
 		case "require_tag_role":
 			out.Values[i] = ec._StashBoxConfig_require_tag_role(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "enable_genital_attributes":
+			out.Values[i] = ec._StashBoxConfig_enable_genital_attributes(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -47086,6 +47390,22 @@ func (ec *executionContext) unmarshalOGenerateInviteCodeInput2ᚖgithubᚗcomᚋ
 	}
 	res, err := ec.unmarshalInputGenerateInviteCodeInput(ctx, v)
 	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) unmarshalOGenitalEnum2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐGenitalEnum(ctx context.Context, v any) (*GenitalEnum, error) {
+	if v == nil {
+		return nil, nil
+	}
+	var res = new(GenitalEnum)
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOGenitalEnum2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐGenitalEnum(ctx context.Context, sel ast.SelectionSet, v *GenitalEnum) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return v
 }
 
 func (ec *executionContext) unmarshalOHairColorCriterionInput2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐHairColorCriterionInput(ctx context.Context, v any) (*HairColorCriterionInput, error) {
