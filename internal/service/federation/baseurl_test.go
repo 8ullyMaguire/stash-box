@@ -20,8 +20,8 @@ import (
 // anything, and a suite of negative cases with no positive case is the exact
 // trap R074 is about.
 type fakeResolver struct {
-	ips  []net.IP
-	err  error
+	ips   []net.IP
+	err   error
 	calls int
 	// perHost lets one resolver answer differently for different hosts, which
 	// is what the "hostname with a public A record and a private one" case
@@ -128,20 +128,20 @@ func TestValidateBaseURLRejectsUnsafeAddresses(t *testing.T) {
 		{
 			name: "rebinding: public first, private second",
 			url:  "http://rebind.example.com/graphql",
-			ips:  []net.IP{
+			ips: []net.IP{
 				net.ParseIP("93.184.216.34"),
 				net.ParseIP("127.0.0.1"),
 			},
-			why:  "checking only the FIRST resolved address is checking the one the attacker chose to put first",
+			why: "checking only the FIRST resolved address is checking the one the attacker chose to put first",
 		},
 		{
 			name: "rebinding: private second but first is public",
 			url:  "http://rebind2.example.com/graphql",
-			ips:  []net.IP{
+			ips: []net.IP{
 				net.ParseIP("8.8.8.8"),
 				net.ParseIP("169.254.169.254"),
 			},
-			why:  "metadata as the second answer, which is the shape that fools a first-only check",
+			why: "metadata as the second answer, which is the shape that fools a first-only check",
 		},
 		{
 			name: "path carrying a filesystem path",
@@ -249,7 +249,7 @@ func TestValidateBaseURLAcceptsRealPeers(t *testing.T) {
 				net.ParseIP("93.184.216.34"),
 				net.ParseIP("2606:4700:4700::1111"),
 			},
-			why:  "every resolved address is public, so all of them are checked and all pass",
+			why: "every resolved address is public, so all of them are checked and all pass",
 		},
 		{
 			name: "trailing slash",
@@ -394,8 +394,8 @@ func TestPathScannerMatchesUnquotedColumn(t *testing.T) {
 			// test should be: it said the scanner disagreed with the file, and
 			// the file was right.
 			if m.quoted {
-				t.Errorf("images.url matched through the QUOTED branch; the real "+
-					"column is written `url VARCHAR NOT NULL` with no quotes, so the "+
+				t.Errorf("images.url matched through the QUOTED branch; the real " +
+					"column is written `url VARCHAR NOT NULL` with no quotes, so the " +
 					"scanner is not parsing what is in the file")
 			}
 		}
