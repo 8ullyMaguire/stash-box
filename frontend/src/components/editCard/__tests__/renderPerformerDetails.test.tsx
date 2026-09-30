@@ -56,6 +56,7 @@ describe("renderPerformerDetails", () => {
           career_start_year: 2010,
           career_end_year: 2024,
           height: 170,
+          weight: 60,
           band_size: 32,
           cup_size: "C",
           waist_size: 24,
@@ -88,6 +89,7 @@ describe("renderPerformerDetails", () => {
         within(rowFor("Hair Color")).getByText("Blond"),
       ).toBeInTheDocument();
       expect(within(rowFor("Height")).getByText("170")).toBeInTheDocument();
+      expect(within(rowFor("Weight")).getByText("60")).toBeInTheDocument();
       // BreastTypes NATURAL -> "Natural"
       expect(
         within(rowFor("Breast Type")).getByText("Natural"),
@@ -308,6 +310,7 @@ describe("renderPerformerDetails", () => {
         "Eye Color",
         "Hair Color",
         "Height",
+        "Weight",
         "Breast Type",
         "Waist Size",
         "Hip Size",

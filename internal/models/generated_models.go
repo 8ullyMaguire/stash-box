@@ -789,6 +789,7 @@ type PerformerCreateInput struct {
 	EyeColor        *EyeColorEnum           `json:"eye_color,omitempty"`
 	HairColor       *HairColorEnum          `json:"hair_color,omitempty"`
 	Height          *int                    `json:"height,omitempty"`
+	Weight          *int                    `json:"weight,omitempty"`
 	CupSize         *string                 `json:"cup_size,omitempty"`
 	BandSize        *int                    `json:"band_size,omitempty"`
 	WaistSize       *int                    `json:"waist_size,omitempty"`
@@ -822,6 +823,7 @@ type PerformerDraftInput struct {
 	EyeColor        *string         `json:"eye_color,omitempty"`
 	HairColor       *string         `json:"hair_color,omitempty"`
 	Height          *string         `json:"height,omitempty"`
+	Weight          *string         `json:"weight,omitempty"`
 	Measurements    *string         `json:"measurements,omitempty"`
 	BreastType      *string         `json:"breast_type,omitempty"`
 	Genitals        *string         `json:"genitals,omitempty"`
@@ -845,6 +847,7 @@ type PerformerEditDetailsInput struct {
 	EyeColor        *EyeColorEnum           `json:"eye_color,omitempty"`
 	HairColor       *HairColorEnum          `json:"hair_color,omitempty"`
 	Height          *int                    `json:"height,omitempty"`
+	Weight          *int                    `json:"weight,omitempty"`
 	CupSize         *string                 `json:"cup_size,omitempty"`
 	BandSize        *int                    `json:"band_size,omitempty"`
 	WaistSize       *int                    `json:"waist_size,omitempty"`
@@ -902,6 +905,7 @@ type PerformerQueryInput struct {
 	EyeColor        *EyeColorCriterionInput         `json:"eye_color,omitempty"`
 	HairColor       *HairColorCriterionInput        `json:"hair_color,omitempty"`
 	Height          *IntCriterionInput              `json:"height,omitempty"`
+	Weight          *IntCriterionInput              `json:"weight,omitempty"`
 	CupSize         *StringCriterionInput           `json:"cup_size,omitempty"`
 	BandSize        *IntCriterionInput              `json:"band_size,omitempty"`
 	WaistSize       *IntCriterionInput              `json:"waist_size,omitempty"`
@@ -956,6 +960,7 @@ type PerformerUpdateInput struct {
 	EyeColor        *EyeColorEnum           `json:"eye_color,omitempty"`
 	HairColor       *HairColorEnum          `json:"hair_color,omitempty"`
 	Height          *int                    `json:"height,omitempty"`
+	Weight          *int                    `json:"weight,omitempty"`
 	CupSize         *string                 `json:"cup_size,omitempty"`
 	BandSize        *int                    `json:"band_size,omitempty"`
 	WaistSize       *int                    `json:"waist_size,omitempty"`

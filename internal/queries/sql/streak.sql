@@ -30,7 +30,7 @@
 -- showed up and their edit was rejected, which is participation, not absence --
 -- and filtering on a positive count would zero out a day for a user whose
 -- activity is all rejections and quietly end their streak.
--- `date_trunc` alone, WITHOUT a cast back to timestamptz.
+-- Cast to `timestamp`, explicitly, and NOT to timestamptz.
 --
 -- The cast was the bug: date_trunc returns midnight in the DATABASE's zone, and
 -- ::timestamptz re-reads that wall-clock time as an instant, so the driver renders
@@ -40,7 +40,13 @@
 -- event created a minute earlier. Returning the truncated value uncast keeps it a
 -- timestamp WITHOUT time zone, so there is no instant for the driver to convert
 -- and every comparison stays in the database's frame of reference.
-SELECT DISTINCT date_trunc('day', created_at) AS day
+--
+-- The cast target is load-bearing for a second reason: bare `date_trunc` is
+-- inferred by sqlc as an INTERVAL, which is wrong -- truncating a timestamp does
+-- not produce a duration -- and it silently changed this function's return type
+-- from []time.Time to []pgtype.Interval. `timestamp` is the type the value
+-- actually has.
+SELECT DISTINCT date_trunc('day', created_at)::timestamp AS day
 FROM trust_events
 WHERE user_id = $1
 ORDER BY day DESC;

@@ -99,9 +99,11 @@ func (s *Service) For(ctx context.Context, userID uuid.UUID, now time.Time) (Str
 	// longest-streak scan still needs all of them, and they are already loaded.
 	days := make([]time.Time, 0, len(rows))
 	for _, r := range rows {
-		if r.Valid {
-			days = append(days, r.Time)
-		}
+		// No null check: the column is NOT NULL and the value is a truncated
+		// timestamp, so the sqlc type is time.Time rather than a pgtype wrapper
+		// with a Valid flag. The wrapper only existed while the query ended in
+		// ::timestamptz.
+		days = append(days, r)
 	}
 	if len(days) == 0 {
 		return Streak{}, nil

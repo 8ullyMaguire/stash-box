@@ -108,6 +108,8 @@ type Performer {
   hair_color: HairColorEnum
   """Height in cm"""
   height: Int
+  """Weight in kg"""
+  weight: Int
   measurements: Measurements! @deprecated(reason: "Use individual fields, cup/band/waist/hip_size")
   cup_size: String
   band_size: Int
@@ -167,6 +169,7 @@ input PerformerCreateInput {
   eye_color: EyeColorEnum
   hair_color: HairColorEnum
   height: Int
+  weight: Int
   cup_size: String
   band_size: Int
   waist_size: Int
@@ -196,6 +199,7 @@ input PerformerUpdateInput {
   eye_color: EyeColorEnum
   hair_color: HairColorEnum
   height: Int
+  weight: Int
   cup_size: String
   band_size: Int
   waist_size: Int
@@ -227,6 +231,7 @@ input PerformerEditDetailsInput {
   eye_color: EyeColorEnum
   hair_color: HairColorEnum
   height: Int
+  weight: Int
   cup_size: String
   band_size: Int
   waist_size: Int
@@ -273,6 +278,8 @@ type PerformerEdit {
   hair_color: HairColorEnum
   """Height in cm"""
   height: Int
+  """Weight in kg"""
+  weight: Int
   cup_size: String
   band_size: Int
   waist_size: Int
@@ -388,6 +395,7 @@ input PerformerQueryInput {
   eye_color: EyeColorCriterionInput
   hair_color: HairColorCriterionInput
   height: IntCriterionInput
+  weight: IntCriterionInput
 
   cup_size: StringCriterionInput
   band_size: IntCriterionInput
@@ -429,6 +437,7 @@ type PerformerDraft {
   eye_color: String
   hair_color: String
   height: String
+  weight: String
   measurements: String
   breast_type: String
   genitals: String
@@ -453,6 +462,7 @@ input PerformerDraftInput {
   eye_color: String
   hair_color: String
   height: String
+  weight: String
   measurements: String
   breast_type: String
   genitals: String

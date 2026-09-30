@@ -347,6 +347,7 @@ type Performer struct {
 	Deathdate       *string                `db:"deathdate" json:"deathdate"`
 	Genitals        *models.GenitalEnum    `db:"genitals" json:"genitals"`
 	PenisLength     *int                   `db:"penis_length" json:"penis_length"`
+	Weight          *int                   `db:"weight" json:"weight"`
 }
 
 type PerformerAlias struct {
