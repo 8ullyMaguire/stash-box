@@ -20,7 +20,7 @@ an API that does not exist yet.
 
 ---
 
-## Step 1 — migration: peer registry and foreign evidence
+## Step 1 — migration: peer registry and foreign evidence — DONE (`d3934900`)
 
 **File:** `internal/database/migrations/postgres/89_identification_federation.up.sql` (new)
 and `89_identification_federation.down.sql` (new).
@@ -106,7 +106,7 @@ constraint is real rather than believed:
 go test -tags=integration -count=1 ./internal/database/... 2>&1 | tail -3
 ```
 
-## Step 2 — peer registry service
+## Step 2 — peer registry service — DONE (`23da1f6a`, `e2ee78b1`)
 
 **File:** `internal/service/federation/peer.go` (new),
 `internal/service/federation/peer_test.go` (new).
@@ -147,7 +147,7 @@ obligation. Change the boundary comparison from `<` to `<=` and confirm
 `seen exactly PeerStaleness ago` goes red naming that case. A boundary test
 that has never been inverted is a comment.
 
-## Step 3 — taste-based peer selection
+## Step 3 — taste-based peer selection — DONE (`f5601107`)
 
 **File:** `internal/service/federation/select.go` (new),
 `internal/service/federation/select_test.go` (new).
@@ -277,7 +277,7 @@ implementations that both answer "may the box reach this address?". This is
 weaker than comparing the predicates directly and is noted here so nobody reads
 the green as a stronger claim than it is.
 
-## Step 5 — the client, and the local storage of answers
+## Step 5 — the client, and the local storage of answers — DONE (`d3934900`, `f07cc48d`, `9e794f9c`)
 
 **File:** `internal/service/federation/client.go` (new),
 `store.go` (new).
@@ -306,7 +306,7 @@ an `Answer` to `identification.Service.Suggest`, `Vote`, or `Resolve`.
 go test -tags=integration -count=1 ./internal/service/federation/ -v 2>&1 | tail -20
 ```
 
-## Step 6 — wire it to a resolution, and to the operator surface
+## Step 6 — wire it to a resolution, and to the operator surface — DONE (`8338a797`, `cdb90055`)
 
 **File:** `internal/service/federation/service.go` (new, the Factory entry),
 `graphql/schema/types/federation.graphql` (new).
@@ -348,6 +348,68 @@ Expect `{"data":{"federationPeers":[]}}` on a fresh instance, not an error.
 - This plan's own "Deviations" section updated.
 
 ## Deviations
+
+**Step 1 (2026-09-30, `d3934900`) — the F2 boundary is enforced by the schema, and
+the plan asked for a service-layer discipline instead.** The plan says `store.go`
+"writes `identification_foreign_candidates` and nothing else" and calls that
+"enforced structurally". It is enforced more strongly than that: the evidence
+table has **no column that can hold a local entity id**, so no INSERT is
+reachable that could write one — an assertion, not a convention. The test the
+definition of done asked for was missing from step 1 and is `f07cc48d`.
+
+**Step 2 (2026-09-30, `23da1f6a`, `e2ee78b1`) — the guard was written before
+anything could call it, and that is why the plan's step 2 read as complete a day
+before it was.** The validator `ValidateBaseURL` landed first, with the write path
+arriving in a second commit. In between, the repository was in a state where a
+complete, mutation-tested guard existed and **nothing in the program called it** —
+including its own test, which exercised the function directly. The plan's step 2
+should have been marked done only at `e2ee78b1`.
+
+**Step 5 (2026-09-30, `9e794f9c`) — the plan's step 5 was already written and
+sitting untracked in another worktree, and the plan's own definition of done was
+therefore unmeetable for two sessions.** This is the one that matters, so it is
+written at length.
+
+The plan specifies `client.go` as a file to be **created**. It already existed, in
+another session's working tree, containing:
+
+```go
+if err := error(nil); err != nil {   // always false
+```
+
+**The F1 content guard this plan's step 4 built the validator for had never run.**
+Any question carrying a path, a URL or an internal hostname was broadcast to every
+askable peer — the precise thing F1 exists to prevent. It compiled clean and
+returned no error, because a guard that cannot fire is nothing `go build` has an
+opinion about.
+
+Its own regression test, `TestBroadcastRefusesDirtyQuestion`, asserts exactly
+this, and lived in the same untracked file. **The defect and the test that catches
+it were in one place and neither was in the build** — an untracked file is
+unreachable from any import, so a test that has never been compiled cannot catch
+anything, and neither can the guard it was written for.
+
+The plan is silent on all of this because it could not be: the plan assumed a file
+that did not exist, and the file that did exist was not the plan's. Deviating from
+the plan was therefore not a choice — the plan could not be followed as written
+until someone noticed that its premise was false.
+
+*Two consequences for whoever runs plans like this one. First: a step naming a
+file to be created should begin by checking whether that file already exists,
+somewhere, untracked — the compile-then-copy path is not only legal, it is usually
+faster than writing it again. Second: the plan's own tests are part of its
+premises. When they travel with the file they belong to, they certify nothing.*
+
+**Step 6 (2026-09-30, `8338a797`, `cdb90055`) — the plan asked for one wiring
+step; the guard was unreachable from two directions, and each needed its own
+commit.** Rule 2's validator was not callable from outside the package, and there
+was no operator surface at all, so "wired to a resolution and to the operator
+surface" was two distinct pieces of work with different failure modes. The write
+path (`e2ee78b1`, from step 2) and the read path (`cdb90055`) are also separate:
+the read path is what makes a peer-sourced candidate **visible to an operator**,
+which is the only way the F2 boundary can be observed rather than merely asserted.
+The plan says "wire it to a resolution" and does not say to what — recording that
+as a deviation because the plan's single step hid two unreachable surfaces.
 
 **Step 4 (2026-09-30, `7704600c`) — three, all recorded above.** Added a
 value-level content guard the plan did not ask for, because the plan's own F1
