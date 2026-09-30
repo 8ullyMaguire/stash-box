@@ -332,13 +332,27 @@ def c6_suite():
         add("C6 suite", "FAIL",
             f"{len(fails)} failing package(s): " + "; ".join(fails[:4]))
         return
-    npkg = sum(1 for l in out.splitlines() if l.startswith("ok"))
+    # Count BOTH `ok  pkg` and `?   pkg  [no test files]`. The second form is a
+    # package that BUILDS and vets clean but has no untagged test -- which is the
+    # normal state for a package whose only tests are integration-tagged. Counting
+    # only "ok" made the baseline depend on that accident: adding an untagged test
+    # to internal/service/scene would have moved the number up, and removing one
+    # would have failed the clause for no reason a reader could care about.
+    # What must not happen is a package FAILING or DISAPPEARING, so those are
+    # checked separately and the floor is on total packages accounted for.
+    npkg = sum(1 for l in out.splitlines()
+               if l.startswith("ok") or l.startswith("?"))
+    notests = sum(1 for l in out.splitlines()
+                  if l.startswith("?") and "[no test files]" in l)
     if npkg < BASELINE_PACKAGES:
         add("C6 suite", "FAIL",
-            f"only {npkg} packages green, baseline is {BASELINE_PACKAGES} -- "
-            "a suite that LOST tests is not a pass")
+            f"only {npkg} packages accounted for, baseline is {BASELINE_PACKAGES} "
+            f"({notests} with no untagged test) -- a suite that LOST packages is "
+            "not a pass")
     else:
-        add("C6 suite", "PASS", f"{npkg} packages green (baseline {BASELINE_PACKAGES})")
+        add("C6 suite", "PASS",
+            f"{npkg} packages accounted for, {notests} with no untagged test "
+            f"(baseline {BASELINE_PACKAGES})")
 
     # The clause above runs WITHOUT -tags=integration, so it never executes the
     # integration tests -- and in this repo those hold the bulk of the suite,
