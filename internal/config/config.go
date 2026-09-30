@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/viper"
 
+	"github.com/stashapp/stash-box/internal/service/trust"
 	"github.com/stashapp/stash-box/pkg/utils"
 )
 
@@ -82,6 +83,14 @@ type config struct {
 	VoteCronInterval string `mapstructure:"vote_cron_interval"`
 	// Number of times an edit can be updated by the creator
 	EditUpdateLimit int `mapstructure:"edit_update_limit"`
+	// Minimum trust level at which a user may update another user's edit.
+	//
+	// Upstream PR #708 allowed admins to do this; this knob generalises it to a
+	// trust threshold, because "who may amend moderation history" is an operator
+	// policy question and the answer differs per instance. See
+	// GetEditUpdateMinTrustLevel for the semantics, which are not simply "level
+	// >= this".
+	EditUpdateMinTrustLevel int `mapstructure:"edit_update_min_trust_level"`
 	// Require all scene create edits to be submitted via drafts
 	RequireSceneDraft bool `mapstructure:"require_scene_draft"`
 	// Require the TagRole or Admin to edit tags
@@ -173,9 +182,13 @@ var C = &config{
 	MinDestructiveVotingPeriod: 172800,
 	DraftTimeLimit:             86400,
 	EditUpdateLimit:            1,
-	RequireSceneDraft:          false,
-	RequireTagRole:             false,
-	ModAuditRetentionDays:      30,
+	// Sentinel, not a level: see GetEditUpdateMinTrustLevel. -1 means "only the
+	// creator", which is this fork's behaviour before #708 and the safe default
+	// for an instance that upgrades without reading the note.
+	EditUpdateMinTrustLevel: -1,
+	RequireSceneDraft:       false,
+	RequireTagRole:          false,
+	ModAuditRetentionDays:   30,
 }
 
 func GetDatabasePath() string {
@@ -549,6 +562,57 @@ func GetVoteCronInterval() string {
 
 func GetEditUpdateLimit() int {
 	return C.EditUpdateLimit
+}
+
+// GetEditUpdateMinTrustLevel returns the trust level required to update another
+// user's edit, or -1 when only the creator may.
+//
+// THE SENTINEL IS WHY THE KNOB IS NOT A PLAIN THRESHOLD. Trust levels here are
+// 0..5 (Public..Steward) and a plain `level >= n` would make the answer to
+// "level 0, minimum 0" mean "every anonymous visitor may rewrite moderation
+// history", which is almost certainly not what an operator setting it to 0
+// intends and is the kind of misconfiguration that is only discovered by an
+// incident. So:
+//
+//	-1  only the creator  (default; pre-#708 behaviour)
+//	 0  equivalent to -1   -- clamped, see clampMinTrustLevel
+//	 1  Registered and above, plus ADMIN
+//	 5  Steward and above, plus ADMIN
+//
+// ADMIN ALWAYS PASSES, at every setting including -1 is FALSE. Admin is a ROLE,
+// not a trust level -- the two are different axes (auth.RoleEnumAdmin versus
+// trust.LevelEnum) and an admin with no trust rollup reads as LevelPublic. So the
+// admin check is separate and unconditional, which is what makes upstream's #708
+// behaviour a strict subset of this one.
+func GetEditUpdateMinTrustLevel() int {
+	return ClampEditUpdateMinTrustLevel(C.EditUpdateMinTrustLevel)
+}
+
+// ClampEditUpdateMinTrustLevel bounds the configured value to a legal level, and
+// is EXPORTED so the decision rule in the edit service cannot reimplement the
+// clamp with different boundaries.
+//
+// The clamp is the point: a config value that names no real level fails CLOSED
+// to the creator-only rule rather than open. An operator who types
+// `edit_update_min_trust_level: 9` gets the behaviour they had before the knob
+// existed, not a comparison against an impossible level. And `0` clamps to
+// creator-only rather than meaning "no minimum", because "level 0 >= 0" would
+// let every anonymous visitor rewrite moderation history -- which is the kind of
+// mistake that is only discovered by an incident.
+//
+// 0 is the one genuinely surprising clamp, so it is the one worth being explicit
+// about: there is no way to configure "everyone". If an operator wants that, the
+// answer is not a trust threshold.
+func ClampEditUpdateMinTrustLevel(v int) int {
+	if v < 1 {
+		// Catches both -1 (the explicit creator-only sentinel) and 0 (which is
+		// LevelPublic, and must not mean "no minimum").
+		return -1
+	}
+	if v > int(trust.LevelSteward) {
+		return int(trust.LevelSteward)
+	}
+	return v
 }
 
 func GetRequireSceneDraft() bool {

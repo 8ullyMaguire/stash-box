@@ -821,7 +821,7 @@ func (s *Edit) UpdateSceneEdit(ctx context.Context, id uuid.UUID, input models.S
 		}
 
 		edit = converter.EditToModelPtr(dbEdit)
-		if err = validateEditUpdate(*edit, currentUser.ID); err != nil {
+		if err = validateEditUpdate(ctx, s, *edit, currentUser.ID); err != nil {
 			return err
 		}
 		if err = validateEditTargetID(edit, input.Edit); err != nil {
@@ -892,7 +892,7 @@ func (s *Edit) UpdateStudioEdit(ctx context.Context, id uuid.UUID, input models.
 		}
 
 		edit = converter.EditToModelPtr(dbEdit)
-		if err = validateEditUpdate(*edit, currentUser.ID); err != nil {
+		if err = validateEditUpdate(ctx, s, *edit, currentUser.ID); err != nil {
 			return err
 		}
 		if err = validateEditTargetID(edit, input.Edit); err != nil {
@@ -969,7 +969,7 @@ func (s *Edit) UpdateTagEdit(ctx context.Context, id uuid.UUID, input models.Tag
 		}
 
 		edit = converter.EditToModelPtr(dbEdit)
-		if err = validateEditUpdate(*edit, currentUser.ID); err != nil {
+		if err = validateEditUpdate(ctx, s, *edit, currentUser.ID); err != nil {
 			return err
 		}
 		if err = validateEditTargetID(edit, input.Edit); err != nil {
@@ -1046,7 +1046,7 @@ func (s *Edit) UpdatePerformerEdit(ctx context.Context, id uuid.UUID, input mode
 		}
 
 		edit = converter.EditToModelPtr(dbEdit)
-		if err = validateEditUpdate(*edit, currentUser.ID); err != nil {
+		if err = validateEditUpdate(ctx, s, *edit, currentUser.ID); err != nil {
 			return err
 		}
 		if err = validateEditTargetID(edit, input.Edit); err != nil {
@@ -1211,11 +1211,82 @@ func validateBotEdit(ctx context.Context, input *models.EditInput) error {
 	return nil
 }
 
-func validateEditUpdate(edit models.Edit, userID uuid.UUID) error {
-	if edit.UserID.UUID != userID {
-		return ErrUnauthorizedUpdate
+// mayUpdateEdit reports whether thisUser may update an edit owned by ownerID.
+//
+// THREE ROLES PASS, checked in this order. The order is about COST, not about
+// privilege: ownership is a field comparison, admin is a context read, and the
+// trust threshold is a database round trip. Cheapest first means the common case
+// -- the creator updating their own edit -- costs nothing beyond the edit fetch
+// that already happened, and the one database lookup is only paid for a
+// non-owner who is not an admin.
+//
+//  1. THE OWNER. Always. This is pre-#708 behaviour and is unconditional.
+//  2. ADMIN. Upstream PR #708's case. A role check, NOT a trust level -- an
+//     admin with no trust rollup reads as LevelPublic, so folding admin into the
+//     trust comparison would deny the very case #708 exists to permit.
+//  3. THE CONFIGURABLE TRUST THRESHOLD. An operator policy knob, generalising
+//     #708 from "admins" to "anyone at or above this level".
+//
+// The threshold is read from config rather than passed in so that the four
+// call sites cannot disagree about it, and so that changing it does not require
+// touching four places.
+func mayUpdateEdit(ctx context.Context, s *Edit, edit models.Edit, userID uuid.UUID) (bool, error) {
+	if edit.UserID.UUID == userID {
+		return true, nil
 	}
 
+	// Admin before the trust lookup: a role check is a context read, while the
+	// trust check is a database round trip. Putting it here means an admin
+	// update never touches user_trust at all -- which matters because an admin
+	// account is the case most likely to have no trust rollup at all.
+	if auth.IsRole(ctx, models.RoleEnumAdmin) {
+		return true, nil
+	}
+
+	minLevel := config.GetEditUpdateMinTrustLevel()
+	if minLevel < 0 {
+		return false, nil
+	}
+
+	level, err := s.trust.Level(ctx, userID)
+	if err != nil {
+		// Fail CLOSED. "I could not tell the caller's level" must not read as
+		// "probably trusted" -- this is the same rule webhook.isPublicIP states
+		// about a nil address, and it is the rule whose violation produces an
+		// authorisation bug that is found by an incident rather than a test.
+		return false, err
+	}
+
+	return allowUpdateEdit(false, minLevel, level), nil
+}
+
+// allowUpdateEdit is the PURE decision, split out of mayUpdateEdit so the rule
+// can be enumerated as a table instead of needing a context, a role and a trust
+// row for each case. Same shape as askableFields.
+//
+// The isAdmin parameter is passed even though mayUpdateEdit already returns
+// before reaching it: a rule that cannot express admin is a rule that invites
+// someone to call it directly and quietly drop the admin case, so the parameter
+// exists and its behaviour is pinned by TestAdminBypassesTheThresholdSeparately.
+func allowUpdateEdit(isAdmin bool, minLevel int, level trust.LevelEnum) bool {
+	if isAdmin {
+		return true
+	}
+	clamped := config.ClampEditUpdateMinTrustLevel(minLevel)
+	if clamped < 0 {
+		return false
+	}
+	return int(level) >= clamped
+}
+
+// validateClosedAndLimit holds the two rules that were in validateEditUpdate
+// before authority was widened, split out so they can be tested on their own.
+//
+// They are separate from the authority check because they are ORTHOGONAL to it:
+// an admin passing the authority check does not make a closed edit editable or
+// excuse the update limit. Folding them together is what would let a refactor
+// drop them without a single test going red.
+func validateClosedAndLimit(edit models.Edit) error {
 	if edit.ClosedAt != nil {
 		return ErrUpdateClosedEdit
 	}
@@ -1225,6 +1296,18 @@ func validateEditUpdate(edit models.Edit, userID uuid.UUID) error {
 	}
 
 	return nil
+}
+
+func validateEditUpdate(ctx context.Context, s *Edit, edit models.Edit, userID uuid.UUID) error {
+	ok, err := mayUpdateEdit(ctx, s, edit, userID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ErrUnauthorizedUpdate
+	}
+
+	return validateClosedAndLimit(edit)
 }
 
 func (s *Edit) ApplyEdit(ctx context.Context, editID uuid.UUID, immediate bool) (*models.Edit, error) {
