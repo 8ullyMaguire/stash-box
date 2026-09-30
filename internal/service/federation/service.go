@@ -296,6 +296,20 @@ func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
+// Candidates returns the evidence peers have sent for one query.
+//
+// This is the read side of the federation boundary and it is deliberately shaped
+// like the store's own return value: a list of remote strings with the peer that
+// sent them, and NO local id anywhere. That is not an accident of the type, it is
+// the F2 rule -- foreign evidence is evidence, and a local performer must not be
+// reachable from a remote string by any path, including a convenient one.
+//
+// The store is built per call, the same way Delete reaches it, so there is no
+// second way to obtain one and nothing to keep in sync.
+func (s *Service) Candidates(ctx context.Context, queryID uuid.UUID) ([]StoredCandidate, error) {
+	return NewStore(s.queries).List(ctx, queryID)
+}
+
 // isNoRows reports whether a query failed because it matched nothing.
 //
 // A named helper rather than an inline errors.Is at each call site, so the one

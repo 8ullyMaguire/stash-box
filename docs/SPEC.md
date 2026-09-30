@@ -942,10 +942,12 @@ below was checked by search on 2026-09-29.
 
 #### 7.23.1a Implementation status, measured 2026-09-30 19:40
 
-**D2 is NOT complete, and is not marked as such.** Five of six steps are done and
-the sixth is half done. Recording the steps rather than a verdict, because a row
-that says "done" against four of six steps is the kind of claim this repo keeps
-having to retract.
+**D2 is NOT complete, and is not marked as such.** All six steps are now built
+and mutation-tested, but step 5's client still lives in an untracked file in
+another session's worktree, so the branch cannot be merged and revalidated as a
+whole. A step that exists on a branch nobody has merged is not a step the instance
+runs. Recording the steps rather than a verdict, because a row that says "done"
+against a half-landed branch is the kind of claim this repo keeps retracting.
 
 | D2 step | State | Commit |
 |---|---|---|
@@ -953,8 +955,8 @@ having to retract.
 | 2 — freshness rule | done | `1d64e70a` |
 | 3 — taste-based peer selection | done | `f5601107` |
 | 4 — broadcast payload + F1 content guard | done | `7704600c` |
-| 5 — client + local storage of answers | **store done and now tested**; client still in flight | `d3934900` (store), F2 test `f07cc48d` |
-| 6 — wiring to a resolution + operator surface | **write path done**, read-only query not started | `e2ee78b1`, `8338a797` |
+| 5 — client + local storage of answers | **store done and now tested**; client still in flight; dial-time guard landed as a hook (`97d00b44`) | `d3934900` (store), F2 test `f07cc48d` |
+| 6 — wiring to a resolution + operator surface | **BOTH halves done**: write path `e2ee78b1`/`8338a797`, read path `federation_foreign_candidates` | `see commit log` |
 
 ### Against D2's own definition of done
 
@@ -963,11 +965,46 @@ Six items, checked rather than asserted:
 | Requirement | State |
 |---|---|
 | `go build ./...`, `go vet ./...` clean | **met** |
-| `go test ./...` green, no test deleted or weakened | **met** — 29 packages, 11 consecutive runs |
-| Every mutation in the plan killed, or the missing test written | **met** — 50 killed across five harnesses; the two that survived first were fixed in the tests, not by weakening the code |
+| `go test ./...` green, no test deleted or weakened | **met** — 29 packages, 14 consecutive runs |
+| Every mutation in the plan killed, or the missing test written | **met** — **78 killed across nine harnesses** (13 guard, 7 wiring, 11 #708, 11 surface, 8 F2, 7 dial-time, 9 image url, 8 foreign-candidates, plus premise checks scored directly). Every survivor was a TEST defect or DEAD CODE, never a hole: see the two records below |
 | Broadcast payload has no field capable of holding media, proven by reflection | **met** — `TestWireFieldTypesAreClosed`, `TestWireHasNoURLOrPathField` (`7704600c`) |
 | A foreign candidate provably cannot reach the local vote path, **proven by a test that attempts it and expects a rejection** | **met, and it was NOT before** — see below |
-| SPEC §7.23 D2 marked implemented; D6's deferral recorded | **D2 NOT marked implemented** (correctly — step 6's read path is absent). D6's deferral recorded below |
+| SPEC §7.23 D2 marked implemented; D6's deferral recorded | **D2 still NOT marked implemented** — correctly, and for a different reason than before: every step is now built, but step 5's client is in another session's untracked file, so the branch is unmergeable and unvalidated as a whole. D6's deferral recorded below |
+
+### Two survivor records, because both point the same way
+
+Across nine mutation harnesses this branch has produced **28 survivors**, and not
+one of them was a hole in the shipped code. Every one was a defect in a test or in
+the guard's own shape. Three are worth naming because they are the kind of mistake
+that produces a green suite and no protection:
+
+**1. A test of a copy.** The dial-time tests originally called `ValidateBaseURL`
+through a local helper that reimplemented the rule, so two mutations that gutted
+`DialGuard` itself were invisible. The function the client actually calls was
+untested. Fixed by making the rule take an injected resolver and pointing the tests
+at the real entry point.
+
+**2. A resolver fake that quietly disables the rule under test.** The fake returned
+one fixed *public* address for every host, so `http://127.0.0.1` resolved to a
+public address and the guard allowed it — three subtests passed a loopback,
+link-local and private-range URL. A fake that ignores the host is worse than no
+fake. The existing `baseurl_test.go` fake was already sound because it has a
+`perHost` map.
+
+**3. A guard that reused the wrong predicate.** The image-url guard called
+`IsSuspiciousValue`, the F1 *question-text* predicate, which rejects any value
+containing `http://`. An image url is a url, so the guard refused
+`https://cdn.example.com/pic.jpg` and every ordinary image on the column. The
+marker LIST is shared; the PREDICATE is not.
+
+And the inverse case, which is the rule the survivors keep teaching: when a
+mutation survives because the guarded line is **redundant**, delete the line rather
+than write a test to pin it. The image guard had three checks where one was doing
+the job — `url.Parse` gives both an empty string and a relative url an empty
+scheme, and the allowlist refuses it. Nine mutations now, and the three
+over-strict ones (must not refuse a dotted host, must not use the question
+predicate, must not reject a host that looks unreachable from here) are the ones
+that protect existing user data.
 
 **The F2 item was unmet until this session, and the reason is worth recording.**
 `store.go` — the F2 boundary itself — was committed as `d3934900` with **no test

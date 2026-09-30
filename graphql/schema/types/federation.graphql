@@ -65,6 +65,65 @@ extend type Query {
   but it is also the list an attacker would want, so it is not public.
   """
   federation_peers: [FederationPeer!]! @hasRole(role: ADMIN)
+
+  """
+  What peers have suggested for one of this box's own queries.
+
+  This is the READ half of D2 step 6, and the whole of it is constrained by F2.
+  A foreign candidate is evidence, not an entity: it has no local id, it cannot
+  be voted on here, and nothing it says can move a local performer. So this query
+  returns only what the store holds as evidence -- a remote string, the peer that
+  sent it, and a confidence -- and deliberately exposes NO local performer and NO
+  way to accept a candidate.
+
+  That asymmetry is the design, not a limitation. An operator needs to see WHY a
+  federation run came back the way it did; a user does not need a surface that
+  turns a remote string into a local identity, because that is exactly the edge
+  F2 exists to cut.
+
+  Requires ADMIN. The query ids and remote strings in here describe what this
+  instance is being told by its peers, which is instance-internal state.
+  """
+  federation_foreign_candidates(query_id: ID!): [ForeignCandidate!]! @hasRole(role: ADMIN)
+}
+
+"""
+One thing a peer suggested, as EVIDENCE.
+
+Deliberately has no field that could be used as a local identity: no performer id,
+no entity id, no vote weight. `remote_id` is the peer's own string and is not
+resolvable to anything on this box -- that is the F2 boundary, and a type that
+carried a local id would quietly undo it.
+"""
+type ForeignCandidate {
+  "The peer's own identifier for what it suggested. Opaque, and not resolvable here."
+  remote_id: String!
+
+  "The name the peer gave it, which is what an operator actually reads."
+  remote_name: String!
+
+  """
+  Which peer sent it, so an operator can judge the source.
+
+  Empty when that peer has since been deleted. The evidence is kept rather than
+  dropped, because an unknown claimant auditing a bad match is precisely what
+  this query exists to surface.
+  """
+  instance_id: String!
+
+  """
+  How many of the PEER's users suggested it.
+
+  Remote weight: an observation about another instance's users, never a vote here
+  and never summed into a local score.
+  """
+  suggester_count: Int!
+
+  """
+  When we last heard it. Evidence expires (F3), so a stale row is not a current
+  claim.
+  """
+  fetched_at: Time!
 }
 
 extend type Mutation {

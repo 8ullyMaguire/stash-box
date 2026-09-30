@@ -9,9 +9,19 @@ An integration test now asserts the rule in operator terms rather than as a unit
 test on a validator: an admin cannot register a peer at `169.254.169.254`, and
 cannot repoint an existing one there either.
 
-**The top open item is dial-time re-validation.** See "Open items" below.
+**Rule 2's second half has landed** as `federation.DialGuard` (`97d00b44`), which
+the client calls once `client.go` is merged — see "Ordering" below, because that
+is the whole constraint.
 
-Session: 2026-09-30 ~17:10–17:45, agent profile `coding-2`.
+**Rule 3 landed for `images.url`** (`e4c92b29`), the one stored-URL column this
+box *serves* rather than stores.
+
+**D2 step 6's read path landed**: `federation_foreign_candidates`, ADMIN,
+read-only, and the GraphQL type carries no local identity by construction.
+
+**The top open item is now the merge order, not the code.** See "Open items".
+
+Sessions: 2026-09-30, agent profile `coding-2`.
 Branch: `r074-receiving-guard`, forked from `master` at `d3934900`.
 Worktree: `~/code-local/worktrees/stash-box-r074`.
 
@@ -218,3 +228,45 @@ changed: it says the receiving half "does not exist". It now exists and is wired
 for `base_url` (third session). It still does not exist for the five stored-URL
 columns, and the dial-time half is still open. **That edit is deliberately not
 made here** — the stashforge worktree belongs to another profile.
+
+## Ordering — the one thing that actually blocks a merge
+
+`client.go` is an **untracked file in the shared tree**, owned by another session,
+and it is where the peer is dialled. `baseurl.go` — which holds
+`ValidateBaseURL` — exists only on this branch. So:
+
+```
+1. merge this branch into master            (gets baseurl.go, service.go, the resolvers)
+2. merge the other session's client.go
+3. in Client.askOne, call DialGuard before building the request
+```
+
+Step 3 is a one-line change and `DialGuard` is written and tested (`97d00b44`), so
+nothing about the guard is still open — only the ordering is.
+
+**This was measured, not assumed.** Editing their `client.go` to call
+`ValidateBaseURL` does not compile on their branch, because that function is not
+there. The attempt was reverted. That is what establishes the merge order; without
+it the natural assumption is the opposite one.
+
+## What each of R074's three rules now has
+
+| Rule | Target | State | Commit |
+|---|---|---|---|
+| 1 — no local-file reference in a URL | all five columns | **scanner** reports; `images.url` also guarded at write time | `e4c92b29` |
+| 2 — resolve and refuse private/loopback/link-local | `federation_peers.base_url` | **write-time guard, wired, reachable** | `23da1f6a`, `e2ee78b1`, `8338a797` |
+| 2 — same, on the way OUT | dial time | **`DialGuard` written and tested; awaiting the merge above** | `97d00b44` |
+| 3 — served URLs | `images.url` | **guarded at write time** | `e4c92b29` |
+
+The four operator-typed columns (`performer_urls`, `studio_urls`, `scene_urls`,
+`sites`) deliberately stay on the scanner: a human is transcribing something they
+found, so a value that looks odd is a typo far more often than an attack, and a
+write-time guard destroys their data. That is a judgement call, and it is the one
+place a reasonable person would choose differently.
+
+## Open items
+
+1. **Merge order above.** Not blocked on a decision — blocked on the other session.
+2. **Rule 1 on the other four columns** — scanner only, by choice.
+3. **#583** is a partial fix with no dedicated test; recorded as such.
+4. The feature roadmap (17 RFCs, feature-01…05) is untouched.

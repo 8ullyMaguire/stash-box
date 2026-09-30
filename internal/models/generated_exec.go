@@ -298,6 +298,14 @@ type ComplexityRoot struct {
 		Edit func(childComplexity int) int
 	}
 
+	ForeignCandidate struct {
+		FetchedAt      func(childComplexity int) int
+		InstanceID     func(childComplexity int) int
+		RemoteID       func(childComplexity int) int
+		RemoteName     func(childComplexity int) int
+		SuggesterCount func(childComplexity int) int
+	}
+
 	FuzzyDate struct {
 		Accuracy func(childComplexity int) int
 		Date     func(childComplexity int) int
@@ -584,6 +592,7 @@ type ComplexityRoot struct {
 		EloLeaderboard                 func(childComplexity int, entityType EloEntityType, limit *int) int
 		EloMatchup                     func(childComplexity int, entityType EloEntityType) int
 		EloRating                      func(childComplexity int, entityType EloEntityType, id uuid.UUID) int
+		FederationForeignCandidates    func(childComplexity int, queryID uuid.UUID) int
 		FederationPeers                func(childComplexity int) int
 		FetchSiteFavicons              func(childComplexity int, url string) int
 		FindDraft                      func(childComplexity int, id uuid.UUID) int
@@ -1174,6 +1183,7 @@ type QueryResolver interface {
 	EloLeaderboard(ctx context.Context, entityType EloEntityType, limit *int) (*EloLeaderboard, error)
 	AccessRules(ctx context.Context) (*AccessRuleSet, error)
 	FederationPeers(ctx context.Context) ([]FederationPeer, error)
+	FederationForeignCandidates(ctx context.Context, queryID uuid.UUID) ([]ForeignCandidate, error)
 	ListOpenIdentificationQueries(ctx context.Context, limit *int) ([]IdentificationQuery, error)
 	IdentificationQuery(ctx context.Context, id uuid.UUID) (*IdentificationQuery, error)
 	ResolvedIdentificationQueries(ctx context.Context, entityType IdentificationTargetType, entityID uuid.UUID, limit *int) ([]IdentificationQuery, error)
@@ -2091,6 +2101,37 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.FingerprintedSceneEdit.Edit(childComplexity), true
+
+	case "ForeignCandidate.fetched_at":
+		if e.ComplexityRoot.ForeignCandidate.FetchedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ForeignCandidate.FetchedAt(childComplexity), true
+	case "ForeignCandidate.instance_id":
+		if e.ComplexityRoot.ForeignCandidate.InstanceID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ForeignCandidate.InstanceID(childComplexity), true
+	case "ForeignCandidate.remote_id":
+		if e.ComplexityRoot.ForeignCandidate.RemoteID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ForeignCandidate.RemoteID(childComplexity), true
+	case "ForeignCandidate.remote_name":
+		if e.ComplexityRoot.ForeignCandidate.RemoteName == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ForeignCandidate.RemoteName(childComplexity), true
+	case "ForeignCandidate.suggester_count":
+		if e.ComplexityRoot.ForeignCandidate.SuggesterCount == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ForeignCandidate.SuggesterCount(childComplexity), true
 
 	case "FuzzyDate.accuracy":
 		if e.ComplexityRoot.FuzzyDate.Accuracy == nil {
@@ -3906,6 +3947,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.EloRating(childComplexity, args["entityType"].(EloEntityType), args["id"].(uuid.UUID)), true
+	case "Query.federation_foreign_candidates":
+		if e.ComplexityRoot.Query.FederationForeignCandidates == nil {
+			break
+		}
+
+		args, err := ec.field_Query_federation_foreign_candidates_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.FederationForeignCandidates(childComplexity, args["query_id"].(uuid.UUID)), true
 	case "Query.federation_peers":
 		if e.ComplexityRoot.Query.FederationPeers == nil {
 			break
@@ -6436,6 +6488,65 @@ extend type Query {
   but it is also the list an attacker would want, so it is not public.
   """
   federation_peers: [FederationPeer!]! @hasRole(role: ADMIN)
+
+  """
+  What peers have suggested for one of this box's own queries.
+
+  This is the READ half of D2 step 6, and the whole of it is constrained by F2.
+  A foreign candidate is evidence, not an entity: it has no local id, it cannot
+  be voted on here, and nothing it says can move a local performer. So this query
+  returns only what the store holds as evidence -- a remote string, the peer that
+  sent it, and a confidence -- and deliberately exposes NO local performer and NO
+  way to accept a candidate.
+
+  That asymmetry is the design, not a limitation. An operator needs to see WHY a
+  federation run came back the way it did; a user does not need a surface that
+  turns a remote string into a local identity, because that is exactly the edge
+  F2 exists to cut.
+
+  Requires ADMIN. The query ids and remote strings in here describe what this
+  instance is being told by its peers, which is instance-internal state.
+  """
+  federation_foreign_candidates(query_id: ID!): [ForeignCandidate!]! @hasRole(role: ADMIN)
+}
+
+"""
+One thing a peer suggested, as EVIDENCE.
+
+Deliberately has no field that could be used as a local identity: no performer id,
+no entity id, no vote weight. ` + "`" + `remote_id` + "`" + ` is the peer's own string and is not
+resolvable to anything on this box -- that is the F2 boundary, and a type that
+carried a local id would quietly undo it.
+"""
+type ForeignCandidate {
+  "The peer's own identifier for what it suggested. Opaque, and not resolvable here."
+  remote_id: String!
+
+  "The name the peer gave it, which is what an operator actually reads."
+  remote_name: String!
+
+  """
+  Which peer sent it, so an operator can judge the source.
+
+  Empty when that peer has since been deleted. The evidence is kept rather than
+  dropped, because an unknown claimant auditing a bad match is precisely what
+  this query exists to surface.
+  """
+  instance_id: String!
+
+  """
+  How many of the PEER's users suggested it.
+
+  Remote weight: an observation about another instance's users, never a vote here
+  and never summed into a local score.
+  """
+  suggester_count: Int!
+
+  """
+  When we last heard it. Evidence expires (F3), so a stale row is not a current
+  claim.
+  """
+  fetched_at: Time!
 }
 
 extend type Mutation {
@@ -9029,6 +9140,22 @@ func (ec *executionContext) childFields_FingerprintSubmissionResult(ctx context.
 	return nil, fmt.Errorf("no field named %q was found under type FingerprintSubmissionResult", field.Name)
 }
 
+func (ec *executionContext) childFields_ForeignCandidate(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "remote_id":
+		return ec.fieldContext_ForeignCandidate_remote_id(ctx, field)
+	case "remote_name":
+		return ec.fieldContext_ForeignCandidate_remote_name(ctx, field)
+	case "instance_id":
+		return ec.fieldContext_ForeignCandidate_instance_id(ctx, field)
+	case "suggester_count":
+		return ec.fieldContext_ForeignCandidate_suggester_count(ctx, field)
+	case "fetched_at":
+		return ec.fieldContext_ForeignCandidate_fetched_at(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type ForeignCandidate", field.Name)
+}
+
 func (ec *executionContext) childFields_FuzzyDate(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 	switch field.Name {
 	case "date":
@@ -11158,6 +11285,20 @@ func (ec *executionContext) field_Query_eloRating_args(ctx context.Context, rawA
 		return nil, err
 	}
 	args["id"] = arg1
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_federation_foreign_candidates_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "query_id",
+		func(ctx context.Context, v any) (uuid.UUID, error) {
+			return ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["query_id"] = arg0
 	return args, nil
 }
 
@@ -15014,6 +15155,121 @@ func (ec *executionContext) fieldContext_FingerprintedSceneEdit_edit(_ context.C
 		},
 	}
 	return fc, nil
+}
+
+func (ec *executionContext) _ForeignCandidate_remote_id(ctx context.Context, field graphql.CollectedField, obj *ForeignCandidate) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ForeignCandidate_remote_id(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.RemoteID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ForeignCandidate_remote_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ForeignCandidate", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _ForeignCandidate_remote_name(ctx context.Context, field graphql.CollectedField, obj *ForeignCandidate) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ForeignCandidate_remote_name(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.RemoteName, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ForeignCandidate_remote_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ForeignCandidate", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _ForeignCandidate_instance_id(ctx context.Context, field graphql.CollectedField, obj *ForeignCandidate) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ForeignCandidate_instance_id(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.InstanceID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ForeignCandidate_instance_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ForeignCandidate", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _ForeignCandidate_suggester_count(ctx context.Context, field graphql.CollectedField, obj *ForeignCandidate) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ForeignCandidate_suggester_count(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.SuggesterCount, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ForeignCandidate_suggester_count(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ForeignCandidate", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _ForeignCandidate_fetched_at(ctx context.Context, field graphql.CollectedField, obj *ForeignCandidate) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ForeignCandidate_fetched_at(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.FetchedAt, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v time.Time) graphql.Marshaler {
+			return ec.marshalNTime2timeᚐTime(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ForeignCandidate_fetched_at(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ForeignCandidate", field, false, false, errors.New("field of type Time does not have child fields"))
 }
 
 func (ec *executionContext) _FuzzyDate_date(ctx context.Context, field graphql.CollectedField, obj *FuzzyDate) (ret graphql.Marshaler) {
@@ -26162,6 +26418,68 @@ func (ec *executionContext) fieldContext_Query_federation_peers(_ context.Contex
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return ec.childFields_FederationPeer(ctx, field)
 		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_federation_foreign_candidates(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_federation_foreign_candidates(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().FederationForeignCandidates(ctx, fc.Args["query_id"].(uuid.UUID))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "ADMIN")
+				if err != nil {
+					var zeroVal []ForeignCandidate
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal []ForeignCandidate
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v []ForeignCandidate) graphql.Marshaler {
+			return ec.marshalNForeignCandidate2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐForeignCandidateᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_federation_foreign_candidates(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ForeignCandidate(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_federation_foreign_candidates_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
 	}
 	return fc, nil
 }
@@ -41904,6 +42222,65 @@ func (ec *executionContext) _FingerprintedSceneEdit(ctx context.Context, sel ast
 	return out
 }
 
+var foreignCandidateImplementors = []string{"ForeignCandidate"}
+
+func (ec *executionContext) _ForeignCandidate(ctx context.Context, sel ast.SelectionSet, obj *ForeignCandidate) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, foreignCandidateImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ForeignCandidate")
+		case "remote_id":
+			out.Values[i] = ec._ForeignCandidate_remote_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "remote_name":
+			out.Values[i] = ec._ForeignCandidate_remote_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "instance_id":
+			out.Values[i] = ec._ForeignCandidate_instance_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "suggester_count":
+			out.Values[i] = ec._ForeignCandidate_suggester_count(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "fetched_at":
+			out.Values[i] = ec._ForeignCandidate_fetched_at(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferred), math.MaxInt32)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
 var fuzzyDateImplementors = []string{"FuzzyDate"}
 
 func (ec *executionContext) _FuzzyDate(ctx context.Context, sel ast.SelectionSet, obj *FuzzyDate) graphql.Marshaler {
@@ -45652,6 +46029,28 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 					}
 				}()
 				res = ec._Query_federation_peers(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "federation_foreign_candidates":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_federation_foreign_candidates(ctx, field)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -51421,6 +51820,26 @@ func (ec *executionContext) marshalNFloat2float64(ctx context.Context, sel ast.S
 		}
 	}
 	return graphql.WrapContextMarshaler(ctx, res)
+}
+
+func (ec *executionContext) marshalNForeignCandidate2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐForeignCandidate(ctx context.Context, sel ast.SelectionSet, v ForeignCandidate) graphql.Marshaler {
+	return ec._ForeignCandidate(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNForeignCandidate2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐForeignCandidateᚄ(ctx context.Context, sel ast.SelectionSet, v []ForeignCandidate) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNForeignCandidate2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐForeignCandidate(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
 }
 
 func (ec *executionContext) unmarshalNGenderEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐGenderEnum(ctx context.Context, v any) (GenderEnum, error) {

@@ -18,11 +18,10 @@ import (
 // and on no path a request can take -- service.go's own header says so. These
 // resolvers are that something.
 //
-// Note what is NOT here: a query for foreign candidates, and any mutation that
-// turns a peer's answer into a local record. F2 makes foreign evidence evidence
-// and never a vote, and an operator override would be the same hole with a
-// smaller door. `federation.queryForeignCandidates` is still owed by step 6; it is
-// read-only and does not depend on the write path, so it can land separately.
+// Note what is NOT here, still: any mutation that turns a peer's answer into a
+// local record. F2 makes foreign evidence evidence and never a vote, and an
+// operator override would be the same hole with a smaller door. The read-only
+// query is below, and it is read-only for the same reason.
 
 // FederationPeers returns every configured peer.
 func (r *queryResolver) FederationPeers(ctx context.Context) ([]models.FederationPeer, error) {
@@ -139,4 +138,62 @@ func peerToModel(p federation.Peer) *models.FederationPeer {
 	}
 
 	return m
+}
+
+// FederationForeignCandidates returns what peers have suggested for one query.
+//
+// Read-only by construction, and that is a security property rather than a
+// convenience. The GraphQL type it returns -- ForeignCandidate -- has no field
+// that could serve as a local identity: no performer id, no entity id, no vote
+// weight, and nothing to accept a candidate with. It is the evidence side of the
+// F2 boundary and nothing else, so exposing it cannot become the first step of
+// resolving a remote string into a local performer even by accident.
+//
+// A row whose peer has been deleted is reported with an empty instance_id rather
+// than dropped. "A peer we no longer know suggested this" is exactly what an
+// operator auditing a bad match needs to see, and dropping it would hide the only
+// evidence that a peer was removed.
+func (r *queryResolver) FederationForeignCandidates(ctx context.Context, queryID uuid.UUID) ([]models.ForeignCandidate, error) {
+	stored, err := r.services.Federation().Candidates(ctx, queryID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Peer ids are resolved once, in one pass, rather than per row: a query with
+	// fifty candidates from one peer should not be fifty peer lookups. The set of
+	// peer ids actually referenced is collected first so the map is only as large
+	// as the answer needs.
+	needed := make(map[uuid.UUID]struct{}, len(stored))
+	for _, c := range stored {
+		needed[c.PeerID] = struct{}{}
+	}
+
+	names := make(map[uuid.UUID]string, len(needed))
+	if len(needed) > 0 {
+		peers, perr := r.FederationPeers(ctx)
+		if perr != nil {
+			// The candidates are still evidence. A peer-name lookup failing is
+			// not a reason to refuse the answer, and refusing here would mean a
+			// degraded peer table hides evidence rather than annotating it.
+			names = map[uuid.UUID]string{}
+		} else {
+			for _, p := range peers {
+				if _, want := needed[p.ID]; want {
+					names[p.ID] = p.InstanceID
+				}
+			}
+		}
+	}
+
+	out := make([]models.ForeignCandidate, 0, len(stored))
+	for _, c := range stored {
+		out = append(out, models.ForeignCandidate{
+			RemoteID:       c.RemoteEntityID,
+			RemoteName:     c.RemoteEntityName,
+			InstanceID:     names[c.PeerID],
+			SuggesterCount: c.RemoteVoteCount,
+			FetchedAt:      c.FetchedAt,
+		})
+	}
+	return out, nil
 }

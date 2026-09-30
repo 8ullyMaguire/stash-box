@@ -539,6 +539,33 @@ type FingerprintedSceneEdit struct {
 
 func (FingerprintedSceneEdit) IsNotificationData() {}
 
+// One thing a peer suggested, as EVIDENCE.
+//
+// Deliberately has no field that could be used as a local identity: no performer id,
+// no entity id, no vote weight. `remote_id` is the peer's own string and is not
+// resolvable to anything on this box -- that is the F2 boundary, and a type that
+// carried a local id would quietly undo it.
+type ForeignCandidate struct {
+	// The peer's own identifier for what it suggested. Opaque, and not resolvable here.
+	RemoteID string `json:"remote_id"`
+	// The name the peer gave it, which is what an operator actually reads.
+	RemoteName string `json:"remote_name"`
+	// Which peer sent it, so an operator can judge the source.
+	//
+	// Empty when that peer has since been deleted. The evidence is kept rather than
+	// dropped, because an unknown claimant auditing a bad match is precisely what
+	// this query exists to surface.
+	InstanceID string `json:"instance_id"`
+	// How many of the PEER's users suggested it.
+	//
+	// Remote weight: an observation about another instance's users, never a vote here
+	// and never summed into a local score.
+	SuggesterCount int `json:"suggester_count"`
+	// When we last heard it. Evidence expires (F3), so a stale row is not a current
+	// claim.
+	FetchedAt time.Time `json:"fetched_at"`
+}
+
 type FuzzyDate struct {
 	Date     string           `json:"date"`
 	Accuracy DateAccuracyEnum `json:"accuracy"`
