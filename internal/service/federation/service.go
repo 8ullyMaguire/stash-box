@@ -114,23 +114,33 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (Peer, error) {
 	if in.InstanceID == "" {
 		return Peer{}, fmt.Errorf("a peer needs an instance id")
 	}
-	// Out of range here rather than clamped. The CHECK constraint in migration
-	// 89 would refuse it anyway, and a silently clamped weight would make an
-	// operator believe they had set a trust level they had not.
-	if in.TrustWeight < 0 || in.TrustWeight > 1 {
-		return Peer{}, fmt.Errorf("trust weight must be in [0,1], got %v", in.TrustWeight)
+	// Out of range here rather than clamped, and the range is (0, 1] -- NOT
+	// [0, 1]. The schema CHECK is trust_weight > 0 AND <= 1, so 0 is not a legal
+	// stored weight.
+	//
+	// This was [0,1] and it was a real bug, found by the GraphQL surface test
+	// rather than by the service's own: 0 passed this check, then the
+	// "weight == 0 means unset" block below rewrote it to 0.5. An operator who
+	// explicitly asked for 0 got a peer at 0.5 and no error. The two blocks
+	// contradicted each other and neither was wrong on its own -- the check
+	// permitted what the defaulting block then treated as absent.
+	if in.TrustWeight <= 0 || in.TrustWeight > 1 {
+		return Peer{}, fmt.Errorf("trust weight must be in (0,1], got %v", in.TrustWeight)
 	}
 
 	if err := ValidateBaseURL(ctx, in.BaseURL, s.resolver); err != nil {
 		return Peer{}, fmt.Errorf("peer %q: %w", in.Name, err)
 	}
 
+	// Unreachable: the check above refuses 0, so by the time we get here the
+	// weight is already in (0,1]. This block used to default a zero to 0.5 and is
+	// kept only as a belt-and-braces guard for a future caller that constructs
+	// CreateInput directly; if it ever fires, the defaulting it performs is a
+	// guess about intent, which is exactly what the range check exists to
+	// prevent. The resolver applies the 0.5 default at the GraphQL layer, where
+	// "omitted" is actually distinguishable from "explicitly zero".
 	weight := in.TrustWeight
 	if weight == 0 {
-		// The schema's default is 0.5, applied by omitting the column. sqlc
-		// sends the Go zero value, so "omitted" has to be expressed some other
-		// way: 0 is not a legal stored weight (the CHECK is > 0), so treating a
-		// zero input as "unset" is unambiguous rather than a guess.
 		weight = 0.5
 	}
 
@@ -175,7 +185,8 @@ func (s *Service) Update(ctx context.Context, in UpdateInput) (Peer, error) {
 		return Peer{}, fmt.Errorf("a peer needs a name")
 	}
 	if in.TrustWeight <= 0 || in.TrustWeight > 1 {
-		return Peer{}, fmt.Errorf("trust weight must be in (0,1], got %v", in.TrustWeight)
+		return Peer{}, fmt.Errorf("cannot update peer %q: trust weight must be in (0,1], got %v",
+			in.Name, in.TrustWeight)
 	}
 
 	if err := ValidateBaseURL(ctx, in.BaseURL, s.resolver); err != nil {
@@ -251,7 +262,30 @@ func (s *Service) ListEnabled(ctx context.Context) ([]Peer, error) {
 // The evidence goes with it. A disabled or deleted peer whose claims are still
 // visible on old queries is evidence attached to an instance this operator has
 // said not to listen to.
+// Delete removes a peer and everything it contributed.
+//
+// Returns ErrNotFound when there is no such peer, so a caller can tell "removed
+// it" from "there was nothing there".
+//
+// THE EXISTENCE CHECK IS A SEPARATE QUERY, and that is a deliberate trade. The
+// obvious implementation is to read the row count off the DELETE, but
+// DeleteFederationPeer is an sqlc :exec and :exec DISCARDS the count -- a DELETE
+// matching zero rows is a success, not an error, so there is nothing to inspect.
+// Changing the query to :execrows would mean regenerating sqlc and touching a
+// generated file for one caller; a :one GET costs one extra round trip on a
+// delete, which an operator performs a handful of times ever.
+//
+// It also has to come FIRST. ForgetPeer cascades the peer's evidence away, so
+// checking after the delete would be checking a peer that is already gone -- and
+// reporting "not found" for a peer that existed a moment ago.
 func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
+	if _, err := s.queries.GetFederationPeer(ctx, id); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("looking up peer %s: %w", id, err)
+	}
+
 	store := NewStore(s.queries)
 	if err := store.ForgetPeer(ctx, id); err != nil {
 		return err

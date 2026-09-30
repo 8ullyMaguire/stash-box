@@ -308,6 +308,115 @@ type graphqlClient struct {
 	*client.Client
 }
 
+// federationPeerOutput mirrors the FederationPeer GraphQL type.
+//
+// Declared here rather than reusing models.FederationPeer because the client
+// decodes into a local struct via makeFragment -- that is how every other
+// operation in this file is written, and a resolver-level struct would not prove
+// the query parses. The field names are camelCase because that is the JSON the
+// server returns, not the snake_case the schema declares.
+type federationPeerOutput struct {
+	ID          string  `json:"id"`
+	Name        string  `json:"name"`
+	BaseURL     string  `json:"base_url"`
+	InstanceID  string  `json:"instance_id"`
+	TrustWeight float64 `json:"trust_weight"`
+	Enabled     bool    `json:"enabled"`
+	LastSeenAt  *string `json:"last_seen_at"`
+}
+
+// federationPeerCreateInput uses POINTERS for the optional fields on purpose.
+//
+// GraphQL cannot distinguish an omitted Float from an explicit 0, and 0 is
+// illegal for trust_weight (the schema CHECK is > 0). A plain float64 would
+// decode "omitted" as 0 and every caller that left the field out would be
+// rejected. The pointer is how "not supplied" survives the round trip.
+type federationPeerCreateInput struct {
+	Name        string   `json:"name"`
+	BaseURL     string   `json:"base_url"`
+	InstanceID  string   `json:"instance_id"`
+	TrustWeight *float64 `json:"trust_weight"`
+	Enabled     *bool    `json:"enabled"`
+}
+
+type federationPeerUpdateInput struct {
+	ID          string  `json:"id"`
+	Name        string  `json:"name"`
+	BaseURL     string  `json:"base_url"`
+	TrustWeight float64 `json:"trust_weight"`
+	Enabled     bool    `json:"enabled"`
+}
+
+// federationPeers lists every configured peer.
+func (c *graphqlClient) federationPeers() ([]federationPeerOutput, error) {
+	q := `
+	query FederationPeers {
+		federation_peers {
+			` + makeFragment(reflect.TypeFor[federationPeerOutput]()) + `
+		}
+	}`
+
+	var resp struct {
+		FederationPeers []federationPeerOutput `json:"federation_peers"`
+	}
+	if err := c.Post(q, &resp); err != nil {
+		return nil, err
+	}
+	return resp.FederationPeers, nil
+}
+
+// createFederationPeer registers a peer.
+func (c *graphqlClient) createFederationPeer(input federationPeerCreateInput) (*federationPeerOutput, error) {
+	q := `
+	mutation FederationPeerCreate($input: FederationPeerCreateInput!) {
+		federation_peer_create(input: $input) {
+			` + makeFragment(reflect.TypeFor[federationPeerOutput]()) + `
+		}
+	}`
+
+	var resp struct {
+		FederationPeerCreate *federationPeerOutput `json:"federation_peer_create"`
+	}
+	if err := c.Post(q, &resp, client.Var("input", input)); err != nil {
+		return nil, err
+	}
+	return resp.FederationPeerCreate, nil
+}
+
+// updateFederationPeer updates a peer.
+func (c *graphqlClient) updateFederationPeer(input federationPeerUpdateInput) (*federationPeerOutput, error) {
+	q := `
+	mutation FederationPeerUpdate($input: FederationPeerUpdateInput!) {
+		federation_peer_update(input: $input) {
+			` + makeFragment(reflect.TypeFor[federationPeerOutput]()) + `
+		}
+	}`
+
+	var resp struct {
+		FederationPeerUpdate *federationPeerOutput `json:"federation_peer_update"`
+	}
+	if err := c.Post(q, &resp, client.Var("input", input)); err != nil {
+		return nil, err
+	}
+	return resp.FederationPeerUpdate, nil
+}
+
+// deleteFederationPeer removes a peer.
+func (c *graphqlClient) deleteFederationPeer(id string) (bool, error) {
+	q := `
+	mutation FederationPeerDelete($id: ID!) {
+		federation_peer_delete(id: $id)
+	}`
+
+	var resp struct {
+		FederationPeerDelete bool `json:"federation_peer_delete"`
+	}
+	if err := c.Post(q, &resp, client.Var("id", id)); err != nil {
+		return false, err
+	}
+	return resp.FederationPeerDelete, nil
+}
+
 func (c *graphqlClient) createScene(input models.SceneCreateInput) (*sceneOutput, error) {
 	q := `
 	mutation SceneCreate($input: SceneCreateInput!) {

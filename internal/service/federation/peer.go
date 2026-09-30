@@ -140,6 +140,14 @@ type Peer struct {
 	BaseURL     string
 	InstanceID  string
 	TrustWeight float64
+	// Enabled reports whether an operator has this peer switched on.
+	//
+	// It was missing here while being present on the row, on CreateInput and on
+	// UpdateInput -- the write path stored it and then dropped it on the way out,
+	// so any caller asking "what did I just create" got a Peer that could not
+	// say. The GraphQL surface added in this commit needs it, and a struct that
+	// silently omits a persisted column is a trap for the next caller.
+	Enabled bool
 	// LastSeenAt is nil for a never-contacted peer. See Fresh.
 	LastSeenAt *time.Time
 }
@@ -152,6 +160,7 @@ func FromRow(p queries.FederationPeer) Peer {
 		BaseURL:     p.BaseUrl,
 		InstanceID:  p.InstanceID,
 		TrustWeight: p.TrustWeight,
+		Enabled:     p.Enabled,
 	}
 	if p.LastSeenAt.Valid {
 		t := p.LastSeenAt.Time

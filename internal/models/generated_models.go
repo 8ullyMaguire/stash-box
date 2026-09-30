@@ -401,6 +401,51 @@ type FavoriteStudioScene struct {
 
 func (FavoriteStudioScene) IsNotificationData() {}
 
+// A federation peer this instance is configured to talk to.
+//
+// The base_url field is the field R074 is about. It is returned here so an operator can see
+// what the instance will dial, and it is validated on the way IN by
+// federation.ValidateBaseURL -- so a value that appears in this list has already
+// passed the loopback, link-local, private-range and rebinding checks.
+//
+// Deliberately NOT exposed: created_at, updated_at and last_seen_at exist on the
+// table and are useful for debugging, but the registry Go type does not carry them
+// and adding three timestamp fields to satisfy a list view is not worth widening
+// the type for. Query the table if you need them.
+type FederationPeer struct {
+	ID   uuid.UUID `json:"id"`
+	Name string    `json:"name"`
+	// Validated at write time. See internal/service/federation/baseurl.go.
+	BaseURL string `json:"base_url"`
+	// The peer's own identity claim. Unique, and deliberately NOT editable.
+	InstanceID string `json:"instance_id"`
+	// In (0, 1], enforced by a schema CHECK. A peer's word is worth strictly less than the local community's.
+	TrustWeight float64 `json:"trust_weight"`
+	Enabled     bool    `json:"enabled"`
+	// NULL means never contacted, which is not the same as stale.
+	LastSeenAt *string `json:"last_seen_at,omitempty"`
+}
+
+type FederationPeerCreateInput struct {
+	Name       string `json:"name"`
+	BaseURL    string `json:"base_url"`
+	InstanceID string `json:"instance_id"`
+	// Defaults to 0.5. Must be greater than 0 and at most 1.
+	TrustWeight *float64 `json:"trust_weight,omitempty"`
+	// Defaults to true, because a peer registered and immediately invisible is a confusing first experience.
+	Enabled *bool `json:"enabled,omitempty"`
+}
+
+type FederationPeerUpdateInput struct {
+	ID   uuid.UUID `json:"id"`
+	Name string    `json:"name"`
+	// Re-validated exactly like create. An update IS a write.
+	BaseURL string `json:"base_url"`
+	// Greater than 0, at most 1. There is no default here: on update the caller is stating a value, and 0 would violate the schema CHECK.
+	TrustWeight float64 `json:"trust_weight"`
+	Enabled     bool    `json:"enabled"`
+}
+
 type Fingerprint struct {
 	Hash      FingerprintHash      `json:"hash"`
 	Algorithm FingerprintAlgorithm `json:"algorithm"`

@@ -1,0 +1,102 @@
+# The operator-facing surface of the peer registry.
+# D2 step 6. The security-relevant write path (federation.Service.Create/Update and
+# the ValidateBaseURL guard they call) landed in an earlier commit; this file is
+# what makes it REACHABLE, because until something calls Factory.Federation() the
+# guard is on every path the package owns and on no path a request can take.
+# READ-ONLY FOR THE QUERY PATH, DELIBERATELY. F2 says a peer's answer is evidence
+# and never a vote, so there is no mutation here that turns foreign evidence into a
+# local candidate. An operator override would be the same hole with a smaller door:
+# it would put a local row on a claim no local user made.
+
+"""
+A federation peer this instance is configured to talk to.
+
+
+The base_url field is the field R074 is about. It is returned here so an operator can see
+what the instance will dial, and it is validated on the way IN by
+federation.ValidateBaseURL -- so a value that appears in this list has already
+passed the loopback, link-local, private-range and rebinding checks.
+
+Deliberately NOT exposed: created_at, updated_at and last_seen_at exist on the
+table and are useful for debugging, but the registry Go type does not carry them
+and adding three timestamp fields to satisfy a list view is not worth widening
+the type for. Query the table if you need them.
+"""
+type FederationPeer {
+  id: ID!
+  name: String!
+  "Validated at write time. See internal/service/federation/baseurl.go."
+  base_url: String!
+  "The peer's own identity claim. Unique, and deliberately NOT editable."
+  instance_id: String!
+  "In (0, 1], enforced by a schema CHECK. A peer's word is worth strictly less than the local community's."
+  trust_weight: Float!
+  enabled: Boolean!
+  "NULL means never contacted, which is not the same as stale."
+  last_seen_at: DateTime
+}
+
+input FederationPeerCreateInput {
+  name: String!
+  base_url: String!
+  instance_id: String!
+  "Defaults to 0.5. Must be greater than 0 and at most 1."
+  trust_weight: Float
+  "Defaults to true, because a peer registered and immediately invisible is a confusing first experience."
+  enabled: Boolean
+}
+
+input FederationPeerUpdateInput {
+  id: ID!
+  name: String!
+  "Re-validated exactly like create. An update IS a write."
+  base_url: String!
+  "Greater than 0, at most 1. There is no default here: on update the caller is stating a value, and 0 would violate the schema CHECK."
+  trust_weight: Float!
+  enabled: Boolean!
+}
+
+extend type Query {
+  """
+  Every peer this instance is configured to talk to.
+
+  Requires ADMIN. The list exposes the set of hosts this box will make outbound
+  requests to, which is instance-internal configuration rather than user data --
+  but it is also the list an attacker would want, so it is not public.
+  """
+  federation_peers: [FederationPeer!]! @hasRole(role: ADMIN)
+}
+
+extend type Mutation {
+  """
+  Register a peer.
+
+  `base_url` is validated before anything is written: the scheme must be http or
+  https, the path must not look like a local-file reference, and every address
+  the host resolves to must be public. A URL that fails is rejected outright --
+  this is the R074 receiving guard, and it is why a peer pointing at
+  169.254.169.254 or at this box's own LAN cannot be created.
+  """
+  federation_peer_create(input: FederationPeerCreateInput!): FederationPeer! @hasRole(role: ADMIN)
+
+  """
+  Update a peer.
+
+  `base_url` is re-validated. A guard that ran only on insert would be bypassed by
+  editing the row, which is the cheapest way around it.
+
+  `instance_id` is NOT updatable and has no field here. It is the peer's identity
+  and is unique in the schema, so allowing it to change would let one instance
+  take over another's row -- including its trust weight and its accumulated
+  evidence.
+  """
+  federation_peer_update(input: FederationPeerUpdateInput!): FederationPeer! @hasRole(role: ADMIN)
+
+  """
+  Stop talking to a peer.
+
+  A delete rather than a disable flag, because an operator removing a peer wants
+  it gone; `enabled: false` remains available for a temporary pause.
+  """
+  federation_peer_delete(id: ID!): Boolean! @hasRole(role: ADMIN)
+}

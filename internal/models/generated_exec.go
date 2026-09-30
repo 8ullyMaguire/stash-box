@@ -251,6 +251,16 @@ type ComplexityRoot struct {
 		Scene func(childComplexity int) int
 	}
 
+	FederationPeer struct {
+		BaseURL     func(childComplexity int) int
+		Enabled     func(childComplexity int) int
+		ID          func(childComplexity int) int
+		InstanceID  func(childComplexity int) int
+		LastSeenAt  func(childComplexity int) int
+		Name        func(childComplexity int) int
+		TrustWeight func(childComplexity int) int
+	}
+
 	Fingerprint struct {
 		Algorithm     func(childComplexity int) int
 		Created       func(childComplexity int) int
@@ -376,6 +386,9 @@ type ComplexityRoot struct {
 		EditVote                          func(childComplexity int, input EditVoteInput) int
 		FavoritePerformer                 func(childComplexity int, id uuid.UUID, favorite bool) int
 		FavoriteStudio                    func(childComplexity int, id uuid.UUID, favorite bool) int
+		FederationPeerCreate              func(childComplexity int, input FederationPeerCreateInput) int
+		FederationPeerDelete              func(childComplexity int, id uuid.UUID) int
+		FederationPeerUpdate              func(childComplexity int, input FederationPeerUpdateInput) int
 		GenerateInviteCode                func(childComplexity int) int
 		GenerateInviteCodes               func(childComplexity int, input *GenerateInviteCodeInput) int
 		GrantInvite                       func(childComplexity int, input GrantInviteInput) int
@@ -571,6 +584,7 @@ type ComplexityRoot struct {
 		EloLeaderboard                 func(childComplexity int, entityType EloEntityType, limit *int) int
 		EloMatchup                     func(childComplexity int, entityType EloEntityType) int
 		EloRating                      func(childComplexity int, entityType EloEntityType, id uuid.UUID) int
+		FederationPeers                func(childComplexity int) int
 		FetchSiteFavicons              func(childComplexity int, url string) int
 		FindDraft                      func(childComplexity int, id uuid.UUID) int
 		FindDrafts                     func(childComplexity int) int
@@ -1048,6 +1062,9 @@ type MutationResolver interface {
 	MarkNotificationsRead(ctx context.Context, notification *MarkNotificationReadInput) (bool, error)
 	UpdateNotificationSubscriptions(ctx context.Context, subscriptions []NotificationEnum) (bool, error)
 	VoteElo(ctx context.Context, input EloVoteInput) (*EloVoteResult, error)
+	FederationPeerCreate(ctx context.Context, input FederationPeerCreateInput) (*FederationPeer, error)
+	FederationPeerUpdate(ctx context.Context, input FederationPeerUpdateInput) (*FederationPeer, error)
+	FederationPeerDelete(ctx context.Context, id uuid.UUID) (bool, error)
 	PostIdentificationQuery(ctx context.Context, input IdentificationPostInput) (*IdentificationQuery, error)
 	SuggestIdentificationCandidate(ctx context.Context, input IdentificationSuggestInput) (*IdentificationCandidate, error)
 	VoteIdentificationCandidate(ctx context.Context, candidateID uuid.UUID) (*IdentificationCandidate, error)
@@ -1156,6 +1173,7 @@ type QueryResolver interface {
 	EloRating(ctx context.Context, entityType EloEntityType, id uuid.UUID) (*EloRating, error)
 	EloLeaderboard(ctx context.Context, entityType EloEntityType, limit *int) (*EloLeaderboard, error)
 	AccessRules(ctx context.Context) (*AccessRuleSet, error)
+	FederationPeers(ctx context.Context) ([]FederationPeer, error)
 	ListOpenIdentificationQueries(ctx context.Context, limit *int) ([]IdentificationQuery, error)
 	IdentificationQuery(ctx context.Context, id uuid.UUID) (*IdentificationQuery, error)
 	ResolvedIdentificationQueries(ctx context.Context, entityType IdentificationTargetType, entityID uuid.UUID, limit *int) ([]IdentificationQuery, error)
@@ -1911,6 +1929,49 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.FavoriteStudioScene.Scene(childComplexity), true
 
+	case "FederationPeer.base_url":
+		if e.ComplexityRoot.FederationPeer.BaseURL == nil {
+			break
+		}
+
+		return e.ComplexityRoot.FederationPeer.BaseURL(childComplexity), true
+	case "FederationPeer.enabled":
+		if e.ComplexityRoot.FederationPeer.Enabled == nil {
+			break
+		}
+
+		return e.ComplexityRoot.FederationPeer.Enabled(childComplexity), true
+	case "FederationPeer.id":
+		if e.ComplexityRoot.FederationPeer.ID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.FederationPeer.ID(childComplexity), true
+	case "FederationPeer.instance_id":
+		if e.ComplexityRoot.FederationPeer.InstanceID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.FederationPeer.InstanceID(childComplexity), true
+	case "FederationPeer.last_seen_at":
+		if e.ComplexityRoot.FederationPeer.LastSeenAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.FederationPeer.LastSeenAt(childComplexity), true
+	case "FederationPeer.name":
+		if e.ComplexityRoot.FederationPeer.Name == nil {
+			break
+		}
+
+		return e.ComplexityRoot.FederationPeer.Name(childComplexity), true
+	case "FederationPeer.trust_weight":
+		if e.ComplexityRoot.FederationPeer.TrustWeight == nil {
+			break
+		}
+
+		return e.ComplexityRoot.FederationPeer.TrustWeight(childComplexity), true
+
 	case "Fingerprint.algorithm":
 		if e.ComplexityRoot.Fingerprint.Algorithm == nil {
 			break
@@ -2465,6 +2526,39 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.FavoriteStudio(childComplexity, args["id"].(uuid.UUID), args["favorite"].(bool)), true
+	case "Mutation.federation_peer_create":
+		if e.ComplexityRoot.Mutation.FederationPeerCreate == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_federation_peer_create_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.FederationPeerCreate(childComplexity, args["input"].(FederationPeerCreateInput)), true
+	case "Mutation.federation_peer_delete":
+		if e.ComplexityRoot.Mutation.FederationPeerDelete == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_federation_peer_delete_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.FederationPeerDelete(childComplexity, args["id"].(uuid.UUID)), true
+	case "Mutation.federation_peer_update":
+		if e.ComplexityRoot.Mutation.FederationPeerUpdate == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_federation_peer_update_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.FederationPeerUpdate(childComplexity, args["input"].(FederationPeerUpdateInput)), true
 	case "Mutation.generateInviteCode":
 		if e.ComplexityRoot.Mutation.GenerateInviteCode == nil {
 			break
@@ -3812,6 +3906,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.EloRating(childComplexity, args["entityType"].(EloEntityType), args["id"].(uuid.UUID)), true
+	case "Query.federation_peers":
+		if e.ComplexityRoot.Query.FederationPeers == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Query.FederationPeers(childComplexity), true
 	case "Query.fetchSiteFavicons":
 		if e.ComplexityRoot.Query.FetchSiteFavicons == nil {
 			break
@@ -5604,6 +5704,8 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputEloMatchupInput,
 		ec.unmarshalInputEloVoteInput,
 		ec.unmarshalInputEyeColorCriterionInput,
+		ec.unmarshalInputFederationPeerCreateInput,
+		ec.unmarshalInputFederationPeerUpdateInput,
 		ec.unmarshalInputFingerprintBatchSubmission,
 		ec.unmarshalInputFingerprintClustersInput,
 		ec.unmarshalInputFingerprintEditInput,
@@ -6267,6 +6369,108 @@ extend type Mutation {
   voteElo(input: EloVoteInput!): EloVoteResult! @hasRole(role: VOTE)
 }
 `, BuiltIn: false},
+	{Name: "../../graphql/schema/types/federation.graphql", Input: `# The operator-facing surface of the peer registry.
+# D2 step 6. The security-relevant write path (federation.Service.Create/Update and
+# the ValidateBaseURL guard they call) landed in an earlier commit; this file is
+# what makes it REACHABLE, because until something calls Factory.Federation() the
+# guard is on every path the package owns and on no path a request can take.
+# READ-ONLY FOR THE QUERY PATH, DELIBERATELY. F2 says a peer's answer is evidence
+# and never a vote, so there is no mutation here that turns foreign evidence into a
+# local candidate. An operator override would be the same hole with a smaller door:
+# it would put a local row on a claim no local user made.
+
+"""
+A federation peer this instance is configured to talk to.
+
+
+The base_url field is the field R074 is about. It is returned here so an operator can see
+what the instance will dial, and it is validated on the way IN by
+federation.ValidateBaseURL -- so a value that appears in this list has already
+passed the loopback, link-local, private-range and rebinding checks.
+
+Deliberately NOT exposed: created_at, updated_at and last_seen_at exist on the
+table and are useful for debugging, but the registry Go type does not carry them
+and adding three timestamp fields to satisfy a list view is not worth widening
+the type for. Query the table if you need them.
+"""
+type FederationPeer {
+  id: ID!
+  name: String!
+  "Validated at write time. See internal/service/federation/baseurl.go."
+  base_url: String!
+  "The peer's own identity claim. Unique, and deliberately NOT editable."
+  instance_id: String!
+  "In (0, 1], enforced by a schema CHECK. A peer's word is worth strictly less than the local community's."
+  trust_weight: Float!
+  enabled: Boolean!
+  "NULL means never contacted, which is not the same as stale."
+  last_seen_at: DateTime
+}
+
+input FederationPeerCreateInput {
+  name: String!
+  base_url: String!
+  instance_id: String!
+  "Defaults to 0.5. Must be greater than 0 and at most 1."
+  trust_weight: Float
+  "Defaults to true, because a peer registered and immediately invisible is a confusing first experience."
+  enabled: Boolean
+}
+
+input FederationPeerUpdateInput {
+  id: ID!
+  name: String!
+  "Re-validated exactly like create. An update IS a write."
+  base_url: String!
+  "Greater than 0, at most 1. There is no default here: on update the caller is stating a value, and 0 would violate the schema CHECK."
+  trust_weight: Float!
+  enabled: Boolean!
+}
+
+extend type Query {
+  """
+  Every peer this instance is configured to talk to.
+
+  Requires ADMIN. The list exposes the set of hosts this box will make outbound
+  requests to, which is instance-internal configuration rather than user data --
+  but it is also the list an attacker would want, so it is not public.
+  """
+  federation_peers: [FederationPeer!]! @hasRole(role: ADMIN)
+}
+
+extend type Mutation {
+  """
+  Register a peer.
+
+  ` + "`" + `base_url` + "`" + ` is validated before anything is written: the scheme must be http or
+  https, the path must not look like a local-file reference, and every address
+  the host resolves to must be public. A URL that fails is rejected outright --
+  this is the R074 receiving guard, and it is why a peer pointing at
+  169.254.169.254 or at this box's own LAN cannot be created.
+  """
+  federation_peer_create(input: FederationPeerCreateInput!): FederationPeer! @hasRole(role: ADMIN)
+
+  """
+  Update a peer.
+
+  ` + "`" + `base_url` + "`" + ` is re-validated. A guard that ran only on insert would be bypassed by
+  editing the row, which is the cheapest way around it.
+
+  ` + "`" + `instance_id` + "`" + ` is NOT updatable and has no field here. It is the peer's identity
+  and is unique in the schema, so allowing it to change would let one instance
+  take over another's row -- including its trust weight and its accumulated
+  evidence.
+  """
+  federation_peer_update(input: FederationPeerUpdateInput!): FederationPeer! @hasRole(role: ADMIN)
+
+  """
+  Stop talking to a peer.
+
+  A delete rather than a disable flag, because an operator removing a peer wants
+  it gone; ` + "`" + `enabled: false` + "`" + ` remains available for a temporary pause.
+  """
+  federation_peer_delete(id: ID!): Boolean! @hasRole(role: ADMIN)
+}`, BuiltIn: false},
 	{Name: "../../graphql/schema/types/filter.graphql", Input: `input MultiIDCriterionInput {
   value: [ID!]
   modifier: CriterionModifier!
@@ -8751,6 +8955,26 @@ func (ec *executionContext) childFields_EloVoteResult(ctx context.Context, field
 	return nil, fmt.Errorf("no field named %q was found under type EloVoteResult", field.Name)
 }
 
+func (ec *executionContext) childFields_FederationPeer(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "id":
+		return ec.fieldContext_FederationPeer_id(ctx, field)
+	case "name":
+		return ec.fieldContext_FederationPeer_name(ctx, field)
+	case "base_url":
+		return ec.fieldContext_FederationPeer_base_url(ctx, field)
+	case "instance_id":
+		return ec.fieldContext_FederationPeer_instance_id(ctx, field)
+	case "trust_weight":
+		return ec.fieldContext_FederationPeer_trust_weight(ctx, field)
+	case "enabled":
+		return ec.fieldContext_FederationPeer_enabled(ctx, field)
+	case "last_seen_at":
+		return ec.fieldContext_FederationPeer_last_seen_at(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type FederationPeer", field.Name)
+}
+
 func (ec *executionContext) childFields_Fingerprint(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 	switch field.Name {
 	case "hash":
@@ -9890,6 +10114,48 @@ func (ec *executionContext) field_Mutation_favoriteStudio_args(ctx context.Conte
 		return nil, err
 	}
 	args["favorite"] = arg1
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_federation_peer_create_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
+		func(ctx context.Context, v any) (FederationPeerCreateInput, error) {
+			return ec.unmarshalNFederationPeerCreateInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐFederationPeerCreateInput(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_federation_peer_delete_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (uuid.UUID, error) {
+			return ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_federation_peer_update_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
+		func(ctx context.Context, v any) (FederationPeerUpdateInput, error) {
+			return ec.unmarshalNFederationPeerUpdateInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐFederationPeerUpdateInput(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
 	return args, nil
 }
 
@@ -14105,6 +14371,167 @@ func (ec *executionContext) fieldContext_FavoriteStudioScene_scene(_ context.Con
 		},
 	}
 	return fc, nil
+}
+
+func (ec *executionContext) _FederationPeer_id(ctx context.Context, field graphql.CollectedField, obj *FederationPeer) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_FederationPeer_id(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v uuid.UUID) graphql.Marshaler {
+			return ec.marshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_FederationPeer_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("FederationPeer", field, false, false, errors.New("field of type ID does not have child fields"))
+}
+
+func (ec *executionContext) _FederationPeer_name(ctx context.Context, field graphql.CollectedField, obj *FederationPeer) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_FederationPeer_name(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Name, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_FederationPeer_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("FederationPeer", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _FederationPeer_base_url(ctx context.Context, field graphql.CollectedField, obj *FederationPeer) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_FederationPeer_base_url(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.BaseURL, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_FederationPeer_base_url(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("FederationPeer", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _FederationPeer_instance_id(ctx context.Context, field graphql.CollectedField, obj *FederationPeer) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_FederationPeer_instance_id(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.InstanceID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_FederationPeer_instance_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("FederationPeer", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _FederationPeer_trust_weight(ctx context.Context, field graphql.CollectedField, obj *FederationPeer) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_FederationPeer_trust_weight(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.TrustWeight, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v float64) graphql.Marshaler {
+			return ec.marshalNFloat2float64(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_FederationPeer_trust_weight(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("FederationPeer", field, false, false, errors.New("field of type Float does not have child fields"))
+}
+
+func (ec *executionContext) _FederationPeer_enabled(ctx context.Context, field graphql.CollectedField, obj *FederationPeer) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_FederationPeer_enabled(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Enabled, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_FederationPeer_enabled(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("FederationPeer", field, false, false, errors.New("field of type Boolean does not have child fields"))
+}
+
+func (ec *executionContext) _FederationPeer_last_seen_at(ctx context.Context, field graphql.CollectedField, obj *FederationPeer) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_FederationPeer_last_seen_at(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.LastSeenAt, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
+			return ec.marshalODateTime2ᚖstring(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_FederationPeer_last_seen_at(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("FederationPeer", field, false, false, errors.New("field of type DateTime does not have child fields"))
 }
 
 func (ec *executionContext) _Fingerprint_hash(ctx context.Context, field graphql.CollectedField, obj *Fingerprint) (ret graphql.Marshaler) {
@@ -19730,6 +20157,192 @@ func (ec *executionContext) fieldContext_Mutation_voteElo(ctx context.Context, f
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Mutation_voteElo_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_federation_peer_create(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_federation_peer_create(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().FederationPeerCreate(ctx, fc.Args["input"].(FederationPeerCreateInput))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "ADMIN")
+				if err != nil {
+					var zeroVal *FederationPeer
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *FederationPeer
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *FederationPeer) graphql.Marshaler {
+			return ec.marshalNFederationPeer2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐFederationPeer(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_federation_peer_create(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_FederationPeer(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_federation_peer_create_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_federation_peer_update(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_federation_peer_update(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().FederationPeerUpdate(ctx, fc.Args["input"].(FederationPeerUpdateInput))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "ADMIN")
+				if err != nil {
+					var zeroVal *FederationPeer
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *FederationPeer
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *FederationPeer) graphql.Marshaler {
+			return ec.marshalNFederationPeer2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐFederationPeer(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_federation_peer_update(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_FederationPeer(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_federation_peer_update_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_federation_peer_delete(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_federation_peer_delete(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().FederationPeerDelete(ctx, fc.Args["id"].(uuid.UUID))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "ADMIN")
+				if err != nil {
+					var zeroVal bool
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal bool
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_federation_peer_delete(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_federation_peer_delete_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -25498,6 +26111,56 @@ func (ec *executionContext) fieldContext_Query_accessRules(_ context.Context, fi
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return ec.childFields_AccessRuleSet(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_federation_peers(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_federation_peers(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Query().FederationPeers(ctx)
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "ADMIN")
+				if err != nil {
+					var zeroVal []FederationPeer
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal []FederationPeer
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v []FederationPeer) graphql.Marshaler {
+			return ec.marshalNFederationPeer2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐFederationPeerᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_federation_peers(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_FederationPeer(ctx, field)
 		},
 	}
 	return fc, nil
@@ -33324,6 +33987,122 @@ func (ec *executionContext) unmarshalInputEyeColorCriterionInput(ctx context.Con
 	return it, nil
 }
 
+func (ec *executionContext) unmarshalInputFederationPeerCreateInput(ctx context.Context, obj any) (FederationPeerCreateInput, error) {
+	var it FederationPeerCreateInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"name", "base_url", "instance_id", "trust_weight", "enabled"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "name":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("name"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Name = data
+		case "base_url":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("base_url"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.BaseURL = data
+		case "instance_id":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("instance_id"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.InstanceID = data
+		case "trust_weight":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("trust_weight"))
+			data, err := ec.unmarshalOFloat2ᚖfloat64(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.TrustWeight = data
+		case "enabled":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("enabled"))
+			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Enabled = data
+		}
+	}
+	return it, nil
+}
+
+func (ec *executionContext) unmarshalInputFederationPeerUpdateInput(ctx context.Context, obj any) (FederationPeerUpdateInput, error) {
+	var it FederationPeerUpdateInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"id", "name", "base_url", "trust_weight", "enabled"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "id":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("id"))
+			data, err := ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ID = data
+		case "name":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("name"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Name = data
+		case "base_url":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("base_url"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.BaseURL = data
+		case "trust_weight":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("trust_weight"))
+			data, err := ec.unmarshalNFloat2float64(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.TrustWeight = data
+		case "enabled":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("enabled"))
+			data, err := ec.unmarshalNBoolean2bool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Enabled = data
+		}
+	}
+	return it, nil
+}
+
 func (ec *executionContext) unmarshalInputFingerprintBatchSubmission(ctx context.Context, obj any) (FingerprintBatchSubmission, error) {
 	var it FingerprintBatchSubmission
 	if obj == nil {
@@ -40763,6 +41542,72 @@ func (ec *executionContext) _FavoriteStudioScene(ctx context.Context, sel ast.Se
 	return out
 }
 
+var federationPeerImplementors = []string{"FederationPeer"}
+
+func (ec *executionContext) _FederationPeer(ctx context.Context, sel ast.SelectionSet, obj *FederationPeer) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, federationPeerImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("FederationPeer")
+		case "id":
+			out.Values[i] = ec._FederationPeer_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "name":
+			out.Values[i] = ec._FederationPeer_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "base_url":
+			out.Values[i] = ec._FederationPeer_base_url(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "instance_id":
+			out.Values[i] = ec._FederationPeer_instance_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "trust_weight":
+			out.Values[i] = ec._FederationPeer_trust_weight(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "enabled":
+			out.Values[i] = ec._FederationPeer_enabled(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "last_seen_at":
+			out.Values[i] = ec._FederationPeer_last_seen_at(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferred), math.MaxInt32)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
 var fingerprintImplementors = []string{"Fingerprint"}
 
 func (ec *executionContext) _Fingerprint(ctx context.Context, sel ast.SelectionSet, obj *Fingerprint) graphql.Marshaler {
@@ -42073,6 +42918,27 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 		case "voteElo":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_voteElo(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "federation_peer_create":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_federation_peer_create(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "federation_peer_update":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_federation_peer_update(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "federation_peer_delete":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_federation_peer_delete(ctx, field)
 			})
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
@@ -44764,6 +45630,28 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 					}
 				}()
 				res = ec._Query_accessRules(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "federation_peers":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_federation_peers(ctx, field)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -50269,6 +51157,46 @@ func (ec *executionContext) marshalNEntityType2githubᚗcomᚋstashappᚋstash�
 	return v
 }
 
+func (ec *executionContext) marshalNFederationPeer2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐFederationPeer(ctx context.Context, sel ast.SelectionSet, v FederationPeer) graphql.Marshaler {
+	return ec._FederationPeer(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNFederationPeer2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐFederationPeerᚄ(ctx context.Context, sel ast.SelectionSet, v []FederationPeer) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNFederationPeer2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐFederationPeer(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNFederationPeer2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐFederationPeer(ctx context.Context, sel ast.SelectionSet, v *FederationPeer) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._FederationPeer(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalNFederationPeerCreateInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐFederationPeerCreateInput(ctx context.Context, v any) (FederationPeerCreateInput, error) {
+	res, err := ec.unmarshalInputFederationPeerCreateInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) unmarshalNFederationPeerUpdateInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐFederationPeerUpdateInput(ctx context.Context, v any) (FederationPeerUpdateInput, error) {
+	res, err := ec.unmarshalInputFederationPeerUpdateInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
 func (ec *executionContext) marshalNFingerprint2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐFingerprint(ctx context.Context, sel ast.SelectionSet, v Fingerprint) graphql.Marshaler {
 	return ec._Fingerprint(ctx, sel, &v)
 }
@@ -52313,6 +53241,24 @@ func (ec *executionContext) unmarshalODateCriterionInput2ᚖgithubᚗcomᚋstash
 	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
+func (ec *executionContext) unmarshalODateTime2ᚖstring(ctx context.Context, v any) (*string, error) {
+	if v == nil {
+		return nil, nil
+	}
+	res, err := graphql.UnmarshalString(v)
+	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalODateTime2ᚖstring(ctx context.Context, sel ast.SelectionSet, v *string) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	_ = sel
+	_ = ctx
+	res := graphql.MarshalString(*v)
+	return res
+}
+
 func (ec *executionContext) marshalODraft2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐDraft(ctx context.Context, sel ast.SelectionSet, v *Draft) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
@@ -52529,6 +53475,23 @@ func (ec *executionContext) marshalOFingerprintSubmissionType2ᚖgithubᚗcomᚋ
 		return graphql.Null
 	}
 	return v
+}
+
+func (ec *executionContext) unmarshalOFloat2ᚖfloat64(ctx context.Context, v any) (*float64, error) {
+	if v == nil {
+		return nil, nil
+	}
+	res, err := graphql.UnmarshalFloatContext(ctx, v)
+	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOFloat2ᚖfloat64(ctx context.Context, sel ast.SelectionSet, v *float64) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	_ = sel
+	res := graphql.MarshalFloatContext(*v)
+	return graphql.WrapContextMarshaler(ctx, res)
 }
 
 func (ec *executionContext) marshalOFuzzyDate2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐFuzzyDate(ctx context.Context, sel ast.SelectionSet, v *FuzzyDate) graphql.Marshaler {
