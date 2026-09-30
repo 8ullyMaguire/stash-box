@@ -32,6 +32,7 @@ import (
 	"github.com/stashapp/stash-box/internal/service/draft"
 	"github.com/stashapp/stash-box/internal/service/edit"
 	"github.com/stashapp/stash-box/internal/service/elo"
+	"github.com/stashapp/stash-box/internal/service/federation"
 	"github.com/stashapp/stash-box/internal/service/fingerprint"
 	"github.com/stashapp/stash-box/internal/service/identification"
 	"github.com/stashapp/stash-box/internal/service/image"
@@ -262,4 +263,19 @@ func (f *Factory) ModAudit() *mod_audit.ModAuditService {
 // Fingerprint returns a Fingerprint clustering service instance
 func (f *Factory) Fingerprint() *fingerprint.Fingerprint {
 	return fingerprint.New(queries.New(f.db))
+}
+
+// Federation returns the peer registry service instance.
+//
+// The second argument is a nil Resolver, which NewService deliberately replaces
+// with the default resolver. That is the right wiring here because this is
+// production: the registry must resolve DNS to decide whether a peer is safe to
+// dial, and the injectable resolver exists so the REBINDING case is testable,
+// not so production can run without resolution.
+//
+// Passing nil rather than importing net.DefaultResolver at the call site keeps
+// the one place that knows how a live resolver is built inside the federation
+// package, where ValidateBaseURL and netResolver live together.
+func (f *Factory) Federation() *federation.Service {
+	return federation.NewService(queries.New(f.db), nil)
 }
