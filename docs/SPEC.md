@@ -1056,6 +1056,141 @@ like them exists here today — verified by search, not assumed:
 
 ---
 
+## 7A. The commons half of the cross-repo alignment
+
+**This section is the part of `ALIGNMENT.md` that belongs to *this* repo.** The
+`stash` side wrote the contract in
+`~/code-local/worktrees/stashforge/docs/ALIGNMENT.md` §3–§4 and the debt it
+accrued in `HANDOFF-SPLIT.md` §4; this is where those rules land on the receiving
+end. Written 2026-09-30, `r074-receiving-guard`.
+
+`ALIGNMENT.md` §3 is one sentence and one rule:
+
+> **The commons owns identity. A node owns bytes.** No path, filename,
+> hostname, IP address, or account detail crosses from a node to the commons, **in
+> either direction, ever.**
+
+**"In either direction" is the whole difficulty, and it is why this half was
+missing.** `stash` enforces the **sending** half today, in its exporter's path
+guard, with a positive control. A one-sided guard is half a guard: the exporter
+can be perfect and the commons can still acquire a path from a peer.
+
+### 7A.1 The one rule, as this repo implements it
+
+| Half | Where | State |
+|---|---|---|
+| **Sending** — a question carries no content, no path, no address | `internal/service/federation/wire.go` `Question` + `ask.go` `Validate` | **done**, `7704600c` |
+| **Receiving** — a `base_url` the box dials is validated | `internal/service/federation/baseurl.go` `ValidateBaseURL` | **built, NOT wired**, `23da1f6a` |
+| **Schema** — nothing that can hold an address is unguarded | `internal/service/federation/schema_scan.go` | **built, scanning only** |
+
+**Read that middle row before relying on it.** The guard is proven (13/13
+mutations killed) and it is currently **unreachable**: `CreateFederationPeer` and
+`UpdateFederationPeer` have no Go caller, because the peer registry service is
+SPEC D2 **step 6** and does not exist. Until step 6 calls `ValidateBaseURL` at
+write time, the column is still writable by anything that gets a database handle
+and the guard proves nothing about production. See §7A.3.
+
+### 7A.2 The seven address-shaped columns, measured
+
+A word-bounded grep across the whole migrations tree, with the quotes optional,
+returns **seven** — not one, and not six. Two of the seven are addresses the box
+**dials**, which is the distinction that matters and the one a storage-only search
+misses:
+
+| Migration | Column | Direction | Guarded by |
+|---|---|---|---|
+| `01_initial:33` | `performer_urls.url` | stored, operator-typed | — |
+| `01_initial:89` | `studio_urls.url` | stored, operator-typed | — |
+| `01_initial:109` | `scene_urls.url` | stored, operator-typed | — |
+| `04_image_tables:3` | `images.url` | **served** | — |
+| `21_site_urls:5` | `sites.url` | stored, operator-typed | — |
+| `84_add_webhooks:27` | `webhook_endpoints.target_url` | **DIALED** | `webhook.ValidateTargetURL` |
+| `89_identification_federation:28` | `federation_peers.base_url` | **DIALED** | `ValidateBaseURL` (**unwired**) |
+
+Two measurement errors are recorded because R074's own guard is a source scanner
+and would have inherited both:
+
+1. **Substring matching inflates.** `03_misc`'s `director TEXT` matches on `dir`
+   ⊂ `director`. A guard written that way demands the commons stop storing a
+   person's director, and the tempting response is to weaken the guard.
+2. **Requiring the quotes hides the worst case.** `images.url` is written
+   **unquoted** (`url VARCHAR NOT NULL`) while every other address column is
+   `"url" varchar`. A quoted-name regex passes while the one column the original
+   measurement found goes unwatched.
+
+**A guard that matches zero things passes.** Every one of those controls has a
+test: `TestScannerDoesNotCountSubstrings` for (1),
+`TestPathScannerMatchesUnquotedColumn` for (2), and `TestScannerFindsTheSeven`
+for the dial columns specifically.
+
+### 7A.3 R074's three rules, not one rule seven times
+
+`HANDOFF-SPLIT.md` §4 states the guard as three rules because they are **not the
+same rule applied seven times**:
+
+1. **A path, hostname or IP must not be *storable*** — not in the `*_urls.url`
+   columns, not in `sites.url`.
+2. **An address the box *dials*** (`target_url`, `base_url`) must be validated by
+   resolve-then-check-every-address, **at write time AND at dial time** — a URL
+   that validated on insert can resolve differently later, which
+   `84_add_webhooks`' own comment already says.
+3. **A *served* URL** (`images.url`) must not become a proxy for one: `file://`,
+   `\\host\share`, and a bare `/etc/passwd` are all accepted by a string column,
+   and all three are the attack.
+
+**Rule 2's "and at dial time" is not yet satisfied.** `ValidateBaseURL` is a
+write-time guard. Nothing re-checks at dial time, so the rebinding window stays
+open: a peer row inserted today whose hostname resolves publicly now and privately
+in a week will be dialled in a week. **This is the single most important open
+item in this section.**
+
+**Rule 3 has a scanner and no runtime guard.** `images.url` is a plain string
+column and `IsSuspiciousValue` covers the three attack values, but nothing calls
+it on the write path. Related: upstream PR #736 removes `images.url` entirely,
+and is declined in `docs/plan/upstream-pr-port.md` partly *because* it changes
+this surface.
+
+### 7A.4 The three boundaries from `ALIGNMENT.md` §4, as this repo answers them
+
+- **§4.1 Trust is not access.** `internal/service/elo/weight.go` derives vote
+  weight from trust **level** bands (`baseWeightForLevel`) and vanguard status;
+  it does not read the access store, and no file under `internal/service/elo`
+  references an `AccessRule` at all — verified by search, not assumed.
+  `internal/service/trust/accessrules.go` keeps the gate a conjunction and
+  reports `Enforced` per rule rather than claiming enforcement it does not have:
+  `region` and `device_class` are `Enforced: false` because both are
+  client-supplied claims (`ALIGNMENT.md` §4.3), `mfa` is `Enforced: true` only
+  when the **auth provider** actually has it configured, and
+  `PerEntityRule` — the denylist by tag/studio/performer — is `Enforced: true`.
+  Two of the four are enforced here, two are deliberately not, and the file says
+  which and why.
+- **§4.2 Gravity is an operator control, not a vote.** Recorded here because the
+  owner proposed the vote twice and rejected it twice, in both specs, for the
+  same reason. A third proposal should find a decision rather than an argument.
+- **§4.3 A control keyed on a value the client supplies is not a control.**
+  Region and device class are reported unenforced by design, per §7A.4's first
+  bullet. The content-plane version of the same rule — peer-supplied filename,
+  capability claim and manifest hash are **claims** — is why
+  `identification_foreign_candidates` is named for a *remote* value
+  (`remote_entity_id`, `remote_entity_name`, `remote_vote_count`) and carries a
+  local `query_id` and `peer_id` that no remote value can select.
+
+### 7A.5 What this repo still owes
+
+1. **Wire `ValidateBaseURL` at write time** (D2 step 6). Until then §7A.1's
+   middle row is a claim about a function nobody calls.
+2. **Re-validate at dial time.** Rule 2's second half, and the rebinding window
+   is the reason the webhook validator exists in the shape it does.
+3. **Decide whether the five stored-URL columns need write-time value checks.**
+   An owner decision, and it interacts with PR #736.
+4. **Stash side:** `HANDOFF-SPLIT.md` §4 still says the receiving half "does not
+   exist". It now exists for `base_url` and is unwired. That edit is not made
+   here — the stashforge worktree belongs to another profile.
+
+Full session note: `docs/track/HANDOFF-R074.md`.
+
+---
+
 ## 8. Defects observed while reading (candidates, not findings)
 
 Recorded because they were seen in passing and would be expensive to rediscover.
