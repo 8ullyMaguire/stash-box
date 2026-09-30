@@ -23,6 +23,7 @@ cause, and that record IS the work. So the PR clause asks for a recorded
 """
 
 import json
+import os
 import re
 import subprocess
 import sys
@@ -31,10 +32,19 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 UPSTREAM = "stashapp/stash-box"
 
-# The minimum test count this repo has ever been green at. A green run BELOW this
-# is a regression, not a pass -- a suite that lost tests looks identical to a suite
-# that never ran them.
-BASELINE_PACKAGES = 500
+# The minimum number of packages that must be green. A run BELOW this is a
+# regression, not a pass -- a suite that lost tests looks identical to one that
+# never ran them.
+#
+# A floor, not a target: adding packages can never fail this clause, which is the
+# point. `python3 docs/goal-check.py --update-baseline` rewrites it from the tree
+# rather than from anyone's memory.
+#
+# The number counts packages WITHOUT `-tags=integration`, because that is what the
+# clause below runs. Do not raise it to match the `make it` figure: that runs a
+# different, larger set of packages, and using its count here made the clause report
+# a regression that did not exist.
+BASELINE_PACKAGES = 29
 
 results = []
 
@@ -149,6 +159,59 @@ def c2_issues_dispositioned():
         return
     outstanding = [(int(n), disp.strip()) for n, _, _, disp, _ in rows5
                    if disp.strip().lower() in OUTSTANDING]
+
+    # Bulk reclassification is the one cheat this clause cannot otherwise see:
+    # flipping every row to `declined` satisfies "every row has an outcome" while
+    # changing nothing. So a non-fixed row must CARRY A REASON, and the reasons
+    # must not be one string copied down the column. Measured: the real ledger has
+    # many distinct reasons; a mass-decline has exactly one.
+    reasonless = []
+    reasons = {}
+    for n, _, _, disp, why in rows5:
+        if disp.strip().lower() == "fixed":
+            continue
+        w = (why or "").strip()
+        if len(w) < 25:
+            reasonless.append(f"#{n} ({disp.strip()})")
+        reasons[w] = reasons.get(w, 0) + 1
+    if reasonless:
+        add("C2 reasons present", "FAIL",
+            f"{len(reasonless)} non-fixed row(s) have no substantive reason: "
+            + ", ".join(reasonless[:8]))
+    elif reasons and max(reasons.values()) > 12:
+        top, cnt = max(reasons.items(), key=lambda kv: kv[1])
+        # A reason that CITES a written policy is not the same failure as one that
+        # invents a justification per row and copies it. Uniform policy application
+        # is the policy working as intended: 138 rows declining on "SPEC section 0
+        # says feature requests are out of scope" is one decision applied 138
+        # times, which is what a policy is FOR.
+        #
+        # What the clause must still catch is a uniform reason with no such
+        # referent -- the signature of reclassifying a column to satisfy the
+        # row-count check without anyone deciding anything.
+        if re.search(r"\bSPEC\b|section \d|policy|§", top):
+            # ...but only if the policy actually EXISTS. Citing a document that was
+            # never written is the same failure wearing a citation's clothes, and it
+            # is the obvious way to defeat the exemption above.
+            spec = REPO / "docs" / "SPEC.md"
+            has_policy = spec.exists() and re.search(
+                r"^##\s*0\..*scope", spec.read_text(), re.I | re.M)
+            if not has_policy:
+                add("C2 reasons present", "FAIL",
+                    f"{cnt} rows cite a scope policy, but docs/SPEC.md has no "
+                    "section 0 defining one -- the citation points at nothing")
+            else:
+                add("C2 reasons present", "PASS",
+                    f"{cnt} rows share one reason and it CITES a written policy "
+                    f"(SPEC.md section 0), so it is uniform application, not "
+                    f"bulk reclassification; {len(reasons)} distinct reasons overall")
+        else:
+            add("C2 reasons present", "FAIL",
+                f"{cnt} rows share ONE identical reason that cites no policy -- "
+                f"this is bulk reclassification, not {cnt} decisions: {top[:60]!r}")
+    else:
+        add("C2 reasons present", "PASS",
+            f"{len(reasons)} distinct reasons across the non-fixed rows")
     from collections import Counter
     counts = Counter(disp.strip() for _, _, _, disp, _ in rows5)
     if outstanding:
@@ -277,6 +340,103 @@ def c6_suite():
     else:
         add("C6 suite", "PASS", f"{npkg} packages green (baseline {BASELINE_PACKAGES})")
 
+    # The clause above runs WITHOUT -tags=integration, so it never executes the
+    # integration tests -- and in this repo those hold the bulk of the suite,
+    # including everything behind the R074 guards. A green verdict from that run
+    # says almost nothing about the code this fork actually added.
+    #
+    # Three things this has to get right, each learned by getting it wrong:
+    #
+    # 1. -p 1 is not a performance setting. Packages share ONE database and one
+    #    set of system users, so running them in parallel has them truncate each
+    #    other's tables mid-test. The Makefile says so at `it:`. Without it four
+    #    packages fail in about a second each, which reads exactly like a broken
+    #    suite and is not one.
+    #
+    # 2. POSTGRES_DB is a DSN SUFFIX, not a URL. initPostgres prepends
+    #    "postgres://", so a full URL yields
+    #    "failed to connect to user=alvaro database=postgres://...".
+    #
+    # 3. THE DATABASE MUST BE THIS SESSION'S OWN. Every package's TestMain calls
+    #    pgDropAll, which drops every table, so two runs against one database
+    #    destroy each other mid-flight. The signature is
+    #    `ERROR: relation "tags" does not exist (SQLSTATE 42P01)` in a package
+    #    that passed seconds earlier, and the failure MOVES between packages and
+    #    between runs. Measured: 3 failures, then 1, then 0 -- non-deterministic,
+    #    which is what a collision looks like and never what a broken test looks
+    #    like. Another session was working this same tree throughout.
+    #
+    # So the clause creates a database named for itself, runs against it, and
+    # drops it after. If that is not possible (no container, no permission) it
+    # reports UNKNOWN, never a pass.
+    dsn, cleanup = isolated_test_db()
+    if dsn is None:
+        add("C6b integration suite", "UNKNOWN",
+            "no integration database available (see the note above); UNKNOWN is "
+            "not a pass")
+        return
+    try:
+        rc2, out2, _ = sh(
+            f"POSTGRES_DB='{dsn}' go test -tags=integration -count=1 -p 1 ./...",
+            timeout=1800)
+    finally:
+        if cleanup:
+            cleanup()
+    if rc2 == 124:
+        add("C6b integration suite", "UNKNOWN", "timed out")
+    elif "is not available" in out2 and "extension" in out2:
+        add("C6b integration suite", "UNKNOWN",
+            "the database has no pg_search/bktree extension. That is an "
+            "ENVIRONMENT gap, not a broken suite: the extensions live in the "
+            "container built from docker/production/postgres/Dockerfile, not in "
+            "the host's Postgres. UNKNOWN is not a pass.")
+    elif rc2 != 0:
+        fails = [l.split("\t")[1].split("/")[-1] for l in out2.splitlines()
+                 if l.startswith("FAIL\t")]
+        reason = ""
+        for l in out2.splitlines():
+            if "does not exist" in l or "already exists" in l or "SQLSTATE" in l:
+                reason = l.strip()[:110]
+                break
+        add("C6b integration suite", "FAIL",
+            f"{len(fails)} failing package(s): " + ", ".join(fails[:5])
+            + (f" -- {reason}" if reason else ""))
+    else:
+        n = sum(1 for l in out2.splitlines() if l.startswith("ok"))
+        add("C6b integration suite", "PASS", f"{n} packages green with -tags=integration")
+
+
+def isolated_test_db():
+    """Create a database named for this run; return (dsn_suffix, cleanup|None).
+
+    Returns (None, None) when no suitable database can be reached, which the
+    caller reports as UNKNOWN rather than as a pass.
+    """
+    import secrets
+    container = os.environ.get("INTEGRATION_CONTAINER", "stashbox-pg-r074")
+    port = os.environ.get("INTEGRATION_PORT", "5436")
+    user = os.environ.get("INTEGRATION_USER", "postgres")
+    pw = os.environ.get("INTEGRATION_PASSWORD", "smoke_pw")
+    dbname = "goalcheck_" + secrets.token_hex(4)
+
+    def psql(sql, database="postgres"):
+        return subprocess.run(
+            ["sudo", "-n", "docker", "exec", container, "psql", "-U", user,
+             "-d", database, "-c", sql],
+            capture_output=True, text=True, timeout=120)
+
+    if psql(f'CREATE DATABASE "{dbname}";').returncode != 0:
+        return None, None
+
+    def cleanup():
+        # Terminate stragglers first: a still-open connection blocks DROP DATABASE
+        # and leaves the next run with a database it did not create.
+        psql("SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+             f"WHERE datname = '{dbname}' AND pid <> pg_backend_pid();")
+        psql(f'DROP DATABASE IF EXISTS "{dbname}";')
+
+    return f"{user}:{pw}@127.0.0.1:{port}/{dbname}?sslmode=disable", cleanup
+
 
 # ---------------------------------------------------------------------------
 # C7 -- build, vet and gofmt are clean
@@ -305,7 +465,32 @@ def c7_build_clean():
         add("C7 build clean", "PASS", "build, vet and gofmt all clean")
 
 
+def update_baseline():
+    """Rewrite BASELINE_PACKAGES from the packages currently green.
+
+    The floor is a guard against a suite that LOST tests, which is invisible in a
+    pass/fail verdict. It is also a number that drifts every time a package gains
+    a test file, so leaving it to be edited by hand guarantees it will be stale and
+    will report a figure that is no longer true.
+    """
+    rc, out, _ = sh("go test ./... -count=1", timeout=1800)
+    npkg = sum(1 for l in out.splitlines() if l.startswith("ok"))
+    if rc != 0 or npkg == 0:
+        print(f"refusing to update: rc={rc}, {npkg} packages green", file=sys.stderr)
+        return 1
+    src = Path(__file__).read_text()
+    new = re.sub(r"BASELINE_PACKAGES = \d+", f"BASELINE_PACKAGES = {npkg}", src)
+    if new != src:
+        Path(__file__).write_text(new)
+        print(f"BASELINE_PACKAGES -> {npkg}")
+    else:
+        print(f"BASELINE_PACKAGES already {npkg}")
+    return 0
+
+
 def main():
+    if "--update-baseline" in sys.argv:
+        sys.exit(update_baseline())
     for fn in (c1_prs_decided, c2_issues_dispositioned, c3_plan_built,
                c4_narrow_merged, c5_migrations_coherent, c6_suite, c7_build_clean):
         try:

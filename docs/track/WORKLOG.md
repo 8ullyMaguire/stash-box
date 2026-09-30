@@ -5627,3 +5627,41 @@ survived my earlier gate.
 diff hunks. A side-take that drops a name is data loss, and if any test file is in
 the conflict set, run the integration-tagged build — `go build` does not compile
 `_test.go` files, so a test-only break is invisible to it.**
+
+## 2026-10-01 00:40 — the test database silently stopped accepting its own password
+
+The goal-check predicate reported `C6b integration suite FAIL` with six packages
+failing, four of them in ~0.015s. Four instant failures is not a broken suite; it
+is something failing before a single test runs.
+
+**Not my code, and not the clock.** The failure was:
+
+    panic: Error dropping tables: failed to connect to `user=postgres
+    database=stash-box-test`: 127.0.0.1:5436 (127.0.0.1):
+    failed SASL auth: FATAL: password authentication failed (SQLSTATE 28P01)
+
+The `stashbox-pg-r074` container has been up 7 hours and unchanged, and `psql`
+*from inside the container* authenticates fine with `smoke_pw`. From the host it
+fails. `pg_hba_file_rules` explains the split:
+
+    host | all | all | 127.0.0.1 | trust
+    host | all | all | all       | scram-sha-256
+
+The `trust` rule matches loopback **inside the container's netns**. A connection
+arriving through the published port presents as the Docker bridge address, misses
+that rule, and falls through to `scram-sha-256` — which then needs a password that
+the role's stored hash did not match. The fix was one statement:
+
+    ALTER ROLE postgres WITH PASSWORD 'smoke_pw';
+
+**The lesson is about how this presented.** Nothing in the tree had changed, the
+suite had been green minutes earlier, and the only symptom was a predicate clause.
+An infrastructure fault wearing the costume of a test failure is the most expensive
+kind to diagnose, because every instinct points at the diff. Reach for `psql` from
+the host before reading any code.
+
+Related and worth separating: `C6b` first failed 4 packages because *it* ran `go
+test` without `-p 1`. Packages share one database, so running them in parallel has
+them truncate each other's tables. The Makefile says so in a comment; the clause I
+added did not, and it produced a failure signature indistinguishable from a real
+regression.

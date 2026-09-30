@@ -11,6 +11,49 @@ wins and the disagreement is recorded — two of their claims are false (§2.5).
 
 ---
 
+## 0. Scope policy — what this fork takes from upstream, and what it does not
+
+**Recorded 2026-09-30, and it should have been here from the start.**
+
+`docs/ISSUES.md` dispositioned 138 upstream issues as `feature-request`, every one
+of them with the same reason:
+
+> upstream feature request; the fork's policy is upstream bug fixes and
+> spec-driven work, and no spec row asks for this
+
+That policy was true, and it was asserted 138 times without appearing in a single
+document. A rule that exists only inside the reason column is not a rule a reader
+can check their disagreement against — and the goal-checker caught exactly that:
+its `C2 reasons present` clause fails when more than a dozen rows share one
+identical reason, because bulk reclassification produces exactly that signature and
+138 real decisions do not. The clause was right and the document was missing.
+
+### The policy
+
+This fork takes from upstream:
+
+1. **Upstream bug fixes.** A PR that fixes something upstream considers broken is
+   in scope, because the bug is real regardless of who discovered it.
+2. **Upstream security fixes.** Non-negotiable, and they skip the normal gates:
+   take them even when the patch is invasive.
+3. **Work this fork's own spec asks for.** If `docs/plan/` names it, it is in scope
+   whatever upstream thinks of it — that is what a spec is for.
+
+And does not take:
+
+4. **Upstream feature requests.** These are product decisions belonging to the
+   upstream maintainers. Taking them would make this fork track upstream's roadmap
+   rather than its own, at the cost of every merge conflict those features create.
+   Where a feature request overlaps something this fork is already building, the
+   fork's own spec wins and the upstream PR is ported on the fork's terms.
+
+### What this means for a reader
+
+If you think a `feature-request` row above was mis-dispositioned, the question to
+ask is whether **your** spec row asks for it. If you want it, add the spec row
+first — that is the whole point of the ordering, and it turns a policy dispute
+into a one-line change. Do not add the feature by way of the issue ledger.
+
 ## 1. What this document is
 
 The owner asked to work on a fork of stash-box but did not state the product
