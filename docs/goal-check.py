@@ -425,6 +425,20 @@ def isolated_test_db():
              "-d", database, "-c", sql],
             capture_output=True, text=True, timeout=120)
 
+    # Sweep residue first. A run killed mid-flight (a timeout, a Ctrl-C, a
+    # context limit) never reaches its own cleanup, and the leftovers accumulate
+    # into exactly the situation the per-run database exists to prevent. Measured
+    # three of them on a tree where every run had reported itself clean.
+    stale = subprocess.run(
+        ["sudo", "-n", "docker", "exec", container, "psql", "-U", user,
+         "-d", "postgres", "-tAc",
+         "SELECT datname FROM pg_database WHERE datname LIKE 'goalcheck\\_%'"],
+        capture_output=True, text=True, timeout=120)
+    for old in stale.stdout.split():
+        psql("SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+             f"WHERE datname = '{old}' AND pid <> pg_backend_pid();")
+        psql(f'DROP DATABASE IF EXISTS "{old}";')
+
     if psql(f'CREATE DATABASE "{dbname}";').returncode != 0:
         return None, None
 
