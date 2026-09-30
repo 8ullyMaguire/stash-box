@@ -5345,3 +5345,49 @@ intent, measured from a verified starting point instead of from a hoped-for zero
 that asserts an ABSOLUTE count after a cleanup step is asserting that no other
 test interfered. That is a property of the test *ordering*, not of the code, and
 it fails the first time the package runs long enough for a goroutine to land.
+
+## 2026-09-30, later still — fixing those two exposed FIVE more, and two of my own
+## fixes were wrong before the run was green
+
+The pair above was not a pair. Once the sleeps became polls, the next `make it`
+failed on `TestDownvoteNotificationSurvivesWhileOtherRejectsStand` — *"expected 3,
+actual 2"*, the **opposite** direction: a missing row rather than a leaked one,
+invisible to any check that only guards against extras.
+
+That test was already delta-based and correctly reasoned, and still ended on
+`time.Sleep(200ms)`. So I swept the whole file, and there were **five more** of
+the same shape, two with absolute counts. All now poll. The shapes differ and the
+poll has to match the claim:
+
+| shape | wait for | helper |
+|---|---|---|
+| a row must appear | count rises | `pollUntil` |
+| a row must disappear | count falls | `pollUntil` |
+| a row must NOT appear | count holds steady | `awaitQuiet` |
+| clean slate first | count reaches zero | `drainNotifications` |
+| a *filtered* count for a specific user | **that user's** query, not the main one | `pollUntil` |
+
+**Two of my own changes were wrong before anything was green, and both are the
+same mistake — I described a wait without making one:**
+
+1. `TestDownvoteNotificationClearedOnVoteChange`: I deleted the 200ms sleep and
+   wrote a comment explaining that the wait should poll for the fall. The
+   assertion then ran immediately and failed with *"expected 0, actual 1"*.
+   **A comment about waiting is not a wait.**
+2. `TestNotificationOnFavoriteStudioScene`: I replaced its sleep with
+   `awaitUnreadAbove(0)`, which polls the **main test user's** unread count — a
+   different account from the subscriber who receives the notification. It passed
+   in isolation and failed in the group, because a neighbouring test's
+   notification could satisfy the wrong account's count and release the wait while
+   the subscriber's row was still in flight. **Waiting on the thing being asserted
+   is the difference between a wait and a coincidence.**
+
+Both were caught by running the tests, not by reading them. 18/18 notification
+tests pass.
+
+The hardest case in the file is the one that asserts *nothing happens*:
+`testNotificationOnCancelOwnEdit` waits for a notification that must never
+arrive, so there is no rising count to poll and a sleep is the only thing standing
+between a slow goroutine and a pass that means nothing. `awaitQuiet` waits for the
+count to hold steady across two samples — the strongest statement available, and
+still not a proof, which the comment says rather than implying otherwise.

@@ -32,6 +32,60 @@ func createNotificationTestRunner(t *testing.T) *notificationTestRunner {
 	}
 }
 
+// pollUntil waits for cond to hold, or the notification poll timeout to expire.
+// It returns whether the condition was met and never fails the test itself, so
+// the caller can report what it actually saw -- which is the whole point when the
+// symptom is "a row was not there yet".
+func (s *notificationTestRunner) pollUntil(cond func() bool) bool {
+	deadline := time.Now().Add(notificationPollTimeout)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return true
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return cond()
+}
+
+// awaitUnreadAbove waits until the unread total exceeds n, or the poll timeout
+// expires. It is the plain "wait for my notifications" case, for tests that
+// assert something about arrival rather than about a filtered count.
+func (s *notificationTestRunner) awaitUnreadAbove(n int) {
+	s.pollUntil(func() bool {
+		count, err := s.client.getUnreadNotificationCount()
+		return err == nil && count.Total > n
+	})
+}
+
+// awaitQuiet waits for the unread count to stop changing, for tests whose next
+// step asserts that something did NOT happen.
+//
+// Polling for a rise cannot express "wait for this to have run", because the row
+// it would wait for is deliberately absent -- that absence is what the following
+// assertion is about. So this waits for stability instead: the count holds steady
+// across two consecutive samples.
+func (s *notificationTestRunner) awaitQuiet() {
+	previous := -1
+	stable := 0
+	deadline := time.Now().Add(notificationPollTimeout)
+	for time.Now().Before(deadline) {
+		count, err := s.client.getUnreadNotificationCount()
+		if err == nil {
+			if count.Total == previous {
+				stable++
+				if stable >= 2 {
+					return
+				}
+			} else {
+				stable = 0
+				previous = count.Total
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	s.t.Log("awaitQuiet: the unread count never held steady before the deadline")
+}
+
 // drainNotifications marks every unread notification as read and WAITS for the
 // count to actually reach zero, rather than sleeping and hoping.
 //
@@ -228,8 +282,15 @@ func (s *notificationTestRunner) testNotificationOnFailedOwnEdit() {
 	})
 	assert.NoError(s.t, err)
 
-	// Small delay to ensure any notification would have been created
-	time.Sleep(100 * time.Millisecond)
+	// Wait for the count to settle, rather than sleeping 100ms and hoping.
+	//
+	// This is the hardest shape of the pattern in this file: the assertion is
+	// that NOTHING happens, so there is no rising count to poll for and a fixed
+	// sleep is the only thing standing between a slow goroutine and a PASS that
+	// means nothing. awaitQuiet waits for the count to hold steady across two
+	// samples, which is the strongest statement available -- and it is still not
+	// a proof, so the comment says so rather than implying the test is airtight.
+	s.awaitQuiet()
 
 	// Verify unread count did NOT increase (no notification for self-cancellation)
 	newUnreadCount, err := s.client.getUnreadNotificationCount()
@@ -281,9 +342,10 @@ func (s *notificationTestRunner) testNotificationOnAdminCancelEdit() {
 
 // testMarkSpecificNotificationRead tests marking a specific notification as read
 func (s *notificationTestRunner) testMarkSpecificNotificationRead() {
-	// First, clear all existing notifications by marking them all as read
-	_, _ = s.client.markNotificationsRead(nil)
-	time.Sleep(100 * time.Millisecond)
+	// First, clear all existing notifications by marking them all as read --
+	// and WAIT for the count to reach zero rather than sleeping past it, so the
+	// baseline sampled below is one that was observed rather than assumed.
+	s.drainNotifications()
 
 	// Create an edit and trigger a notification
 	createdEdit, err := s.createTestTagEdit(models.OperationEnumCreate, nil, nil)
@@ -313,8 +375,10 @@ func (s *notificationTestRunner) testMarkSpecificNotificationRead() {
 	assert.True(s.t, len(comments) > 0, "Should have at least one comment")
 	commentID := comments[0].ID
 
-	// Wait for notification to be created (increased timeout for CI environments)
-	time.Sleep(100 * time.Millisecond)
+	// Wait for the notification to actually be created, polled. A longer fixed
+	// sleep is still a guess at a latency, and a guess that is wrong in the slow
+	// direction is a false pass.
+	s.awaitUnreadAbove(0)
 
 	// Get unread count before marking as read
 	unreadCountBefore, err := s.client.getUnreadNotificationCount()
@@ -329,7 +393,13 @@ func (s *notificationTestRunner) testMarkSpecificNotificationRead() {
 	assert.NoError(s.t, err)
 	assert.True(s.t, success, "Marking notification as read should succeed")
 
-	time.Sleep(100 * time.Millisecond)
+	// Wait for the count to fall, polled. Marking as read is a write followed by
+	// a read of a count, and sleeping between them is how a read ends up
+	// observing the state before its own write landed.
+	s.pollUntil(func() bool {
+		count, err := s.client.getUnreadNotificationCount()
+		return err == nil && count.Total < unreadCountBefore.Total
+	})
 
 	// Verify unread count decreased
 	unreadCountAfter, err := s.client.getUnreadNotificationCount()
@@ -374,8 +444,13 @@ func (s *notificationTestRunner) testMarkAllNotificationsRead() {
 		assert.NoError(s.t, err)
 	}
 
-	// Wait for all notifications to be created (multiple notifications, so longer wait)
-	time.Sleep(200 * time.Millisecond)
+	// Wait for this test's own notifications to arrive. The absolute count below
+	// is safe ONLY because of that: the baseline is sampled after a verified
+	// drain, so a row leaking in from another test shows as a delta with the
+	// baseline printed beside it, rather than as a mysterious total.
+	unreadBefore, err := s.client.getUnreadNotificationCount()
+	assert.NoError(s.t, err)
+	s.awaitUnreadAbove(unreadBefore.Total)
 
 	// Verify we have unread notifications
 	unreadCountBefore, err := s.client.getUnreadNotificationCount()
@@ -470,8 +545,13 @@ func (s *notificationTestRunner) testDownvoteNotificationClearedOnVoteChange() {
 		Vote: models.VoteTypeEnumReject,
 	})
 	assert.NoError(s.t, err)
-	// The notification is raised in a goroutine, matching the existing tests.
-	time.Sleep(200 * time.Millisecond)
+	// Polled for the real condition. "The notification is raised in a goroutine"
+	// is the reason this cannot be a sleep, and the fix is the same shape as the
+	// tests above: observe, do not guess a latency.
+	if !s.pollUntil(func() bool { return countDownvotes() >= baseline+1 }) {
+		s.t.Fatalf("the reject-vote notification never appeared (%d, want %d)",
+			countDownvotes(), baseline+1)
+	}
 	assert.Equal(s.t, baseline+1, countDownvotes(),
 		"a reject vote should raise a DOWNVOTE_OWN_EDIT notification")
 
@@ -481,9 +561,19 @@ func (s *notificationTestRunner) testDownvoteNotificationClearedOnVoteChange() {
 		Vote: models.VoteTypeEnumAccept,
 	})
 	assert.NoError(s.t, err)
-	time.Sleep(200 * time.Millisecond)
 
 	// 3. The notification must be gone — the edit is no longer downvoted.
+	//
+	// Polled for the FALL, and this is the direction that is easy to get wrong:
+	// a fixed sleep after a deletion passes almost always and fails exactly when
+	// the database is slow, which is when it matters. The comment here used to
+	// describe that poll and then not make one -- the sleep had been removed and
+	// the assertion left to run immediately, which fails as "expected 0, actual
+	// 1". A comment about waiting is not a wait.
+	if !s.pollUntil(func() bool { return countDownvotes() == baseline }) {
+		s.t.Fatalf("the notification was not cleared: %d downvote row(s) remain, "+
+			"want baseline(%d)", countDownvotes(), baseline)
+	}
 	assert.Equal(s.t, baseline, countDownvotes(),
 		"changing a reject vote to accept must clear the DOWNVOTE_OWN_EDIT notification")
 }
@@ -544,7 +634,15 @@ func (s *notificationTestRunner) testDownvoteNotificationSurvivesWhileOtherRejec
 		})
 		assert.NoError(s.t, err)
 	}
-	time.Sleep(200 * time.Millisecond)
+	// Polled, not slept on. Already delta-based and correctly reasoned, but it
+	// still ended on a fixed sleep, and these rows come from the same bare `go`
+	// that made its siblings flaky. It failed under `make it` with "expected 3,
+	// actual 2" -- a MISSING row, not a leaked one, so invisible to any check
+	// that only guards against extras.
+	if !s.pollUntil(func() bool { return countDownvotes() >= baseline+2 }) {
+		s.t.Fatalf("only %d downvote notification(s) appeared, want baseline(%d)+2",
+			countDownvotes(), baseline)
+	}
 	assert.Equal(s.t, baseline+2, countDownvotes(),
 		"each reject vote inserts its own notification row (no unique constraint "+
 			"on (user_id, type, id)), so two reject votes give two rows")
@@ -556,7 +654,13 @@ func (s *notificationTestRunner) testDownvoteNotificationSurvivesWhileOtherRejec
 		Vote: models.VoteTypeEnumAccept,
 	})
 	assert.NoError(s.t, err)
-	time.Sleep(200 * time.Millisecond)
+
+	// The count must NOT drop, so "wait until it rises" is the wrong condition
+	// here -- this step deliberately changes nothing upward. awaitQuiet waits for
+	// the count to hold steady instead, which is a weaker guarantee than a rise
+	// and is stated as such: the assertion below is about the count not dropping,
+	// and no count alone can distinguish "not arrived yet" from "dropped".
+	s.awaitQuiet()
 
 	// The notification rows are NOT per-vote-tracked, so all DOWNVOTE_OWN_EDIT
 	// rows stay while voter two still rejects. The point of the assertion is
@@ -985,11 +1089,35 @@ func (s *notificationTestRunner) testNotificationOnFavoriteStudioScene() {
 		assert.NoError(s.t, err)
 	}
 
-	// Small delay to ensure notification is created (notifications are triggered asynchronously)
-	time.Sleep(200 * time.Millisecond)
+	// Polled rather than delayed: the notification is raised asynchronously, so
+	// the condition to wait for is its arrival, not a guessed latency.
+	//
+	// Polled on the SUBSCRIBER's notifications, which is who receives this one --
+	// a first attempt waited on the main test user's unread count instead, which
+	// is a different account entirely. It passed in isolation and failed in the
+	// group, because a neighbouring test's notification could satisfy the wrong
+	// account's count and release the wait while the subscriber's row was still
+	// in flight. Waiting on the thing being asserted is not a detail: it is the
+	// difference between a wait and a coincidence.
+	notificationType := models.NotificationEnumFavoriteStudioScene
+	countSubscriberNotifications := func() int {
+		res, err := subscriberRunner.client.queryNotifications(models.QueryNotificationsInput{
+			Page:       1,
+			PerPage:    25,
+			Type:       &notificationType,
+			UnreadOnly: new(true),
+		})
+		if err != nil {
+			return 0
+		}
+		return len(res.Notifications)
+	}
+
+	if !s.pollUntil(func() bool { return countSubscriberNotifications() >= 1 }) {
+		s.t.Fatalf("the subscriber never received a FAVORITE_STUDIO_SCENE notification")
+	}
 
 	// Query notifications and verify the notification type
-	notificationType := models.NotificationEnumFavoriteStudioScene
 	result, err := subscriberRunner.client.queryNotifications(models.QueryNotificationsInput{
 		Page:       1,
 		PerPage:    25,
