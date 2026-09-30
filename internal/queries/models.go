@@ -225,6 +225,18 @@ type EloVote struct {
 	Weight     float64            `db:"weight" json:"weight"`
 }
 
+type FederationPeer struct {
+	ID          uuid.UUID          `db:"id" json:"id"`
+	Name        string             `db:"name" json:"name"`
+	BaseUrl     string             `db:"base_url" json:"base_url"`
+	InstanceID  string             `db:"instance_id" json:"instance_id"`
+	TrustWeight float64            `db:"trust_weight" json:"trust_weight"`
+	Enabled     bool               `db:"enabled" json:"enabled"`
+	LastSeenAt  pgtype.Timestamptz `db:"last_seen_at" json:"last_seen_at"`
+	CreatedAt   pgtype.Timestamptz `db:"created_at" json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `db:"updated_at" json:"updated_at"`
+}
+
 type Fingerprint struct {
 	ID        int    `db:"id" json:"id"`
 	Algorithm string `db:"algorithm" json:"algorithm"`
@@ -245,6 +257,17 @@ type IdentificationCandidateVote struct {
 	CandidateID uuid.UUID `db:"candidate_id" json:"candidate_id"`
 	UserID      uuid.UUID `db:"user_id" json:"user_id"`
 	CreatedAt   time.Time `db:"created_at" json:"created_at"`
+}
+
+type IdentificationForeignCandidate struct {
+	ID               uuid.UUID          `db:"id" json:"id"`
+	QueryID          uuid.UUID          `db:"query_id" json:"query_id"`
+	PeerID           uuid.UUID          `db:"peer_id" json:"peer_id"`
+	EntityType       string             `db:"entity_type" json:"entity_type"`
+	RemoteEntityID   string             `db:"remote_entity_id" json:"remote_entity_id"`
+	RemoteEntityName string             `db:"remote_entity_name" json:"remote_entity_name"`
+	RemoteVoteCount  int                `db:"remote_vote_count" json:"remote_vote_count"`
+	FetchedAt        pgtype.Timestamptz `db:"fetched_at" json:"fetched_at"`
 }
 
 type IdentificationQuery struct {

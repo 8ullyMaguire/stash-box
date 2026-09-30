@@ -123,6 +123,7 @@ type Querier interface {
 	// because `sqlc generate` type-checks the SQL's SYNTAX and not the expressions'
 	// semantics; the error only appeared when a test finally ran it.
 	CountEntitiesWithCompletionBelow(ctx context.Context, arg CountEntitiesWithCompletionBelowParams) (int64, error)
+	CountForeignCandidatesByQuery(ctx context.Context, queryID uuid.UUID) (int64, error)
 	// How many candidates this user has voted on, anywhere.
 	//
 	// Backs §5's "Detective" leaderboard. Counting through the candidate table rather
@@ -184,8 +185,23 @@ type Querier interface {
 	CreateEditComment(ctx context.Context, arg CreateEditCommentParams) (EditComment, error)
 	// Edit votes
 	CreateEditVote(ctx context.Context, arg CreateEditVoteParams) error
+	// Federation peer registry queries.
+	//
+	// Read-side only. The federation service owns creating and deleting peers; this
+	// file is what it reads through, and nothing outside the federation package
+	// should import these -- a peer list is an operator surface, not a public one.
+	CreateFederationPeer(ctx context.Context, arg CreateFederationPeerParams) (FederationPeer, error)
 	// Fingerprint queries (normalized schema)
 	CreateFingerprint(ctx context.Context, arg CreateFingerprintParams) (Fingerprint, error)
+	// Foreign identification evidence — a peer's answer to one of our queries.
+	//
+	// SPEC F2, and this file is where that decision is enforced: the only INSERT
+	// here targets identification_foreign_candidates. There is deliberately no
+	// query in this file that writes identification_candidates, and no query that
+	// deletes or updates a local candidate, so there is no code path from a peer's
+	// answer into the local vote table. The test for that is
+	// TestForeignEvidenceCannotReachLocalVotePath.
+	CreateForeignCandidate(ctx context.Context, arg CreateForeignCandidateParams) (IdentificationForeignCandidate, error)
 	// Identification board queries (SPEC §5, migration 79).
 	//
 	// Three tables with one rule running through all of them: a vote is EVIDENCE, not
@@ -344,6 +360,14 @@ type Querier interface {
 	DeleteExpiredDrafts(ctx context.Context, dollar_1 interface{}) error
 	DeleteExpiredModAudits(ctx context.Context, dollar_1 interface{}) error
 	DeleteExpiredUserTokens(ctx context.Context) error
+	DeleteFederationPeer(ctx context.Context, id uuid.UUID) error
+	// Used when a peer is removed from the registry. Without this, deleting a peer
+	// would either fail on the FK or leave orphaned evidence pointing at a peer the
+	// operator believes they have removed.
+	DeleteForeignCandidatesByPeer(ctx context.Context, peerID uuid.UUID) error
+	// Used when a query is resolved or abandoned, so a peer cannot keep answering a
+	// question that no longer exists.
+	DeleteForeignCandidatesByQuery(ctx context.Context, queryID uuid.UUID) error
 	DeleteImage(ctx context.Context, id uuid.UUID) error
 	DeleteInviteKey(ctx context.Context, id uuid.UUID) error
 	DeleteNotificationsByEditComments(ctx context.Context, editID uuid.UUID) error
@@ -585,7 +609,13 @@ type Querier interface {
 	// vote set must produce the same vector, and an unordered scan would let
 	// floating-point rounding differ between runs.
 	GetEloVotesForUser(ctx context.Context, userID uuid.UUID) ([]EloVote, error)
+	GetFederationPeer(ctx context.Context, id uuid.UUID) (FederationPeer, error)
+	// The lookup that makes a reply attributable: an inbound answer is matched to
+	// a peer by the instance id it declares, so an unknown instance is rejected
+	// rather than silently recorded against nobody.
+	GetFederationPeerByInstanceId(ctx context.Context, instanceID string) (FederationPeer, error)
 	GetFingerprint(ctx context.Context, arg GetFingerprintParams) (Fingerprint, error)
+	GetForeignCandidate(ctx context.Context, id uuid.UUID) (IdentificationForeignCandidate, error)
 	// A single candidate, for the vote path.
 	//
 	// Joins the query so the caller can check the query is still open without a
@@ -765,10 +795,23 @@ type Querier interface {
 	// LAST by default but the explicit form documents that the ordering is
 	// deliberate.
 	ListEloRatings(ctx context.Context, arg ListEloRatingsParams) ([]EloRating, error)
+	// The candidate set for a broadcast. Filters `enabled` in SQL rather than in Go
+	// so the broadcast path cannot accidentally read a disabled peer.
+	ListEnabledFederationPeers(ctx context.Context) ([]FederationPeer, error)
+	// Operator surface, so ordering is by name rather than by id: a list whose
+	// order changes between calls is a list nobody can scan.
+	ListFederationPeers(ctx context.Context) ([]FederationPeer, error)
 	// The moderation queue: oldest first, because the queue is worked in arrival
 	// order and "newest first" makes an old report invisible under a constant
 	// trickle of new ones.
 	ListFlaggedReviews(ctx context.Context, arg ListFlaggedReviewsParams) ([]Review, error)
+	//
+	// ON CONFLICT DO UPDATE rather than DO NOTHING, because re-asking a peer is
+	// normal (the same query goes out on the next broadcast) and a peer's answer
+	// can legitimately have moved: more of its users may now agree. DO NOTHING
+	// would keep the first answer forever, which is the stale-evidence problem
+	// SPEC F3 exists to prevent -- just on a single row instead of a whole query.
+	ListForeignCandidatesByQuery(ctx context.Context, queryID uuid.UUID) ([]IdentificationForeignCandidate, error)
 	// A query's candidates WITH their tallies.
 	//
 	// LEFT JOIN plus count, so a candidate nobody has voted for still appears with
@@ -867,6 +910,12 @@ type Querier interface {
 	// 1:1, so the two are equivalent -- and NOT EXISTS is the one that stays correct
 	// if a future migration makes it 1:N by adding a history table.
 	ListSitesMissingDetails(ctx context.Context, arg ListSitesMissingDetailsParams) ([]Site, error)
+	// Peers that have not been seen inside the cutoff, for the operator's stale
+	// list. Never-contacted peers have a NULL last_seen_at and are returned by
+	// `last_seen_at IS NULL OR last_seen_at < $1` -- an unknown peer and a peer
+	// that has gone quiet are both "do not ask", but they are different facts and
+	// the operator surface shows them differently.
+	ListStaleFederationPeers(ctx context.Context, lastSeenAt pgtype.Timestamptz) ([]FederationPeer, error)
 	// The pool a collage generation samples from.
 	//
 	// Excludes snapshots already committed to a collage. On a REgeneration the old
@@ -1142,6 +1191,10 @@ type Querier interface {
 	StudioCompletionInputs(ctx context.Context, id uuid.UUID) (StudioCompletionInputsRow, error)
 	SubmittedHashExists(ctx context.Context, arg SubmittedHashExistsParams) (bool, error)
 	TagCompletionInputs(ctx context.Context, id uuid.UUID) (TagCompletionInputsRow, error)
+	// Records a successful contact. Separate from UpdateFederationPeer so a
+	// successful fetch cannot be confused with an operator edit, and so the
+	// updated_at churn of an edit does not look like liveness.
+	TouchFederationPeer(ctx context.Context, id uuid.UUID) error
 	TriggerDownvoteEditNotifications(ctx context.Context, id uuid.UUID) error
 	TriggerEditCommentNotifications(ctx context.Context, id uuid.UUID) error
 	TriggerFailedEditNotifications(ctx context.Context, id uuid.UUID) error
@@ -1172,6 +1225,7 @@ type Querier interface {
 	UpdateEdit(ctx context.Context, arg UpdateEditParams) (Edit, error)
 	UpdateEditCommentText(ctx context.Context, arg UpdateEditCommentTextParams) (EditComment, error)
 	UpdateEditData(ctx context.Context, arg UpdateEditDataParams) (Edit, error)
+	UpdateFederationPeer(ctx context.Context, arg UpdateFederationPeerParams) (FederationPeer, error)
 	// Retarget PENDING performer edits from a merged-away performer to the merge survivor.
 	//
 	// Issue #943: a merge soft-deletes the source and adds a redirect, but edits still
