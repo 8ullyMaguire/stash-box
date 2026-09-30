@@ -940,6 +940,35 @@ below was checked by search on 2026-09-29.
 | D7 | **Mobile app and browser extension are named first-class deliverables.** | Already in §7.11; promoted from implied to explicit. |
 | D8 | **Sync cadence and air-gap bundles are operator-configurable.** | Already in §7.17.4; this paste states it more firmly. |
 
+#### 7.23.1a Implementation status, measured 2026-09-30
+
+**D2 is NOT implemented and is not marked as such.** It is at step 5 of 6, and
+the sixth step does not exist yet. Recording the steps rather than a verdict,
+because a row that says "done" against four of six steps is the kind of claim
+this repo keeps having to retract.
+
+| D2 step | State | Commit |
+|---|---|---|
+| 1 — peer registry + foreign evidence tables | done | `c4f8fcdc` |
+| 2 — freshness rule | done | `1d64e70a` |
+| 3 — taste-based peer selection | done | `f5601107` |
+| 4 — broadcast payload + F1 content guard | done | `7704600c` |
+| 5 — client + local storage of answers | half done | `d3934900` (store); client in flight, owned by another session |
+| 6 — wiring to a resolution + operator surface | **not started** | — |
+
+**D6 is deferred, with its reason.** Guilds, mentorship, adoption, a public
+roadmap and voting are a community layer, and nothing in the identification
+federation work needs them. Deferring D6 costs D2 nothing, and building D6 before
+D2 step 6 would mean a ranking and gamification surface over evidence that
+cannot yet reach the operator. It stays deferred until D2 step 6 is closed.
+
+**R074's receiving guard is built but NOT WIRED** (`r074-receiving-guard`,
+`23da1f6a`). `internal/service/federation/baseurl.go` validates
+`federation_peers.base_url` and `schema_scan.go` watches the seven
+address-shaped columns, but `CreateFederationPeer`/`UpdateFederationPeer` have
+no Go caller — they belong to step 6. Until step 6 calls `ValidateBaseURL` at
+write time, the guard is unreachable code. Full note: `docs/track/HANDOFF-R074.md`.
+
 #### 7.23.2 Already present — recorded so the plan does not rebuild them
 
 The draft re-proposes these as if new. They exist; building them again would
