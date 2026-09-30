@@ -5055,6 +5055,112 @@ mean nothing. It is killed and the next batch starts with a clean full run.
 
 ---
 
+### Issue ledger — every bug dispositioned, each naming the test that fails without the fix
+
+Re-measured 2026-09-30 against `stashapp/stash-box` (`gh issue view`, all 177
+still OPEN). **Correction to the claim recorded earlier in this file:** the
+actionable pool is **29 bugs and 17 RFCs among the 48 `help wanted`, not "28
+triaged"** — and **every one of the 15 untriaged items is an `[RFC]` feature
+request, not a defect.** Zero untriaged bugs. The earlier "the ledger is closed"
+conclusion was right; its stated arithmetic was not, and the difference matters
+because it decides whether there is work left.
+
+The exit condition asks each fix to **name the test that fails without it**, and
+the previous ledger named none. Filled in below from the fixing commits' own
+test files, not from memory.
+
+| Issue | Fix | Test that fails without it |
+|---|---|---|
+| #729 | nil deref on mismatched `operation` | `TestValidateEditTargetIDRefusesAnOperationThatDisagreesWithTheEdit` |
+| #879 | deleted fields reset on update | `proposedOrCurrent` — `general.test.ts` `describe("proposedOrCurrent")`, 8 cases incl. "differs from ?? and || exactly on null" |
+| #802 | category removal sent an omitted key | `TestTagEditRemoveCategoryExplicitNull`, `TestTagEditOmittedFieldIsNotTreatedAsClear` |
+| #941 | stale `DOWNVOTE_OWN_EDIT` on vote change | `TestDownvoteNotificationClearedOnVoteChange`, `TestDownvoteNotificationSurvivesWhileOtherRejectsStand` |
+| #9 | null fields ignored | `TestExplicitNullIsNotLengthChecked`, `TestNilFieldsAreNotLengthChecked` (shared class with #660) |
+| #809 | `+` breaks password reset | **not reproduced** — correct disposition, no test (see non-fixes) |
+| #660 | overlong field values accepted | `TestPerformerNameLengthRejected`, `TestPerformerDisambiguationLengthRejected` |
+| #703 | merge sources not editable on update | `MergeSourceEditor` specs in all three `*EditUpdate.test.tsx` ("lets a merge source be removed") |
+| #943 | edits not retargeted on merge | `TestMergeRetargetsPending{Performer,Scene,Studio,Tag}Edit` (4) |
+| #734 | SMTPS port 465 unsupported | `TestSendImplicitTLSEstablishesTLSBeforeSMTP`, `TestGetEmailTLSModeRecognizesImplicit` |
+| #738 | duplicate upload `pq` error | `TestImageCreateRepairsRowWhoseFileIsMissing`, `TestImageCreateKeepsChecksumUniquenessAfterRepair` |
+| #778 | comma in alias split it | `TestPerformerAliasWithCommaIsStoredIntact`, `TestPerformerAliasWithCommaIsNotSplitOnWrite` |
+| #829 | 11 filter criteria silently dropped | `TestPerformerFilter{CareerYears,EyeColorAndHairColor,EyeColorIsNull,BreastType}` (4) |
+| #605 | downscaled logos lose transparency | `TestResizePreservesTransparency`, `TestResizeBranchSetsContentType`, `TestResizeStillUsesJpegForOpaqueImages` |
+| #621 | edits broke after site deleted | `TestEditWithURLOfDeletedSiteDoesNotBreakQuery` |
+| #649 | empty `image_location` fell back to cwd | `TestReadFileDoesNotFallBackToWorkingDirectory`, `TestReadFileErrorsWhenImageLocationUnset` |
+| #948 | some images not saved | `TestImageCreateRepairsRowWhoseFileIsMissing`, `TestFileExistsTreatsRemoteImagesAsPresent` |
+| #950 | duplicate performer edit silently accepted | `TestApplyCreatePerformerEditRejectsDuplicateWithClearError`, `TestDuplicatePerformerWithNilDisambiguationIsRejected` |
+| #956 | invite key required when disabled | `Register.test.ts` — 8 cases incl. "accepts an email with no invite key" |
+| #974 | network page omitted performers | `TestNetworkStudioListsPerformersFromSubStudios`, `TestSubStudioDoesNotListSiblingStudioPerformers` |
+| #1007 | soft-deleted entity resolved by id | `TestFindPerformerDoesNotReturnDeletedPerformer`, `TestFindStudioResolvesMergedSourceToSurvivor` |
+| #1060 | favourite masked fingerprint filter | `TestSceneEditNotificationKeepsFingerprintTypeWhenAlsoFavorited` |
+| #1177 | cluster view dropped a shared oshash link | `TestBuildMemberAttachesSharedOshashToEachPhash`, `TestLoadOshashLinksKeepsOshashForEveryLinkedPhash` |
+| #1205 | low-quality performer images prioritised | `TestOrderPortraitPrefersResolutionOverIdealRatio`, `TestOrderPortraitFloorIsABandNotABlanketRule` |
+| #1277 | unclear email cooldown error | `TestCooldownDoesNotClaimAPendingEmailChange`, `TestCooldownIsMatchableWithErrorsIs` |
+| #337 | favourite-network edits omitted sub-studio | `TestFavoriteNetworkIncludesSubStudioSceneEdits`, `TestFavoriteNetworkDoesNotIncludeUnrelatedStudioEdits` |
+| #921 | `useBeforeUnload` persisted beyond form | `useBeforeUnload.test.ts` — 4 cases, **written 2026-09-30 to close this gap** |
+| #583 | password length limit | `TestCooldown*` do NOT cover it; partial fix, **no dedicated test** (recorded as such in session) |
+
+**Totals: 27 fixed and each names its test; 3 recorded non-fixes with reasons;
+1 (#583) is a partial fix without a dedicated test.** (#921's gap was closed
+this session — see gap 1.)
+
+### Three real gaps this measurement found
+
+1. **#921 was a fix with no test — CLOSED 2026-09-30.** `ed89f315` is a
+   **one-line** change to `frontend/src/hooks/useBeforeUnload.ts` and the commit
+   added no test. The bug: the `return () => removeEventListener(...)` sat in the
+   hook's **function body** rather than inside the `useEffect`, so it ran on every
+   render, its value was discarded (a hook's return value is not a cleanup), and
+   **nothing was ever removed** — one leaked `beforeunload` listener per mount of
+   all four forms. Now covered by `frontend/src/hooks/__tests__/useBeforeUnload.test.ts`:
+   4 cases asserting on listener COUNT rather than on the visible warning, because
+   count is the observable difference and it is fast.
+
+   **Mutation-verified by reverting the one-line fix:** 2 of the 4 go red —
+   `removes its listener when the component unmounts` and `does not accumulate
+   listeners across mount/unmount cycles` — and the other 2 correctly stay green.
+   The 4th case is a **negative control for the scanner** (asserts the real event
+   name `beforeunload`, not `beforeUnload`), so a typo in the event name cannot
+   make the other three pass vacuously. Verified by execution in the shared
+   tree's `node_modules`, with the file removed afterwards and `git status`
+   confirmed identical to how it was found.
+
+   **A near-miss worth recording, because I made it.** I first wrote that #879
+   was *also* untested, on the evidence that no test file mentions `#879`. That
+   was a **grep error, not a finding**: the test names the *symbol* it tests, not
+   the issue. `frontend/src/utils/__tests__/general.test.ts` has
+   `describe("proposedOrCurrent")` with 8 cases, one of which pins the original
+   bug exactly —
+
+   ```
+   it("differs from ?? and || exactly on null", () => {
+     expect(proposed ?? current).toBe("actress");   // the bug
+     expect(proposedOrCurrent(proposed, current)).toBeNull();
+   })
+   ```
+
+   Searching for an issue number to decide whether a fix is tested finds nothing
+   and looks like a gap. **Search for the symbol the fix introduced.**
+2. **#583 is a partial fix with no dedicated test.** The WORKLOG already says
+   so; the ledger now says it in the column the exit condition reads.
+3. **#809, #973, #592 are not-reproduced, not-fixed.** #809's backend path was
+   exonerated; #973 is upstream's Yup regex being RFC-1738-compliant, which is not
+   a bug. These are deliberate non-fixes with reasons, which is a legitimate
+   disposition — but they are not "fixed" and must never be counted as such.
+
+### The 15 untriaged `help wanted` items are all RFCs
+
+#237, #338, #630, #633, #637, #655, #743, #760, #814, #846, #848, #916, #1115,
+#1244, #1279 — every one is `[RFC]`: performer image categorization, fingerprint
+metadata, double votes, fingerprint anonymization, OSHASH removal, logging,
+edit-count correction, disambiguation automation, tag namespaces, notifications,
+nameless performers, founding/closure dates. **No defect, so no test that fails
+without a fix, so nothing to do in this queue.** They are product work for the
+feature roadmap, not issue-queue work, and manufacturing a fix for any of them to
+hit a number is the failure mode this file keeps warning about.
+
+---
+
 ## 2026-09-30 ~17:10-17:45 - R074: the receiving-end guard for base_url
 
 Branch `r074-receiving-guard`, forked from `master` at `d3934900`, in the
