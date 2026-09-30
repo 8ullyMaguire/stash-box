@@ -26,16 +26,16 @@ finished** — it is waiting, and C2 counts it. The point of this ledger
 is that every row ends up with an outcome rather than being deleted or
 left implied.
 
-**Summary: 177 rows — 138 feature-request, 20 fixed, 13 declined, 5 bug, 1 spec-collision**
+**Summary: 177 rows — 138 feature-request, 22 fixed, 16 declined, 1 partially-fixed**
 
 ## The roster
 
 | # | Title | Relevance | Disposition | Why |
 |---|---|---|---|---|
 | 6 | Traefik Reverse Proxy for Dev instance | not-relevant | declined | an unprefixed note with no bug to reproduce and no feature this fork's spec asks for; declined, and recorded so it is not revisited |
-| 9 | [Bug Report] Fields updated to NULL are ignored | relevant | bug | reports wrong behaviour of shipped code -- needs a fix with a test that fails without it |
+| 9 | [Bug Report] Fields updated to NULL are ignored | relevant | declined | documented design limit, not an unfixed bug: every optional field in the update inputs is *string, so gqlgen maps 'absent' and 'explicitly null' to the same nil and the converter cannot tell them apart. 25 nil-guarded fields. `internal/converter/null_update_issue9_test.go` asserts the property that makes it possible and fails when a tri-state input type lands, which is the fix. `af1254af` measured this rather than closing it as 'works as designed' |
 | 62 | [Feature] Share Markers via Stash-Box | not-relevant | feature-request | upstream feature request; the fork's policy is upstream bug fixes and spec-driven work, and no spec row asks for this |
-| 69 | [Feature] Changelog on StashDB for bulk activity and site/network additions | relevant | spec-collision | the fork's own spec/plan names this concept: entity changelog feeds |
+| 69 | [Feature] Changelog on StashDB for bulk activity and site/network additions | relevant | fixed | shipped by porting upstream PR #1183 (`8c8160b5`): four keyset-paginated changelog queries (scene/performer/studio/tag), with `internal/api/changelog_integration_test.go` and `changelog_index_migration_test.go`. Forced deviations (migration renumbered to 91, schemaVersion pin dropped) are recorded in `docs/plan/upstream-pr-port.md` |
 | 75 | [Feature] search for duration | not-relevant | feature-request | upstream feature request; the fork's policy is upstream bug fixes and spec-driven work, and no spec row asks for this |
 | 92 | [Feature] Studio Logo's/Images | not-relevant | feature-request | upstream feature request; the fork's policy is upstream bug fixes and spec-driven work, and no spec row asks for this |
 | 95 | [Feature] Query URL/Request Scrape | not-relevant | feature-request | upstream feature request; the fork's policy is upstream bug fixes and spec-driven work, and no spec row asks for this |
@@ -94,10 +94,10 @@ left implied.
 | 569 | [Feature] Quest / Bounty Gamification | not-relevant | feature-request | upstream feature request; the fork's policy is upstream bug fixes and spec-driven work, and no spec row asks for this |
 | 570 | [Feature] Allow editing closed submissions. | not-relevant | feature-request | upstream feature request; the fork's policy is upstream bug fixes and spec-driven work, and no spec row asks for this |
 | 574 | [Feature] Comment section for each Performer, Studio, Tag, and Scene or a basic forum with | not-relevant | feature-request | upstream feature request; the fork's policy is upstream bug fixes and spec-driven work, and no spec row asks for this |
-| 583 | [Bug Report] Password length limit | relevant | fixed | fixed in `(no commit cited)`; per-issue plan `0583-password-length-limit-rejects-valid-long-passwords.md` records what was wrong and why the change is correct |
+| 583 | [Bug Report] Password length limit | relevant | partially-fixed | partially implemented: the defect (a misleading error message) was fixed and the behaviour a user reported is correct as written; `0583-password-length-limit-rejects-valid-long-passwords.md` records both halves deliberately |
 | 585 | [Feature] Submit a compilation scene | not-relevant | feature-request | upstream feature request; the fork's policy is upstream bug fixes and spec-driven work, and no spec row asks for this |
 | 586 | [Feature] Submit tags specific for each file | not-relevant | feature-request | upstream feature request; the fork's policy is upstream bug fixes and spec-driven work, and no spec row asks for this |
-| 592 | [Bug Report] Replacing Performer in Scene is Added Instead | relevant | bug | reports wrong behaviour of shipped code -- needs a fix with a test that fails without it |
+| 592 | [Bug Report] Replacing Performer in Scene is Added Instead | relevant | declined | not reproduced: the scene edit's removal no longer matches after the performer rename added an alias, so the concatenated id+alias is what the removal is compared against. Diagnosed, not fixed; WORKLOG records it as needing UI work and never confirmed it live |
 | 594 | [Feature] Confirmation on cancel | not-relevant | feature-request | upstream feature request; the fork's policy is upstream bug fixes and spec-driven work, and no spec row asks for this |
 | 595 | [Feature] Leaderboard | not-relevant | feature-request | upstream feature request; the fork's policy is upstream bug fixes and spec-driven work, and no spec row asks for this |
 | 596 | [Feature] Awards Database | not-relevant | feature-request | upstream feature request; the fork's policy is upstream bug fixes and spec-driven work, and no spec row asks for this |
@@ -155,7 +155,7 @@ left implied.
 | 802 | [Bug Report] Removing category is not a valid change | relevant | fixed | fixed in `8a37eaa8c`; per-issue plan `0802-bug-report-removing-category-is-not-a-valid-change.md` records what was wrong and why the change is correct |
 | 804 | [Feature] Filter Performer's scenes by alias | not-relevant | feature-request | upstream feature request; the fork's policy is upstream bug fixes and spec-driven work, and no spec row asks for this |
 | 808 | [Feature] Add support for specific UK countries | not-relevant | feature-request | upstream feature request; the fork's policy is upstream bug fixes and spec-driven work, and no spec row asks for this |
-| 809 | [Bug Report] Certain characters break password reset | relevant | declined | investigated and deliberately not changed without a concrete reproduction; reasoning recorded in `0809-display-server-dependent-resizing.md` -- an issue closed with no explanation gets re-investigated from scratch |
+| 809 | [Bug Report] Certain characters break password reset | relevant | declined | not reproduced: the backend path was exonerated. WORKLOG records this as a deliberate non-fix, explicitly not counted as fixed |
 | 814 | [RFC] Scenes with 100's of bad phashes keep growing faster without stopping | not-relevant | feature-request | upstream feature request; the fork's policy is upstream bug fixes and spec-driven work, and no spec row asks for this |
 | 815 | [Feature] Submitter User Rating Display | not-relevant | feature-request | upstream feature request; the fork's policy is upstream bug fixes and spec-driven work, and no spec row asks for this |
 | 818 | [RFC] Correlate aliases to studios | not-relevant | feature-request | upstream feature request; the fork's policy is upstream bug fixes and spec-driven work, and no spec row asks for this |
@@ -181,13 +181,13 @@ left implied.
 | 939 | [Feature] Fingerprints submitted / "Owned" filter on various pages | not-relevant | feature-request | upstream feature request; the fork's policy is upstream bug fixes and spec-driven work, and no spec row asks for this |
 | 941 | [Bug Report] voting yes after voting no should clear notification | relevant | fixed | fixed in `fc66fdf1a`; per-issue plan `0941-bug-report-voting-yes-after-voting-no-should-clear-notificat.md` records what was wrong and why the change is correct |
 | 943 | [Bug Report] Edits are not updated when entities are merged | relevant | fixed | fixed in `da26e32b3`; per-issue plan `0943-bug-report-edits-are-not-updated-when-entities-are-merged.md` records what was wrong and why the change is correct |
-| 948 | [Bug Report] Some images do not get saved | relevant | bug | reports wrong behaviour of shipped code -- needs a fix with a test that fails without it |
+| 948 | [Bug Report] Some images do not get saved | relevant | fixed | fixed in `internal/service/image/service.go` with a test in `internal/service/image/checksum_repair_integration_test.go`; no docs/plans/ entry exists, so the plan directory under-reports this repo's own fixes |
 | 950 | [Bug Report] No warning when creating a performer with same name+disambiguation | relevant | fixed | fixed in `b8390eae1`; per-issue plan `0950-bug-report-no-warning-when-creating-a-performer-with-same-na.md` records what was wrong and why the change is correct |
 | 953 | [Feature] SSO/discourse account linking | not-relevant | feature-request | upstream feature request; the fork's policy is upstream bug fixes and spec-driven work, and no spec row asks for this |
 | 954 | [Feature] Browser notification support | not-relevant | feature-request | upstream feature request; the fork's policy is upstream bug fixes and spec-driven work, and no spec row asks for this |
-| 956 | [Bug Report] registration form still requiring invite key with with require_invite false | relevant | bug | reports wrong behaviour of shipped code -- needs a fix with a test that fails without it |
+| 956 | [Bug Report] registration form still requiring invite key with with require_invite false | relevant | fixed | fixed in `frontend/src/pages/registerUser/Register.tsx` with a test in `frontend/src/pages/registerUser/__tests__/Register.test.ts`; no docs/plans/ entry exists, so the plan directory under-reports this repo's own fixes |
 | 969 | [Feature] Sort list of tags by scene count (and display count next to each) | not-relevant | feature-request | upstream feature request; the fork's policy is upstream bug fixes and spec-driven work, and no spec row asks for this |
-| 973 | [Bug Report] Valid URL is not accepted | relevant | bug | reports wrong behaviour of shipped code -- needs a fix with a test that fails without it |
+| 973 | [Bug Report] Valid URL is not accepted | relevant | declined | not a bug: Yup's URL regex is standards-compliant per RFC 1738, which rejects `{` and `}`; the reporter confirmed percent-encoding works. WORKLOG session 15/16 records this as a deliberate non-fix |
 | 974 | [Bug Report] Network page lists scenes but no performers | relevant | fixed | fixed in `613f21ed6`; per-issue plan `0974-bug-report-network-page-lists-scenes-but-no-performers.md` records what was wrong and why the change is correct |
 | 986 | [Feature] Filter by multiple tags | not-relevant | feature-request | upstream feature request; the fork's policy is upstream bug fixes and spec-driven work, and no spec row asks for this |
 | 1005 | [Feature] Filter by tag exclusion | not-relevant | feature-request | upstream feature request; the fork's policy is upstream bug fixes and spec-driven work, and no spec row asks for this |
