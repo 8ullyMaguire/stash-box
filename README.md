@@ -42,7 +42,7 @@ guarantee is already broken and the fix is a rebase, not a merge.
 ### What's built here
 
 Phase 1–2 complete, Phase 3 in progress, and **the D2 federation work complete**
-(2026-09-30, branch `r074-receiving-guard` — see
+(2026-09-30, merged to `master` as `422a2f28` — see
 [`docs/track/HANDOFF-R074.md`](docs/track/HANDOFF-R074.md)):
 
 - **Trust levels** — recomputed from event rows, never tallied into a column
@@ -62,7 +62,7 @@ Phase 1–2 complete, Phase 3 in progress, and **the D2 federation work complete
   candidate has **no column that can hold a local entity id**, so it cannot reach
   the local vote path by any code path (F2). Both are mutation-tested.
 
-D2 is built and tested but **not yet merged into `master`**.
+D2 is on `master`, tested and green as of 2026-09-30 (`422a2f28`).
 
 ### Security work worth knowing about
 

@@ -1,7 +1,8 @@
 # R074 + D2 — handoff
 
-**Status: the exit condition is MET. D2 is complete. 26 commits, 0 unpushed.**
-Branch `r074-receiving-guard`, forked from `master` at `d3934900`.
+**Status: COMPLETE AND MERGED.** D2 is done, on `master`, green and pushed.
+Work happened on `r074-receiving-guard` (28 commits, forked from `master` at
+`d3934900`) and was fast-forwarded into `master` on 2026-09-30.
 Worktree `~/code-local/worktrees/stash-box-r074`. Profile `coding-2`.
 The shared tree at `~/code-local/go/stash-box` was **never touched** — still
 `master @ d3934900`, carrying only the untracked files that session left behind.
@@ -11,64 +12,52 @@ picks this up, not a log.
 
 ---
 
-## FIRST ACTION, verbatim
+## STATUS: MERGED. There is no first action.
 
-**The merge is not blocked. Do it.**
+**Merged 2026-09-30 23:05.** `master` fast-forwarded `d3934900` → `422a2f28`, all
+28 commits, and `origin/master` is pushed at 0 unpushed. Verified **in `master`
+itself**, not in the worktree: `gofmt` clean, `go build` exit 0, `go vet` exit 0,
+`make it` **30 packages green**.
 
-For two sessions this read "blocked on the other session that owns `client.go`".
-That was false, and it was falsifiable in one command the whole time. The evidence,
-checked 2026-09-30 22:50:
-
-```bash
-# 1. The authoring session is finished — last activity 15:33, seven hours idle.
-sqlite3 ~/.hermes/profiles/coding/state.db \
-  "SELECT id, title, last_activity_at FROM sessions WHERE id='20260928_224136_d195e1'"
-
-# 2. It has not touched stash-box since.
-sqlite3 ~/.hermes/profiles/coding/state.db \
-  "SELECT COUNT(*) FROM messages WHERE session_id='20260928_224136_d195e1'
-   AND timestamp>1790790000 AND content LIKE '%stash-box%'"      # -> 0
-
-# 3. Nothing of anyone's is running in the shared tree.
-for p in $(ls /proc | grep -E '^[0-9]+$'); do
-  readlink /proc/$p/cwd 2>/dev/null | grep -q stash-box && \
-    tr '\0' '\n' < /proc/$p/environ | grep -m1 HERMES_HOME
-done
-```
-
-That third check is the one that settles it, and when I finally ran it the only
-processes in either tree were **`HERMES_HOME=…/profiles/coding-2` — me.** The
-session that wrote `client.go` is `coding`'s `20260928_224136_d195e1`, titled
-*"Fork stash-box and write specification"*, which forked stash-box on the 28th and
-later moved to lorehaven. It wrote the file at 14:36, hit a disk-full problem at
-15:32, and has been idle since.
-
-**So:**
+The merge was a **fast-forward** — `master` was an ancestor of the branch the whole
+time, so nothing conflicted. The only obstacle was git refusing to overwrite two
+untracked files:
 
 ```bash
-cd ~/code-local/go/stash-box
 git stash push -u -- internal/service/federation/client.go \
                    internal/service/federation/client_test.go
 git merge --ff-only r074-receiving-guard
 ```
 
-**It is a fast-forward, not a merge.** `master` (`d3934900`) is an ancestor of the
-branch head, so there is no conflict to resolve and no merge commit.
+**Keep `stash@{0}`.** It holds the only copy of the original `client.go` — the one
+with `if err := error(nil); err != nil` at line 96. The merged version has
+`q.Validate()` at 132. `git stash show -p stash@{0}` to compare, `git stash drop`
+when satisfied. Dropping it costs nothing operationally and permanently loses the
+artefact this whole finding is about.
 
-The one thing that *will* stop it is the stash step: `client.go` and
-`client_test.go` are untracked in the shared tree **and** tracked on the branch, so
-`git merge` refuses with *"untracked working tree files would be overwritten"*.
-Stashing or deleting them first is the whole fix. **Keep the stash until the merge
-is verified** — the shared copy is the older one (`if err := error(nil); err != nil`,
-which cannot fire), so the branch's version is what you want, but the stash is
-free insurance and `git stash drop` is one command.
+### For the record: it was never blocked
+
+This handoff spent two sessions saying the merge had to wait on "the other
+session" that owned `client.go`. **There was no other session.** The goal file's
+own ownership note said so — written by that session about itself, then false:
+
+> "a live agent (`coding`) is working in this repo right now … Do not commit here"
+
+That session wrote `client.go` at 14:36, hit a disk-full error at 15:33, and never
+returned. Seven hours idle while I reported it as mid-task. The check is one
+command:
 
 ```bash
-go build ./... && go vet ./... && gofmt -l ./internal/     # must be clean
-export POSTGRES_DB='postgres:smoke_pw@127.0.0.1:5436/stash-box-test?sslmode=disable'
-make it
-git push origin master
+for p in $(ls /proc | grep -E '^[0-9]+$'); do
+  readlink /proc/$p/cwd 2>/dev/null | grep -q stash-box && \
+    tr '\0' '\n' < /proc/$p/environ | grep -m1 '^HERMES_HOME='
+done
 ```
+
+**An untracked file is evidence that nobody is tracking it, not that someone is
+working on it.** I read its mtime as proof of an owner — and that mtime was two
+hours *later* than the session's last real activity, which is evidence of the
+opposite. I never compared the two numbers.
 
 ---
 
@@ -298,9 +287,10 @@ schema-level backstop available instead is a scheme check, which would stop
    *serves* it. This is a judgement call and the one place a reasonable person
    would choose differently.
 
-3. **Did not merge into `master`.** The shared tree is a second checkout of
-   the same repo and the merge is a destructive-looking operation on someone
-   else's working state — worth one confirmation, not worth two sessions.
+3. **Left the untracked `.hermes-tmp.8hyL22` in place.** A leftover temp copy of
+   the feature-04 plan from the session that died; it is not referenced by
+   anything, and removing another session's scratch file is not worth a
+   irreversible step. It is the only thing `git status` still reports.
 
 4. **Did not weaken the per-page and per-type assertions** in the notification
    tests. A leaked row is not that test's to page through, and raising `perPage` to
@@ -333,7 +323,8 @@ schema-level backstop available instead is a scheme check, which would stop
 
 ## Open items
 
-1. **The merge above.** No longer blocked on anything. See the evidence.
+1. **`git stash drop`** in the stash-box tree, when you are satisfied with the
+   merged `client.go`. Nothing else is outstanding.
 2. **Issue #9** — a live defect, needs a tri-state input type.
 3. **Rule 1 on four columns** — scanner only, by choice (above).
 4. **125 `enhancement` issues** and the feature roadmap (17 RFCs, feature-01…05) —

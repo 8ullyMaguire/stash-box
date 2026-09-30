@@ -954,12 +954,16 @@ another session" was inferred from a file's mtime and never tested against
 `/proc`. Recorded here because SPEC is what the next session reads first, and a
 false blocker in it is expensive.
 
-**Start at `docs/track/HANDOFF-R074.md`.** It carries the first action verbatim,
-the environment block, every gate with its output, the four things to know before
-touching this code, what was deliberately *not* done and why, and the traps paid
-for as rules. The mutation obligation is committed beside it at
-`docs/track/mutations/` — 85 mutations across ten specs, runnable — so the claims
-here can be re-verified rather than trusted.
+**Start at `docs/track/HANDOFF-R074.md`.** It carries the environment block, every
+gate with its output, the four things to know before touching this code, what was
+deliberately *not* done and why, and the traps paid for as rules. The mutation
+obligation is committed beside it at `docs/track/mutations/` — 85 mutations across
+ten specs, runnable — so the claims here can be re-verified rather than trusted.
+
+**D2 is on `master`, green and pushed** (2026-09-30 23:05, `422a2f28`): 28 commits
+fast-forwarded from `d3934900`, then `make it` run **in `master` itself** rather
+than in the worktree it was built in — 30 packages, no failures. The one line still
+outstanding in that handoff is `git stash drop`, which is optional.
 
 The verdict sat unreadable while the blocker was real, which was the right call
 then and is worth recording now: a row saying "done" against a half-landed branch

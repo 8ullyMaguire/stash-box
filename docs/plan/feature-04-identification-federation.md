@@ -404,7 +404,12 @@ Third, and the one that cost two sessions: **do not treat another session's
 artefact as another session.** The file's mtime looked like an active owner. It was
 seven hours stale, and `readlink /proc/*/cwd` plus `HERMES_HOME` in the environ
 would have said so immediately. An untracked file is evidence that no one is
-tracking it, not that someone is working on it.*
+tracking it, not that someone is working on it.
+
+*Resolved 2026-09-30 23:05: `master` fast-forwarded to `422a2f28` and is green.
+The merge was never blocked, and it was a fast-forward rather than a conflict —
+described from memory, it was reported as a conflict on `client.go` for a session
+before anyone ran `git merge-base --is-ancestor`.*
 
 **Step 6 (2026-09-30, `8338a797`, `cdb90055`) — the plan asked for one wiring
 step; the guard was unreachable from two directions, and each needed its own

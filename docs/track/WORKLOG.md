@@ -5510,3 +5510,68 @@ it actually describes.
 Also corrected: 7 feature plans → 8 (two phase plans were missing from the table
 entirely), and the suite-run table in `HANDOFF-R074.md` (21 runs, not 19) with the
 commit count 24 → 26.
+
+## 2026-09-30 23:05 — merged to `master`, and the blocker was a note in the goal file
+
+Re-read `GOAL-stash-box.md` rather than my summary of it, and its **body** settles
+what three sessions of reporting had open:
+
+> **Work here:** `~/code-local/go/stash-box`, branch **`master`**
+
+The merge was never another session's to do. And at L179:
+
+> "a live agent (`coding`) is working in this repo right now … **Do not commit,
+> clean, or `git add -A` here**"
+
+**That note was false, and the dead session wrote it about itself.** It committed
+`f5601107` at 12:35, wrote `client.go` at 14:36, hit a disk-full error at 15:33, and
+never returned. It has been idle ever since. A later session read the note as fact
+and stopped working for two sessions; I then wrote "another session's untracked
+file" into four documents, hardens by repetition, and reported the merge as blocked
+three times running.
+
+**Two errors, and they are not the same one:**
+
+- the goal file *asserted* an ownership that did not exist, in a warning box that
+  reads like a constraint;
+- I *inherited* it and re-asserted it without ever running the one command that
+  tests it.
+
+*An ownership note in a handoff document is a claim with a 50/50 prior, not a fact.
+The moment "another session's file" appears in three places I wrote myself, I could
+no longer tell which statements I had measured.*
+
+### The merge
+
+```bash
+git stash push -u -- internal/service/federation/client.go \
+                   internal/service/federation/client_test.go
+git merge --ff-only r074-receiving-guard
+```
+
+**A fast-forward.** `master` was an ancestor of the branch throughout, so nothing
+conflicted — and the previous handoff section spent a paragraph telling the reader
+to resolve a conflict on `client.go` that could not occur, because I described the
+merge from memory rather than running `git merge-base --is-ancestor master`. Twice
+in one session I answered a question about git from memory when git would answer it
+in one command.
+
+`d3934900..422a2f28`, 28 commits, then verified **in `master`** rather than in the
+worktree it was built in:
+
+| Gate | Result |
+|---|---|
+| `gofmt -l ./internal/` | empty |
+| `go build ./...` | exit 0 |
+| `go vet ./...` | exit 0 |
+| `make it` | **30 packages**, 0 failures |
+| `git push origin master` | `d3934900..422a2f28`, **0 unpushed** |
+
+**`stash@{0}` is kept deliberately.** It is the only copy of the original
+`client.go` — `error(nil)` at line 96, where the merged version has `q.Validate()`
+at 132. It is the artefact the whole "a guard that never ran" finding is about, and
+dropping it is irreversible for no operational gain.
+
+Left in place: `docs/plan/.hermes-tmp.8hyL22`, the dead session's scratch copy of
+this very plan. Unreferenced, and removing another session's file is not worth an
+irreversible step. It is the only line `git status` still reports.
