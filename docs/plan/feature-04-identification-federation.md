@@ -196,10 +196,12 @@ go test ./internal/service/federation/ -run TestSelectPeers -v
 2. Change `n <= 0` to `n < 0` → the `n == 0` case goes red.
 3. Drop negative similarities from the sort → the disjoint-taste case goes red.
 
-## Step 4 — the broadcast payload type
+## Step 4 — the broadcast payload type — DONE (`7704600c`)
 
 **File:** `internal/service/federation/wire.go` (new),
-`wire_test.go` (new).
+`wire_test.go` (new). Plus `ask.go` / `ask_test.go` / `addr_drift_test.go`,
+added because the reflection test alone does not make F1 true — see the note at
+the end of this section.
 
 **This step exists to make F1 checkable.** "Content never broadcasts" is only
 meaningful if the payload cannot carry content, so the type is defined first and
@@ -241,6 +243,39 @@ type Answer struct {
 ```bash
 go test ./internal/service/federation/ -run TestWire -v
 ```
+
+### Step 4 notes — what the plan did not say
+
+Implemented as planned, with two additions the tests forced and one deliberate
+narrowing.
+
+**Added: `ask.go` (`Question.Validate` + the value-level content check).** The
+plan's Step 4 only asked for the payload type and a reflection test. That proves
+the field *types* cannot hold content — but every field in `Question` is a
+`string`, and a string holds `/etc/passwd`. The structural half is necessary and
+not sufficient, so `Validate` runs on the way out and rejects (never truncates)
+suspicious values. Three defects it found, all recorded in the commit:
+
+- a bare `"://"` substring check rejected the legitimate names `AC/DC` and any
+  description containing "the http:// era" → now scheme-aware;
+- a bare IP as a candidate name passed everything → now parsed and classified;
+- `metadata.google.internal` passed everything → now a closed hostname list,
+  because a hostname has nothing to parse.
+
+**Added: `addr_drift_test.go`.** `federation.isInternalIP` duplicates
+`webhook.isPublicIP` rather than importing it. The test exists only to make that
+duplication fail loudly if one side moves.
+
+**Narrowed: the length caps reject rather than truncate.** The plan did not say
+which. Truncation returns answers to a *different* question and two operators
+comparing answers cannot tell, so `Validate` returns an error naming both the
+actual and maximum length, and leaves the question unmodified.
+
+**Deviation on the drift test's mechanism:** `webhook.isPublicIP` is unexported,
+so the comparison goes through `webhook.ValidateTarget`, comparing two
+implementations that both answer "may the box reach this address?". This is
+weaker than comparing the predicates directly and is noted here so nobody reads
+the green as a stronger claim than it is.
 
 ## Step 5 — the client, and the local storage of answers
 
@@ -314,4 +349,23 @@ Expect `{"data":{"federationPeers":[]}}` on a fresh instance, not an error.
 
 ## Deviations
 
-_(none yet)_
+**Step 4 (2026-09-30, `7704600c`) — three, all recorded above.** Added a
+value-level content guard the plan did not ask for, because the plan's own F1
+requirement is not met by a reflection test alone; added a drift test for a
+deliberate duplication; and chose rejection over truncation for the length caps,
+which the plan did not specify either way.
+
+**Step 3 (2026-09-30, `f5601107`) — the `n<=0` guard is asserted white-box.** Its
+behaviour is identical with and without the guard, because the final truncation
+produces the same empty result. Two attempts to kill the `n<0` mutant through
+the return value failed. `TestNGuardIsExplicit` reads the source instead, so a
+later edit cannot delete the guard as redundant — which is how it looks from the
+outside.
+
+**Step 3 — three of `Cosine`'s guards are individually removable and every
+removal survives the suite.** Measured over 81 adversarial pairs, not reasoned
+about (reasoning gave the wrong answer twice): a zero-magnitude-only guard leaves
+31 pairs returning NaN, while the non-finite-denominator and non-finite-result
+guards are each sufficient alone. The leading NaN/Inf input scan was therefore
+deleted rather than left as untestable insurance, and the two surviving guards
+are kept because they cover two different *steps* of the arithmetic.

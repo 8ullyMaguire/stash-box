@@ -4995,3 +4995,60 @@ roadmap**, which is the larger of the two halves of the goal.
 **Next: `docs/plan/feature-03b-*.md` §1.1 — the content access gate.**
 
 ---
+
+## 2026-09-30 ~12:20–13:10 — D2 step 4: broadcast payload and the F1 content guard
+
+`7704600c`, pushed to origin + forgejo. Steps 1–4 of 6 now done.
+
+**What this step was actually for.** F1 is "content never broadcasts". The plan
+asked for the payload type plus a reflection test over its fields, and that is
+the right instinct for the wrong reason: the reflection test proves the field
+*types* cannot hold content, and every field in `Question` is a `string`. A
+string holds `/etc/passwd`. So the structural half was necessary and not
+sufficient, and `ask.go` adds the value half.
+
+**Three real defects the tests found, in the order they appeared.**
+
+1. A bare `"://"` substring check rejected `AC/DC` and any description
+   containing "the http:// era". This was a **false positive on real data**, and
+   it only showed up because the test file has a negative control that must pass.
+   Now scheme-aware: `scheme + "://"` against a named list.
+2. A bare IP as a candidate name passed every check. It has no scheme, no slash,
+   no `..`. Now parsed with `net.ParseIP` and classified — by parsing rather than
+   by substring, because a substring check on the digits rejects "Studio 54".
+3. `metadata.google.internal` passed everything. A hostname has nothing to parse,
+   and resolving one inside a validator is precisely what must not happen. Now a
+   closed hostname list.
+
+**Two bugs in my own tests, both of which produced a misleading green.** Recorded
+because they are the same failure shape this project keeps hitting:
+
+- `TestUrlSchemesIsReachable` iterated the **live** `urlSchemes` list. Deleting
+  `"file"` from the source therefore deleted the test case that would have
+  noticed. A test derived from the code under test is self-defeating in exactly
+  the way a source-scanning test whose scanner matches zero things is. Now
+  hard-coded.
+- The traversal case was `"../../../../etc/shadow"`, which also contains
+  `/etc/`, so removing the `".."` marker survived. Each marker now has a case
+  containing nothing else.
+
+**A methodology error worth not repeating.** Two mutations reported SURVIVED
+when the python `str.replace` had simply not matched the gofmt-aligned source
+(alignment moved the trailing comment, so my exact match failed). Two of those
+"survivors" were not survivors. A mutation that did not apply is not a surviving
+mutation — mutate by line position or assert the edit landed, and treat a
+surviving result as unproven until the file is confirmed changed. One run also
+reported a 60s timeout that turned out to be the concurrently-running full
+suite competing for the build cache, not a hang in the code.
+
+**Deliberate duplication, guarded.** `federation.isInternalIP` duplicates
+`webhook.isPublicIP` rather than importing it — importing couples the peer
+registry to the webhook feature's release cycle. `addr_drift_test.go` exists
+solely to make that duplication fail loudly. The shared `internal/netguard` is
+the real fix and stays deferred (HANDOFF-SPLIT.md D5).
+
+**Verification.** 9 mutations against step 4, all 9 killed. `go build ./...` and
+`go vet ./...` both exit 0. `go test ./internal/service/federation/` green.
+The full `make it` was **not** re-run against this tree: the one baseline in
+flight was compiling this package while I was mutating it, so its result would
+mean nothing. It is killed and the next batch starts with a clean full run.
