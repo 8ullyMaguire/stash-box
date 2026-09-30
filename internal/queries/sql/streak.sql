@@ -30,7 +30,17 @@
 -- showed up and their edit was rejected, which is participation, not absence --
 -- and filtering on a positive count would zero out a day for a user whose
 -- activity is all rejections and quietly end their streak.
-SELECT DISTINCT date_trunc('day', created_at)::timestamptz AS day
+-- `date_trunc` alone, WITHOUT a cast back to timestamptz.
+--
+-- The cast was the bug: date_trunc returns midnight in the DATABASE's zone, and
+-- ::timestamptz re-reads that wall-clock time as an instant, so the driver renders
+-- it in the HOST's zone. The two disagree whenever the host's calendar date and the
+-- database's differ -- at 00:05 local on 2026-10-01 against 22:05 UTC on 09-30, the
+-- same day came back as YearDay 274 against 273 and ActiveToday went false for an
+-- event created a minute earlier. Returning the truncated value uncast keeps it a
+-- timestamp WITHOUT time zone, so there is no instant for the driver to convert
+-- and every comparison stays in the database's frame of reference.
+SELECT DISTINCT date_trunc('day', created_at) AS day
 FROM trust_events
 WHERE user_id = $1
 ORDER BY day DESC;

@@ -49,11 +49,25 @@ func ptr(u uuid.UUID) *uuid.UUID { return &u }
 // the one the database would use -- a host whose clock is a minute fast makes
 // "active today" false for an event that landed two seconds ago, and the failure
 // looks like a streak bug rather than a clock bug.
+// dbNow returns "now" as a time.Time carrying the DATABASE's timezone, not the
+// host's.
+//
+// The reason is a day-boundary bug this used to have. `sameDay` compares calendar
+// dates by YearDay in each value's OWN location, so an event row read back over
+// the wire arrives in the host's zone while `today` -- read from the same instant
+// via SELECT now() -- carries the database's. Those two land on different calendar
+// dates whenever the host's date and UTC's date differ, and ActiveToday goes false
+// for an event created a minute earlier. It reproduced on 2026-10-01 00:05 local
+// against 2026-09-30 22:05 UTC: YearDay 274 against 273.
+//
+// Asking PostgreSQL to hand back the value already in its own zone, rather than
+// letting pgx convert it, puts both sides of every comparison in one frame of
+// reference -- which is the property the streak package depends on.
 func dbNow(t *testing.T) time.Time {
 	t.Helper()
 	var now time.Time
 	require.NoError(t, dbtest.DB().QueryRow(context.Background(),
-		"SELECT now()").Scan(&now))
+		"SELECT now() AT TIME ZONE current_setting('TIMEZONE')").Scan(&now))
 	return now
 }
 
