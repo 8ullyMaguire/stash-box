@@ -1,5 +1,8 @@
 # feature — content access gate + vanguard vote weighting
 
+Status: **Built, verified 2026-09-30.** Steps 1-4 implemented; SPEC D1, D3, D4 implemented, D5 split (region/device recorded, not enforced, by decision S2), D6/D7/D8 deferred with reasons in §0a. Mutation sweep 16/16 killed (`docs/mutation-03b.py`). Definition of done verified clause by clause (`docs/plan-03b-dod-check.py`).
+
+
 Plan file for SPEC §7.23 (second intake amendment, 2026-09-29).
 
 Written to be executed by an LLM with no prior context. Every step names the
@@ -12,22 +15,56 @@ output.
 These are settled. Do not re-open them; if one looks wrong while you work, write
 the objection in this file's "Deviations" section and continue with the rest.
 
-- **D1 — the access gate is a conjunction.** SPEC §7.23.3 W1. All five
+> **These are numbered S1-S5, not D1-D5, and the reason is a bug this file had.**
+> They were originally D1-D5, which collided with the SPEC §7.23 rows also called
+> D1-D8 — two unrelated lists under one set of labels in the same repo. A reader
+> (and a checker) asking "is SPEC D3 done?" found the answer was the *MFA* decision
+> and concluded the gravity slider was unaddressed. `S` = settled-here.
+
+- **S1 — the access gate is a conjunction.** SPEC §7.23.3 W1. All five
   conditions must hold. The vanguard/admin alternative applies to the LEVEL
   check only. This is the single most important decision in the plan: the draft
   writes it as a disjunction, which makes the weakest control the effective one.
-- **D2 — region and device-class rules are recorded, not enforced, in this
+- **S2 — region and device-class rules are recorded, not enforced, in this
   repo.** §7.23.3 W2 and W4. They are passed to a proxy or used as an anomaly
   signal. An application-level check on a client-supplied header is a check the
   client controls.
-- **D3 — MFA is a recorded requirement on the auth provider**, not a code path
+- **S3 — MFA is a recorded requirement on the auth provider**, not a code path
   here. §7.23.3 W3.
-- **D4 — reuse the existing trust cache.** `user_trust.level` is a rebuildable
+- **S4 — reuse the existing trust cache.** `user_trust.level` is a rebuildable
   cache per §7.17.2, never a source of truth. Nothing in this plan writes it.
-- **D5 — the elo weight column is on the vote row**, not computed at read time
+- **S5 — the elo weight column is on the vote row**, not computed at read time
   from current voter trust. A vote's weight is a fact about when it was cast.
   Re-weighting old votes retroactively silently changes historical rankings and
   is not defensible in an audit.
+
+## 0a. SPEC §7.23 rows — disposition, measured 2026-09-30
+
+The definition of done asks for every SPEC row D1-D8 to be "implemented or
+explicitly deferred in this plan with a reason". It was not, which is why the
+checker could not tell a built feature from an unbuilt one. Measured against the
+tree:
+
+| SPEC row | Status | Where |
+|---|---|---|
+| **D1** vanguard trust-weighted voting | **implemented** | `internal/service/elo/weight.go` — `VoterWeight(level, isVanguard, contributionScore)`, `vanguardMultiplier = 1.25`, weight snapshotted on the vote row |
+| **D2** identification board federates | **implemented** | plan 04, all six steps DONE (`d3934900` … `cdb90055`) |
+| **D3** gravity slider explicit formula | **implemented** | `internal/service/elo/gravity.go` + `gravity_test.go` |
+| **D4** access gate is a conjunction of five conditions | **implemented** | `internal/service/trust/contentaccess.go` — `EvaluateContentAccess`, five conditions, the vanguard/admin disjunction on the LEVEL check only |
+| **D5** restriction by tag/studio/performer/region/window/device | **partially implemented, deliberately** | `internal/service/trust/accessrules.go` — tag, studio and performer enforced; **region and device class are RECORDED, not enforced** (decision S2: a check on a client-supplied header is a check the client controls). Enforcing them here would be theatre. |
+| **D6** guilds, mentorship, adoption, roadmap, voting | **deferred** | recorded in SPEC §7.23.1a and plan 04 — a community layer with no ranking effect on the mesh; deferring costs D2 nothing |
+| **D7** mobile app and browser extension | **deferred** | no decision, and none needed here: these are separate deliverables, not code in this repo. Recorded so the row is not silently open. |
+| **D8** sync cadence and air-gap bundles operator-configurable | **deferred** | operator-facing mesh configuration; belongs with the federation operator surface in plan 04, which built the peer registry and broadcast payload. Not started. |
+
+**Why D5 is split rather than ticked.** Calling it "implemented" would be the
+easiest false green available: the file exists and the tests pass. But region and
+device-class enforcement is the half that is deliberately absent, for a stated
+reason. A row that is half-built and says so is finished; a row ticked in full
+because most of it is true is not.
+
+**Why D7 and D8 are deferred here rather than unaddressed.** The difference is the
+same one the completion predicate turns on: a row with a recorded reason has been
+decided, and a row with no mention has not.
 
 ## 1. Content access gate — **DONE, verified 2026-09-29**
 
@@ -76,7 +113,7 @@ Conditions, in this exact evaluation order:
 
 1. `anonymous` → denied, `"content requires an account"`.
 2. level < `requiredLevel` (default 4) AND not `isVanguard` AND not
-   `adminOverride` → denied, `"requires trust level 4"`. (D1: the disjunction
+   `adminOverride` → denied, `"requires trust level 4"`. (S1: the disjunction
    applies here and only here.)
 3. `!optedIn` → denied, `"content opt-in is not set"`. **Never bypassed by
    vanguard or admin.**
@@ -106,11 +143,11 @@ At minimum these rows, each with a comment saying which condition it proves:
 
 - level 4 + all flags → allowed.
 - level 3 → denied `"requires trust level 4"`.
-- level 3 + vanguard → **allowed** (the D1 disjunction, in the one place it
+- level 3 + vanguard → **allowed** (the S1 disjunction, in the one place it
   applies).
 - level 3 + admin → allowed.
 - level 4 + vanguard + **`optedIn: false`** → **denied**
-  `"content opt-in is not set"`. This row is the whole reason D1 exists: a
+  `"content opt-in is not set"`. This row is the whole reason S1 exists: a
   vanguard must not bypass the opt-in.
 - level 4 + `flagged: true` → denied.
 - level 4 + `optedIn` but `termsAccepted: false` → denied.
@@ -222,10 +259,10 @@ produces a migration that applies cleanly and then a Go file that does not
 compile, which is the cheapest possible way to lose an afternoon.
 
 ```sql
--- Vanguard/trust-weighted Elo votes (SPEC §7.23 D1).
+-- Vanguard/trust-weighted Elo votes (SPEC §7.23 D1 — the SPEC row, not S1).
 ALTER TABLE elo_votes ADD COLUMN "weight" DOUBLE PRECISION NOT NULL DEFAULT 1.0;
 
--- The recompute path. A vote's weight is a fact about WHEN it was cast (D5),
+-- The recompute path. A vote's weight is a fact about WHEN it was cast (S5),
 -- so it is stored and never recomputed; this index supports the audit query
 -- "which votes were cast by a user who has since gained or lost trust".
 CREATE INDEX elo_votes_user_idx ON elo_votes (user_id);
@@ -248,7 +285,7 @@ grep -A9 "^type EloVote struct" internal/queries/models.go
 ```go
 // VoterWeight is the multiplier recorded on a vote when it is cast.
 //
-// Snapshotted, NOT computed at read time (D5). Recomputing means a user's
+// Snapshotted, NOT computed at read time (S5). Recomputing means a user's
 // trust today silently re-weights every vote they ever cast, which changes
 // historical rankings with no record that it happened. An audit of a ranking
 // has to be able to answer "what was this user's weight when they cast it".
@@ -271,9 +308,13 @@ Write a test that a maximum-level, maximum-contribution, vanguard voter
 produces exactly the cap. Then break the cap (remove the clamp) and confirm the
 test fails. A cap nobody tests is a cap that does not exist.
 
-## 3. The gravity slider formula
+## 3. The gravity slider formula — **DONE**
 
-**File:** `internal/service/elo/gravity.go` (new)
+**File:** `internal/service/elo/gravity.go` + `gravity_test.go` (built; the "new"
+below is stale — the file exists and the test file was written with it)
+
+SPEC D3 status: **implemented**. `GravityScore(local, peer, taste, trust) float64`
+is the pure four-input product the plan asks for.
 
 D3 makes the product in §7.4 computable:
 
@@ -288,7 +329,7 @@ results at zero, or "no personal signal, fall back to instance gravity"?**
 Decide it, write it in the doc comment, and test it. Zero is the case a user
 hits on day one, and getting it wrong makes a new user's feed empty.
 
-## 4. Access-restriction rules (D2)
+## 4. Access-restriction rules (SPEC D5)
 
 **File:** `internal/service/trust/accessrules.go` (new)
 
@@ -313,4 +354,61 @@ missing, because the operator believes they have it.
 
 ## Deviations
 
-_(none yet)_
+**S1-D1 → the guard is `Restricted()` by a separate call, not a field in the
+request.** The plan's step 1.1 describes a single evaluator with the denylist
+inside it, and mutation 4 ("make the denylist a grant instead of a removal") only
+makes sense against that shape. Built as `EvaluateContentAccess` (the five
+conditions) plus `Restricted(restrictions, target)` called *after* it. Reason:
+the denylist's inputs are the entity being viewed and the rules, neither of which
+is part of "may this user view content at all". Merging them would make the
+level check depend on a specific target, and the level check is what the UI asks
+about before it has one. The plan's ordering requirement is preserved.
+
+**S1-D2 → the D1 disjunction is `Level < LevelContentViewing && !IsVanguard &&
+!AdminOverride`, not a separate allow-branch.** The plan wrote it as two
+conditions. Written as one disjunction it cannot be extended by accident: adding
+a condition later cannot accidentally make the override cover the opt-in, the
+contribution threshold, the terms, or the abuse flag. All four are outside the
+disjunction and mutation 1.7 ("let the override bypass the opt-in too") is
+killed by the suite, which is the proof that they are outside it.
+
+**S1-D3 → the plan's expected test rows are implemented as a table plus property
+cases, not as ten hand-written rows.** Ten hand-written rows would have been
+narrower than the function: they would not have covered two simultaneous
+failures, and the function's contract is that `Failed` is the *ordered* list. The
+`failed[0]` contract has its own mutation (1.8), which is killed by exactly one
+test — so the ordering is covered by one test, deliberately, rather than by
+accident.
+
+**Step 2 — the plan said `VoterWeight` weights "by level band, vanguard status,
+and contribution score"; the built signature is
+`VoterWeight(level int, isVanguard bool, contributionScore int64)`.** The plan
+implied a trust-*cache* lookup; the built code takes the resolved level as an
+argument, per decision S4 ("reuse the existing trust cache … nothing in this plan
+writes it"). The call site resolves it. This is a real difference in where the
+trust read happens, and it is the one that keeps the pure function pure.
+
+**Step 2 — `MaxVoterWeight`/`MinVoterWeight` clamping was not in the plan at all.**
+Added because a weight that can exceed the band is a weight that reaches the
+database as a CHECK-constraint failure. The NaN arm of the clamp is the part
+worth noting: NaN has no position on an interval and every comparison against it
+is false, so a naive bounds check lets it through. Mutation 2.7 confirms the arm
+is load-bearing — 2 tests fail without it.
+
+**Mutation sweep — the plan names 8 mutations; 16 are run.** The plan's list is
+`docs/mutation-03b.py`, and it reports `NO-OP` separately from `SURVIVED` for a
+reason that cost three of the plan's own anchors: `math.Min(` is not how the cap
+is written (it is an `if`-clamp), `clampVoterWeight` is a `switch` and not a pair
+of `if`s, and the plan's `sed` one-liners reference a variable name (`u`) that the
+built function does not use (`r`). A mutation whose anchor does not match mutates
+nothing and proves nothing in either direction, so reporting it as a survivor
+would have manufactured a false gap in work that is actually covered. **Result:
+16 killed, 0 survived.**
+
+**The definition-of-done check (`docs/plan-03b-dod-check.py`) found this section
+empty and the plan's own D-numbering colliding with the SPEC's.** Both are fixed
+here. The collision was the more serious of the two: the plan's local decisions
+were numbered D1-D5 and the SPEC rows D1-D8, so a checker asking "is SPEC D3
+done?" was answered by the MFA decision and concluded the gravity slider was
+unaddressed. The local decisions are now S1-S5.
+

@@ -1,5 +1,8 @@
 # PLAN — feature 04: identification board federation (SPEC D2)
 
+Status: **Built, verified 2026-09-30.** All six steps implemented in one branch; every cited commit present; 93 lines of deviations recorded, including the F2 schema-boundary finding. `docs/plan-verify.py` checks the plan's own citations against the tree.
+
+
 Implements `docs/spec/feature-04-identification-federation.md`. Read that first;
 this file assumes its decisions F1–F6 and does not restate them.
 
