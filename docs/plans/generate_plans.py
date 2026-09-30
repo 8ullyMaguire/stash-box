@@ -177,8 +177,16 @@ def attach_titles(fixes: dict[int, dict]) -> None:
 
 
 def diff_excerpt(commit: str, path: str, limit: int = 60) -> str:
-    """The hunks that touched one file, trimmed. This is the plan's substance."""
-    raw = git("show", commit, "--format=", "--", path)
+    """The hunks that touched one file, trimmed. This is the plan's substance.
+
+    --abbrev=7 is required, not cosmetic. Git picks the abbreviation length from
+    the repo's object count, so it grew from 7 to 8 as the fork added commits.
+    Every plan embedding an `index ` line then differed from its regeneration by
+    exactly that, and --check -- a byte-exact comparison -- went red for 18 plans
+    whose content was perfectly correct. A staleness check must not depend on how
+    big the repository happens to be.
+    """
+    raw = git("show", commit, "--format=", "--abbrev=7", "--", path)
     if not raw.strip():
         return ""
     lines = raw.split("\n")

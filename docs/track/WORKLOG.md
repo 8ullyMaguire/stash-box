@@ -5459,3 +5459,54 @@ asserts a **broadcast-level** refusal. A per-peer failure would mean the questio
 still reached the wire, just somewhere else.
 
 **8/8 killed, including reverting the guard back to `error(nil) != nil`.**
+
+## 2026-09-30 22:40 — the repo's own staleness check was red, and the plans were innocent
+
+Asked to update the docs, so I checked which of their claims were false rather
+than editing by feel. `docs/plans/README.md` says:
+
+> "This is the check CI should run: a fix committed without a matching plan
+> should fail the build."
+> `python3 docs/plans/generate_plans.py --check    # exits non-zero if any plan is stale`
+
+It exits **1**, listing 18 of 24 plans as stale.
+
+**None of them were stale.** `diff_excerpt` embeds git's `index ` line verbatim,
+and git picks the abbreviation length from the repository's object count. It grew
+from 7 to 8 characters as this fork added commits, so every plan containing an
+`index ` line differed from its regeneration by exactly those two extra hex
+digits. Verified by normalising `[0-9a-f]{7,8}` to a placeholder on both sides:
+**18 of 18 differed by nothing else, 0 had a real content difference.**
+
+`--abbrev=7` on the `git show` fixes it, and reproduces the committed text exactly.
+After it, `--check` is `rc=0`, and regenerating all 25 plans changes **zero** files.
+
+```bash
+python3 docs/plans/generate_plans.py --check   # rc=0: all 24 up to date
+```
+
+**The tempting wrong fix is regenerating**, and it is worse than doing nothing:
+it would have committed 18 plans' worth of unrelated diff lines and taught nobody
+anything, while leaving the check red on the next commit that changed the object
+count. The check was not measuring staleness. It was measuring the size of the
+repository.
+
+*Generalisable: a byte-exact staleness check must not embed anything that varies
+with the environment it runs in. Git's default abbreviation length is one of
+those things, and so is a timestamp, a hostname, a path prefix, and a `git status`
+line. If a check goes red after you add commits and the content looks right, the
+check is the thing that is wrong — count how many failures differ by a single
+character before you "fix" any of them.*
+
+### Two directories, one README, and a "none of these is implemented" that was half false
+
+`docs/plans/` (generated, 26 issue + 8 feature plans) and `docs/plan/`
+(hand-written, 3 plans) are **disjoint** and the README documented only the first.
+So it claimed "None of these is implemented" while `docs/plan/feature-04
+-identification-federation.md` — D2 — is complete, six steps, all mutation-tested.
+Both directories now named in a table, with the claim scoped to the roadmap phases
+it actually describes.
+
+Also corrected: 7 feature plans → 8 (two phase plans were missing from the table
+entirely), and the suite-run table in `HANDOFF-R074.md` (21 runs, not 19) with the
+commit count 24 → 26.

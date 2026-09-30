@@ -1000,7 +1000,7 @@ Six items, checked rather than asserted:
 | Requirement | State |
 |---|---|
 | `go build ./...`, `go vet ./...` clean | **met** |
-| `go test ./...` green, no test deleted or weakened | **met** — 30 packages. 18 full-suite runs; runs 15–17 were the notification failures described below, fixed rather than retried away |
+| `go test ./...` green, no test deleted or weakened | **met** — 30 packages. 21 full-suite runs; runs 15–16 were the notification failures described below, fixed rather than retried away |
 | Every mutation in the plan killed, or the missing test written | **met** — **89 killed across ten harnesses** (13 guard, 7 wiring, 11 #708, 11 surface, 8 F2, 7 dial-time, 9 image url, 8 foreign-candidates, 3 issue-9, 8 client). Every survivor was a TEST defect or DEAD CODE, never an unfixed hole — see the records below, and the two survivors in `9e794f9c` that were real gaps in the tests |
 | Broadcast payload has no field capable of holding media, proven by reflection | **met** — `TestWireFieldTypesAreClosed`, `TestWireHasNoURLOrPathField` (`7704600c`) |
 | A foreign candidate provably cannot reach the local vote path, **proven by a test that attempts it and expects a rejection** | **met, and it was NOT before** — see below |

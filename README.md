@@ -30,9 +30,20 @@ ours".
 issue-fixes..master` is exactly the fork's own work, and a diff of the two
 branches is exactly the set of PRs this fork would open upstream.
 
+That invariant is checkable, and checking it costs one command:
+
+```bash
+git rev-list --count master..issue-fixes     # must be 0 — master has nothing issue-fixes lacks
+```
+
+Last measured 2026-09-30: **0** behind, 64 ahead. A non-zero there means the
+guarantee is already broken and the fix is a rebase, not a merge.
+
 ### What's built here
 
-Phase 1–2 complete, Phase 3 in progress:
+Phase 1–2 complete, Phase 3 in progress, and **the D2 federation work complete**
+(2026-09-30, branch `r074-receiving-guard` — see
+[`docs/track/HANDOFF-R074.md`](docs/track/HANDOFF-R074.md)):
 
 - **Trust levels** — recomputed from event rows, never tallied into a column
 - **Elo / Glicko-2** ranking with personal taste fingerprints
@@ -40,7 +51,18 @@ Phase 1–2 complete, Phase 3 in progress:
 - **Completion scores**, **curation quests**, bounties, XP, derived badges, streaks
 - **Directory** for sites and studios, with user reviews
 - **Content access gate** — five conditions as a conjunction, never a disjunction
+  (`internal/service/trust/contentaccess.go`)
 - **Webhooks** — SSRF-guarded targets, HMAC-SHA256 signatures, replay windows
+  (`internal/webhook/`)
+- **Federation, D2** — peer registry with a write-time guard on `base_url`, the
+  taste-based peer selector, the broadcast payload, the client, and the
+  **foreign-evidence store**. Two boundaries are structural rather than
+  conventional: a question cannot carry a path, a URL or an internal hostname
+  (F1, checked in `Question.Validate` — `internal/service/federation/ask.go` — before it reaches any peer), and a foreign
+  candidate has **no column that can hold a local entity id**, so it cannot reach
+  the local vote path by any code path (F2). Both are mutation-tested.
+
+D2 is built and tested but **not yet merged into `master`**.
 
 ### Security work worth knowing about
 
@@ -52,6 +74,14 @@ so they are written first and mutation-tested before any service code exists:
   `::ffff:127.0.0.1` (IPv4-mapped loopback) are all rejected. Re-validated on
   **every delivery attempt**, because a hostname that resolves publicly at
   registration resolves privately at send time.
+- **Federation, R074** — a peer's `base_url` is guarded at write time *and*
+  re-checked at **dial time**, for the same reason: a name that resolves publicly
+  when a peer is registered resolves privately when the request is sent, and
+  that gap is the whole of a DNS-rebinding attack. Three "cannot tell" cases —
+  no resolver, resolver error, empty answer — all refuse rather than pass, since
+  a guard that allows what it cannot answer is the worst outcome available.
+  `federation_peers.base_url` previously had **no validator at all**;
+  `webhook_endpoints.target_url` already did, and was left alone.
 - **Webhook signatures** — `hmac.Equal`, not `==`; the timestamp is inside the
   signed material so a captured delivery cannot be replayed.
 - **Content access** — the draft spec writes five conditions as a disjunction,
@@ -67,8 +97,15 @@ a mutation test that proves the test can fail.
 ## Documentation
 
 - `docs/SPEC.md` — the specification, including every rejection and its reasoning
-- `docs/plan/` — one plan file per feature, each executable by an LLM with no prior context
+- `docs/plan/` — hand-written feature plans, each executable by an LLM with no prior context
+- `docs/plans/` — **generated** plans, one per solved issue, plus the feature roadmap.
+  Regenerate or verify with `python3 docs/plans/generate_plans.py [--check]`; the
+  `--check` form is green and is the check CI should run.
 - `docs/track/WORKLOG.md` — the session log, including the mistakes
+- `docs/track/HANDOFF-R074.md` — what the receiving-guard work did, and the one merge still outstanding
+
+`docs/plan/` and `docs/plans/` are **disjoint**, one character apart, and only the
+second is generated. Confusing them is easy; `docs/plans/README.md` says which is which.
 
 ## License
 

@@ -1,6 +1,6 @@
 # R074 + D2 — handoff
 
-**Status: the exit condition is MET. D2 is complete. 24 commits, 0 unpushed.**
+**Status: the exit condition is MET. D2 is complete. 26 commits, 0 unpushed.**
 Branch `r074-receiving-guard`, forked from `master` at `d3934900`.
 Worktree `~/code-local/worktrees/stash-box-r074`. Profile `coding-2`.
 The shared tree at `~/code-local/go/stash-box` was **never touched** — still
@@ -17,7 +17,7 @@ One thing remains that is not this worktree's to do, and it is a merge:
 
 ```bash
 cd ~/code-local/worktrees/stash-box-r074
-git log --oneline -1        # 3061fa92, expect clean, 0 unpushed
+git log --oneline -1        # 311f3bd7, expect clean, 0 unpushed
 ```
 
 **Read `9e794f9c` before merging.** It brought another session's untracked
@@ -70,7 +70,7 @@ product defect before reading the error.
 | build | `go build ./...` | exit 0 |
 | vet | `go vet ./...` | clean |
 | format | `gofmt -l ./internal/` | empty |
-| suite | `make it` | `EXIT=0`, **30 packages** |
+| suite | `make it` | `EXIT=0`, **30 packages**, 21 runs, green at every commit since run 17 |
 | mutations | `mutate_r074.py <spec>` (see below) | **85 killed across ten harnesses** |
 
 Suite runs, all 19 recorded, logs at
@@ -80,7 +80,7 @@ Suite runs, all 19 recorded, logs at
 run  1-14: ok=29 FAIL=0            before the notification fixes
 run    15: ok=29 FAIL=3  ---FAIL=2 TestQueryNotifications{Pagination,TypeFilter}
 run    16: ok=29 FAIL=3  ---FAIL=1 TestDownvoteNotificationSurvivesWhileOtherRejectsStand
-run 17-19: ok=30 FAIL=0            green at the final commit
+run 17-21: ok=30 FAIL=0            green from the fix onward, incl. at every commit since
 ```
 
 **Runs 15 and 16 were real failures, not flukes.** Do not re-run until green —

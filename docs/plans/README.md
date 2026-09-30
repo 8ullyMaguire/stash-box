@@ -5,7 +5,21 @@ is written to be executed by an LLM **with no prior context on this codebase**:
 the defect stated, the root cause with `file:line` anchors, the change, the
 tests, and the exact command that verifies each step.
 
-**26 issue plans, 7 feature plans, 1 generator.**
+**26 issue plans, 8 feature plans, 1 generator** — in `docs/plans/`.
+
+There is a **second, hand-written** plan directory, `docs/plan/` (singular), and
+the two are disjoint. Confusing them is easy and it has already cost a session:
+
+| Directory | What it holds | Maintained by |
+|---|---|---|
+| `docs/plans/` | one generated plan per issue + the feature roadmap | `generate_plans.py` |
+| `docs/plan/` | hand-written feature plans and the upstream PR port plan | by hand |
+
+`docs/plan/feature-04-identification-federation.md` is **D2, and it is complete** —
+six steps, all mutation-tested. The roadmap table below does not list it, and the
+"none of these is implemented" line below does not describe it, because the two
+directories are separate lineages of planning and the README had drifted to
+describe only the first.
 
 | | |
 |---|---|
@@ -25,9 +39,13 @@ Start at `feature-00-roadmap.md` for the dependency order and sizing.
 | [`feature-03-directory-ecosystem.md`](feature-03-directory-ecosystem.md) | reviews, site directory, public API and webhooks, Stash integration, browser extension | 01, 02 |
 | [`feature-04-federation-preservation.md`](feature-04-federation-preservation.md) | federation protocol, taste-based peering, preservation replication, cross-instance discovery | 01–03 |
 | [`feature-05-mobile-awards-recommendations.md`](feature-05-mobile-awards-recommendations.md) | recommendation engine, annual awards, curation campaigns, mobile app | 01–04 |
+| [`feature-phase-2-curation-engine.md`](feature-phase-2-curation-engine.md) | curation engine, phase 2 | 01 |
+| [`feature-phase-4-federation-mesh.md`](feature-phase-4-federation-mesh.md) | federation mesh, phase 4 | 01–03 |
 
-**None of these is implemented.** All of it lands on the `main` branch; the
-issue fixes live on `issue-fixes`. See
+**None of the seven roadmap phases above is implemented.** All of that lands on
+the `main` branch; the issue fixes live on `issue-fixes`. The hand-written plans in
+`docs/plan/` are the exception and carry their own status — read the plan, not
+this file. See
 [`publishing-plan.md`](publishing-plan.md). Phases 1 and 2 are each larger than all 26
 issues combined, and Phase 4 is a protocol design that cannot be correct before
 Elo produces stable taste vectors — taste is a peering input.
@@ -44,6 +62,24 @@ python3 docs/plans/generate_plans.py --check    # exits non-zero if any plan is 
 
 This is the check CI should run: a fix committed without a matching plan should
 fail the build.
+
+**It is green, and getting it there found a real defect in the generator itself.**
+`--check` compares each plan byte-for-byte against its regeneration, and
+`diff_excerpt` embedded git's `index ` line verbatim. Git chooses the abbreviation
+length from the repository's object count, so it grew from 7 to 8 characters as
+this fork added commits — and **18 of 24 plans went red on that alone**, their
+content perfectly correct. `--abbrev=7` on the `git show` makes the output
+independent of repo size. A staleness check that depends on how big the repository
+is not measuring staleness.
+
+```bash
+python3 docs/plans/generate_plans.py --check   # rc=0: all 24 up to date
+```
+
+This is the shape of trap the rest of these docs keep hitting: the check was
+red, and the *plans* were the innocent party. Had someone "fixed" it by
+regenerating, they would have committed 18 unrelated diff lines and learned
+nothing.
 
 ```bash
 python3 docs/plans/generate_plans.py             # rewrite every issue plan
