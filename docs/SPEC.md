@@ -1080,15 +1080,21 @@ can be perfect and the commons can still acquire a path from a peer.
 | Half | Where | State |
 |---|---|---|
 | **Sending** — a question carries no content, no path, no address | `internal/service/federation/wire.go` `Question` + `ask.go` `Validate` | **done**, `7704600c` |
-| **Receiving** — a `base_url` the box dials is validated | `internal/service/federation/baseurl.go` `ValidateBaseURL` | **built, NOT wired**, `23da1f6a` |
+| **Receiving** — a `base_url` the box dials is validated | `baseurl.go` `ValidateBaseURL`, called from `service.go` `Create`/`Update` | **built and wired**, `23da1f6a` + `e2ee78b1` |
 | **Schema** — nothing that can hold an address is unguarded | `internal/service/federation/schema_scan.go` | **built, scanning only** |
 
-**Read that middle row before relying on it.** The guard is proven (13/13
-mutations killed) and it is currently **unreachable**: `CreateFederationPeer` and
-`UpdateFederationPeer` have no Go caller, because the peer registry service is
-SPEC D2 **step 6** and does not exist. Until step 6 calls `ValidateBaseURL` at
-write time, the column is still writable by anything that gets a database handle
-and the guard proves nothing about production. See §7A.3.
+**Read the middle row carefully — it is wired, but not yet reachable.** The write
+path exists and both `Create` and `Update` validate before anything is persisted
+(21 mutations killed across the two harnesses). `Factory.Federation()` is wired.
+**But nothing calls `Factory.Federation()` yet**, because the only caller would be
+the GraphQL operator surface, which is D2 step 6's other half and is deliberately
+not built here.
+
+So the precise statement is: **the guard now covers every path this package
+owns**, and the path that would bypass it — a caller building its own
+`queries.New(f.db)` handle from the pool — is still open, as is the schema-level
+possibility of encoding the rule as a `CHECK` constraint. This closes when the
+operator surface lands and becomes the only caller. See §7A.3 and §7A.5.
 
 ### 7A.2 The seven address-shaped columns, measured
 
@@ -1177,10 +1183,17 @@ this surface.
 
 ### 7A.5 What this repo still owes
 
-1. **Wire `ValidateBaseURL` at write time** (D2 step 6). Until then §7A.1's
-   middle row is a claim about a function nobody calls.
+1. ~~Wire `ValidateBaseURL` at write time~~ — **done, `e2ee78b1`**. `Create` and
+   `Update` both validate; the D2 step 6 GraphQL surface is the remaining piece,
+   and it is the only thing that would make `Factory.Federation()` reachable.
 2. **Re-validate at dial time.** Rule 2's second half, and the rebinding window
-   is the reason the webhook validator exists in the shape it does.
+   is the reason the webhook validator exists in the shape it does. **This is now
+   the top open item.** It cannot be done in this branch: the dialer
+   (`client.go`, D2 step 5's second half) exists only as an **untracked file in
+   the shared tree**, owned by the session working on D2. Writing a dial-time
+   check here would mean writing a second dialer, so this item belongs with
+   whoever lands `client.go` — it should call `ValidateBaseURL` on the way out,
+   not only on the way in.
 3. **Decide whether the five stored-URL columns need write-time value checks.**
    An owner decision, and it interacts with PR #736.
 4. **Stash side:** `HANDOFF-SPLIT.md` §4 still says the receiving half "does not
