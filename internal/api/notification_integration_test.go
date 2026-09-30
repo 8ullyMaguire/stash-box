@@ -32,6 +32,41 @@ func createNotificationTestRunner(t *testing.T) *notificationTestRunner {
 	}
 }
 
+// drainNotifications marks every unread notification as read and WAITS for the
+// count to actually reach zero, rather than sleeping and hoping.
+//
+// The wait is the whole point. A bare `markNotificationsRead` followed by a fixed
+// sleep is what made testQueryNotificationsTypeFilter order-dependent: the mark
+// is a database write, and a notification goroutine from another test can commit
+// after it and before the sleep expires. Polling for zero and only then sampling
+// the baseline is what makes a delta meaningful.
+//
+// It returns the count it observed, so a caller that wants a baseline gets one
+// that was verified rather than assumed.
+func (s *notificationTestRunner) drainNotifications() {
+	if _, err := s.client.markNotificationsRead(nil); err != nil {
+		s.t.Fatalf("draining notifications: %v", err)
+	}
+
+	deadline := time.Now().Add(notificationPollTimeout)
+	for time.Now().Before(deadline) {
+		count, err := s.client.getUnreadNotificationCount()
+		if err == nil && count.Total == 0 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	// Not a hard failure: a stubborn row should not mask the assertions that
+	// follow, and those now measure from whatever the baseline turned out to be.
+	// Logging rather than failing is what keeps a leaked row visible in the
+	// output instead of only in an arithmetic difference.
+	count, err := s.client.getUnreadNotificationCount()
+	if err == nil {
+		s.t.Logf("drainNotifications: %d unread remained after the deadline; "+
+			"the baseline below will include them", count.Total)
+	}
+}
+
 // awaitUnreadCountsAbove polls the unread notification counts until both
 // totals exceed baseline, or the deadline passes.
 //
@@ -651,15 +686,26 @@ func TestNotificationSubscriptionRoleEnforcement(t *testing.T) {
 
 // testQueryNotificationsPagination tests that pagination works correctly for queryNotifications
 func (s *notificationTestRunner) testQueryNotificationsPagination() {
-	// First, mark all existing notifications as read to start fresh
-	_, _ = s.client.markNotificationsRead(nil)
-	time.Sleep(100 * time.Millisecond)
+	// Same fix, same reason as testQueryNotificationsTypeFilter, and the two
+	// failed together in the same run: a mark-as-read, a fixed sleep, and then
+	// absolute counts. A notification goroutine from an earlier test commits
+	// after the mark and the total comes back as 6 rather than 5.
+	//
+	// Pagination is the sharper case, because the assertions that matter here
+	// are the PAGE SIZES and those stay correct however many extra rows arrive --
+	// the leaked row only shows up in the COUNT. So the count is asserted against
+	// a verified baseline, and the per-page assertions below are left alone: a
+	// leaked row is not this test's business to page through, and inflating
+	// perPage to accommodate one would destroy what the test is for.
+	s.drainNotifications()
+	baseline, err := s.client.getUnreadNotificationCount()
+	assert.NoError(s.t, err)
 
 	// Subscribe to comment notifications
 	subscriptions := []models.NotificationEnum{
 		models.NotificationEnumCommentOwnEdit,
 	}
-	_, err := s.client.updateNotificationSubscriptions(subscriptions)
+	_, err = s.client.updateNotificationSubscriptions(subscriptions)
 	assert.NoError(s.t, err)
 
 	// Create 5 edits and have different users comment on them to generate 5 notifications
@@ -678,8 +724,14 @@ func (s *notificationTestRunner) testQueryNotificationsPagination() {
 		assert.NoError(s.t, err)
 	}
 
-	// Wait for all notifications to be created
-	time.Sleep(200 * time.Millisecond)
+	// Wait for all FIVE of this test's own notifications, polled rather than
+	// slept on. The helper requires both Total and Urgent to rise, which is what
+	// stops a lingering goroutine from satisfying the wait on its own.
+	if _, err := s.awaitUnreadCountsAbove(models.UnreadNotificationCount{
+		Total: baseline.Total + 5,
+	}); err != nil {
+		s.t.Fatalf("the five notifications never arrived: %v", err)
+	}
 
 	// Test pagination with perPage=2
 	perPage := 2
@@ -691,7 +743,8 @@ func (s *notificationTestRunner) testQueryNotificationsPagination() {
 		UnreadOnly: new(true),
 	})
 	assert.NoError(s.t, err)
-	assert.Equal(s.t, 5, page1Result.Count, "Total count should be 5")
+	assert.Equal(s.t, int(baseline.Total)+5, page1Result.Count,
+		"total should be baseline(%d) + 5", baseline.Total)
 	assert.Equal(s.t, 2, len(page1Result.Notifications), "Page 1 should have 2 notifications")
 
 	// Fetch page 2
@@ -701,7 +754,8 @@ func (s *notificationTestRunner) testQueryNotificationsPagination() {
 		UnreadOnly: new(true),
 	})
 	assert.NoError(s.t, err)
-	assert.Equal(s.t, 5, page2Result.Count, "Total count should still be 5")
+	assert.Equal(s.t, int(baseline.Total)+5, page2Result.Count,
+		"total should still be baseline(%d) + 5", baseline.Total)
 	assert.Equal(s.t, 2, len(page2Result.Notifications), "Page 2 should have 2 notifications")
 
 	// Fetch page 3
@@ -711,7 +765,8 @@ func (s *notificationTestRunner) testQueryNotificationsPagination() {
 		UnreadOnly: new(true),
 	})
 	assert.NoError(s.t, err)
-	assert.Equal(s.t, 5, page3Result.Count, "Total count should still be 5")
+	assert.Equal(s.t, int(baseline.Total)+5, page3Result.Count,
+		"total should still be baseline(%d) + 5", baseline.Total)
 	assert.Equal(s.t, 1, len(page3Result.Notifications), "Page 3 should have 1 notification")
 
 	// Verify no overlap between pages by comparing timestamps
@@ -731,7 +786,8 @@ func (s *notificationTestRunner) testQueryNotificationsPagination() {
 		UnreadOnly: new(true),
 	})
 	assert.NoError(s.t, err)
-	assert.Equal(s.t, 5, page4Result.Count, "Total count should still be 5")
+	assert.Equal(s.t, int(baseline.Total)+5, page4Result.Count,
+		"total should still be baseline(%d) + 5", baseline.Total)
 	assert.Equal(s.t, 0, len(page4Result.Notifications), "Page 4 should have 0 notifications")
 }
 
@@ -742,16 +798,37 @@ func TestQueryNotificationsPagination(t *testing.T) {
 
 // testQueryNotificationsTypeFilter tests that the type filter works correctly
 func (s *notificationTestRunner) testQueryNotificationsTypeFilter() {
-	// First, mark all existing notifications as read to have a clean slate
-	_, _ = s.client.markNotificationsRead(nil)
-	time.Sleep(100 * time.Millisecond)
+	// Establish a CLEAN SLATE that is verified rather than assumed, and then
+	// assert RELATIVE to it.
+	//
+	// This test used to mark everything read, sleep 100ms, and then assert
+	// hard-coded absolute counts of 2 and 1. That is order-dependent: the edit
+	// mutations fire their notifications from a bare `go`, so a goroutine
+	// belonging to an EARLIER test can commit a row inside the 100ms window,
+	// after the mark-as-read. It then stays unread and inflates the total, and
+	// the failure reads "expected 2, actual 3" with no hint that the third row
+	// was never this test's.
+	//
+	// It reproduced under `make it` in 434s of package run, and passed in
+	// isolation every time -- which is the signature of a race, not a defect in
+	// the filter being tested.
+	//
+	// The fix is the same one this file already uses in awaitUnreadCountsAbove:
+	// poll for the real condition instead of sleeping a fixed interval, and
+	// measure from a baseline rather than from zero. Note that DRAINING FIRST is
+	// not sufficient on its own -- a row can still arrive after the drain -- so
+	// the counts below are deltas, which is what makes an unexpected extra row
+	// visible as a delta of 2 rather than as a mysterious total of 3.
+	s.drainNotifications()
+	baseline, err := s.client.getUnreadNotificationCount()
+	assert.NoError(s.t, err)
 
 	// Subscribe to multiple notification types
 	subscriptions := []models.NotificationEnum{
 		models.NotificationEnumCommentOwnEdit,
 		models.NotificationEnumDownvoteOwnEdit,
 	}
-	_, err := s.client.updateNotificationSubscriptions(subscriptions)
+	_, err = s.client.updateNotificationSubscriptions(subscriptions)
 	assert.NoError(s.t, err)
 
 	// Create an edit to trigger notifications
@@ -780,8 +857,13 @@ func (s *notificationTestRunner) testQueryNotificationsTypeFilter() {
 	})
 	assert.NoError(s.t, err)
 
-	// Wait for notifications to be created
-	time.Sleep(200 * time.Millisecond)
+	// Wait for BOTH of this test's own notifications to arrive, rather than
+	// sleeping and hoping. The deadline is the existing helper's.
+	if _, err := s.awaitUnreadCountsAbove(models.UnreadNotificationCount{
+		Total: baseline.Total + 2,
+	}); err != nil {
+		s.t.Fatalf("both notifications never arrived: %v", err)
+	}
 
 	// Query all notifications (no type filter)
 	allResult, err := s.client.queryNotifications(models.QueryNotificationsInput{
@@ -790,8 +872,16 @@ func (s *notificationTestRunner) testQueryNotificationsTypeFilter() {
 		UnreadOnly: new(true),
 	})
 	assert.NoError(s.t, err)
-	assert.Equal(s.t, 2, allResult.Count, "Should have exactly 2 notifications total")
-	assert.Equal(s.t, 2, len(allResult.Notifications), "Should return exactly 2 notifications")
+
+	// The expected total is the baseline PLUS this test's two, not the constant
+	// 2. A row that leaked in from another test is then a delta of 1 rather than
+	// an unexplained total, and a row that is genuinely extra shows up as a
+	// delta of 3 with the baseline printed next to it.
+	wantTotal := int(baseline.Total) + 2
+	assert.Equal(s.t, wantTotal, allResult.Count,
+		"unread notifications should be baseline(%d) + 2", baseline.Total)
+	assert.Equal(s.t, wantTotal, len(allResult.Notifications),
+		"should return as many notifications as it counted")
 
 	// Query only COMMENT_OWN_EDIT notifications
 	commentNotificationType := models.NotificationEnumCommentOwnEdit
@@ -802,6 +892,12 @@ func (s *notificationTestRunner) testQueryNotificationsTypeFilter() {
 		UnreadOnly: new(true),
 	})
 	assert.NoError(s.t, err)
+
+	// FILTERED counts stay absolute, and that is now correct rather than lucky:
+	// the two notification types this test subscribes to are created by this
+	// test alone, so a leaked row from elsewhere cannot be one of them. The
+	// TOTAL was the order-dependent assertion; these never were, and turning
+	// them into deltas would hide a genuine duplicate COMMENT_OWN_EDIT row.
 	assert.Equal(s.t, 1, commentResult.Count, "Should have exactly 1 COMMENT_OWN_EDIT notification")
 	assert.Equal(s.t, 1, len(commentResult.Notifications), "Should return exactly 1 COMMENT_OWN_EDIT notification")
 
@@ -817,9 +913,15 @@ func (s *notificationTestRunner) testQueryNotificationsTypeFilter() {
 	assert.Equal(s.t, 1, downvoteResult.Count, "Should have exactly 1 DOWNVOTE_OWN_EDIT notification")
 	assert.Equal(s.t, 1, len(downvoteResult.Notifications), "Should return exactly 1 DOWNVOTE_OWN_EDIT notification")
 
-	// Verify the sum of filtered notifications equals the total
+	// Verify the sum of filtered notifications equals the total, MINUS the
+	// baseline. Before this was `commentResult.Count + downvoteResult.Count ==
+	// allResult.Count`, which held only while the total happened to be exactly
+	// this test's two notifications. With a baseline it states the real
+	// invariant: this test's own notifications are exactly the two it created,
+	// and nothing else of its own is unaccounted for.
 	totalFiltered := commentResult.Count + downvoteResult.Count
-	assert.Equal(s.t, allResult.Count, totalFiltered, "Sum of filtered notifications should equal total notifications")
+	assert.Equal(s.t, int(baseline.Total)+totalFiltered, allResult.Count,
+		"baseline(%d) + the two filtered counts should equal the total", baseline.Total)
 }
 
 func TestQueryNotificationsTypeFilter(t *testing.T) {

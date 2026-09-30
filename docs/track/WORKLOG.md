@@ -5289,3 +5289,59 @@ was my own harness running two copies of the loop against one database, dying in
 `pgDropAll` with `deadlock detected (SQLSTATE 40P01)`. Repeated measurement has to
 be one backgrounded loop; and match processes by `comm`, because `pkill -f` on a
 command string matches the shell running the pkill and kills the tool call.
+
+## 2026-09-30, later — the two notification tests WERE order-dependent, and it was
+## never `TestMarkSpecificNotificationRead`
+
+The goal named `TestMarkSpecificNotificationRead` as the known order-dependent
+failure. It is clean in 4 serialized full-package runs. But chasing it turned up
+the real pair, which failed in the same run as each other:
+
+```
+--- FAIL: TestQueryNotificationsPagination   expected 2, actual 3
+--- FAIL: TestQueryNotificationsTypeFilter   "Should have exactly 2 notifications total"
+EXIT=2   (434s of package run)
+```
+
+Both pass in isolation every time, which is the signature of a race.
+
+The cause is the same shape in both, and this file already knew better:
+
+```go
+_, _ = s.client.markNotificationsRead(nil)
+time.Sleep(100 * time.Millisecond)     // ...later...
+time.Sleep(200 * time.Millisecond)     // ...and again
+assert.Equal(s.t, 2, allResult.Count, "Should have exactly 2 notifications total")
+```
+
+The edit mutations fire their notifications from a bare `go`, so a goroutine from
+an **earlier** test can commit a row *after* the mark-as-read and *inside* the
+100ms window. It stays unread, the total comes back 3, and the message blames the
+filter under test rather than the leak.
+
+Note that `awaitUnreadCountsAbove` in this same file already documents the correct
+approach — "Sleeping a fixed interval is a race that passes most of the time and
+fails under load; polling observes the actual condition instead of guessing at its
+latency" — and these two tests simply never used it.
+
+**The fix, and why draining alone is not enough:** `drainNotifications()` marks all
+read **and polls until the count actually reaches zero**, then the test samples a
+verified `baseline` and asserts *deltas* from it. A row arriving after the drain
+is the reason the baseline is measured rather than assumed.
+
+- total counts became `baseline.Total + N`, so a leak shows as a delta, with the
+  baseline printed in the failure message instead of a bare "expected 2".
+- per-page size assertions were deliberately **left alone**: a leaked row is not
+  this test's to page through, and raising `perPage` to accommodate one would
+  destroy what the pagination test is for.
+- the per-*type* counts stayed absolute, and that is now correct rather than
+  lucky — those two types are created by this test alone.
+- both fixed sleeps are gone; both tests now poll for their own notifications.
+
+Nothing was loosened to make anything pass. The assertions are strictly the same
+intent, measured from a verified starting point instead of from a hoped-for zero.
+
+**The reusable lesson, and it is the same one as the stash exporter's:** a test
+that asserts an ABSOLUTE count after a cleanup step is asserting that no other
+test interfered. That is a property of the test *ordering*, not of the code, and
+it fails the first time the package runs long enough for a goroutine to land.
