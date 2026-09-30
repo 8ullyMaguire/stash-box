@@ -191,6 +191,7 @@ const PerformerForm: FC<PerformerProps> = ({
         initial?.hair_color ?? performer?.hair_color ?? null,
       ),
       height: proposedOrCurrent(initial?.height, performer?.height),
+      weight: proposedOrCurrent(initial?.weight, performer?.weight),
       breastType: getEnumValue(
         BREAST,
         initial?.breast_type ?? performer?.breast_type ?? null,
@@ -291,6 +292,7 @@ const PerformerForm: FC<PerformerProps> = ({
       career_start_year: data.career_start_year,
       career_end_year: data.career_end_year,
       height: data.height,
+      weight: data.weight,
       waist_size: data.waistSize,
       hip_size: data.hipSize,
       ethnicity:
@@ -352,6 +354,7 @@ const PerformerForm: FC<PerformerProps> = ({
     { error: errors.career_start_year?.message, tab: "personal" },
     { error: errors.career_end_year?.message, tab: "personal" },
     { error: errors.height?.message, tab: "personal" },
+    { error: errors.weight?.message, tab: "personal" },
     { error: errors.bandSize?.message, tab: "personal" },
     { error: errors.cupSize?.message, tab: "personal" },
     { error: errors.waistSize?.message, tab: "personal" },
@@ -552,6 +555,20 @@ const PerformerForm: FC<PerformerProps> = ({
                 {errors?.height?.message}
               </Form.Control.Feedback>
               <Form.Text>Height in centimeters</Form.Text>
+            </Form.Group>
+
+            <Form.Group controlId="weight" className="col-6 mb-3">
+              <Form.Label>Weight</Form.Label>
+              <Form.Control
+                className={cx({ "is-invalid": errors.weight })}
+                type="number"
+                onWheel={handleNumberInputWheel}
+                {...register("weight")}
+              />
+              <Form.Control.Feedback type="invalid">
+                {errors?.weight?.message}
+              </Form.Control.Feedback>
+              <Form.Text>Weight in kg</Form.Text>
             </Form.Group>
 
             {fieldData.gender !== "MALE" &&

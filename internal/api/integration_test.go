@@ -304,6 +304,7 @@ func (s *testRunner) createFullPerformerCreateInput() *models.PerformerCreateInp
 	haircolor := models.HairColorEnumAuburn
 	country := "Some Country"
 	height := 160
+	weight := 55
 	hip := 23
 	waist := 24
 	band := 25
@@ -339,6 +340,7 @@ func (s *testRunner) createFullPerformerCreateInput() *models.PerformerCreateInp
 		EyeColor:        &eyecolor,
 		HairColor:       &haircolor,
 		Height:          &height,
+		Weight:          &weight,
 		HipSize:         &hip,
 		WaistSize:       &waist,
 		BandSize:        &band,
@@ -746,6 +748,7 @@ func (s *testRunner) createPerformerEditDetailsInput() *models.PerformerEditDeta
 	haircolor := models.HairColorEnumAuburn
 	country := "Some Country"
 	height := 160
+	weight := 55
 	hip := 23
 	waist := 24
 	band := 25
@@ -781,6 +784,7 @@ func (s *testRunner) createPerformerEditDetailsInput() *models.PerformerEditDeta
 		EyeColor:        &eyecolor,
 		HairColor:       &haircolor,
 		Height:          &height,
+		Weight:          &weight,
 		HipSize:         &hip,
 		WaistSize:       &waist,
 		BandSize:        &band,

@@ -91,6 +91,7 @@ type performerOutput struct {
 	EyeColor        *string       `json:"eye_color"`
 	HairColor       *string       `json:"hair_color"`
 	Height          *int          `json:"height"`
+	Weight          *int          `json:"weight"`
 	Measurements    *measurements `json:"measurements"`
 	BreastType      *string       `json:"breast_type"`
 	Genitals        *string       `json:"genitals"`
@@ -250,6 +251,7 @@ type performerDraftOutput struct {
 	EyeColor        *string  `json:"eye_color"`
 	HairColor       *string  `json:"hair_color"`
 	Height          *string  `json:"height"`
+	Weight          *string  `json:"weight"`
 	Measurements    *string  `json:"measurements"`
 	BreastType      *string  `json:"breast_type"`
 	Genitals        *string  `json:"genitals"`

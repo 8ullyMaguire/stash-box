@@ -515,6 +515,7 @@ type ComplexityRoot struct {
 		Updated         func(childComplexity int) int
 		Urls            func(childComplexity int) int
 		WaistSize       func(childComplexity int) int
+		Weight          func(childComplexity int) int
 	}
 
 	PerformerAppearance struct {
@@ -544,6 +545,7 @@ type ComplexityRoot struct {
 		Piercings       func(childComplexity int) int
 		Tattoos         func(childComplexity int) int
 		Urls            func(childComplexity int) int
+		Weight          func(childComplexity int) int
 	}
 
 	PerformerEdit struct {
@@ -582,6 +584,7 @@ type ComplexityRoot struct {
 		Tattoos          func(childComplexity int) int
 		Urls             func(childComplexity int) int
 		WaistSize        func(childComplexity int) int
+		Weight           func(childComplexity int) int
 	}
 
 	PerformerEditOptions struct {
@@ -3589,6 +3592,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Performer.WaistSize(childComplexity), true
+	case "Performer.weight":
+		if e.ComplexityRoot.Performer.Weight == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Performer.Weight(childComplexity), true
 
 	case "PerformerAppearance.as":
 		if e.ComplexityRoot.PerformerAppearance.As == nil {
@@ -3729,6 +3738,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.PerformerDraft.Urls(childComplexity), true
+	case "PerformerDraft.weight":
+		if e.ComplexityRoot.PerformerDraft.Weight == nil {
+			break
+		}
+
+		return e.ComplexityRoot.PerformerDraft.Weight(childComplexity), true
 
 	case "PerformerEdit.added_aliases":
 		if e.ComplexityRoot.PerformerEdit.AddedAliases == nil {
@@ -3940,6 +3955,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.PerformerEdit.WaistSize(childComplexity), true
+	case "PerformerEdit.weight":
+		if e.ComplexityRoot.PerformerEdit.Weight == nil {
+			break
+		}
+
+		return e.ComplexityRoot.PerformerEdit.Weight(childComplexity), true
 
 	case "PerformerEditOptions.set_merge_aliases":
 		if e.ComplexityRoot.PerformerEditOptions.SetMergeAliases == nil {
@@ -7382,6 +7403,8 @@ type Performer {
   hair_color: HairColorEnum
   """Height in cm"""
   height: Int
+  """Weight in kg"""
+  weight: Int
   measurements: Measurements! @deprecated(reason: "Use individual fields, cup/band/waist/hip_size")
   cup_size: String
   band_size: Int
@@ -7441,6 +7464,7 @@ input PerformerCreateInput {
   eye_color: EyeColorEnum
   hair_color: HairColorEnum
   height: Int
+  weight: Int
   cup_size: String
   band_size: Int
   waist_size: Int
@@ -7470,6 +7494,7 @@ input PerformerUpdateInput {
   eye_color: EyeColorEnum
   hair_color: HairColorEnum
   height: Int
+  weight: Int
   cup_size: String
   band_size: Int
   waist_size: Int
@@ -7501,6 +7526,7 @@ input PerformerEditDetailsInput {
   eye_color: EyeColorEnum
   hair_color: HairColorEnum
   height: Int
+  weight: Int
   cup_size: String
   band_size: Int
   waist_size: Int
@@ -7547,6 +7573,8 @@ type PerformerEdit {
   hair_color: HairColorEnum
   """Height in cm"""
   height: Int
+  """Weight in kg"""
+  weight: Int
   cup_size: String
   band_size: Int
   waist_size: Int
@@ -7662,6 +7690,7 @@ input PerformerQueryInput {
   eye_color: EyeColorCriterionInput
   hair_color: HairColorCriterionInput
   height: IntCriterionInput
+  weight: IntCriterionInput
 
   cup_size: StringCriterionInput
   band_size: IntCriterionInput
@@ -7703,6 +7732,7 @@ type PerformerDraft {
   eye_color: String
   hair_color: String
   height: String
+  weight: String
   measurements: String
   breast_type: String
   genitals: String
@@ -7727,6 +7757,7 @@ input PerformerDraftInput {
   eye_color: String
   hair_color: String
   height: String
+  weight: String
   measurements: String
   breast_type: String
   genitals: String
@@ -9532,6 +9563,8 @@ func (ec *executionContext) childFields_Performer(ctx context.Context, field gra
 		return ec.fieldContext_Performer_hair_color(ctx, field)
 	case "height":
 		return ec.fieldContext_Performer_height(ctx, field)
+	case "weight":
+		return ec.fieldContext_Performer_weight(ctx, field)
 	case "measurements":
 		return ec.fieldContext_Performer_measurements(ctx, field)
 	case "cup_size":
@@ -21832,6 +21865,29 @@ func (ec *executionContext) fieldContext_Performer_height(_ context.Context, fie
 	return graphql.NewScalarFieldContext("Performer", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
+func (ec *executionContext) _Performer_weight(ctx context.Context, field graphql.CollectedField, obj *Performer) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Performer_weight(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Weight, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *int) graphql.Marshaler {
+			return ec.marshalOInt2ᚖint(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_Performer_weight(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Performer", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
 func (ec *executionContext) _Performer_measurements(ctx context.Context, field graphql.CollectedField, obj *Performer) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -22878,6 +22934,29 @@ func (ec *executionContext) fieldContext_PerformerDraft_height(_ context.Context
 	return graphql.NewScalarFieldContext("PerformerDraft", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
+func (ec *executionContext) _PerformerDraft_weight(ctx context.Context, field graphql.CollectedField, obj *PerformerDraft) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_PerformerDraft_weight(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Weight, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
+			return ec.marshalOString2ᚖstring(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_PerformerDraft_weight(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("PerformerDraft", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
 func (ec *executionContext) _PerformerDraft_measurements(ctx context.Context, field graphql.CollectedField, obj *PerformerDraft) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -23408,6 +23487,29 @@ func (ec *executionContext) _PerformerEdit_height(ctx context.Context, field gra
 	)
 }
 func (ec *executionContext) fieldContext_PerformerEdit_height(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("PerformerEdit", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _PerformerEdit_weight(ctx context.Context, field graphql.CollectedField, obj *PerformerEdit) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_PerformerEdit_weight(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Weight, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *int) graphql.Marshaler {
+			return ec.marshalOInt2ᚖint(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_PerformerEdit_weight(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("PerformerEdit", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
@@ -36287,7 +36389,7 @@ func (ec *executionContext) unmarshalInputPerformerCreateInput(ctx context.Conte
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"name", "disambiguation", "aliases", "gender", "urls", "birthdate", "deathdate", "ethnicity", "country", "eye_color", "hair_color", "height", "cup_size", "band_size", "waist_size", "hip_size", "breast_type", "genitals", "penis_length", "career_start_year", "career_end_year", "tattoos", "piercings", "image_ids", "draft_id"}
+	fieldsInOrder := [...]string{"name", "disambiguation", "aliases", "gender", "urls", "birthdate", "deathdate", "ethnicity", "country", "eye_color", "hair_color", "height", "weight", "cup_size", "band_size", "waist_size", "hip_size", "breast_type", "genitals", "penis_length", "career_start_year", "career_end_year", "tattoos", "piercings", "image_ids", "draft_id"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -36378,6 +36480,13 @@ func (ec *executionContext) unmarshalInputPerformerCreateInput(ctx context.Conte
 				return it, err
 			}
 			it.Height = data
+		case "weight":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("weight"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Weight = data
 		case "cup_size":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("cup_size"))
 			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
@@ -36515,7 +36624,7 @@ func (ec *executionContext) unmarshalInputPerformerDraftInput(ctx context.Contex
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"id", "disambiguation", "name", "aliases", "gender", "birthdate", "deathdate", "urls", "ethnicity", "country", "eye_color", "hair_color", "height", "measurements", "breast_type", "genitals", "tattoos", "piercings", "career_start_year", "career_end_year", "image"}
+	fieldsInOrder := [...]string{"id", "disambiguation", "name", "aliases", "gender", "birthdate", "deathdate", "urls", "ethnicity", "country", "eye_color", "hair_color", "height", "weight", "measurements", "breast_type", "genitals", "tattoos", "piercings", "career_start_year", "career_end_year", "image"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -36613,6 +36722,13 @@ func (ec *executionContext) unmarshalInputPerformerDraftInput(ctx context.Contex
 				return it, err
 			}
 			it.Height = data
+		case "weight":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("weight"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Weight = data
 		case "measurements":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("measurements"))
 			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
@@ -36685,7 +36801,7 @@ func (ec *executionContext) unmarshalInputPerformerEditDetailsInput(ctx context.
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"name", "disambiguation", "aliases", "gender", "urls", "birthdate", "deathdate", "ethnicity", "country", "eye_color", "hair_color", "height", "cup_size", "band_size", "waist_size", "hip_size", "breast_type", "genitals", "penis_length", "career_start_year", "career_end_year", "tattoos", "piercings", "image_ids", "draft_id"}
+	fieldsInOrder := [...]string{"name", "disambiguation", "aliases", "gender", "urls", "birthdate", "deathdate", "ethnicity", "country", "eye_color", "hair_color", "height", "weight", "cup_size", "band_size", "waist_size", "hip_size", "breast_type", "genitals", "penis_length", "career_start_year", "career_end_year", "tattoos", "piercings", "image_ids", "draft_id"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -36776,6 +36892,13 @@ func (ec *executionContext) unmarshalInputPerformerEditDetailsInput(ctx context.
 				return it, err
 			}
 			it.Height = data
+		case "weight":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("weight"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Weight = data
 		case "cup_size":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("cup_size"))
 			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
@@ -36984,7 +37107,7 @@ func (ec *executionContext) unmarshalInputPerformerQueryInput(ctx context.Contex
 		asMap["sort"] = "CREATED_AT"
 	}
 
-	fieldsInOrder := [...]string{"names", "name", "alias", "disambiguation", "gender", "url", "birthdate", "deathdate", "birth_year", "age", "ethnicity", "country", "eye_color", "hair_color", "height", "cup_size", "band_size", "waist_size", "hip_size", "breast_type", "career_start_year", "career_end_year", "tattoos", "piercings", "is_favorite", "performed_with", "studio_id", "page", "per_page", "direction", "sort"}
+	fieldsInOrder := [...]string{"names", "name", "alias", "disambiguation", "gender", "url", "birthdate", "deathdate", "birth_year", "age", "ethnicity", "country", "eye_color", "hair_color", "height", "weight", "cup_size", "band_size", "waist_size", "hip_size", "breast_type", "career_start_year", "career_end_year", "tattoos", "piercings", "is_favorite", "performed_with", "studio_id", "page", "per_page", "direction", "sort"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -37096,6 +37219,13 @@ func (ec *executionContext) unmarshalInputPerformerQueryInput(ctx context.Contex
 				return it, err
 			}
 			it.Height = data
+		case "weight":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("weight"))
+			data, err := ec.unmarshalOIntCriterionInput2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIntCriterionInput(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Weight = data
 		case "cup_size":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("cup_size"))
 			data, err := ec.unmarshalOStringCriterionInput2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐStringCriterionInput(ctx, v)
@@ -37298,7 +37428,7 @@ func (ec *executionContext) unmarshalInputPerformerUpdateInput(ctx context.Conte
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"id", "name", "disambiguation", "aliases", "gender", "urls", "birthdate", "deathdate", "ethnicity", "country", "eye_color", "hair_color", "height", "cup_size", "band_size", "waist_size", "hip_size", "breast_type", "genitals", "penis_length", "career_start_year", "career_end_year", "tattoos", "piercings", "image_ids"}
+	fieldsInOrder := [...]string{"id", "name", "disambiguation", "aliases", "gender", "urls", "birthdate", "deathdate", "ethnicity", "country", "eye_color", "hair_color", "height", "weight", "cup_size", "band_size", "waist_size", "hip_size", "breast_type", "genitals", "penis_length", "career_start_year", "career_end_year", "tattoos", "piercings", "image_ids"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -37396,6 +37526,13 @@ func (ec *executionContext) unmarshalInputPerformerUpdateInput(ctx context.Conte
 				return it, err
 			}
 			it.Height = data
+		case "weight":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("weight"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Weight = data
 		case "cup_size":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("cup_size"))
 			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
@@ -44626,6 +44763,8 @@ func (ec *executionContext) _Performer(ctx context.Context, sel ast.SelectionSet
 			out.Values[i] = ec._Performer_hair_color(ctx, field, obj)
 		case "height":
 			out.Values[i] = ec._Performer_height(ctx, field, obj)
+		case "weight":
+			out.Values[i] = ec._Performer_weight(ctx, field, obj)
 		case "measurements":
 			field := field
 
@@ -45219,6 +45358,8 @@ func (ec *executionContext) _PerformerDraft(ctx context.Context, sel ast.Selecti
 			out.Values[i] = ec._PerformerDraft_hair_color(ctx, field, obj)
 		case "height":
 			out.Values[i] = ec._PerformerDraft_height(ctx, field, obj)
+		case "weight":
+			out.Values[i] = ec._PerformerDraft_weight(ctx, field, obj)
 		case "measurements":
 			out.Values[i] = ec._PerformerDraft_measurements(ctx, field, obj)
 		case "breast_type":
@@ -45452,6 +45593,8 @@ func (ec *executionContext) _PerformerEdit(ctx context.Context, sel ast.Selectio
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "height":
 			out.Values[i] = ec._PerformerEdit_height(ctx, field, obj)
+		case "weight":
+			out.Values[i] = ec._PerformerEdit_weight(ctx, field, obj)
 		case "cup_size":
 			out.Values[i] = ec._PerformerEdit_cup_size(ctx, field, obj)
 		case "band_size":

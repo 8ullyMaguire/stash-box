@@ -53,7 +53,7 @@ func (q *Queries) CountVotesBetweenEntities(ctx context.Context, arg CountVotesB
 
 const queryMatchupCandidates = `-- name: QueryMatchupCandidates :many
 
-SELECT p.id, p.name, p.disambiguation, p.gender, p.ethnicity, p.country, p.eye_color, p.hair_color, p.height, p.cup_size, p.band_size, p.hip_size, p.waist_size, p.breast_type, p.career_start_year, p.career_end_year, p.created_at, p.updated_at, p.deleted, p.birthdate, p.deathdate
+SELECT p.id, p.name, p.disambiguation, p.gender, p.ethnicity, p.country, p.eye_color, p.hair_color, p.height, p.cup_size, p.band_size, p.hip_size, p.waist_size, p.breast_type, p.career_start_year, p.career_end_year, p.created_at, p.updated_at, p.deleted, p.birthdate, p.deathdate, p.genitals, p.penis_length, p.weight
 FROM performers p
 JOIN elo_ratings r ON r.entity_id = p.id AND r.entity_type = $1
 WHERE p.deleted = FALSE
@@ -147,6 +147,9 @@ func (q *Queries) QueryMatchupCandidates(ctx context.Context, arg QueryMatchupCa
 			&i.Deleted,
 			&i.Birthdate,
 			&i.Deathdate,
+			&i.Genitals,
+			&i.PenisLength,
+			&i.Weight,
 		); err != nil {
 			return nil, err
 		}

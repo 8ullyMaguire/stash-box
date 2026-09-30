@@ -7,9 +7,9 @@ package queries
 
 import (
 	"context"
+	"time"
 
 	"github.com/gofrs/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const countUserActivityDays = `-- name: CountUserActivityDays :one
@@ -29,7 +29,7 @@ func (q *Queries) CountUserActivityDays(ctx context.Context, userID uuid.UUID) (
 
 const listUserActivityDays = `-- name: ListUserActivityDays :many
 
-SELECT DISTINCT date_trunc('day', created_at)::timestamptz AS day
+SELECT DISTINCT date_trunc('day', created_at)::timestamp AS day
 FROM trust_events
 WHERE user_id = $1
 ORDER BY day DESC
@@ -65,15 +65,31 @@ ORDER BY day DESC
 // showed up and their edit was rejected, which is participation, not absence --
 // and filtering on a positive count would zero out a day for a user whose
 // activity is all rejections and quietly end their streak.
-func (q *Queries) ListUserActivityDays(ctx context.Context, userID uuid.UUID) ([]pgtype.Timestamptz, error) {
+// Cast to `timestamp`, explicitly, and NOT to timestamptz.
+//
+// The cast was the bug: date_trunc returns midnight in the DATABASE's zone, and
+// ::timestamptz re-reads that wall-clock time as an instant, so the driver renders
+// it in the HOST's zone. The two disagree whenever the host's calendar date and the
+// database's differ -- at 00:05 local on 2026-10-01 against 22:05 UTC on 09-30, the
+// same day came back as YearDay 274 against 273 and ActiveToday went false for an
+// event created a minute earlier. Returning the truncated value uncast keeps it a
+// timestamp WITHOUT time zone, so there is no instant for the driver to convert
+// and every comparison stays in the database's frame of reference.
+//
+// The cast target is load-bearing for a second reason: bare `date_trunc` is
+// inferred by sqlc as an INTERVAL, which is wrong -- truncating a timestamp does
+// not produce a duration -- and it silently changed this function's return type
+// from []time.Time to []pgtype.Interval. `timestamp` is the type the value
+// actually has.
+func (q *Queries) ListUserActivityDays(ctx context.Context, userID uuid.UUID) ([]time.Time, error) {
 	rows, err := q.db.Query(ctx, listUserActivityDays, userID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []pgtype.Timestamptz{}
+	items := []time.Time{}
 	for rows.Next() {
-		var day pgtype.Timestamptz
+		var day time.Time
 		if err := rows.Scan(&day); err != nil {
 			return nil, err
 		}

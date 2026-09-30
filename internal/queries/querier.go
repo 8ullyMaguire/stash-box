@@ -6,12 +6,84 @@ package queries
 
 import (
 	"context"
+	"time"
 
 	"github.com/gofrs/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type Querier interface {
+	// Marks a query dead. Distinct from leaving it open: an abandoned query is one the
+	// community voted down, and re-surfacing it in the queue forever is how a board
+	// fills with questions nobody wants.
+	AbandonIdentificationQuery(ctx context.Context, id uuid.UUID) (IdentificationQuery, error)
+	// Gives up permanently. The row is KEPT, not deleted, because "this endpoint
+	// failed four times and was abandoned" is the answer to the question a user asks
+	// when their integration silently stopped working.
+	AbandonWebhookDelivery(ctx context.Context, arg AbandonWebhookDeliveryParams) error
+	AddAuthoredQuestItem(ctx context.Context, arg AddAuthoredQuestItemParams) (AuthoredQuestItem, error)
+	// Proposes a candidate.
+	//
+	// The unique (query_id, entity_type, entity_id) means one suggestion per entity
+	// per query: re-suggesting is not more signal, and allowing it would let one
+	// person weight the vote.
+	AddIdentificationCandidate(ctx context.Context, arg AddIdentificationCandidateParams) (IdentificationCandidate, error)
+	// Record that `alternative_site_id` is an alternative to `site_id`.
+	//
+	// The self-link is prevented by the table's CHECK and NOT re-checked here. Adding
+	// `WHERE site_id <> $2` would make the insert silently match zero rows instead of
+	// failing, and a caller that does not check the error would report a successful
+	// write for a row that was never created. Failing loudly is the right behaviour for
+	// a constraint violation: it is a programming error, not a user error.
+	AddSiteAlternative(ctx context.Context, arg AddSiteAlternativeParams) (SiteAlternative, error)
+	// Applies one event's effect to the rollup, creating the row if absent.
+	//
+	// The totals are incremented rather than recomputed by replaying events, so
+	// recording a trust event is O(1) regardless of how much history a user has.
+	// The signed delta works for both directions: a rejected edit decrements the
+	// same column an approval incremented.
+	//
+	// ON CONFLICT (user_id) DO UPDATE is required because a user with no rollup row
+	// yet (every new user) has to be created on first event.
+	// The per-kind terms are the SIGNED DELTA, not a literal 1.
+	//
+	// They used to be literal 1, which is why every caller passed Delta: 1 and the
+	// column could only ever count whole contributions. A bounty needs its magnitude
+	// to reach bonus_points, and a reversal needs -1 to come back out, so the
+	// magnitude cannot live in the caller and be ignored here.
+	//
+	// Rejected edits are already the sign-flipped term (-delta), which is the one
+	// place the sign convention differs: 'edit_rejected' moves rejected_edits, and a
+	// REVERSAL of a rejection moves it back.
+	ApplyTrustEvent(ctx context.Context, arg ApplyTrustEventParams) (UserTrust, error)
+	// Claims a set of snapshots for a collage.
+	//
+	// The WHERE clause on collage_id IS NULL is a claim, not a filter: if a snapshot
+	// was claimed by a concurrent generation between the SELECT and this UPDATE, the
+	// row does not match and is not taken. That is the optimistic-concurrency guard.
+	//
+	// :execrows rather than :exec, and that is load-bearing. Without the returned count
+	// the caller cannot tell a complete claim from a partial one, and a partial claim
+	// produces a collage with fewer frames than its own frame_count says -- a broken
+	// strip that renders as though it were fine. The caller compares the count against
+	// the number it asked for and rolls back on a shortfall.
+	//
+	// array_unnest over a UUID[] is how sqlc passes a set; there is no variadic form
+	// in Postgres and unnest is the idiomatic one.
+	AssignSnapshotsToCollage(ctx context.Context, arg AssignSnapshotsToCollageParams) (int64, error)
 	CancelUserEdits(ctx context.Context, userID uuid.NullUUID) error
+	// THE CLAIM. A guarded UPDATE, never a check-then-write.
+	//
+	// Two curators claiming the last item in a quest must not both get it, and
+	// SELECT-then-UPDATE cannot express that: both read "unclaimed", both write. The
+	// WHERE claimed_by IS NULL is the whole concurrency control, and it holds the gap
+	// shut because the UPDATE takes the row lock before evaluating it.
+	//
+	// An item already claimed by SOMEONE ELSE returns no rows (ErrNoRows), which the
+	// service reports as "already claimed" rather than as a failure. An item already
+	// claimed by the SAME curator returns the row, so claiming twice is idempotent --
+	// a retried request must not tell a curator they lost a race they won.
+	ClaimAuthoredQuestItem(ctx context.Context, arg ClaimAuthoredQuestItemParams) (AuthoredQuestItem, error)
 	// Only clear once NO reject votes remain on the edit.
 	//
 	// A DOWNVOTE_OWN_EDIT notification is per (author, edit), not per vote, so it
@@ -21,14 +93,91 @@ type Querier interface {
 	// one).
 	ClearDownvoteEditNotifications(ctx context.Context, id uuid.UUID) error
 	ClearScenePerformerAlias(ctx context.Context, arg ClearScenePerformerAliasParams) error
+	// The count of items a quest holds, used to refuse authoring more than the
+	// target rather than silently truncating.
+	CountAuthoredQuestItems(ctx context.Context, questID uuid.UUID) (int64, error)
+	// How many votes an entity has taken part in, across both sides. Feeds the
+	// leaderboard's "needs more votes" marker and any minimum-confidence filter.
+	CountEloVotesForEntity(ctx context.Context, arg CountEloVotesForEntityParams) (int64, error)
+	// How many entities of a type have at least this much MISSING weight.
+	//
+	// Expressed as missing weight rather than as a score, because the WEIGHTS live in
+	// Go, in `internal/service/completion/score.go`, and this is a query. Three ways to
+	// bridge that gap, and the other two are worse:
+	//
+	//   - Recompute the score in SQL. Then the formula exists twice and the copies
+	//     drift the first time a weight changes -- silently, because both still
+	//     return a plausible number.
+	//   - Store the score. Then it is a second source of truth beside the columns it
+	//     summarises, and the first edit that skips the refresh leaves it wrong.
+	//
+	// So this asks the question the formula answers -- how much weight is MISSING --
+	// and the comparison against the threshold happens in ONE place, the service.
+	// The weights below are a real duplication, confined to constants rather than to a
+	// formula, and `TestTheSQLWeightsMatchTheGoWeights` fails the build when the two
+	// copies disagree.
+	//
+	// EVERY TERM IS CAST: `(NOT (...))::int * weight`. PostgreSQL has no
+	// boolean-times-integer operator, so `expr * N` is a type error, and a cast placed
+	// INSIDE the NOT -- `NOT (...)::int` -- casts NOT's argument and is rejected the
+	// same way. The first version of this query had never been executed by anything,
+	// because `sqlc generate` type-checks the SQL's SYNTAX and not the expressions'
+	// semantics; the error only appeared when a test finally ran it.
+	CountEntitiesWithCompletionBelow(ctx context.Context, arg CountEntitiesWithCompletionBelowParams) (int64, error)
+	CountForeignCandidatesByQuery(ctx context.Context, queryID uuid.UUID) (int64, error)
+	// How many candidates this user has voted on, anywhere.
+	//
+	// Backs §5's "Detective" leaderboard. Counting through the candidate table rather
+	// than straight at the votes, so a vote on a candidate whose query has been
+	// deleted does not count: the vote is evidence about a question that no longer
+	// exists.
+	CountIdentificationVotesForUser(ctx context.Context, userID uuid.UUID) (int64, error)
 	CountNotificationsByUser(ctx context.Context, arg CountNotificationsByUserParams) (int64, error)
 	CountPerformerSearchMatches(ctx context.Context, arg CountPerformerSearchMatchesParams) (interface{}, error)
+	// Total published reviews for an entity, unpaginated. Separate from
+	// GetReviewAverage because the paginated list is capped at 100 by the caller and
+	// a count taken from a capped list is a count of the cap.
+	CountReviewsForEntity(ctx context.Context, arg CountReviewsForEntityParams) (int, error)
+	CountSceneSnapshots(ctx context.Context, sceneID uuid.UUID) (int64, error)
 	CountScenesByPerformer(ctx context.Context, performerID uuid.UUID) (int64, error)
 	CountScenesByPerformerIds(ctx context.Context, dollar_1 []uuid.UUID) ([]CountScenesByPerformerIdsRow, error)
+	// For the "N alternatives" badge on a site card.
+	CountSiteAlternatives(ctx context.Context, siteID uuid.UUID) (int, error)
 	CountUnreadNotificationsByUserGroupedByType(ctx context.Context, userID uuid.UUID) ([]CountUnreadNotificationsByUserGroupedByTypeRow, error)
+	// How many distinct days a user has ever been active. Backs "active N days",
+	// which is a lifetime total and does not decay, unlike the streak.
+	CountUserActivityDays(ctx context.Context, userID uuid.UUID) (int64, error)
 	CountUserEditsByStatus(ctx context.Context, userID uuid.NullUUID) ([]CountUserEditsByStatusRow, error)
+	CountUserTrustEvents(ctx context.Context, userID uuid.UUID) (int64, error)
 	CountUsers(ctx context.Context) (int64, error)
+	// How many times this user has already been shown this exact pair.
+	//
+	// Backs EloMatchup.timesOffered. Repetition is not a bug: SPEC §9 wants streaks
+	// and a daily reason to return, and a user who has seen a pair before and votes
+	// the same way twice is the strongest signal the system can get. The client
+	// labels a repeat matchup so the user knows the system is not pretending the
+	// pair is new.
+	CountVotesBetweenEntities(ctx context.Context, arg CountVotesBetweenEntitiesParams) (int64, error)
 	CountVotesByType(ctx context.Context, userID uuid.NullUUID) ([]CountVotesByTypeRow, error)
+	// A single candidate's tally.
+	//
+	// Counted here rather than joined into GetIdentificationCandidate because a vote
+	// mutation needs this one row and the grouped per-query query would be a scan of
+	// every candidate on the query to answer "how many votes does this one have".
+	CountVotesForCandidate(ctx context.Context, candidateID uuid.UUID) (int64, error)
+	// How many are still pending for an endpoint. Shown on the settings page so a user
+	// can see their queue is backing up BEFORE deliveries start failing.
+	CountWebhookDeliveries(ctx context.Context, endpointID uuid.UUID) (int, error)
+	// Authored quests, bounties and claiming (SPEC §7.7).
+	//
+	// GENERATED quests (internal/service/quest) are a pure function of the archive and
+	// deliberately never stored. These are the AUTHORED ones: a quest a person
+	// promised, carrying a bounty a generator must not be able to manufacture.
+	CreateAuthoredQuest(ctx context.Context, arg CreateAuthoredQuestParams) (AuthoredQuest, error)
+	// Creates the collage row. source_duration_ms is the duration the sampler
+	// believed; the scene's current duration is read by the caller and stored
+	// alongside it so a stale collage is diagnosable rather than merely wrong-looking.
+	CreateCollage(ctx context.Context, arg CreateCollageParams) (Collage, error)
 	// Draft queries
 	CreateDraft(ctx context.Context, arg CreateDraftParams) (Draft, error)
 	// Edit queries
@@ -37,8 +186,29 @@ type Querier interface {
 	CreateEditComment(ctx context.Context, arg CreateEditCommentParams) (EditComment, error)
 	// Edit votes
 	CreateEditVote(ctx context.Context, arg CreateEditVoteParams) error
+	// Federation peer registry queries.
+	//
+	// Read-side only. The federation service owns creating and deleting peers; this
+	// file is what it reads through, and nothing outside the federation package
+	// should import these -- a peer list is an operator surface, not a public one.
+	CreateFederationPeer(ctx context.Context, arg CreateFederationPeerParams) (FederationPeer, error)
 	// Fingerprint queries (normalized schema)
 	CreateFingerprint(ctx context.Context, arg CreateFingerprintParams) (Fingerprint, error)
+	// Foreign identification evidence — a peer's answer to one of our queries.
+	//
+	// SPEC F2, and this file is where that decision is enforced: the only INSERT
+	// here targets identification_foreign_candidates. There is deliberately no
+	// query in this file that writes identification_candidates, and no query that
+	// deletes or updates a local candidate, so there is no code path from a peer's
+	// answer into the local vote table. The test for that is
+	// TestForeignEvidenceCannotReachLocalVotePath.
+	CreateForeignCandidate(ctx context.Context, arg CreateForeignCandidateParams) (IdentificationForeignCandidate, error)
+	// Identification board queries (SPEC §5, migration 79).
+	//
+	// Three tables with one rule running through all of them: a vote is EVIDENCE, not
+	// authority. Nothing here writes to scenes/performers/etc, and the resolution path
+	// records what a human decided rather than inferring it from a tally.
+	CreateIdentificationQuery(ctx context.Context, arg CreateIdentificationQueryParams) (IdentificationQuery, error)
 	// Image queries
 	//
 	// ON CONFLICT (checksum) DO UPDATE is deliberate and is the #738 fix.
@@ -79,6 +249,35 @@ type Querier interface {
 	CreatePerformerRedirect(ctx context.Context, arg CreatePerformerRedirectParams) error
 	CreatePerformerTattoos(ctx context.Context, arg []CreatePerformerTattoosParams) (int64, error)
 	CreatePerformerURLs(ctx context.Context, arg []CreatePerformerURLsParams) (int64, error)
+	// Reviews (SPEC §7.10, phase 3 step 1).
+	//
+	// EDITING IS AN UPSERT, not a new version, and that is the decision the plan
+	// deferred. Recorded here because the alternative was seriously considered and
+	// the reason for rejecting it is not obvious.
+	//
+	// The case FOR versioning (a review_edits table, history preserved): a rating that
+	// silently changes from 5 to 1 is unfalsifiable, and a contributor who buys
+	// goodwill and then edits the review leaves no trace.
+	//
+	// The reason it is REJECTED for now: the plan's own argument is that "verified
+	// usage" is much weaker without history, and that is true -- but only if
+	// something READS the history. Nothing would. A versioned review with no
+	// moderator view, no diff surface and no query is an append-only table that
+	// doubles write cost and disk and cannot answer a question anyone is asking yet.
+	// Versioning is cheap to add LATER (a history table over the same id), and
+	// expensive to add now in the sense that every read path has to be written twice
+	// from the start.
+	//
+	// What is NOT given up: created_at is preserved across an edit, so "how long has
+	// this person had this opinion" still has an answer, and a rating that changes is
+	// visible as a change of value on the entity page. What IS given up, explicitly:
+	// the intermediate rating is not recoverable.
+	//
+	// The upsert below therefore updates body/rating/updated_at and leaves created_at
+	// alone. It also does NOT touch `verified`, because verification is a moderator's
+	// judgement about a claim, and an author editing prose must not be able to edit
+	// the moderator's verdict along with it.
+	CreateReview(ctx context.Context, arg CreateReviewParams) (Review, error)
 	// Scene queries
 	CreateScene(ctx context.Context, arg CreateSceneParams) (Scene, error)
 	CreateSceneEdit(ctx context.Context, arg CreateSceneEditParams) error
@@ -88,6 +287,21 @@ type Querier interface {
 	CreateScenePerformers(ctx context.Context, arg []CreateScenePerformersParams) (int64, error)
 	// Scene redirects
 	CreateSceneRedirect(ctx context.Context, arg CreateSceneRedirectParams) error
+	// Snapshot collage queries (SPEC §8, migration 78).
+	//
+	// Two tables with a deliberate split: scene_snapshots is the source of truth
+	// (individual timestamped frames) and collages is a derived selection over them.
+	// See migration 78 for why the split exists and why a snapshot is a timestamp
+	// rather than a stored image.
+	// Adding a snapshot by hand or via the API. collage_id is left NULL: SPEC §8
+	// describes collages as GENERATED, so a snapshot exists in the pool before
+	// anything selects from it.
+	//
+	// The unique (scene_id, timestamp_ms) means a re-add of the same instant is a
+	// constraint violation rather than a duplicate frame that renders as one and
+	// counts twice toward the frame budget. Surfaced as ErrDuplicateSnapshot rather
+	// than a raw 23505 so the caller can say something useful.
+	CreateSceneSnapshot(ctx context.Context, arg CreateSceneSnapshotParams) (SceneSnapshot, error)
 	// Scene tags management
 	CreateSceneTags(ctx context.Context, arg []CreateSceneTagsParams) (int64, error)
 	// Scene URLs
@@ -126,12 +340,35 @@ type Querier interface {
 	CreateUserRoles(ctx context.Context, arg []CreateUserRolesParams) (int64, error)
 	// User token queries
 	CreateUserToken(ctx context.Context, arg CreateUserTokenParams) (UserToken, error)
+	CreateWebhookDelivery(ctx context.Context, arg CreateWebhookDeliveryParams) (WebhookDelivery, error)
+	// Webhook queries (SPEC §7.11, phase 3 step 3).
+	CreateWebhookEndpoint(ctx context.Context, arg CreateWebhookEndpointParams) (WebhookEndpoint, error)
 	DeleteAllSceneFingerprintSubmissions(ctx context.Context, arg DeleteAllSceneFingerprintSubmissionsParams) (int64, error)
+	DeleteAuthoredQuest(ctx context.Context, id uuid.UUID) error
+	// Removing a collage. The snapshots it referenced are NOT deleted: the FK is ON
+	// DELETE SET NULL, so they return to the unassigned pool and a later generation can
+	// reuse them. Deleting a user's curated frames because someone re-rolled a collage
+	// would be data loss dressed up as a cascade.
+	DeleteCollage(ctx context.Context, sceneID uuid.UUID) error
+	// Frees a collage's frames without removing the collage row, for the regeneration
+	// path: clear the assignment, sample again, reassign.
+	//
+	// Separate from DeleteCollage because the two are used at different times and
+	// conflating them is how a regeneration ends up deleting curated snapshots.
+	DeleteCollageForScene(ctx context.Context, sceneID uuid.UUID) error
 	DeleteDraft(ctx context.Context, id uuid.UUID) error
 	DeleteEdit(ctx context.Context, id uuid.UUID) error
 	DeleteExpiredDrafts(ctx context.Context, dollar_1 interface{}) error
 	DeleteExpiredModAudits(ctx context.Context, dollar_1 interface{}) error
 	DeleteExpiredUserTokens(ctx context.Context) error
+	DeleteFederationPeer(ctx context.Context, id uuid.UUID) error
+	// Used when a peer is removed from the registry. Without this, deleting a peer
+	// would either fail on the FK or leave orphaned evidence pointing at a peer the
+	// operator believes they have removed.
+	DeleteForeignCandidatesByPeer(ctx context.Context, peerID uuid.UUID) error
+	// Used when a query is resolved or abandoned, so a peer cannot keep answering a
+	// question that no longer exists.
+	DeleteForeignCandidatesByQuery(ctx context.Context, queryID uuid.UUID) error
 	DeleteImage(ctx context.Context, id uuid.UUID) error
 	DeleteInviteKey(ctx context.Context, id uuid.UUID) error
 	DeleteNotificationsByEditComments(ctx context.Context, editID uuid.UUID) error
@@ -150,12 +387,19 @@ type Querier interface {
 	DeletePerformerTattoos(ctx context.Context, performerID uuid.UUID) error
 	// Performer URLs
 	DeletePerformerURLs(ctx context.Context, performerID uuid.UUID) error
+	// The author deleting their own review, or a moderator removing it outright.
+	// Returns the row so the caller can confirm WHICH review went; a DELETE that
+	// matches nothing and returns nothing is indistinguishable from success in a
+	// mutation resolver, and a GraphQL client cannot tell a failed delete from a
+	// deleted review.
+	DeleteReview(ctx context.Context, id uuid.UUID) (Review, error)
 	DeleteScene(ctx context.Context, id uuid.UUID) error
 	DeleteSceneFingerprint(ctx context.Context, arg DeleteSceneFingerprintParams) error
 	DeleteSceneFingerprintsByScene(ctx context.Context, sceneID uuid.UUID) error
 	// Scene images
 	DeleteSceneImages(ctx context.Context, sceneID uuid.UUID) error
 	DeleteScenePerformers(ctx context.Context, sceneID uuid.UUID) error
+	DeleteSceneSnapshot(ctx context.Context, id uuid.UUID) error
 	DeleteSceneStudios(ctx context.Context, studioID uuid.NullUUID) error
 	DeleteSceneTagsByScene(ctx context.Context, sceneID uuid.UUID) error
 	DeleteSceneTagsByTag(ctx context.Context, tagID uuid.UUID) error
@@ -172,10 +416,16 @@ type Querier interface {
 	DeleteTagAliases(ctx context.Context, tagID uuid.UUID) error
 	DeleteTagAliasesByNames(ctx context.Context, arg DeleteTagAliasesByNamesParams) error
 	DeleteTagCategory(ctx context.Context, id uuid.UUID) error
+	// Only used by a rebuild, so the row can be recreated from scratch rather than
+	// merged. Merging a recomputed vector into an existing one would double-count
+	// every feature.
+	DeleteTasteVector(ctx context.Context, userID uuid.UUID) error
 	DeleteUser(ctx context.Context, id uuid.UUID) error
 	DeleteUserNotificationSubscriptions(ctx context.Context, userID uuid.UUID) error
 	DeleteUserRoles(ctx context.Context, userID uuid.UUID) error
 	DeleteUserToken(ctx context.Context, id uuid.UUID) error
+	// Returns the row so the caller can report WHICH endpoint was removed.
+	DeleteWebhookEndpoint(ctx context.Context, arg DeleteWebhookEndpointParams) (WebhookEndpoint, error)
 	DestroyExpiredInvites(ctx context.Context) error
 	DestroyExpiredNotifications(ctx context.Context) error
 	// The pg-spgist_hamming custom-scan hook turns this UNNEST + <@ into a single
@@ -184,7 +434,35 @@ type Querier interface {
 	// customscan's row count and picks a hash-join + seq scan of scene_fingerprints.
 	ExpandPhashNeighbors(ctx context.Context, arg ExpandPhashNeighborsParams) ([]ExpandPhashNeighborsRow, error)
 	ExpandSceneCoMembers(ctx context.Context, sceneIds []uuid.UUID) ([]ExpandSceneCoMembersRow, error)
+	// Expiring stale claims. A curator who abandoned work releases it themselves;
+	// this is the backstop for the ones who did not.
+	//
+	// Scoped by AGE as well as by the cutoff so it cannot strand a recent claim
+	// because the batch ran slowly.
+	ExpireStaleQuestClaims(ctx context.Context, dollar_1 interface{}) ([]AuthoredQuestItem, error)
+	// The quest board. Active quests only, because an expired quest is not a quest
+	// anybody acts on, and the count of expired ones grows forever.
+	//
+	// The expiry filter lives HERE rather than in the client so "active" has one
+	// definition. A client-side expiry filter and a server-side one disagree the
+	// moment a clock is involved.
+	FindActiveAuthoredQuests(ctx context.Context) ([]AuthoredQuest, error)
 	FindActiveInviteKeysForUser(ctx context.Context, generatedBy uuid.UUID) ([]InviteKey, error)
+	FindAuthoredQuest(ctx context.Context, id uuid.UUID) (AuthoredQuest, error)
+	FindAuthoredQuestByAuthor(ctx context.Context, authoredBy uuid.NullUUID) ([]AuthoredQuest, error)
+	// The items of a quest, with the claim inlined.
+	//
+	// The LEFT JOIN to the claim is the "reconcile on read" the migration comment
+	// promises: a filled field does not DELETE the row, it just makes the item
+	// stop counting. Keeping the row is what lets the quest show "you did this one",
+	// which is most of why a curator comes back.
+	FindAuthoredQuestItems(ctx context.Context, questID uuid.UUID) ([]FindAuthoredQuestItemsRow, error)
+	// "Show me everything known about this entity" -- how an authored quest turns
+	// into a canonical link back to the entity's page.
+	FindAuthoredQuestItemsByEntity(ctx context.Context, arg FindAuthoredQuestItemsByEntityParams) ([]AuthoredQuestItem, error)
+	// A curator's in-progress work, newest claim first. The "what am I working on"
+	// list, and the query an operator runs to find claims worth expiring.
+	FindClaimsByUser(ctx context.Context, claimedBy uuid.NullUUID) ([]FindClaimsByUserRow, error)
 	// Returns pending edits past either voting deadline, along with the tallies needed to
 	// decide their outcome in Go. The `votes` column is unusable here: a net score cannot tell
 	// a unanimous result apart from a contested one adding up to the same number.
@@ -228,10 +506,24 @@ type Querier interface {
 	FindPerformerWithRedirect(ctx context.Context, id uuid.UUID) ([]Performer, error)
 	FindPerformersByIds(ctx context.Context, dollar_1 []uuid.UUID) ([]Performer, error)
 	FindPerformersByURL(ctx context.Context, arg FindPerformersByURLParams) ([]Performer, error)
+	FindReview(ctx context.Context, id uuid.UUID) (Review, error)
+	// Used by the upsert path to decide create-vs-update, and by the service to turn a
+	// duplicate submission into an update rather than a constraint error.
+	FindReviewByAuthorAndEntity(ctx context.Context, arg FindReviewByAuthorAndEntityParams) (Review, error)
 	FindScene(ctx context.Context, id uuid.UUID) (Scene, error)
 	// Get performer appearances for multiple scenes
 	FindSceneAppearancesByIds(ctx context.Context, sceneIds []uuid.UUID) ([]FindSceneAppearancesByIdsRow, error)
 	FindSceneByURL(ctx context.Context, arg FindSceneByURLParams) ([]Scene, error)
+	// The scene's duration, for spacing a collage's frames.
+	//
+	// Returns only `duration`, deliberately. A sampler needs the length and nothing
+	// else, and selecting the whole scene row here would hand the caller a struct it
+	// has no business modifying.
+	//
+	// Deleted scenes are excluded so Generate can tell "this scene is gone" from "this
+	// scene has no duration" -- two different errors with two different fixes, and the
+	// distinction is worth a row.
+	FindSceneDuration(ctx context.Context, id uuid.UUID) (*int, error)
 	// Get URLs for multiple scenes
 	FindSceneUrlsByIds(ctx context.Context, sceneIds []uuid.UUID) ([]SceneUrl, error)
 	FindScenesByFingerprintsExactWithHash(ctx context.Context, hashes []int64) ([]FindScenesByFingerprintsExactWithHashRow, error)
@@ -270,13 +562,23 @@ type Querier interface {
 	FindUserTokensByEmail(ctx context.Context, dollar_1 string) ([]UserToken, error)
 	FindUserTokensByInviteKey(ctx context.Context, dollar_1 uuid.UUID) ([]UserToken, error)
 	FindUserWithRoles(ctx context.Context, id uuid.UUID) (FindUserWithRolesRow, error)
+	FindWebhookEndpoint(ctx context.Context, id uuid.UUID) (WebhookEndpoint, error)
+	// Scoped by user on purpose. An endpoint id is a UUID and a GraphQL client cannot
+	// be assumed to pass the caller's own, so a lookup that does not check ownership
+	// is a way to read another user's webhook configuration -- including the target
+	// URL, which is often an internal address.
+	FindWebhookEndpointByUser(ctx context.Context, arg FindWebhookEndpointByUserParams) (WebhookEndpoint, error)
 	// Get all fingerprints for multiple scenes with aggregated vote data
 	// When onlySubmitted is true, pass the actual user ID, when false pass NULL
 	GetAllFingerprints(ctx context.Context, arg GetAllFingerprintsParams) ([]GetAllFingerprintsRow, error)
 	GetAllSceneFingerprints(ctx context.Context, sceneID uuid.UUID) ([]GetAllSceneFingerprintsRow, error)
 	GetAllSiteCategories(ctx context.Context) ([]SiteCategory, error)
 	GetAllTagCategories(ctx context.Context) ([]TagCategory, error)
+	// Every rollup row. Used when a threshold changes and every level must be
+	// recomputed (see RebuildLevels in internal/service/trust).
+	GetAllUserTrust(ctx context.Context) ([]UserTrust, error)
 	GetChildStudios(ctx context.Context, parentStudioID uuid.NullUUID) ([]Studio, error)
+	GetCollageForScene(ctx context.Context, sceneID uuid.UUID) (Collage, error)
 	GetEditComments(ctx context.Context, editID uuid.UUID) ([]EditComment, error)
 	GetEditCommentsByIds(ctx context.Context, dollar_1 []uuid.UUID) ([]EditComment, error)
 	GetEditPerformerAliases(ctx context.Context, id uuid.UUID) ([]string, error)
@@ -291,7 +593,37 @@ type Querier interface {
 	GetEditsBySceneIds(ctx context.Context, sceneIds []uuid.UUID) ([]GetEditsBySceneIdsRow, error)
 	GetEditsByStudio(ctx context.Context, studioID uuid.UUID) ([]Edit, error)
 	GetEditsByTag(ctx context.Context, tagID uuid.UUID) ([]Edit, error)
+	// Elo / Glicko-2 queries (SPEC §9, migration 77).
+	//
+	// elo_votes is the source of truth and is append-only; elo_ratings is a cache
+	// with a defined rebuild path. These queries are the only places allowed to
+	// write either table, for the same reason trust.sql owns trust_events and
+	// user_trust.
+	GetEloRating(ctx context.Context, arg GetEloRatingParams) (EloRating, error)
+	// Takes a type plus a batch of ids, because ranking reads are always
+	// per-entity-kind ("the ratings for these 50 performers"), never across kinds.
+	GetEloRatingsByIDs(ctx context.Context, arg GetEloRatingsByIDsParams) ([]EloRating, error)
+	// The user's own votes, newest first. Backs the taste vector (SPEC §2) and the
+	// voting-consistency signal in SPEC §6.
+	//
+	// Ordered by created_at so a rebuild is deterministic: two rebuilds of the same
+	// vote set must produce the same vector, and an unordered scan would let
+	// floating-point rounding differ between runs.
+	GetEloVotesForUser(ctx context.Context, userID uuid.UUID) ([]EloVote, error)
+	GetFederationPeer(ctx context.Context, id uuid.UUID) (FederationPeer, error)
+	// The lookup that makes a reply attributable: an inbound answer is matched to
+	// a peer by the instance id it declares, so an unknown instance is rejected
+	// rather than silently recorded against nobody.
+	GetFederationPeerByInstanceId(ctx context.Context, instanceID string) (FederationPeer, error)
 	GetFingerprint(ctx context.Context, arg GetFingerprintParams) (Fingerprint, error)
+	GetForeignCandidate(ctx context.Context, id uuid.UUID) (IdentificationForeignCandidate, error)
+	// A single candidate, for the vote path.
+	//
+	// Joins the query so the caller can check the query is still open without a
+	// second round trip -- voting on a resolved query is meaningless and the vote
+	// would be counted for nothing.
+	GetIdentificationCandidate(ctx context.Context, id uuid.UUID) (GetIdentificationCandidateRow, error)
+	GetIdentificationQuery(ctx context.Context, id uuid.UUID) (IdentificationQuery, error)
 	// Gets current images for target entity and merges with edit's added_images/removed_images
 	GetImagesForEdit(ctx context.Context, id uuid.UUID) ([]Image, error)
 	// Gets current performers for target entity and merges with edit's added_performers/removed_performers
@@ -334,14 +666,50 @@ type Querier interface {
 	GetPerformerTattoos(ctx context.Context, performerID uuid.UUID) ([]GetPerformerTattoosRow, error)
 	GetPerformerURLs(ctx context.Context, performerID uuid.UUID) ([]GetPerformerURLsRow, error)
 	GetPrimaryEditCommentID(ctx context.Context, editID uuid.UUID) (uuid.UUID, error)
+	// The mean rating for an entity, and the count behind it.
+	//
+	// count(*) is returned alongside because an average of one 5-star review and an
+	// average of four hundred are both "4.2" at different moments, and a directory
+	// that shows a bare number invites reading a single review as a consensus. The
+	// caller decides what to do with a low count; the number itself cannot be
+	// qualified from inside an aggregate.
+	//
+	// count(*) FILTER (WHERE rating IS NOT NULL) rather than count(*): a review with
+	// no rating is a real review and must appear in the total review count, but
+	// including it in the mean would divide by a value that does not exist and drag
+	// the average toward zero. The two numbers are deliberately different and the
+	// struct keeps them apart.
+	GetReviewAverage(ctx context.Context, arg GetReviewAverageParams) (GetReviewAverageRow, error)
 	GetSceneFingerprintScenes(ctx context.Context, fingerprintIds []int) ([]GetSceneFingerprintScenesRow, error)
 	GetScenePerformers(ctx context.Context, sceneID uuid.UUID) ([]GetScenePerformersRow, error)
 	GetScenePhashSeeds(ctx context.Context, sceneID uuid.UUID) ([]GetScenePhashSeedsRow, error)
+	GetSceneSnapshot(ctx context.Context, id uuid.UUID) (SceneSnapshot, error)
 	GetSceneTags(ctx context.Context, sceneID uuid.UUID) ([]Tag, error)
 	GetSceneURLs(ctx context.Context, sceneID uuid.UUID) ([]GetSceneURLsRow, error)
 	GetScenes(ctx context.Context, dollar_1 []uuid.UUID) ([]Scene, error)
 	GetSite(ctx context.Context, id uuid.UUID) (Site, error)
 	GetSiteCategoriesByIds(ctx context.Context, dollar_1 []int) ([]SiteCategory, error)
+	// Site directory queries (SPEC §7.10, phase 3 step 2).
+	//
+	// Everything here follows one rule from the #1007 work: a query that resolves a
+	// site by id must never return a soft-deleted one, and the resolution helpers must
+	// never invent a redirect to a row that does not exist. The plan referenced
+	// FindSiteWithRedirect; no such function exists in this codebase, because there is
+	// no redirect mechanism. So the contract is stated directly instead of being
+	// delegated to a helper that was never written.
+	// The directory fields for one site, or no rows if nobody has filled them in.
+	//
+	// A LEFT JOIN in the callers rather than this being an inner lookup, so an
+	// unfilled site and a site whose details were emptied are distinguishable. A site
+	// row with no site_details row means "unknown", which is not the same as "empty".
+	GetSiteDetails(ctx context.Context, siteID uuid.UUID) (SiteDetail, error)
+	// Case-insensitive, matching the Find<entity>ByName convention used for tags,
+	// studios and performers. Needed to resolve an id for a site that already
+	// exists: site name carries a unique index, so a name lookup is sufficient and
+	// avoids inventing a uuid. Returns a slice rather than a single row so a
+	// duplicated name (only possible if the index is absent) degrades to "take the
+	// first" instead of erroring the caller.
+	GetSitesByName(ctx context.Context, upper interface{}) ([]Site, error)
 	GetStudioAliases(ctx context.Context, studioID uuid.UUID) ([]string, error)
 	GetStudioImages(ctx context.Context, studioID uuid.UUID) ([]uuid.UUID, error)
 	GetStudioURLs(ctx context.Context, studioID uuid.UUID) ([]StudioUrl, error)
@@ -351,35 +719,431 @@ type Querier interface {
 	GetStudiosByPerformerAndNetwork(ctx context.Context, arg GetStudiosByPerformerAndNetworkParams) ([]GetStudiosByPerformerAndNetworkRow, error)
 	GetTagAliases(ctx context.Context, tagID uuid.UUID) ([]string, error)
 	GetTagCategoriesByIds(ctx context.Context, dollar_1 []uuid.UUID) ([]TagCategory, error)
+	GetTasteVector(ctx context.Context, userID uuid.UUID) (TasteVector, error)
 	GetUserNotificationSubscriptions(ctx context.Context, userID uuid.UUID) ([]NotificationType, error)
 	GetUserRoles(ctx context.Context, userID uuid.UUID) ([]string, error)
 	GetUserRolesByUserIDs(ctx context.Context, dollar_1 []uuid.UUID) ([]UserRole, error)
+	// Trust level queries (SPEC §6, migration 76).
+	//
+	// trust_events is the source of truth; user_trust is a denormalised rollup of
+	// it. These queries keep the rollup in step with the events, and the two
+	// upserts below are the only places in the codebase allowed to write either
+	// table.
+	GetUserTrust(ctx context.Context, userID uuid.UUID) (UserTrust, error)
+	GetUserTrustByUserIDs(ctx context.Context, dollar_1 []uuid.UUID) ([]UserTrust, error)
 	GetUsers(ctx context.Context, dollar_1 []uuid.UUID) ([]User, error)
+	// The two facts elo.VoterWeight needs from user_trust: the level band and
+	// whether the user has been granted vanguard status.
+	//
+	// :one, not :many, and deliberately not joined into the vote insert: the trust
+	// row is read BEFORE the rating maths so the weight is a fact about the voter's
+	// state at cast time, and reading it inside the same statement would make the
+	// two orders equivalent while hiding the dependency.
+	//
+	// The contribution score is the same total the award service maintains, so
+	// there is exactly one definition of "how much has this user contributed".
+	//
+	// Rejected edits are EXCLUDED rather than added as negative: the column is the
+	// count of rejections, not a signed tally, and a user with 100 approvals and 2
+	// rejections has contributed 100 things, not 98. Summing them would mean a
+	// heavily-active user with a normal rejection rate scored BELOW a quiet user,
+	// which inverts the intent of weighting by contribution.
+	//
+	// bonus_points is excluded: it is a points value whose magnitude is arbitrary
+	// (a bounty worth 500 would dwarf 500 real contributions), so mixing it into a
+	// count would make the multiplier depend on bounty pricing.
+	GetVoterWeightInputs(ctx context.Context, userID uuid.UUID) (GetVoterWeightInputsRow, error)
+	// Whether THIS user already voted, so the UI can render a vote button as a state
+	// rather than as an action that silently does nothing.
+	HasVotedForCandidate(ctx context.Context, arg HasVotedForCandidateParams) (bool, error)
 	InviteKeyUsed(ctx context.Context, id uuid.UUID) (*int, error)
 	IsImageUnused(ctx context.Context, id uuid.UUID) (bool, error)
+	// The frames of a collage, in playback order.
+	//
+	// The read path for rendering, covered by a partial index on
+	// (collage_id, timestamp_ms) so this is an index scan and not a sort of the
+	// scene's entire snapshot set.
+	ListCollageSnapshots(ctx context.Context, sceneID uuid.UUID) ([]SceneSnapshot, error)
+	ListDeniedPerformerIDs(ctx context.Context) ([]uuid.UUID, error)
+	ListDeniedStudioIDs(ctx context.Context) ([]uuid.UUID, error)
+	// The tag half of the content denylist, for the access rule that IS enforced.
+	//
+	// Id only: the resolver maps a UUID straight into the rule's id set, and
+	// selecting `reason` would mean every read drags a column no caller uses. An
+	// operator audit reads the reason through a per-entity query, which is the
+	// right shape for "why is this one entity denied" anyway.
+	ListDeniedTagIDs(ctx context.Context) ([]uuid.UUID, error)
+	// The queue read: pending, due, oldest first.
+	//
+	// `FOR UPDATE SKIP LOCKED` and NOT a plain SELECT. Two dispatchers running at once
+	// -- a second instance, or an overlapping tick -- must not both claim the same
+	// row, or the same event is delivered twice. SKIP LOCKED makes the second one step
+	// over the locked row and take the next, which turns "two dispatchers" into "one
+	// dispatcher and one slightly behind", with no coordination and no failure.
+	//
+	// A plain SELECT here is the single most common way a queue double-delivers, and
+	// the symptom -- a consumer seeing every event twice -- is usually blamed on the
+	// consumer.
+	ListDueWebhookDeliveries(ctx context.Context, arg ListDueWebhookDeliveriesParams) ([]WebhookDelivery, error)
+	// Over-fetches relative to the requested limit: the service re-sorts by
+	// Rankable (rating, then vote count, then deviation) rather than by rating
+	// alone, so a plain top-N-by-rating is not the top-N-by-Rankable. Over-fetching
+	// by 4x inside the service covers that without teaching the query about the
+	// tie-breaking rules.
+	//
+	// NULLS LAST matters: a rating row can exist with no votes if an entity was
+	// seeded by the migration and never voted on, and in Postgres ASC puts NULLs
+	// LAST by default but the explicit form documents that the ordering is
+	// deliberate.
+	ListEloRatings(ctx context.Context, arg ListEloRatingsParams) ([]EloRating, error)
+	// The candidate set for a broadcast. Filters `enabled` in SQL rather than in Go
+	// so the broadcast path cannot accidentally read a disabled peer.
+	ListEnabledFederationPeers(ctx context.Context) ([]FederationPeer, error)
+	// Operator surface, so ordering is by name rather than by id: a list whose
+	// order changes between calls is a list nobody can scan.
+	ListFederationPeers(ctx context.Context) ([]FederationPeer, error)
+	// The moderation queue: oldest first, because the queue is worked in arrival
+	// order and "newest first" makes an old report invisible under a constant
+	// trickle of new ones.
+	ListFlaggedReviews(ctx context.Context, arg ListFlaggedReviewsParams) ([]Review, error)
+	//
+	// ON CONFLICT DO UPDATE rather than DO NOTHING, because re-asking a peer is
+	// normal (the same query goes out on the next broadcast) and a peer's answer
+	// can legitimately have moved: more of its users may now agree. DO NOTHING
+	// would keep the first answer forever, which is the stale-evidence problem
+	// SPEC F3 exists to prevent -- just on a single row instead of a whole query.
+	ListForeignCandidatesByQuery(ctx context.Context, queryID uuid.UUID) ([]IdentificationForeignCandidate, error)
+	// A query's candidates WITH their tallies.
+	//
+	// LEFT JOIN plus count, so a candidate nobody has voted for still appears with
+	// zero. An INNER JOIN would silently hide every freshly-suggested candidate,
+	// which is exactly when someone needs to see it.
+	//
+	// count(DISTINCT v.user_id) rather than count(v.*): the vote table's primary key
+	// already makes the rows distinct, but the DISTINCT documents that the tally is
+	// of PEOPLE, which is the number §5's leaderboards are built from.
+	ListIdentificationCandidates(ctx context.Context, arg ListIdentificationCandidatesParams) ([]ListIdentificationCandidatesRow, error)
+	// A user's own questions, so they can see what they asked and what got solved.
+	ListIdentificationQueriesByCreator(ctx context.Context, arg ListIdentificationQueriesByCreatorParams) ([]IdentificationQuery, error)
+	// Every query in a state, for moderation and for §5's "solved" archive view.
+	ListIdentificationQueriesByStatus(ctx context.Context, arg ListIdentificationQueriesByStatusParams) ([]IdentificationQuery, error)
+	// Entities of a type with at least this much missing weight, for a generated quest.
+	//
+	// A quest is a pure function of the archive, so it is never stored: this query and
+	// the weights are the whole of it, and a quest recomputed now names only entities
+	// that are incomplete NOW. A stored quest accumulates claims that were true when it
+	// was written, and a curator working from it is chasing performers who were fixed
+	// an hour ago.
+	//
+	// Only performers and scenes are generated, and that is a scope decision recorded
+	// rather than an oversight: those are the two types where "this field is missing"
+	// is a specific, findable piece of work. A studio missing a parent studio is
+	// NORMAL -- most studios genuinely have no parent -- so a quest for it would be an
+	// unending list of items that are not actually gaps.
+	// Ordered and limited OUTSIDE the union, and that is not a style choice: ORDER BY
+	// binds to the last SELECT of a set operation, so ordering the scene branch alone
+	// would order the scenes and leave the performers in whatever order the planner
+	// produced, interleaving the two.
+	ListIncompleteEntities(ctx context.Context, arg ListIncompleteEntitiesParams) ([]uuid.UUID, error)
+	// The board's queue: open queries, newest first.
+	//
+	// Bounded by the caller and defaulted in the service. An unbounded queue is a
+	// denial-of-service vector, and no UI renders more than a few hundred.
+	//
+	// The partial index on status='open' covers exactly this, so the filter is not
+	// costing a scan of solved and abandoned queries.
+	ListOpenIdentificationQueries(ctx context.Context, limit int32) ([]IdentificationQuery, error)
+	// "Everything the community has worked out about this performer."
+	//
+	// This is the query that turns a solved query into a CANONICAL LINK, per §5: the
+	// answer is that the board's conclusions are indexed against real metadata, so
+	// finding an entity also finds what was learned about it.
+	ListResolvedQueriesForEntity(ctx context.Context, arg ListResolvedQueriesForEntityParams) ([]IdentificationQuery, error)
+	// A profile page: this author's published reviews, newest first.
+	ListReviewsByAuthor(ctx context.Context, arg ListReviewsByAuthorParams) ([]Review, error)
+	// The entity page: published reviews, newest first.
+	//
+	// `status = 'published'` is in the QUERY, not applied afterwards. A flagged review
+	// is still visible to its author, so the flag-filtered-out-then-re-added
+	// approach leaks moderation state to the client and needs a second scan; and a
+	// removed review must not be countable in the average, which the next query
+	// depends on being consistent about.
+	ListReviewsForEntity(ctx context.Context, arg ListReviewsForEntityParams) ([]Review, error)
+	// Every snapshot for a scene, in order, whether or not it is in a collage.
+	//
+	// Ordered by timestamp so a caller rendering a scene's visual index gets frames in
+	// playback order for free, and so a client computing "how far apart are these"
+	// does not have to sort.
+	ListSceneSnapshots(ctx context.Context, sceneID uuid.UUID) ([]SceneSnapshot, error)
+	// Scenes whose visual index is too thin to identify from -- the input to SPEC §8's
+	// curation and preservation quests ("this scene has only 2 snapshots").
+	//
+	// Counts snapshots per scene rather than collages: a scene with 40 snapshots and
+	// no collage is better identified than one with 3 and a 12-frame collage, because
+	// the snapshots are what a user can browse and the collage is a selection over
+	// them.
+	//
+	// Deleted scenes are excluded, matching every other performer/scene query.
+	ListScenesWithInsufficientSnapshots(ctx context.Context, arg ListScenesWithInsufficientSnapshotsParams) ([]ListScenesWithInsufficientSnapshotsRow, error)
+	// A site's direct alternatives, by name for display.
+	//
+	// The JOIN is to sites rather than returning bare ids, because the alternative
+	// list is rendered as "you might like X, Y, Z" and a second round trip per row to
+	// resolve a name is N+1 for something the database can do once. The ordering is by
+	// name so the list is stable between reads -- an unstable list makes a rendered
+	// page reshuffle on refresh for no reason.
+	//
+	// No `deleted` filter is possible here: sites has no deleted column. The
+	// soft-delete concern from #1007 applies to studios, tags and performers, which
+	// have one; sites are hard-deleted, and ON DELETE CASCADE means a deleted site
+	// simply has no alternative rows left. A dangling id is therefore impossible
+	// rather than filtered.
+	ListSiteAlternatives(ctx context.Context, siteID uuid.UUID) ([]Site, error)
+	// The reverse edge. A site's inbound discovery: who points at me.
+	ListSitesListingThisAsAlternative(ctx context.Context, alternativeSiteID uuid.UUID) ([]Site, error)
+	// The curation surface: sites with no directory fields at all.
+	//
+	// This is what makes the directory a CURATION target rather than a form nobody
+	// fills in. It is the same shape as the completion engine's missing-field queries,
+	// and it is the join that says "the directory is 12% complete".
+	//
+	// The NOT EXISTS rather than a LEFT JOIN ... IS NULL because site_details is
+	// 1:1, so the two are equivalent -- and NOT EXISTS is the one that stays correct
+	// if a future migration makes it 1:N by adding a history table.
+	ListSitesMissingDetails(ctx context.Context, arg ListSitesMissingDetailsParams) ([]Site, error)
+	// Peers that have not been seen inside the cutoff, for the operator's stale
+	// list. Never-contacted peers have a NULL last_seen_at and are returned by
+	// `last_seen_at IS NULL OR last_seen_at < $1` -- an unknown peer and a peer
+	// that has gone quiet are both "do not ask", but they are different facts and
+	// the operator surface shows them differently.
+	ListStaleFederationPeers(ctx context.Context, lastSeenAt pgtype.Timestamptz) ([]FederationPeer, error)
+	// The pool a collage generation samples from.
+	//
+	// Excludes snapshots already committed to a collage. On a REgeneration the old
+	// collage's frames are freed first (see ClearCollage), so this returns the whole
+	// pool again -- which is what makes a re-roll able to pick different frames rather
+	// than only from whatever the last generation left behind.
+	ListUnassignedSnapshots(ctx context.Context, sceneID uuid.UUID) ([]SceneSnapshot, error)
+	// Activity days and streaks (SPEC §12, phase 2 step 8).
+	//
+	// Both are DERIVED from trust_events rather than stored, for the same reason
+	// badges are: a stored streak disagrees with the log that justifies it, and
+	// nothing reports the disagreement. Worse here, a stored streak is a NUMBER that
+	// decays on its own -- a user who stops contributing must lose it, and that
+	// decay has to be written, scheduled, and audited. Derived, "current streak" is a
+	// function of today and the log, and yesterday's answer is simply a different
+	// answer.
+	//
+	// The one thing that cannot be derived is a day that has passed with no
+	// contribution: absence leaves no row. That is what the window below is for.
+	// The DISTINCT calendar days on which a user recorded a trust event, newest
+	// first.
+	//
+	// DISTINCT on a day, not on an event. A curator who approves forty edits in one
+	// afternoon has ONE active day and not forty, and counting events here would give
+	// a forty-day streak to someone who showed up once -- the exact opposite of what a
+	// streak is supposed to measure.
+	//
+	// The date_trunc is to the SESSION'S timezone deliberately, not UTC's: "did you
+	// contribute today" is a question about the user's day, and a user in UTC+2 who
+	// contributed at 00:30 local has not been idle for a day just because UTC calls
+	// that yesterday. Computing in UTC splits that user's midnight contributions
+	// across two days and can break a streak they did not break.
+	//
+	// Deltas are NOT counted. A -1 event is a real contribution day -- the person
+	// showed up and their edit was rejected, which is participation, not absence --
+	// and filtering on a positive count would zero out a day for a user whose
+	// activity is all rejections and quietly end their streak.
+	// Cast to `timestamp`, explicitly, and NOT to timestamptz.
+	//
+	// The cast was the bug: date_trunc returns midnight in the DATABASE's zone, and
+	// ::timestamptz re-reads that wall-clock time as an instant, so the driver renders
+	// it in the HOST's zone. The two disagree whenever the host's calendar date and the
+	// database's differ -- at 00:05 local on 2026-10-01 against 22:05 UTC on 09-30, the
+	// same day came back as YearDay 274 against 273 and ActiveToday went false for an
+	// event created a minute earlier. Returning the truncated value uncast keeps it a
+	// timestamp WITHOUT time zone, so there is no instant for the driver to convert
+	// and every comparison stays in the database's frame of reference.
+	//
+	// The cast target is load-bearing for a second reason: bare `date_trunc` is
+	// inferred by sqlc as an INTERVAL, which is wrong -- truncating a timestamp does
+	// not produce a duration -- and it silently changed this function's return type
+	// from []time.Time to []pgtype.Interval. `timestamp` is the type the value
+	// actually has.
+	ListUserActivityDays(ctx context.Context, userID uuid.UUID) ([]time.Time, error)
+	// One user's history, newest first. Used by the audit view and by tests that
+	// assert the event log is the source of truth.
+	ListUserTrustEvents(ctx context.Context, userID uuid.UUID) ([]TrustEvent, error)
+	// A user's delivery history for one endpoint, newest first.
+	ListWebhookDeliveriesForEndpoint(ctx context.Context, arg ListWebhookDeliveriesForEndpointParams) ([]WebhookDelivery, error)
+	ListWebhookEndpoints(ctx context.Context, arg ListWebhookEndpointsParams) ([]WebhookEndpoint, error)
+	// The dispatch set: live endpoints subscribed to this event type.
+	//
+	// The overlap operator again, and the reason is the same as the directory's array
+	// filters: an endpoint subscribed to ["scene.added", "scene.updated"] wants
+	// scene.added, and containment (@>) would require an exact list match.
+	ListWebhookEndpointsForEvent(ctx context.Context, dollar_1 []string) ([]WebhookEndpoint, error)
 	LoadClusterSubmissions(ctx context.Context, fingerprintIds []int) ([]LoadClusterSubmissionsRow, error)
 	LoadLinkedOshashSubmissions(ctx context.Context, phashFingerprintIds []int) ([]LoadLinkedOshashSubmissionsRow, error)
 	MarkAllNotificationsRead(ctx context.Context, userID uuid.UUID) error
 	MarkNotificationRead(ctx context.Context, arg MarkNotificationReadParams) error
+	MarkWebhookDelivered(ctx context.Context, id uuid.UUID) (WebhookDelivery, error)
+	// Records a failed attempt and schedules the next one.
+	//
+	// next_attempt_at is computed by the service and passed in, not by the database.
+	// The backoff schedule is a POLICY -- changing it should not be a migration --
+	// and the service is where the policy lives. The database's job is only to store
+	// when.
+	MarkWebhookFailed(ctx context.Context, arg MarkWebhookFailedParams) (WebhookDelivery, error)
 	MoveSceneFingerprintSubmissions(ctx context.Context, arg MoveSceneFingerprintSubmissionsParams) ([]uuid.UUID, error)
 	// Keyset-paginated feed of performers changed since (since, after_id), including
 	// tombstones. redirect_to is the surviving performer for merged-away performers.
 	PerformerChangelog(ctx context.Context, arg PerformerChangelogParams) ([]PerformerChangelogRow, error)
+	// Completion score inputs (SPEC §7.7).
+	//
+	// These queries gather WHICH FIELDS ARE PRESENT. They deliberately do NOT compute
+	// the score: the weighting and the arithmetic live in
+	// `internal/service/completion`, as a pure function a test can exercise with
+	// hand-built fixtures. Computing the fraction in SQL as well would be a second
+	// copy of the formula, and the two would drift the first time a weight changed.
+	//
+	// So each row here is a set of booleans, and the service turns them into a score.
+	// Which performer fields are filled.
+	//
+	// birthdate_accuracy is the subtle one, and it is why this is a query rather than
+	// a struct scan. SPEC §7.7 counts "missing metadata", and a birthdate recorded as
+	// 1990-01-01 with accuracy 'unknown' is a SPECIFIC FALSE CLAIM rather than an
+	// absence. An absence is obviously worth fixing; a specific false claim reads as
+	// an answer, so a curator who trusts it never goes looking for the real value.
+	// So an uncertain birthdate is reported as ABSENT, not present.
+	//
+	// measurements groups the four size columns: a curator fills them in as a block,
+	// and a per-column score would make a performer with a cup size and no waist
+	// look twice as complete as one with neither.
+	PerformerCompletionInputs(ctx context.Context, id uuid.UUID) (PerformerCompletionInputsRow, error)
+	// Performers missing one field, for a generated quest.
+	//
+	// Birthdate is the interesting filter and the reason this is a query rather than
+	// a scan of PerformerCompletionInputs: the quest "add missing birthdates for 5
+	// performers" is asking for entities where the birthdate is ABSENT **or
+	// UNCERTAIN**, and the second half is the half that matters -- a performer with a
+	// guessed birthdate looks complete to every query that only checks for NULL.
+	//
+	// Ordered by the id for determinism, then bounded by the caller. An unbounded
+	// list of every incomplete performer in the archive is not a quest, it is a
+	// table scan with extra steps.
+	PerformersMissingField(ctx context.Context, limit int32) ([]uuid.UUID, error)
 	// Prepare a fingerprint move by dropping reports and dupe fingerprint submissions
 	PruneSceneFingerprintsForMove(ctx context.Context, arg PruneSceneFingerprintsForMoveParams) ([]PruneSceneFingerprintsForMoveRow, error)
+	// Matchup candidate selection (SPEC §9: "two performers side by side, who do you
+	// prefer, one click, next matchup").
+	// Draw a pool of performers eligible to appear in a matchup.
+	//
+	// Two eligibility rules, both load-bearing:
+	//
+	//   1. At least one vote already. A performer nobody has rated has a deviation of
+	//      350 (the default), and Glicko's whole signal-to-noise ratio collapses
+	//      against that: a matchup between two virgin entities produces two small
+	//      rating moves and no information about anyone. Requiring one vote means
+	//      every matchup involves at least one entity the system has a real opinion
+	//      about, so the user's choice lands on something meaningful.
+	//
+	//   2. Deleted performers are excluded explicitly, on the `deleted` BOOLEAN the
+	//      other performer queries use. elo_ratings has no foreign key and no
+	//      soft-delete awareness, so a deleted performer would otherwise still be
+	//      drawn and a user could spend a vote on a ghost.
+	//
+	// Ordered by the ELO rating rather than randomly at the SQL level. Two reasons,
+	// and the second is the important one: Postgres random() is not reproducible,
+	// which would make this method untestable, and a purely random draw would show a
+	// user the same obscure performers forever. Returning the best-rated window
+	// first and letting the caller SAMPLE within it gives a user mostly-known
+	// candidates with enough variety to be a choice.
+	//
+	// The join is on elo_ratings, not on a rating column: the Glicko rating is not
+	// stored on the performer at all, and querying for one is the first thing to
+	// check when a query like this fails to validate.
+	QueryMatchupCandidates(ctx context.Context, arg QueryMatchupCandidatesParams) ([]Performer, error)
 	QueryModAudits(ctx context.Context, arg QueryModAuditsParams) ([]ModAudit, error)
 	ReassignPerformerAliases(ctx context.Context, arg ReassignPerformerAliasesParams) error
 	ReassignPerformerFavorites(ctx context.Context, arg ReassignPerformerFavoritesParams) error
 	ReassignStudioFavorites(ctx context.Context, arg ReassignStudioFavoritesParams) error
 	// Reassign to the sentinel user only the deleted user's scene fingerprints that are unique
 	ReassignUniqueSceneFingerprints(ctx context.Context, arg ReassignUniqueSceneFingerprintsParams) error
+	// Rebuilds the totals from the event log.
+	//
+	// This is the recovery path, and the reason trust_events is append-only: if the
+	// rollup ever drifts -- a threshold change, a bug in ApplyTrustEvent, a manual
+	// database edit -- the truth is still replayable. Coalescing SUMs the signed
+	// deltas per kind in one pass rather than replaying row by row.
+	// No GROUP BY: an aggregate over an empty set still returns exactly one row,
+	// with the COALESCE defaults above. GROUP BY made this return NOTHING for a
+	// user with no events, which made it unusable for creating a zeroed rollup --
+	// and that is exactly what SetContentViewingOptIn needs to do for a user
+	// opting in before they are eligible.
+	RecomputeUserTrustTotals(ctx context.Context, userID uuid.UUID) (UserTrust, error)
+	// No ON CONFLICT: elo_votes has no natural key beyond its own id, and a
+	// duplicate matchup is a legitimate thing for a user to do (they may change
+	// their mind about the same pair). Deduplicating identical votes would discard
+	// that signal, and the "don't double count" property comes from Glicko being
+	// applied to the rating, not from refusing to store the vote.
+	//
+	// Returning the row lets the service report the resulting rating to the voter
+	// without a second round trip.
+	//
+	// `weight` is passed in, not computed here, for the reason in migration 85: it
+	// is snapshotted at cast time by the service. A SQL-side expression would
+	// silently recompute it on every replay, which is exactly the retroactive
+	// re-weighting the column exists to prevent.
+	RecordEloVote(ctx context.Context, arg RecordEloVoteParams) (EloVote, error)
+	// ON CONFLICT DO NOTHING makes a retried or duplicated event a no-op rather
+	// than a silent double increment. The matching partial state is a real
+	// concern: an edit can be applied twice by a retried request, and without this
+	// the contributor's trust would grow twice for one contribution.
+	//
+	// Returning the row means a duplicate insert reports no rows, which the
+	// service treats as "already recorded" rather than as an error.
+	RecordTrustEvent(ctx context.Context, arg RecordTrustEventParams) (TrustEvent, error)
+	// Releasing a claim. Restricted to the claimer's own rows by the WHERE, so one
+	// curator cannot release another's work.
+	ReleaseAuthoredQuestItem(ctx context.Context, arg ReleaseAuthoredQuestItemParams) (AuthoredQuestItem, error)
+	RemoveSiteAlternative(ctx context.Context, arg RemoveSiteAlternativeParams) error
 	ResetVotes(ctx context.Context, editID uuid.UUID) error
 	// Resolves a set of UUIDs to the type of entity they belong to, used to turn
 	// bare UUIDs in comments into links.
 	ResolveEntityTypes(ctx context.Context, ids []uuid.UUID) ([]ResolveEntityTypesRow, error)
+	// Records what a HUMAN decided a query was.
+	//
+	// The CHECK constraint enforces that a solved query names its resolution, so
+	// there is no way to mark one solved with nothing attached -- which is the
+	// failure that would make every consumer of the "solved" view re-verify it.
+	//
+	// Guarded on status='open' so a second resolution attempt is a no-op returning no
+	// rows rather than an overwrite. Two people clicking "accept" on different
+	// candidates at the same time is a real race, and last-write-wins would silently
+	// discard one person's work.
+	ResolveIdentificationQuery(ctx context.Context, arg ResolveIdentificationQueryParams) (IdentificationQuery, error)
+	// Replaces the hash. The OLD secret stops working immediately, which is the point:
+	// a rotation is what a user does after suspecting a leak, and a rotation that
+	// left the old secret valid would give no protection at all.
+	RotateWebhookSecret(ctx context.Context, arg RotateWebhookSecretParams) (WebhookEndpoint, error)
 	// Keyset-paginated feed of scenes changed since (since, after_id), including
 	// tombstones. redirect_to is the surviving scene for merged-away scenes.
 	SceneChangelog(ctx context.Context, arg SceneChangelogParams) ([]SceneChangelogRow, error)
+	// Which scene fields are filled.
+	//
+	// duration is first because it is the most heavily weighted scene field and
+	// because the snapshot collage and the identification board both need a time axis:
+	// without a duration neither can render, and a scene with no duration is not
+	// merely under-documented, it is unusable.
+	//
+	// snapshot coverage is a THRESHOLD, not a count, and the threshold is 12 because
+	// SPEC §8's minimum collage is 12 frames. A scene with 11 snapshots cannot
+	// produce a compliant collage, so it scores exactly as a scene with none: a
+	// half-finished collage is not a partial collage, it is no collage.
+	SceneCompletionInputs(ctx context.Context, id uuid.UUID) (SceneCompletionInputsRow, error)
+	// Scenes missing one field, for a generated quest.
+	ScenesMissingField(ctx context.Context, arg ScenesMissingFieldParams) ([]uuid.UUID, error)
 	// Keep the WHERE clause in sync across SearchPerformers, CountPerformerSearchMatches,
 	// and GetPerformerSearchFacets so paging, counts, and facets stay consistent.
 	SearchPerformers(ctx context.Context, arg SearchPerformersParams) ([]uuid.UUID, error)
@@ -398,10 +1162,51 @@ type Querier interface {
 	// The 10000 constant must exceed the max achievable BM25 sum; search terms are
 	// short so the relevance total stays well under it.
 	SearchScenes(ctx context.Context, arg SearchScenesParams) ([]SearchScenesRow, error)
+	// §10's filters: by label, by payment method, by feature, and free text.
+	//
+	// Every array filter is an OVERLAP (&&) rather than containment, because the
+	// question is "does this site support credit cards", not "is its payment method
+	// list exactly ['credit cards']". Containment (@>) would match nothing for a site
+	// that takes cash too, which is most of them.
+	//
+	// The filters are ANDed, which is what a user narrowing a search expects, and each
+	// one is skipped when its array is empty so an unfiltered search does not require
+	// the caller to pass a "match everything" sentinel. `cardinality(NULL) = 0` is
+	// false for NULL, which is the wrong answer here -- a NULL filter must mean "no
+	// filter", so the COALESCE makes the empty case explicit rather than relying on
+	// three-valued logic to do it by accident.
+	//
+	// visibility is the §10 directory default, and a hidden site is excluded from
+	// SEARCH but not from a direct by-id fetch: hiding something from a listing is not
+	// the same as deleting it, and a site that has scenes must still resolve by id or
+	// every scene pointing at it 404s.
+	SearchSiteDirectory(ctx context.Context, arg SearchSiteDirectoryParams) ([]SearchSiteDirectoryRow, error)
 	SearchStudios(ctx context.Context, arg SearchStudiosParams) ([]SearchStudiosRow, error)
 	SearchTags(ctx context.Context, arg SearchTagsParams) ([]Tag, error)
+	// The one user-writable field in this table (SPEC §6: high-trust users
+	// EXPLICITLY opt in to viewing content).
+	//
+	// It is deliberately NOT gated on level here. Eligibility (level >= 4) is
+	// derived at read time by the service, because a stored eligibility would go
+	// stale the moment a threshold changed; a stored opt-in is just the user's
+	// own choice and is safe to keep.
+	SetContentViewingOptIn(ctx context.Context, arg SetContentViewingOptInParams) (UserTrust, error)
 	SetEditCommentHidden(ctx context.Context, arg SetEditCommentHiddenParams) (EditComment, error)
+	// Moderation. Not restricted to flagged->published: a review can be flagged
+	// directly by a moderator, and a status transition table in SQL would need a
+	// trigger to enforce and a migration every time a state is added.
+	SetReviewStatus(ctx context.Context, arg SetReviewStatusParams) (Review, error)
+	// The moderator's usage verification, separate from SetReviewStatus so that
+	// granting and withdrawing it are different calls and neither can be an
+	// accidental side effect of the other.
+	SetReviewVerified(ctx context.Context, arg SetReviewVerifiedParams) (Review, error)
 	SetScenePerformerAlias(ctx context.Context, arg SetScenePerformerAliasParams) error
+	// The level is written by the service after deriving it from the thresholds,
+	// never by the database. The curve is a product decision and belongs in Go,
+	// where it can be changed without a migration.
+	SetUserTrustLevel(ctx context.Context, arg SetUserTrustLevelParams) (UserTrust, error)
+	SetWebhookEndpointDisabled(ctx context.Context, arg SetWebhookEndpointDisabledParams) (WebhookEndpoint, error)
+	SiteCompletionInputs(ctx context.Context, id uuid.UUID) (SiteCompletionInputsRow, error)
 	SoftDeletePerformer(ctx context.Context, id uuid.UUID) (Performer, error)
 	SoftDeleteScene(ctx context.Context, id uuid.UUID) (Scene, error)
 	SoftDeleteStudio(ctx context.Context, id uuid.UUID) (Studio, error)
@@ -409,10 +1214,16 @@ type Querier interface {
 	// Keyset-paginated feed of studios changed since (since, after_id), including
 	// tombstones. redirect_to is the surviving studio for merged-away studios.
 	StudioChangelog(ctx context.Context, arg StudioChangelogParams) ([]StudioChangelogRow, error)
+	StudioCompletionInputs(ctx context.Context, id uuid.UUID) (StudioCompletionInputsRow, error)
 	SubmittedHashExists(ctx context.Context, arg SubmittedHashExistsParams) (bool, error)
 	// Keyset-paginated feed of tags changed since (since, after_id), including
 	// tombstones. redirect_to is the surviving tag for merged-away tags.
 	TagChangelog(ctx context.Context, arg TagChangelogParams) ([]TagChangelogRow, error)
+	TagCompletionInputs(ctx context.Context, id uuid.UUID) (TagCompletionInputsRow, error)
+	// Records a successful contact. Separate from UpdateFederationPeer so a
+	// successful fetch cannot be confused with an operator edit, and so the
+	// updated_at churn of an edit does not look like liveness.
+	TouchFederationPeer(ctx context.Context, id uuid.UUID) error
 	TriggerDownvoteEditNotifications(ctx context.Context, id uuid.UUID) error
 	TriggerEditCommentNotifications(ctx context.Context, id uuid.UUID) error
 	TriggerFailedEditNotifications(ctx context.Context, id uuid.UUID) error
@@ -439,9 +1250,11 @@ type Querier interface {
 	TriggerSceneEditNotifications(ctx context.Context, id uuid.UUID) error
 	TriggerStudioEditNotifications(ctx context.Context, id uuid.UUID) error
 	TriggerUpdatedEditNotifications(ctx context.Context, id uuid.UUID) error
+	UnvoteIdentificationCandidate(ctx context.Context, arg UnvoteIdentificationCandidateParams) error
 	UpdateEdit(ctx context.Context, arg UpdateEditParams) (Edit, error)
 	UpdateEditCommentText(ctx context.Context, arg UpdateEditCommentTextParams) (EditComment, error)
 	UpdateEditData(ctx context.Context, arg UpdateEditDataParams) (Edit, error)
+	UpdateFederationPeer(ctx context.Context, arg UpdateFederationPeerParams) (FederationPeer, error)
 	// Retarget PENDING performer edits from a merged-away performer to the merge survivor.
 	//
 	// Issue #943: a merge soft-deletes the source and adds a redirect, but edits still
@@ -460,6 +1273,9 @@ type Querier interface {
 	UpdatePendingTagEditsTarget(ctx context.Context, arg UpdatePendingTagEditsTargetParams) (int64, error)
 	UpdatePerformer(ctx context.Context, arg UpdatePerformerParams) (Performer, error)
 	UpdatePerformerRedirects(ctx context.Context, arg UpdatePerformerRedirectsParams) error
+	// The author's own review of the same entity, replaced in place. `verified` is
+	// deliberately absent from the SET list: see the note above.
+	UpdateReview(ctx context.Context, arg UpdateReviewParams) (Review, error)
 	UpdateScene(ctx context.Context, arg UpdateSceneParams) (Scene, error)
 	UpdateSceneRedirects(ctx context.Context, arg UpdateSceneRedirectsParams) error
 	UpdateSceneStudios(ctx context.Context, arg UpdateSceneStudiosParams) error
@@ -476,6 +1292,35 @@ type Querier interface {
 	UpdateUserEmail(ctx context.Context, arg UpdateUserEmailParams) error
 	UpdateUserInviteTokenCount(ctx context.Context, arg UpdateUserInviteTokenCountParams) error
 	UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error
+	// Creates the row on first use, which is what makes a performer created AFTER
+	// the migration work without a separate backfill: the seeding INSERT covers
+	// performers that predate it, and this covers everyone after.
+	//
+	// last_rated_at is set on update as well as insert, so a rating that is
+	// re-asserted with unchanged numbers still counts as "rated now" for the Glicko
+	// time constant.
+	// volatility is written, not just defaulted. Glickman's sigma is persistent
+	// state: Step 5 of the paper reads the PREVIOUS value to bound how far sigma may
+	// move this period. Omitting it here would silently reset every rating to 0.06
+	// on every vote, which is the one thing the column exists to prevent.
+	UpsertEloRating(ctx context.Context, arg UpsertEloRatingParams) (EloRating, error)
+	// Create or replace the directory fields.
+	//
+	// An UPSERT because site_details is 1:1 with sites and a partial update that only
+	// sets non-null fields would make "clear the payment methods" unexpressible --
+	// there would be no way to distinguish "leave it alone" from "set it to empty",
+	// and the only signal would be whether the key appeared in the request. That is the
+	// same nullable-vs-empty distinction the columns exist to preserve, applied to the
+	// write.
+	//
+	// updated_by is in the SET list so a moderator's edit is attributable, and
+	// updated_at moves on every write including a no-op one, so "when was this last
+	// touched" answers the question an operator actually asks.
+	UpsertSiteDetails(ctx context.Context, arg UpsertSiteDetailsParams) (SiteDetail, error)
+	UpsertTasteVector(ctx context.Context, arg UpsertTasteVectorParams) (TasteVector, error)
+	// One vote. The composite primary key on the vote table is the rule: a second
+	// vote is a constraint violation rather than a silently doubled tally.
+	VoteForIdentificationCandidate(ctx context.Context, arg VoteForIdentificationCandidateParams) error
 }
 
 var _ Querier = (*Queries)(nil)

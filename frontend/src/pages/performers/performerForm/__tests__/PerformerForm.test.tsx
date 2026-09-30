@@ -50,6 +50,7 @@ const fullPerformer: PerformerFragment = {
   career_start_year: 2010,
   career_end_year: null,
   height: 170,
+  weight: 60,
   band_size: 32,
   cup_size: "C",
   waist_size: 24,
@@ -144,6 +145,7 @@ describe("PerformerForm", () => {
         HairColorEnum.BLACK,
       );
       await user.type(screen.getByLabelText("Height"), "170");
+      await user.type(screen.getByLabelText("Weight"), "60");
       await user.selectOptions(
         screen.getByLabelText("Breast type"),
         BreastTypeEnum.NATURAL,
@@ -211,6 +213,7 @@ describe("PerformerForm", () => {
         eye_color: EyeColorEnum.BROWN,
         hair_color: HairColorEnum.BLACK,
         height: 170,
+        weight: 60,
         breast_type: BreastTypeEnum.NATURAL,
         genitals: GenitalEnum.NAT_VAGINA,
         band_size: 32,
@@ -427,6 +430,17 @@ describe("PerformerForm", () => {
       await submit(user);
       await waitFor(() => expect(callback).toHaveBeenCalledTimes(1));
       expect(lastCallback(callback)).toMatchObject({ height: 180 });
+    });
+
+    it("changes weight", async () => {
+      const callback = vi.fn();
+      const { user } = renderEdit(callback);
+      const w = screen.getByLabelText("Weight");
+      await user.clear(w);
+      await user.type(w, "65");
+      await submit(user);
+      await waitFor(() => expect(callback).toHaveBeenCalledTimes(1));
+      expect(lastCallback(callback)).toMatchObject({ weight: 65 });
     });
 
     it("changes eye color", async () => {
@@ -675,6 +689,7 @@ describe("PerformerForm", () => {
       ["disambiguation", "Disambiguation", null],
       ["birthdate", "Birthdate", null],
       ["height", "Height", null],
+      ["weight", "Weight", null],
       ["career_start_year", "Career Start", null],
       ["band_size", "Band size", null],
       ["cup_size", "Cup size", null],
@@ -782,6 +797,18 @@ describe("PerformerForm", () => {
       const matches = await screen.findAllByText(
         /Height must be in centimeters/,
       );
+      expect(matches.length).toBeGreaterThan(0);
+      expect(callback).not.toHaveBeenCalled();
+    });
+
+    it("blocks submit when weight is below 30kg", async () => {
+      const callback = vi.fn();
+      const { user } = renderEdit(callback);
+      const w = screen.getByLabelText("Weight");
+      await user.clear(w);
+      await user.type(w, "20");
+      await submit(user);
+      const matches = await screen.findAllByText(/Weight must be in kilograms/);
       expect(matches.length).toBeGreaterThan(0);
       expect(callback).not.toHaveBeenCalled();
     });

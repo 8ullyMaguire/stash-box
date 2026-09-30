@@ -37,6 +37,7 @@ const basePerformer = (
     career_start_year: 2010,
     career_end_year: null,
     height: 170,
+    weight: 60,
     band_size: 32,
     cup_size: "C",
     waist_size: 24,
@@ -66,6 +67,7 @@ const baseFormData = (
     career_start_year: 2010,
     career_end_year: null,
     height: 170,
+    weight: 60,
     bandSize: 32,
     cupSize: "C",
     waistSize: 24,
@@ -137,10 +139,11 @@ describe("selectPerformerDetails", () => {
     expect(neu.deathdate).toBe("2020-06-01");
   });
 
-  it("diffs height, cup, band, waist, hip", () => {
+  it("diffs height, weight, cup, band, waist, hip", () => {
     const [old, neu] = selectPerformerDetails(
       baseFormData({
         height: 180,
+        weight: 65,
         bandSize: 34,
         cupSize: "D",
         waistSize: 26,
@@ -150,6 +153,8 @@ describe("selectPerformerDetails", () => {
     );
     expect(old.height).toBe(170);
     expect(neu.height).toBe(180);
+    expect(old.weight).toBe(60);
+    expect(neu.weight).toBe(65);
     expect(neu.band_size).toBe(34);
     expect(neu.cup_size).toBe("D");
     expect(neu.waist_size).toBe(26);

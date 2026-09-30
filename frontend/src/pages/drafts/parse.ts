@@ -269,6 +269,7 @@ export const parsePerformerDraft = (
     birthdate: draft.birthdate,
     deathdate: draft.deathdate,
     height: Number.parseInt(draft.height ?? "", 10) || null,
+    weight: Number.parseInt(draft.weight ?? "", 10) || null,
     country: draft?.country?.length === 2 ? draft.country : null,
     aliases: draftAliases ?? existingPerformer?.aliases,
     career_start_year:
@@ -290,6 +291,7 @@ export const parsePerformerDraft = (
   const remainder = {
     Aliases: draftAliases ? null : (draft?.aliases ?? null),
     Height: draft.height && !performer.height ? draft.height : null,
+    Weight: draft.weight && !performer.weight ? draft.weight : null,
     Country: draft?.country?.length !== 2 ? (draft?.country ?? null) : null,
     URLs: remainingUrls.join(", "),
     Measurements:
