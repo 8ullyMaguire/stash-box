@@ -5391,3 +5391,71 @@ arrive, so there is no rising count to poll and a sleep is the only thing standi
 between a slow goroutine and a pass that means nothing. `awaitQuiet` waits for the
 count to hold steady across two samples — the strongest statement available, and
 still not a proof, which the comment says rather than implying otherwise.
+
+## 2026-09-30 21:40 — D2 step 5's client was brought in, and it shipped with a DEAD GUARD
+
+`client.go` had been an untracked file in the shared tree since 14:38. Two hours
+idle, and I had been treating it as unavailable rather than as movable. It
+**compiles clean in this branch** — so it can simply be brought over, which
+removes the merge blocker instead of waiting on it.
+
+**The F1 content guard in it never worked.**
+
+```go
+if err := error(nil); err != nil {          // always false
+    return BroadcastResult{}, fmt.Errorf("refusing to broadcast: %w", err)
+}
+```
+
+D2 step 4 committed `Question.Validate()` for exactly this, and the call site was
+left as a stub. Any question carrying a path, a URL or an internal hostname went
+to **every askable peer**. It compiled clean, returned no error, and protected
+nothing — `go build` has nothing to say about a guard that cannot fail.
+
+**It survived for a specific, checkable reason: the test that would have caught
+it lived in a file that was never compiled.** An untracked file in another
+session's worktree is not reachable from any import, so `TestBroadcastRefuses
+DirtyQuestion` — which asserts precisely this — had never run. The defect and its
+own regression test were in the same file, and neither was in the build.
+
+### R074 rule 2 is now actually wired
+
+`Client.askOne` calls `DialGuard` before building the request. Refusal is
+**per-peer**, not fatal for the broadcast: a peer that cannot be safely dialled is
+the same shape as a peer that is down, and refusing the whole broadcast would let
+any peer operator deny service to every other peer.
+
+### The tests needed an injection point, and the first attempt was wrong
+
+Every test peer is an httptest server on `127.0.0.1`, which rule 2 refuses for
+precisely the reason it exists. Rather than weaken the guard or delete the tests,
+`Client` gained `WithResolver` — the same injectable pattern it already used for
+its HTTP client and per-peer timeout.
+
+**My first test resolver echoed a literal address as itself, "as real DNS does".
+That was the bug:** the guard then correctly rejected `127.0.0.1` and every
+broadcast test failed, reading like a broken guard. The point of the injection is
+to make the *address* judgement permissive for httptest while leaving every other
+check real — and the address judgement is the one being overridden. Echoing the
+literal was asking the guard to reject the test and then wondering why it did.
+
+### 8 mutations, and three survivors that were all real gaps
+
+The first pass had 3 survivors, and each was informative:
+
+- **The dial-time guard removed, and its result discarded — both survived.**
+  `DialGuard`'s unit tests all pass with the call deleted, because they test the
+  *function*, not whether anything *calls it*. Same class as the F1 stub, one
+  level up: a guard that exists, is well tested, and is never invoked. Fixed with
+  `TestBroadcastRefusesToDialAnUnsafePeer`, which uses a client with **no**
+  resolver override so production resolution applies.
+- **The trust-weight gate dropped from `Askable()` survived.** The range *is*
+  tested on the write path (`TestCreateRejectsOutOfRangeTrustWeight`), and that
+  does not imply the gate is applied when deciding who to dial — a row written
+  before the range rule existed would be dialled. Now covered at the dial site.
+
+Also added: `TestBroadcastRefusesDirtyQuestionWithoutContactingAnyPeer`, which
+asserts a **broadcast-level** refusal. A per-peer failure would mean the question
+still reached the wire, just somewhere else.
+
+**8/8 killed, including reverting the guard back to `error(nil) != nil`.**
