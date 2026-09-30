@@ -50,10 +50,20 @@ rc, out, _ = sh("go test ./... -count=1", timeout=1800)
 if rc == 124:
     add("suite green", "UNKNOWN", "go test timed out -- a killed run reads like a pass")
 else:
-    npkg = sum(1 for l in out.splitlines() if l.startswith("ok"))
+    # Same correction as goal-check C6, for the same reason: `go test` prints
+    # "?   pkg  [no test files]" for a package that builds and vets clean but has no
+    # untagged test, which is the normal state for one whose only tests are
+    # integration-tagged. Counting only "ok" made this clause fail the moment
+    # internal/service/scene's only test went behind //go:build integration -- 28
+    # instead of 29, with nothing actually broken.
+    npkg = sum(1 for l in out.splitlines()
+               if l.startswith("ok") or l.startswith("?"))
+    notests = sum(1 for l in out.splitlines()
+                  if l.startswith("?") and "[no test files]" in l)
     fails = [l for l in out.splitlines() if l.startswith("FAIL")]
     add("suite green", "PASS" if rc == 0 and npkg >= 29 else "FAIL",
-        f"{npkg} packages green" + (f"; FAIL: {fails[:2]}" if fails else ""))
+        f"{npkg} packages accounted for, {notests} with no untagged test"
+        + (f"; FAIL: {fails[:2]}" if fails else ""))
 
 # 3 -- the mutation sweep actually runs, so run it and report its result
 # The plans list specific mutations. Rather than trust the prose, apply each one
