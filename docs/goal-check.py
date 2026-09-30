@@ -45,7 +45,14 @@ MIG_DIR = "internal/database/migrations/postgres"
 # clause below runs. Do not raise it to match the `make it` figure: that runs a
 # different, larger set of packages, and using its count here made the clause report
 # a regression that did not exist.
-BASELINE_PACKAGES = 29
+#
+# It must however be the SAME metric the clause computes, which it was not until
+# this was fixed. 29 was measured with the old `ok`-only count; the clause now counts
+# `ok` AND `?  [no test files]`, which is 56 (28 + 28). Comparing 56 against a floor
+# of 29 cannot fail, so a suite that lost 27 packages still reported PASS -- the floor
+# was decorative. Set with `--update-baseline`, which measures the tree rather than
+# trusting a remembered number.
+BASELINE_PACKAGES = 56
 
 results = []
 
@@ -268,9 +275,16 @@ def c4_narrow_merged():
         return
     rc, _, _ = sh("git merge-base --is-ancestor issue-fixes master")
     if rc == 0:
-        _, behind, _ = sh("git rev-list --left-right --count issue-fixes...master")
+        # `--left-right` prints the LEFT side first, so this is
+        # (issue-fixes-only, master-only) -- master-only is the second field.
+        # Reading [0] reported "0 commits ahead" while master was ten ahead,
+        # which reads as "the branches are identical" when they are not.
+        _, counts, _ = sh("git rev-list --left-right --count issue-fixes...master")
+        fields = counts.split()
+        only_issue_fixes, only_master = (fields + ["?", "?"])[:2]
         add("C4 narrow merged", "PASS",
-            f"issue-fixes is an ancestor of master (master is {behind.split()[0] if behind else '?'} commits ahead)")
+            f"issue-fixes is an ancestor of master: {only_master} commits on master "
+            f"alone, {only_issue_fixes} stranded on issue-fixes alone")
     else:
         _, ab, _ = sh("git rev-list --left-right --count issue-fixes...master")
         add("C4 narrow merged", "FAIL",
