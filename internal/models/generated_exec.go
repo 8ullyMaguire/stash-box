@@ -231,6 +231,13 @@ type ComplexityRoot struct {
 		Rating  func(childComplexity int) int
 	}
 
+	EntityChange struct {
+		Deleted    func(childComplexity int) int
+		ID         func(childComplexity int) int
+		RedirectTo func(childComplexity int) int
+		UpdatedAt  func(childComplexity int) int
+	}
+
 	FailedOwnEdit struct {
 		Edit func(childComplexity int) int
 	}
@@ -619,6 +626,7 @@ type ComplexityRoot struct {
 		ListOpenIdentificationQueries  func(childComplexity int, limit *int) int
 		Me                             func(childComplexity int) int
 		MyIdentificationDetectiveScore func(childComplexity int) int
+		PerformerChangelog             func(childComplexity int, since time.Time, afterID *uuid.UUID, limit *int) int
 		QueryEdits                     func(childComplexity int, input EditQueryInput) int
 		QueryExistingPerformer         func(childComplexity int, input QueryExistingPerformerInput) int
 		QueryExistingScene             func(childComplexity int, input QueryExistingSceneInput) int
@@ -633,12 +641,15 @@ type ComplexityRoot struct {
 		QueryTags                      func(childComplexity int, input TagQueryInput) int
 		QueryUsers                     func(childComplexity int, input UserQueryInput) int
 		ResolvedIdentificationQueries  func(childComplexity int, entityType IdentificationTargetType, entityID uuid.UUID, limit *int) int
+		SceneChangelog                 func(childComplexity int, since time.Time, afterID *uuid.UUID, limit *int) int
 		SearchPerformer                func(childComplexity int, term string, limit *int) int
 		SearchPerformers               func(childComplexity int, term string, limit *int, page *int, perPage *int, filter *PerformerSearchFilter) int
 		SearchScene                    func(childComplexity int, term string, limit *int) int
 		SearchScenes                   func(childComplexity int, term string, limit *int, page *int, perPage *int) int
 		SearchStudio                   func(childComplexity int, term string, limit *int) int
 		SearchTag                      func(childComplexity int, term string, limit *int) int
+		StudioChangelog                func(childComplexity int, since time.Time, afterID *uuid.UUID, limit *int) int
+		TagChangelog                   func(childComplexity int, since time.Time, afterID *uuid.UUID, limit *int) int
 		Version                        func(childComplexity int) int
 	}
 
@@ -1138,19 +1149,23 @@ type QueryResolver interface {
 	FindPerformer(ctx context.Context, id uuid.UUID) (*Performer, error)
 	FindPerformers(ctx context.Context, ids []uuid.UUID) ([]*Performer, error)
 	QueryPerformers(ctx context.Context, input PerformerQueryInput) (*PerformerQuery, error)
+	PerformerChangelog(ctx context.Context, since time.Time, afterID *uuid.UUID, limit *int) ([]EntityChange, error)
 	FindStudio(ctx context.Context, id *uuid.UUID, name *string) (*Studio, error)
 	FindStudios(ctx context.Context, ids []uuid.UUID) ([]*Studio, error)
 	QueryStudios(ctx context.Context, input StudioQueryInput) (*QueryStudiosResultType, error)
+	StudioChangelog(ctx context.Context, since time.Time, afterID *uuid.UUID, limit *int) ([]EntityChange, error)
 	FindTag(ctx context.Context, id *uuid.UUID, name *string) (*Tag, error)
 	FindTags(ctx context.Context, ids []uuid.UUID) ([]*Tag, error)
 	FindTagOrAlias(ctx context.Context, name string) (*Tag, error)
 	QueryTags(ctx context.Context, input TagQueryInput) (*QueryTagsResultType, error)
 	FindTagCategory(ctx context.Context, id uuid.UUID) (*TagCategory, error)
 	QueryTagCategories(ctx context.Context) (*QueryTagCategoriesResultType, error)
+	TagChangelog(ctx context.Context, since time.Time, afterID *uuid.UUID, limit *int) ([]EntityChange, error)
 	FindScene(ctx context.Context, id uuid.UUID) (*Scene, error)
 	FindScenes(ctx context.Context, ids []uuid.UUID) ([]*Scene, error)
 	FindScenesBySceneFingerprints(ctx context.Context, fingerprints [][]FingerprintQueryInput) ([][]*Scene, error)
 	QueryScenes(ctx context.Context, input SceneQueryInput) (*SceneQuery, error)
+	SceneChangelog(ctx context.Context, since time.Time, afterID *uuid.UUID, limit *int) ([]EntityChange, error)
 	FindSite(ctx context.Context, id uuid.UUID) (*Site, error)
 	QuerySites(ctx context.Context) (*QuerySitesResultType, error)
 	FindSiteCategory(ctx context.Context, id int) (*SiteCategory, error)
@@ -1903,6 +1918,31 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.EloVoteResult.Rating(childComplexity), true
+
+	case "EntityChange.deleted":
+		if e.ComplexityRoot.EntityChange.Deleted == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EntityChange.Deleted(childComplexity), true
+	case "EntityChange.id":
+		if e.ComplexityRoot.EntityChange.ID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EntityChange.ID(childComplexity), true
+	case "EntityChange.redirect_to":
+		if e.ComplexityRoot.EntityChange.RedirectTo == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EntityChange.RedirectTo(childComplexity), true
+	case "EntityChange.updated_at":
+		if e.ComplexityRoot.EntityChange.UpdatedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EntityChange.UpdatedAt(childComplexity), true
 
 	case "FailedOwnEdit.edit":
 		if e.ComplexityRoot.FailedOwnEdit.Edit == nil {
@@ -4215,6 +4255,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.MyIdentificationDetectiveScore(childComplexity), true
+	case "Query.performerChangelog":
+		if e.ComplexityRoot.Query.PerformerChangelog == nil {
+			break
+		}
+
+		args, err := ec.field_Query_performerChangelog_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.PerformerChangelog(childComplexity, args["since"].(time.Time), args["after_id"].(*uuid.UUID), args["limit"].(*int)), true
 	case "Query.queryEdits":
 		if e.ComplexityRoot.Query.QueryEdits == nil {
 			break
@@ -4354,6 +4405,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.ResolvedIdentificationQueries(childComplexity, args["entityType"].(IdentificationTargetType), args["entityId"].(uuid.UUID), args["limit"].(*int)), true
+	case "Query.sceneChangelog":
+		if e.ComplexityRoot.Query.SceneChangelog == nil {
+			break
+		}
+
+		args, err := ec.field_Query_sceneChangelog_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.SceneChangelog(childComplexity, args["since"].(time.Time), args["after_id"].(*uuid.UUID), args["limit"].(*int)), true
 	case "Query.searchPerformer":
 		if e.ComplexityRoot.Query.SearchPerformer == nil {
 			break
@@ -4420,6 +4482,28 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.SearchTag(childComplexity, args["term"].(string), args["limit"].(*int)), true
+	case "Query.studioChangelog":
+		if e.ComplexityRoot.Query.StudioChangelog == nil {
+			break
+		}
+
+		args, err := ec.field_Query_studioChangelog_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.StudioChangelog(childComplexity, args["since"].(time.Time), args["after_id"].(*uuid.UUID), args["limit"].(*int)), true
+	case "Query.tagChangelog":
+		if e.ComplexityRoot.Query.TagChangelog == nil {
+			break
+		}
+
+		args, err := ec.field_Query_tagChangelog_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.TagChangelog(childComplexity, args["since"].(time.Time), args["after_id"].(*uuid.UUID), args["limit"].(*int)), true
 	case "Query.version":
 		if e.ComplexityRoot.Query.Version == nil {
 			break
@@ -6989,6 +7073,17 @@ input URLInput {
   url: String!
   site_id: ID!
 }
+
+# A single entity change reported by the *Changelog feeds. Compact by design:
+# clients intersect the ids against their tracked set and hydrate matches via
+# the existing find* queries. redirect_to is set when the entity was merged
+# into a surviving entity (always with deleted = true).
+type EntityChange {
+  id: ID!
+  updated_at: Time!
+  deleted: Boolean!
+  redirect_to: ID
+}
 `, BuiltIn: false},
 	{Name: "../../graphql/schema/types/mod_audit.graphql", Input: `enum ModAuditActionEnum {
   EDIT_DELETE
@@ -8521,6 +8616,8 @@ type Query {
   """
   findPerformers(ids: [ID!]!): [Performer]! @hasRole(role: READ)
   queryPerformers(input: PerformerQueryInput!): QueryPerformersResultType! @hasRole(role: READ)
+  """Incremental feed of performers changed since a keyset cursor"""
+  performerChangelog(since: Time!, after_id: ID, limit: Int = 5000): [EntityChange!]! @hasRole(role: READ)
 
   #### Studios ####
 
@@ -8535,6 +8632,8 @@ type Query {
   """
   findStudios(ids: [ID!]!): [Studio]! @hasRole(role: READ)
   queryStudios(input: StudioQueryInput!): QueryStudiosResultType! @hasRole(role: READ)
+  """Incremental feed of studios changed since a keyset cursor"""
+  studioChangelog(since: Time!, after_id: ID, limit: Int = 5000): [EntityChange!]! @hasRole(role: READ)
 
   #### Tags ####
 
@@ -8555,6 +8654,8 @@ type Query {
   """Find a tag category by ID"""
   findTagCategory(id: ID!): TagCategory @hasRole(role: READ)
   queryTagCategories: QueryTagCategoriesResultType! @hasRole(role: READ)
+  """Incremental feed of tags changed since a keyset cursor"""
+  tagChangelog(since: Time!, after_id: ID, limit: Int = 5000): [EntityChange!]! @hasRole(role: READ)
 
   #### Scenes ####
 
@@ -8573,6 +8674,8 @@ type Query {
   findScenesBySceneFingerprints(fingerprints: [[FingerprintQueryInput!]!]!): [[Scene]!]! @hasRole(role: READ)
 
   queryScenes(input: SceneQueryInput!): QueryScenesResultType! @hasRole(role: READ)
+  """Incremental feed of scenes changed since a keyset cursor"""
+  sceneChangelog(since: Time!, after_id: ID, limit: Int = 5000): [EntityChange!]! @hasRole(role: READ)
 
   """Find an external site by ID"""
   findSite(id: ID!): Site @hasRole(role: READ)
@@ -9064,6 +9167,20 @@ func (ec *executionContext) childFields_EloVoteResult(ctx context.Context, field
 		return ec.fieldContext_EloVoteResult_matchup(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type EloVoteResult", field.Name)
+}
+
+func (ec *executionContext) childFields_EntityChange(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "id":
+		return ec.fieldContext_EntityChange_id(ctx, field)
+	case "updated_at":
+		return ec.fieldContext_EntityChange_updated_at(ctx, field)
+	case "deleted":
+		return ec.fieldContext_EntityChange_deleted(ctx, field)
+	case "redirect_to":
+		return ec.fieldContext_EntityChange_redirect_to(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type EntityChange", field.Name)
 }
 
 func (ec *executionContext) childFields_FederationPeer(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -11606,6 +11723,36 @@ func (ec *executionContext) field_Query_listOpenIdentificationQueries_args(ctx c
 	return args, nil
 }
 
+func (ec *executionContext) field_Query_performerChangelog_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "since",
+		func(ctx context.Context, v any) (time.Time, error) {
+			return ec.unmarshalNTime2timeᚐTime(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["since"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "after_id",
+		func(ctx context.Context, v any) (*uuid.UUID, error) {
+			return ec.unmarshalOID2ᚖgithubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["after_id"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "limit",
+		func(ctx context.Context, v any) (*int, error) {
+			return ec.unmarshalOInt2ᚖint(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["limit"] = arg2
+	return args, nil
+}
+
 func (ec *executionContext) field_Query_queryEdits_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -11765,6 +11912,36 @@ func (ec *executionContext) field_Query_resolvedIdentificationQueries_args(ctx c
 		return nil, err
 	}
 	args["entityId"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "limit",
+		func(ctx context.Context, v any) (*int, error) {
+			return ec.unmarshalOInt2ᚖint(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["limit"] = arg2
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_sceneChangelog_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "since",
+		func(ctx context.Context, v any) (time.Time, error) {
+			return ec.unmarshalNTime2timeᚐTime(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["since"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "after_id",
+		func(ctx context.Context, v any) (*uuid.UUID, error) {
+			return ec.unmarshalOID2ᚖgithubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["after_id"] = arg1
 	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "limit",
 		func(ctx context.Context, v any) (*int, error) {
 			return ec.unmarshalOInt2ᚖint(ctx, v)
@@ -11945,6 +12122,66 @@ func (ec *executionContext) field_Query_searchTag_args(ctx context.Context, rawA
 		return nil, err
 	}
 	args["limit"] = arg1
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_studioChangelog_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "since",
+		func(ctx context.Context, v any) (time.Time, error) {
+			return ec.unmarshalNTime2timeᚐTime(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["since"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "after_id",
+		func(ctx context.Context, v any) (*uuid.UUID, error) {
+			return ec.unmarshalOID2ᚖgithubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["after_id"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "limit",
+		func(ctx context.Context, v any) (*int, error) {
+			return ec.unmarshalOInt2ᚖint(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["limit"] = arg2
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_tagChangelog_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "since",
+		func(ctx context.Context, v any) (time.Time, error) {
+			return ec.unmarshalNTime2timeᚐTime(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["since"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "after_id",
+		func(ctx context.Context, v any) (*uuid.UUID, error) {
+			return ec.unmarshalOID2ᚖgithubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["after_id"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "limit",
+		func(ctx context.Context, v any) (*int, error) {
+			return ec.unmarshalOInt2ᚖint(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["limit"] = arg2
 	return args, nil
 }
 
@@ -14352,6 +14589,98 @@ func (ec *executionContext) fieldContext_EloVoteResult_matchup(_ context.Context
 		},
 	}
 	return fc, nil
+}
+
+func (ec *executionContext) _EntityChange_id(ctx context.Context, field graphql.CollectedField, obj *EntityChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_EntityChange_id(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v uuid.UUID) graphql.Marshaler {
+			return ec.marshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_EntityChange_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("EntityChange", field, false, false, errors.New("field of type ID does not have child fields"))
+}
+
+func (ec *executionContext) _EntityChange_updated_at(ctx context.Context, field graphql.CollectedField, obj *EntityChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_EntityChange_updated_at(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.UpdatedAt, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v time.Time) graphql.Marshaler {
+			return ec.marshalNTime2timeᚐTime(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_EntityChange_updated_at(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("EntityChange", field, false, false, errors.New("field of type Time does not have child fields"))
+}
+
+func (ec *executionContext) _EntityChange_deleted(ctx context.Context, field graphql.CollectedField, obj *EntityChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_EntityChange_deleted(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Deleted, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_EntityChange_deleted(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("EntityChange", field, false, false, errors.New("field of type Boolean does not have child fields"))
+}
+
+func (ec *executionContext) _EntityChange_redirect_to(ctx context.Context, field graphql.CollectedField, obj *EntityChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_EntityChange_redirect_to(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.RedirectTo, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *uuid.UUID) graphql.Marshaler {
+			return ec.marshalOID2ᚖgithubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_EntityChange_redirect_to(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("EntityChange", field, false, false, errors.New("field of type ID does not have child fields"))
 }
 
 func (ec *executionContext) _FailedOwnEdit_edit(ctx context.Context, field graphql.CollectedField, obj *FailedOwnEdit) (ret graphql.Marshaler) {
@@ -23788,6 +24117,68 @@ func (ec *executionContext) fieldContext_Query_queryPerformers(ctx context.Conte
 	return fc, nil
 }
 
+func (ec *executionContext) _Query_performerChangelog(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_performerChangelog(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().PerformerChangelog(ctx, fc.Args["since"].(time.Time), fc.Args["after_id"].(*uuid.UUID), fc.Args["limit"].(*int))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal []EntityChange
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal []EntityChange
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v []EntityChange) graphql.Marshaler {
+			return ec.marshalNEntityChange2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEntityChangeᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_performerChangelog(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_EntityChange(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_performerChangelog_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Query_findStudio(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -23968,6 +24359,68 @@ func (ec *executionContext) fieldContext_Query_queryStudios(ctx context.Context,
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Query_queryStudios_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_studioChangelog(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_studioChangelog(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().StudioChangelog(ctx, fc.Args["since"].(time.Time), fc.Args["after_id"].(*uuid.UUID), fc.Args["limit"].(*int))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal []EntityChange
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal []EntityChange
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v []EntityChange) graphql.Marshaler {
+			return ec.marshalNEntityChange2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEntityChangeᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_studioChangelog(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_EntityChange(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_studioChangelog_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -24334,6 +24787,68 @@ func (ec *executionContext) fieldContext_Query_queryTagCategories(_ context.Cont
 	return fc, nil
 }
 
+func (ec *executionContext) _Query_tagChangelog(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_tagChangelog(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().TagChangelog(ctx, fc.Args["since"].(time.Time), fc.Args["after_id"].(*uuid.UUID), fc.Args["limit"].(*int))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal []EntityChange
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal []EntityChange
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v []EntityChange) graphql.Marshaler {
+			return ec.marshalNEntityChange2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEntityChangeᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_tagChangelog(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_EntityChange(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_tagChangelog_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Query_findScene(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -24576,6 +25091,68 @@ func (ec *executionContext) fieldContext_Query_queryScenes(ctx context.Context, 
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Query_queryScenes_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_sceneChangelog(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_sceneChangelog(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().SceneChangelog(ctx, fc.Args["since"].(time.Time), fc.Args["after_id"].(*uuid.UUID), fc.Args["limit"].(*int))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal []EntityChange
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal []EntityChange
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v []EntityChange) graphql.Marshaler {
+			return ec.marshalNEntityChange2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEntityChangeᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_sceneChangelog(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_EntityChange(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_sceneChangelog_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -41665,6 +42242,57 @@ func (ec *executionContext) _EloVoteResult(ctx context.Context, sel ast.Selectio
 	return out
 }
 
+var entityChangeImplementors = []string{"EntityChange"}
+
+func (ec *executionContext) _EntityChange(ctx context.Context, sel ast.SelectionSet, obj *EntityChange) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, entityChangeImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("EntityChange")
+		case "id":
+			out.Values[i] = ec._EntityChange_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "updated_at":
+			out.Values[i] = ec._EntityChange_updated_at(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "deleted":
+			out.Values[i] = ec._EntityChange_deleted(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "redirect_to":
+			out.Values[i] = ec._EntityChange_redirect_to(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferred), math.MaxInt32)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
 var failedOwnEditImplementors = []string{"FailedOwnEdit", "NotificationData"}
 
 func (ec *executionContext) _FailedOwnEdit(ctx context.Context, sel ast.SelectionSet, obj *FailedOwnEdit) graphql.Marshaler {
@@ -45093,6 +45721,28 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "performerChangelog":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_performerChangelog(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
 		case "findStudio":
 			field := field
 
@@ -45144,6 +45794,28 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 					}
 				}()
 				res = ec._Query_queryStudios(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "studioChangelog":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_studioChangelog(ctx, field)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -45279,6 +45951,28 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "tagChangelog":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_tagChangelog(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
 		case "findScene":
 			field := field
 
@@ -45352,6 +46046,28 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 					}
 				}()
 				res = ec._Query_queryScenes(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "sceneChangelog":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_sceneChangelog(ctx, field)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -51544,6 +52260,26 @@ func (ec *executionContext) marshalNEloVoteResult2ᚖgithubᚗcomᚋstashappᚋs
 		return graphql.Null
 	}
 	return ec._EloVoteResult(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNEntityChange2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEntityChange(ctx context.Context, sel ast.SelectionSet, v EntityChange) graphql.Marshaler {
+	return ec._EntityChange(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNEntityChange2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEntityChangeᚄ(ctx context.Context, sel ast.SelectionSet, v []EntityChange) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNEntityChange2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEntityChange(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
 }
 
 func (ec *executionContext) unmarshalNEntityType2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEntityType(ctx context.Context, v any) (EntityType, error) {

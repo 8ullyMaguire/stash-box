@@ -366,6 +366,13 @@ type EloVoteResult struct {
 	Matchup *EloMatchup `json:"matchup"`
 }
 
+type EntityChange struct {
+	ID         uuid.UUID  `json:"id"`
+	UpdatedAt  time.Time  `json:"updated_at"`
+	Deleted    bool       `json:"deleted"`
+	RedirectTo *uuid.UUID `json:"redirect_to,omitempty"`
+}
+
 type EyeColorCriterionInput struct {
 	Value    *EyeColorEnum     `json:"value,omitempty"`
 	Modifier CriterionModifier `json:"modifier"`

@@ -64,7 +64,7 @@ ports.
 | 1278 | Superseded. Wants a clearer cooldown error, but this fork already has a better one — `CooldownError` with `RetryAfter`, against upstream's bare `errors.New`. |
 | 1227→ already merged; remaining below | |
 | 1123 | Frontend conflict in two form components against #1212 and #1216-era changes. Needs a real UI decision about which pending-URL behaviour wins, not a mechanical merge. |
-| 1076 | Upstream already conflicts this one (their merge base moved). Touches criterion handling that #1270 and #1271, both merged, also changed. |
+| 1076 | **SUPERSEDED — verified 2026-09-30, nothing to port.** The record said "touches criterion handling that #1270 and #1271 also changed", which is true but describes a *conflict*, not a *disposition*. Measured: the PR adds exactly **9** criterion applications (height, band_size, waist_size, hip_size, career_start_year, career_end_year, eye_color, hair_color, breast_type) and **all 9 are already in `internal/service/performer/query.go` on both branches**, at lines 204–229. Every column it filters on exists in our migrations. `gh` still reports CONFLICTING, which is now true and irrelevant — there is nothing left to apply. |
 | 1225 | Conflicts in generated GraphQL code. Needs `make generate` plus a review of whether its 3 schema files duplicate #1216's work. |
 | 1183 | Upstream-conflicting. 4 conflicting files, 3 of them generated. Bulk-update changelog queries. |
 | 1155 | Draft, upstream-conflicting, 13 conflicting files, 8 generated. User-mention notifications. |

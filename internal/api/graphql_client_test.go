@@ -308,6 +308,14 @@ type graphqlClient struct {
 	*client.Client
 }
 
+// entityChange is the changelog row shape added by upstream #1183.
+type entityChange struct {
+	ID         string  `json:"id"`
+	UpdatedAt  string  `json:"updated_at"`
+	Deleted    bool    `json:"deleted"`
+	RedirectTo *string `json:"redirect_to"`
+}
+
 // federationPeerOutput mirrors the FederationPeer GraphQL type.
 //
 // Declared here rather than reusing models.FederationPeer because the client
@@ -315,6 +323,31 @@ type graphqlClient struct {
 // operation in this file is written, and a resolver-level struct would not prove
 // the query parses. The field names are camelCase because that is the JSON the
 // server returns, not the snake_case the schema declares.
+// changelog queries one of the *Changelog feeds. field is the query name, e.g.
+// "sceneChangelog". afterID/limit may be nil to send null.
+func (c *graphqlClient) changelog(field, since string, afterID *uuid.UUID, limit *int) ([]entityChange, error) {
+	q := `
+	query Changelog($since: Time!, $after_id: ID, $limit: Int) {
+		` + field + `(since: $since, after_id: $after_id, limit: $limit) {
+			id
+			updated_at
+			deleted
+			redirect_to
+		}
+	}`
+
+	var resp map[string][]entityChange
+	if err := c.Post(q, &resp,
+		client.Var("since", since),
+		client.Var("after_id", afterID),
+		client.Var("limit", limit),
+	); err != nil {
+		return nil, err
+	}
+
+	return resp[field], nil
+}
+
 type federationPeerOutput struct {
 	ID          string  `json:"id"`
 	Name        string  `json:"name"`

@@ -5575,3 +5575,55 @@ dropping it is irreversible for no operational gain.
 Left in place: `docs/plan/.hermes-tmp.8hyL22`, the dead session's scratch copy of
 this very plan. Unreferenced, and removing another session's file is not worth an
 irreversible step. It is the only line `git status` still reports.
+
+## 2026-09-30 00:15 — #1183 ported, and a "take one side" resolution bit me
+
+### #1183 — entity changelog feeds, two forced deviations
+
+Four keyset-paginated changelog queries (scene/performer/studio/tag), genuinely
+absent from this fork, with 220 lines of upstream tests. Two deviations:
+
+1. **Migration renumbered 73 → 90.** We already have
+   `73_scene_code_trgm_index.up.sql`; two files claiming 73 is the
+   golang-migrate hard-startup-failure this repo has been hit by before.
+2. **The `schemaVersion = 73` pin was DROPPED, not renumbered.** `database.go`
+   no longer has that constant *on purpose* — the file's own comment records that
+   it was 75, so migration 76 was parsed, embedded, shipped and never applied, in
+   every environment, silently. Applying the PR's hunk would have reintroduced a
+   bug this fork already diagnosed, in the file that documents the fix.
+
+### The migration shipped with no test, so I wrote one
+
+Upstream's own tests **all pass with the migration deleted** — the queries are
+correct either way, because Postgres will sequential-scan a table this small. So
+the feature was covered and the performance claim was not: the four indexes could
+be deleted in a refactor and nothing would go red.
+
+`TestChangelogIndexesExist` asserts each index exists **and** carries
+`INCLUDE (deleted)`. The INCLUDE check is the actual point: the pre-existing sort
+indexes are PARTIAL `WHERE deleted = false` and so cannot serve a tombstone at
+all, so an index with the right name and no `deleted` would pass a name-only check
+and still fail the requirement in the migration's own first line.
+
+Both controls verified:
+
+    migration emptied        -> FAIL x4, "index ... missing on ..."
+    INCLUDE (deleted) dropped -> FAIL x4, "must INCLUDE deleted, or it cannot
+                                    serve a tombstone"
+
+### The trap: taking one side of a SHARED hand-maintained fixture
+
+`graphql_client_test.go` is not generated code — it is a hand-maintained GraphQL
+client fixture that both sides had extended. `git checkout --theirs` on it dropped
+**98 lines** and silently deleted the three `federationPeer*` helpers this fork
+owns. Generated files resolve by regenerating; this one needed a splice.
+
+And the splice was still wrong the first time: I added the `entityChange` type but
+not the `changelog` query method that returns it, so `internal/api` failed to build
+*for tests only* — `go build` and `go vet` both passed, which is why the mistake
+survived my earlier gate.
+
+**Rule: for a non-generated conflict, diff the DECLARATIONS on both sides, not the
+diff hunks. A side-take that drops a name is data loss, and if any test file is in
+the conflict set, run the integration-tagged build — `go build` does not compile
+`_test.go` files, so a test-only break is invisible to it.**
