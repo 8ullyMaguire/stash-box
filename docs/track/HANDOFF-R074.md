@@ -1,14 +1,13 @@
 # R074 — the receiving-end guard for `stash-box`
 
-**Status: the guard is built, proven, and WIRED** (`e2ee78b1`, third session).
-`service.go` calls `ValidateBaseURL` from both `Create` and `Update`, and
-`Factory.Federation()` is registered.
+**Status: the guard is built, proven, WIRED, and REACHABLE.**
+`service.go` calls `ValidateBaseURL` from both `Create` and `Update`
+(`e2ee78b1`), and the GraphQL operator surface calls those
+(`8338a797` — `federation_peer_create` / `_update` / `_delete`, all ADMIN).
 
-**Still not reachable in production:** nothing calls `Factory.Federation()`, and
-the only caller would be the GraphQL operator surface (D2 step 6's other half,
-deliberately not built here because the D2 session owns it). The precise claim is
-therefore: *the guard covers every path this package owns*, and a caller building
-its own `queries.New(f.db)` handle from the pool could still bypass it.
+An integration test now asserts the rule in operator terms rather than as a unit
+test on a validator: an admin cannot register a peer at `169.254.169.254`, and
+cannot repoint an existing one there either.
 
 **The top open item is dial-time re-validation.** See "Open items" below.
 
@@ -188,9 +187,9 @@ check, do not add a test.**
    resolves in the first place. **This belongs with whoever lands `client.go`** —
    the dialer is an untracked file in the shared tree owned by the D2 session, so
    writing a dial-time check here would mean writing a second dialer.
-2. **The GraphQL operator surface.** D2 step 6's other half. Nothing calls
-   `Factory.Federation()` until it exists. Deliberately not built here to avoid
-   colliding with the session that owns D2.
+2. ~~The GraphQL operator surface~~ — **done, `8338a797`**. One part of step 6 is
+   still owed: `federation.queryForeignCandidates`, the read-only query path. It
+   does not touch the write path or the guard, so it is independent work.
 3. **Rules 1 and 3 have a scanner, not a runtime guard.** The five stored-URL
    columns (`performer_urls.url`, `studio_urls.url`, `scene_urls.url`,
    `sites.url`, `images.url`) are operator-typed inbound references. The scanner
@@ -209,7 +208,7 @@ check, do not add a test.**
 
 | Item | State |
 |---|---|
-| R074 receiving guard on `base_url` | **Built, proven, wired** (`e2ee78b1`). Not reachable until the operator surface exists |
+| R074 receiving guard on `base_url` | **Built, proven, wired, reachable** (`e2ee78b1`, `8338a797`) |
 | R074 scanner for the 7 columns | **Built, proven** |
 | Commons half of the alignment in `SPEC.md` | **Done** — `docs/SPEC.md` §7A, `217bd789` |
 | Dial-time re-validation (rule 2's second half) | **Open** — belongs with whoever lands `client.go` |

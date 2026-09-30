@@ -1080,21 +1080,25 @@ can be perfect and the commons can still acquire a path from a peer.
 | Half | Where | State |
 |---|---|---|
 | **Sending** — a question carries no content, no path, no address | `internal/service/federation/wire.go` `Question` + `ask.go` `Validate` | **done**, `7704600c` |
-| **Receiving** — a `base_url` the box dials is validated | `baseurl.go` `ValidateBaseURL`, called from `service.go` `Create`/`Update` | **built and wired**, `23da1f6a` + `e2ee78b1` |
+| **Receiving** — a `base_url` the box dials is validated | `baseurl.go` `ValidateBaseURL`, called from `service.go` `Create`/`Update` | **built, wired and reachable**, `23da1f6a` + `e2ee78b1` + `8338a797` |
 | **Schema** — nothing that can hold an address is unguarded | `internal/service/federation/schema_scan.go` | **built, scanning only** |
 
-**Read the middle row carefully — it is wired, but not yet reachable.** The write
-path exists and both `Create` and `Update` validate before anything is persisted
-(21 mutations killed across the two harnesses). `Factory.Federation()` is wired.
-**But nothing calls `Factory.Federation()` yet**, because the only caller would be
-the GraphQL operator surface, which is D2 step 6's other half and is deliberately
-not built here.
+**The middle row is now fully closed.** `Factory.Federation()` has a caller: the
+GraphQL operator surface (`8338a797`, D2 step 6). `federation_peer_create` and
+`federation_peer_update` go through `Service.Create`/`Service.Update`, so both
+validate, and an integration test asserts the outcome in operator terms — an
+ADMIN cannot register a peer at `169.254.169.254`, and cannot repoint an existing
+one there either. 42 mutations killed across four harnesses.
 
-So the precise statement is: **the guard now covers every path this package
-owns**, and the path that would bypass it — a caller building its own
-`queries.New(f.db)` handle from the pool — is still open, as is the schema-level
-possibility of encoding the rule as a `CHECK` constraint. This closes when the
-operator surface lands and becomes the only caller. See §7A.3 and §7A.5.
+Two residual notes, neither closable in code:
+
+- A caller building its own `queries.New(f.db)` handle from the pool can still
+  write `federation_peers` without the guard. That is a property of Go, not of
+  this package, and the operator surface is now the intended way in.
+- A `CHECK` constraint cannot encode the rule, because Postgres cannot resolve
+  DNS in a constraint. The available schema-level backstop is a scheme check.
+
+See §7A.3 and §7A.5.
 
 ### 7A.2 The seven address-shaped columns, measured
 
@@ -1183,9 +1187,8 @@ this surface.
 
 ### 7A.5 What this repo still owes
 
-1. ~~Wire `ValidateBaseURL` at write time~~ — **done, `e2ee78b1`**. `Create` and
-   `Update` both validate; the D2 step 6 GraphQL surface is the remaining piece,
-   and it is the only thing that would make `Factory.Federation()` reachable.
+1. ~~Wire `ValidateBaseURL` at write time~~ — **done, `e2ee78b1`**.
+   ~~Make it reachable~~ — **done, `8338a797`**.
 2. **Re-validate at dial time.** Rule 2's second half, and the rebinding window
    is the reason the webhook validator exists in the shape it does. **This is now
    the top open item.** It cannot be done in this branch: the dialer
