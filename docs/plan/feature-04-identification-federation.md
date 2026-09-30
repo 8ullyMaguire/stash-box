@@ -370,8 +370,9 @@ sitting untracked in another worktree, and the plan's own definition of done was
 therefore unmeetable for two sessions.** This is the one that matters, so it is
 written at length.
 
-The plan specifies `client.go` as a file to be **created**. It already existed, in
-another session's working tree, containing:
+The plan specifies `client.go` as a file to be **created**. It already existed,
+untracked in the shared checkout, written earlier the same day by a session that
+had since finished, containing:
 
 ```go
 if err := error(nil); err != nil {   // always false
@@ -394,11 +395,16 @@ that did not exist, and the file that did exist was not the plan's. Deviating fr
 the plan was therefore not a choice — the plan could not be followed as written
 until someone noticed that its premise was false.
 
-*Two consequences for whoever runs plans like this one. First: a step naming a
+*Three consequences for whoever runs plans like this one. First: a step naming a
 file to be created should begin by checking whether that file already exists,
 somewhere, untracked — the compile-then-copy path is not only legal, it is usually
 faster than writing it again. Second: the plan's own tests are part of its
-premises. When they travel with the file they belong to, they certify nothing.*
+premises. When they travel with the file they belong to, they certify nothing.
+Third, and the one that cost two sessions: **do not treat another session's
+artefact as another session.** The file's mtime looked like an active owner. It was
+seven hours stale, and `readlink /proc/*/cwd` plus `HERMES_HOME` in the environ
+would have said so immediately. An untracked file is evidence that no one is
+tracking it, not that someone is working on it.*
 
 **Step 6 (2026-09-30, `8338a797`, `cdb90055`) — the plan asked for one wiring
 step; the guard was unreachable from two directions, and each needed its own

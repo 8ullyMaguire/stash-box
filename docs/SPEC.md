@@ -944,9 +944,15 @@ below was checked by search on 2026-09-29.
 
 **D2 IS COMPLETE and is marked implemented.** All six steps are in one branch,
 mutation-tested, with build/vet/gofmt clean and the suite green at the commit that
-records it. The condition that held this open for two sessions — step 5's client
-living in an untracked file elsewhere — was resolved by bringing that file over
-(`9e794f9c`), not by waiting on the session that owned it.
+records it.
+
+The condition that held this open for two sessions — "step 5's client is an
+untracked file in another session's worktree" — was **never a real dependency.**
+The file compiles clean in this branch, so it was brought over (`9e794f9c`). The
+authoring session turned out to have been idle for seven hours: the "blocked on
+another session" was inferred from a file's mtime and never tested against
+`/proc`. Recorded here because SPEC is what the next session reads first, and a
+false blocker in it is expensive.
 
 **Start at `docs/track/HANDOFF-R074.md`.** It carries the first action verbatim,
 the environment block, every gate with its output, the four things to know before

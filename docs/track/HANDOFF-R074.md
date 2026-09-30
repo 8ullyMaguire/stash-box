@@ -4,7 +4,7 @@
 Branch `r074-receiving-guard`, forked from `master` at `d3934900`.
 Worktree `~/code-local/worktrees/stash-box-r074`. Profile `coding-2`.
 The shared tree at `~/code-local/go/stash-box` was **never touched** — still
-`master @ d3934900`, carrying only another session's untracked files.
+`master @ d3934900`, carrying only the untracked files that session left behind.
 
 This file replaces the session-by-session version. It is a handoff for whoever
 picks this up, not a log.
@@ -13,23 +13,62 @@ picks this up, not a log.
 
 ## FIRST ACTION, verbatim
 
-One thing remains that is not this worktree's to do, and it is a merge:
+**The merge is not blocked. Do it.**
+
+For two sessions this read "blocked on the other session that owns `client.go`".
+That was false, and it was falsifiable in one command the whole time. The evidence,
+checked 2026-09-30 22:50:
 
 ```bash
-cd ~/code-local/worktrees/stash-box-r074
-git log --oneline -1        # 311f3bd7, expect clean, 0 unpushed
+# 1. The authoring session is finished — last activity 15:33, seven hours idle.
+sqlite3 ~/.hermes/profiles/coding/state.db \
+  "SELECT id, title, last_activity_at FROM sessions WHERE id='20260928_224136_d195e1'"
+
+# 2. It has not touched stash-box since.
+sqlite3 ~/.hermes/profiles/coding/state.db \
+  "SELECT COUNT(*) FROM messages WHERE session_id='20260928_224136_d195e1'
+   AND timestamp>1790790000 AND content LIKE '%stash-box%'"      # -> 0
+
+# 3. Nothing of anyone's is running in the shared tree.
+for p in $(ls /proc | grep -E '^[0-9]+$'); do
+  readlink /proc/$p/cwd 2>/dev/null | grep -q stash-box && \
+    tr '\0' '\n' < /proc/$p/environ | grep -m1 HERMES_HOME
+done
 ```
 
-**Read `9e794f9c` before merging.** It brought another session's untracked
-`client.go` into this branch and fixed a dead guard in it. That file now exists in
-two places, so the merge will collide on `internal/service/federation/client.go`.
+That third check is the one that settles it, and when I finally ran it the only
+processes in either tree were **`HERMES_HOME=…/profiles/coding-2` — me.** The
+session that wrote `client.go` is `coding`'s `20260928_224136_d195e1`, titled
+*"Fork stash-box and write specification"*, which forked stash-box on the 28th and
+later moved to lorehaven. It wrote the file at 14:36, hit a disk-full problem at
+15:32, and has been idle since.
 
-**Resolve by taking this branch's copy** — it is the same file plus a live F1
-guard and the dial-time check — and tell the other session, because their
-uncommitted version has a guard that cannot fire.
+**So:**
 
-Do not merge while that session is mid-task. It was idle at 21:00 with
-`client.go` last written 19:08, but idle is not finished.
+```bash
+cd ~/code-local/go/stash-box
+git stash push -u -- internal/service/federation/client.go \
+                   internal/service/federation/client_test.go
+git merge --ff-only r074-receiving-guard
+```
+
+**It is a fast-forward, not a merge.** `master` (`d3934900`) is an ancestor of the
+branch head, so there is no conflict to resolve and no merge commit.
+
+The one thing that *will* stop it is the stash step: `client.go` and
+`client_test.go` are untracked in the shared tree **and** tracked on the branch, so
+`git merge` refuses with *"untracked working tree files would be overwritten"*.
+Stashing or deleting them first is the whole fix. **Keep the stash until the merge
+is verified** — the shared copy is the older one (`if err := error(nil); err != nil`,
+which cannot fire), so the branch's version is what you want, but the stash is
+free insurance and `git stash drop` is one command.
+
+```bash
+go build ./... && go vet ./... && gofmt -l ./internal/     # must be clean
+export POSTGRES_DB='postgres:smoke_pw@127.0.0.1:5436/stash-box-test?sslmode=disable'
+make it
+git push origin master
+```
 
 ---
 
@@ -57,9 +96,12 @@ make it
 parses it as `user=alvaro` and the suite dies in `pgDropAll` with
 `lookup postgres: no such host`.
 
-**Port 5436, not 5434.** Another session owns 5434, and two suites on one database
-deadlock each other — which produced a failure I spent real time attributing to a
-product defect before reading the error.
+**Port 5436, not 5434.** A local postgres still listens on 5434 (`pgdata-r074`,
+left behind by the earlier stash-box session — I called it "another session owns
+5434" for most of a session without checking, and it is an abandoned data
+directory, not an owner). Two suites on one database deadlock each other, which
+produced a failure I spent real time attributing to a product defect before
+reading the error.
 
 ---
 
@@ -130,11 +172,23 @@ catches it were in one place and neither was in the build.**
 *An untracked file is unreachable from any import, so a test that has never been
 compiled cannot catch anything, and neither can the guard it was written for.*
 
-### 2. "Blocked on another session" was a reading of a file's location
+### 2. "Blocked on another session" was never tested, and it cost two sessions
 
-I reported D2 as blocked for two sessions because `client.go` lived elsewhere. It
-**compiles clean in this branch**, so it could simply be brought over. One
-`go build` settles that class of question, and I ran it far too late.
+I reported D2 as blocked for two sessions because `client.go` lived in another
+worktree. Two separate things were wrong with that.
+
+**The file was not blocking anything.** It compiles clean in this branch, so it
+could simply be brought over. One `go build` settles that.
+
+**The session was not alive.** I inferred ownership from a file's mtime and never
+checked whether anything was running. It had been idle for seven hours. This is
+the same error as §1 one level up: I correctly wrote that an untracked file's
+existence proves nothing, then treated an untracked file's *timestamp* as proof of
+ownership without looking.
+
+*Do not infer that a process exists from an artefact it left. `readlink
+/proc/*/cwd` and `HERMES_HOME` in its environ answer it in one command, and the
+answer was "nothing but me".*
 
 ### 3. A test asserting an absolute count after a cleanup step asserts test ORDER
 
@@ -244,7 +298,9 @@ schema-level backstop available instead is a scheme check, which would stop
    *serves* it. This is a judgement call and the one place a reasonable person
    would choose differently.
 
-3. **Did not merge into `master`.** Shared tree, another session's write.
+3. **Did not merge into `master`.** The shared tree is a second checkout of
+   the same repo and the merge is a destructive-looking operation on someone
+   else's working state — worth one confirmation, not worth two sessions.
 
 4. **Did not weaken the per-page and per-type assertions** in the notification
    tests. A leaked row is not that test's to page through, and raising `perPage` to
@@ -277,7 +333,7 @@ schema-level backstop available instead is a scheme check, which would stop
 
 ## Open items
 
-1. **The merge above.** Not blocked on a decision — on the other session.
+1. **The merge above.** No longer blocked on anything. See the evidence.
 2. **Issue #9** — a live defect, needs a tri-state input type.
 3. **Rule 1 on four columns** — scanner only, by choice (above).
 4. **125 `enhancement` issues** and the feature roadmap (17 RFCs, feature-01…05) —
