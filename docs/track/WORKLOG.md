@@ -5052,3 +5052,75 @@ the real fix and stays deferred (HANDOFF-SPLIT.md D5).
 The full `make it` was **not** re-run against this tree: the one baseline in
 flight was compiling this package while I was mutating it, so its result would
 mean nothing. It is killed and the next batch starts with a clean full run.
+
+---
+
+## 2026-09-30 ~17:10-17:45 - R074: the receiving-end guard for base_url
+
+Branch `r074-receiving-guard`, forked from `master` at `d3934900`, in the
+worktree `~/code-local/worktrees/stash-box-r074`. **Nothing was committed or
+staged in `~/code-local/go/stash-box`** - a second agent (`coding` profile) is
+mid-D2-step-5 there with untracked `client.go`/`client_test.go`, and the goal's
+ownership note was correct and still live at 17:09.
+
+Full note: `docs/track/HANDOFF-R074.md`.
+
+**The one-sentence status: the guard exists, is proven, and is NOT called by
+anything.** `CreateFederationPeer`/`UpdateFederationPeer` have no Go caller - the
+registry service is D2 step 6, which does not exist. So `base_url` cannot yet
+receive a hostile value, which is why this hole has been theoretical. When step
+6 lands, `ValidateBaseURL` must be called at write time or this is dead code.
+
+**Re-measured the seven address-shaped columns independently.** Seven, not one and
+not six. `04_image_tables.up.sql:3` is `url VARCHAR NOT NULL` - **unquoted**,
+while every other one is `"url" varchar`. Two of the seven are addresses the box
+DIALS (`webhook_endpoints.target_url`, `federation_peers.base_url`); the other
+five are stored inbound references. A naive substring scan returns 8 because
+`03_misc`'s `director TEXT` contains `dir`.
+
+**D5 obeyed.** `ValidateBaseURL` delegates every address rule to
+`webhook.ValidateTarget(raw, ips)` and adds exactly one thing it lacks:
+`checkNoPathComponent`. The resolver is an *interface*, because the rebinding case
+cannot be tested without one - proving every-resolved-address is checked needs a
+resolver returning two addresses for one name.
+
+**The path rule is marker-based, not "reject any path".** A peer legitimately
+lives at `/graphql` and a webhook at `/hooks/abc123/deep/path`; rejecting any
+path refuses real peers. It reuses `IsSuspiciousValue`, the same predicate the
+SENDING half uses, so one definition of "this looks like a path" covers both
+sides of the boundary.
+
+**Two survivors, and neither was a missing test.**
+
+1. The `if err != nil` on the resolver call was DEAD - `webhook.ValidateTarget`
+   already rejects an empty `resolved` slice. Deleted the duplicate rather than
+   pinning it: pinning would enshrine a second implementation of a rule D5 says
+   has exactly one.
+2. "Narrow the scan to `postgres/`" was a VACUOUS mutation - the migrations tree
+   happens to contain only `postgres/`, so the edit could not fail. Now there is a
+   two-directory fixture tree, so the scope bug is reachable.
+
+**Two of my own test errors, both of which produced a misleading signal.** The
+unquoted-column control asserted its polarity backwards (it demanded
+`images.url` be recorded as quoted, and fired saying the scanner disagreed with
+the file - the file was right). And the "resolver was consulted" assertion was
+wrong for hostless URLs: `file:///etc/passwd` is correctly rejected with no
+lookup, and demanding one would have forced the guard to resolve something R074
+exists to prevent. Both fixed in the TEST, not the code.
+
+**Verification.** `go build`/`go vet` exit 0. `make it` green, 29 packages, run
+against a private database on port 5436 with both extensions present.
+`TestMarkSpecificNotificationRead` did **not** fail in any run - it is
+order-dependent on shared state, and one private database at a time does not
+produce that state. **13 of 13 mutations killed.**
+
+**Upstream PRs: the count was stale.** `gh pr list --state open` returns **45**
+now, not 40, and **five had no recorded decision**. All five dispositioned in
+`docs/plan/upstream-pr-port.md`; none ported. 591 declined (its `image:` +
+existing `build:` lets a pull silently swap the image carrying
+`pg-spgist_hamming` and `pg_search`), 708 declined (admitting admins past edit
+ownership contradicts merged #1219), 736 declined (breaks
+`scene_edit_integration_test.go:356` and changes the R074 surface),
+761 declined (a config option that silently DROPS fingerprints is a product
+call), 871 declined (draft, 483 lines, mostly generated). **Every open PR now
+has a recorded decision: 26 ported, 19 declined.**

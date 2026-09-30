@@ -79,8 +79,43 @@ merge, and four of them would need schema regeneration, UI validation and a
 judgement call about overlapping existing work. They are the next unit of work,
 not part of this one.
 
+## Dispositioned 2026-09-30 (session: R074 guard) — 5 PRs, not 40
+
+Re-measured rather than trusted. `gh pr list --state open` now returns **45**
+open PRs, not the 40 this table was written against, and **five of them had no
+recorded decision at all**. They are dispositioned below. Measured on
+`stashapp/stash-box` at 2026-09-30 17:20.
+
+| # | Decision | Why |
+|---|---|---|
+| 591 | **Decline** | Compose modernisation: drops `container_name`, drops `links:`, adds `image: stashapp/postgres:latest` and `POSTGRES_INITDB_ARGS`. Our `docker/production/docker-compose.yml` still has all of `container_name: postgres`, `links:`, so it applies — but **declined for cause**: adding `image:` alongside the existing `build: ./postgres` means a `docker compose pull` silently substitutes the published image for the locally built one. That image is what `pg-spgist_hamming` and `pg_search` are installed into (see `docker/production/postgres/Dockerfile`), so pulling the wrong one is the same class of breakage as declined PR #928. Worth doing, as a deliberate compose change with the image pinned — not as a port. |
+| 708 | **Decline** | Lets an admin update another user's edit. Conflicting upstream, and the conflict is the point: our tree has no `validateUserOrAdmin`, and the ownership check lives in the service (`internal/service/edit/service.go:1214 validateEditUpdate`) rather than the resolver upstream moves it to. Porting it also weakens #1219 (already merged) which *required* draft ownership — 708's whole purpose is to admit admins past ownership. That is a product decision about who may edit moderation history, not a mechanical merge. **Needs an owner decision, not a port.** |
+| 736 | **Decline** | Removes `url` from `ImageCreateInput`/`ImageUpdateInput`. Only a schema change with no resolver change, so it does not compile against our tree: `internal/api/scene_edit_integration_test.go:356` calls `ImageCreate(ctx, models.ImageCreateInput{URL: &imgURL})`. Removing the field breaks that test. And the field is *load-bearing for R074* — `images.url` is one of the seven address-shaped columns, and it is the served one. Removing it would change the R074 surface, which is a decision about the guard rather than a port. Do not re-litigate without deciding what R074 does about served URLs. |
+| 761 | **Decline** | Adds `phash_duration_cutoff` config. 16 lines, upstream-conflicting, and it is a **product** choice, not a fix: the value silently DROPS fingerprints under a duration cutoff, with no user-visible effect. That is data loss dressed as a config option, and the README line documents it as "quietly dropped". Needs an owner decision; if taken, it belongs on `issue-fixes` as a port with a test that a short scene's fingerprint is dropped. |
+| 871 | **Decline** | Draft, `mergeable=UNKNOWN`, 483 lines across 9 files including `graphql/schema/schema.graphql`, `generated_models.go`, `generated_exec.go` and `querybuilder_scene.go`. Same shape as already-declined #1183/#1155: mostly generated code, needs `make generate` plus a review of a 483-line feature. It is a draft upstream, so the conflict set will move again before it is ready. Not a mechanical merge. |
+
+**Every open PR now has a recorded decision: 26 ported, 19 declined.** The five
+above are the three that need an owner decision (708, 736, 761) and the two that
+are genuinely mechanical-but-wrong (591's image/build collision, 871's draft).
+
+**What I did NOT do, deliberately.** None of the five were ported. Porting 591,
+708 or 736 would each break something (591 the postgres image, 708 #1219's
+ownership guarantee, 736 an existing test), and 761 needs a product call. The
+goal's own rule — "a ported PR may not remove a non-negotiable to be merged" —
+applies to all three.
+
 ## Reusable
 
 `scripts/port-upstream-prs.sh` runs the whole sequence: smallest blast radius
 first, codegen for schema-touching PRs, then build + unit tests per PR, aborting
 and recording any that fail. The summary line per PR is the record.
+
+**The counting command, corrected.** The obvious one is
+`gh pr list --repo stashapp/stash-box --state open`, which undercounts silently
+as upstream PRs land. Compare against the numbers in the table rather than the
+count in the goal document:
+
+```bash
+gh pr list --repo stashapp/stash-box --state open --limit 200 \
+  --json number,title,isDraft,updatedAt
+```
