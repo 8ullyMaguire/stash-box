@@ -46,13 +46,14 @@ MIG_DIR = "internal/database/migrations/postgres"
 # different, larger set of packages, and using its count here made the clause report
 # a regression that did not exist.
 #
-# It must however be the SAME metric the clause computes, which it was not until
-# this was fixed. 29 was measured with the old `ok`-only count; the clause now counts
-# `ok` AND `?  [no test files]`, which is 56 (28 + 28). Comparing 56 against a floor
-# of 29 cannot fail, so a suite that lost 27 packages still reported PASS -- the floor
-# was decorative. Set with `--update-baseline`, which measures the tree rather than
-# trusting a remembered number.
-BASELINE_PACKAGES = 56
+# It must however be the SAME metric the clause computes, which took two fixes.
+# 29 was measured with an `ok`-only count while the clause counted `ok` AND `?`, so a
+# suite that lost 27 packages still reported PASS. The clause was corrected; the
+# --update-baseline WRITER was not, and it then wrote 31 against a clause measuring
+# 60 -- the same decorative floor, reintroduced through the other door. Both now call
+# count_packages(), because a floor is only a guard if it is measured the same way as
+# the comparison, and two copies of that measurement is two chances to disagree.
+BASELINE_PACKAGES = 60
 
 results = []
 
@@ -400,6 +401,18 @@ def c5_migrations_coherent():
 # ---------------------------------------------------------------------------
 # C6 -- the full suite is green, at or above baseline
 # ---------------------------------------------------------------------------
+def count_packages(out):
+    """Packages accounted for in one `go test` run: green AND no-test-files.
+
+    Both `ok` and `?   [no test files]` count. A package with no tests is still a
+    package the run visited, and excluding it made the count depend on how many
+    packages happen to have tests -- so the floor moved every time a test file was
+    added, for a reason that had nothing to do with tests being lost.
+    """
+    return sum(1 for l in out.splitlines()
+               if l.startswith("ok") or l.startswith("?"))
+
+
 def c6_suite():
     rc, out, err = sh("go test ./... -count=1", timeout=1800)
     if rc == 124:
@@ -418,8 +431,7 @@ def c6_suite():
     # would have failed the clause for no reason a reader could care about.
     # What must not happen is a package FAILING or DISAPPEARING, so those are
     # checked separately and the floor is on total packages accounted for.
-    npkg = sum(1 for l in out.splitlines()
-               if l.startswith("ok") or l.startswith("?"))
+    npkg = count_packages(out)
     notests = sum(1 for l in out.splitlines()
                   if l.startswith("?") and "[no test files]" in l)
     if npkg < BASELINE_PACKAGES:
@@ -592,7 +604,14 @@ def update_baseline():
     will report a figure that is no longer true.
     """
     rc, out, _ = sh("go test ./... -count=1", timeout=1800)
-    npkg = sum(1 for l in out.splitlines() if l.startswith("ok"))
+    # MUST match c6_suite() exactly. It counted `ok` only while the clause counts
+    # `ok` AND `?  [no test files]`, so --update-baseline wrote 31 where the clause
+    # measures 60 and the floor became decorative all over again -- the same failure
+    # the comment on BASELINE_PACKAGES describes having already been fixed once.
+    #
+    # A floor is only a guard if it is the same metric as the comparison. Sharing one
+    # function is the only way to keep it that way, so this calls it.
+    npkg = count_packages(out)
     if rc != 0 or npkg == 0:
         print(f"refusing to update: rc={rc}, {npkg} packages green", file=sys.stderr)
         return 1
