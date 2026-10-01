@@ -1,5 +1,7 @@
 package sdbimport
 
+import "time"
+
 // Queries against a stash-box-compatible source.
 //
 // FIELD NAMES HERE WERE VERIFIED AGAINST THE LIVE SCHEMA, not assumed. An
@@ -104,6 +106,11 @@ type Performer struct {
 	URLs      []struct {
 		URL string `json:"url"`
 	} `json:"urls"`
+
+	// Updated is the source's last-write time for the whole record. It is what
+	// the incremental sync sorts on and compares against the watermark; see
+	// sync.go's shouldStop for why it is not filtered server-side.
+	Updated time.Time `json:"updated"`
 }
 
 const sceneQuery = `

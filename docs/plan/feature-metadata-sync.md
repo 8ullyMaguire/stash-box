@@ -1,8 +1,8 @@
 # Metadata sync from stashdb.org — incremental, with a conflict policy
 
-Status: **Built, verified 2026-10-01.** Performers only, as scoped. All four
-tests named in Verification below exist and pass, and the two claims the design
-rests on are mutation-verified rather than merely asserted:
+Status: **Built, verified 2026-10-01.** Performers only, as scoped. The write
+path (syncwrite.go) was added after the first pass; the diff logic, the write
+path, and the run loop are all mutation-verified rather than merely asserted:
 
 - `shouldStop` with the margin removed, and with it inflated a thousandfold, are
   both KILLED by `TestStopCondition` -- the safety margin is load-bearing.
@@ -10,6 +10,29 @@ rests on are mutation-verified rather than merely asserted:
   with change detection short-circuited, are all KILLED by
   `TestUpdatePreservesUnsetFields`. That rule is what stops an absent upstream
   value from clearing a curator's height.
+- Write path, 6 of 6 killed: `nonEmpty` forced to return a pointer for the empty
+  string (which would set a field to empty instead of leaving it alone),
+  `enumPtr` stripped of validation (blind cast of unknown values), the stop
+  condition ignoring the margin, the walk never stopping, the watermark allowed
+  to rewind, and `applyChanges` writing only the last field.
+
+### The never-clear rule needed a second guard, and the compiler could not catch it
+
+The obvious safety story was that a sparse `PerformerUpdateInput` is safe because
+`converter.UpdatePerformerFromUpdateInput` applies each field only when the input
+pointer is non-nil. That is true, and it was verified against the generated
+converter rather than assumed -- but it is not sufficient on its own.
+
+`internal/sdbimport/sites.go` already defines `strPtr`, which returns `&s`
+unconditionally: for an empty string it returns a pointer to `""`. That is
+correct there (an empty favicon slot is a real value) and destructive here --
+passing `&""` for `country` would set the field to empty rather than leaving the
+curator's value alone, which is precisely the never-clear violation this feature
+exists to prevent. Reusing the package's existing helper would have quietly
+turned the safety rule into the bug it guards against, and it compiles.
+
+Hence `nonEmpty`, a separate helper with the opposite contract. The distinction
+is commented at both sites so the next reader does not "consolidate" them.
 
 Scope is performers, per the document's own Scope section; studios/tags/scenes are
 explicitly deferred to a later step.
