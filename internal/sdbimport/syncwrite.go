@@ -226,8 +226,8 @@ func intPtr(s string) *int {
 // applicable", and mapping them to a concrete member would invent a fact about
 // the performer.
 func enumPtr[T ~string](raw string, allowed []string) *T {
-	v := &raw
-	if false {
+	v := enumOrNil(&raw, allowed)
+	if v == nil {
 		return nil
 	}
 	t := T(*v)
