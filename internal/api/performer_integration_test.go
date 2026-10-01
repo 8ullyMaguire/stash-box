@@ -360,22 +360,31 @@ func (s *performerTestRunner) testQueryPerformers() {
 	assert.True(s.t, result.Count >= 2, "Expected at least 2 performers in count")
 	assert.True(s.t, len(result.Performers) >= 2, "Expected at least 2 performers in results")
 
-	// Verify our created performers are in the results
-	found1 := false
-	found2 := false
-	for _, p := range result.Performers {
-		if p.ID == performer1.ID {
-			found1 = true
-			assert.Equal(s.t, name1, p.Name)
-		}
-		if p.ID == performer2.ID {
-			found2 = true
-			assert.Equal(s.t, name2, p.Name)
-		}
-	}
+	// Verify our created performers are in the results. Filtered by name
+	// rather than scanned out of the first page: the suite creates more than
+	// PerPage performers, so an unfiltered page 1 need not contain them.
+	for _, created := range []struct{ id, name string }{
+		{performer1.ID, name1},
+		{performer2.ID, name2},
+	} {
+		filtered, err := s.client.queryPerformers(models.PerformerQueryInput{
+			Page:      1,
+			PerPage:   25,
+			Direction: models.SortDirectionEnumAsc,
+			Sort:      models.PerformerSortEnumName,
+			Name:      &created.name,
+		})
+		assert.NoError(s.t, err, "Error querying performers by name")
 
-	assert.True(s.t, found1, "Created performer 1 not found in query results")
-	assert.True(s.t, found2, "Created performer 2 not found in query results")
+		found := false
+		for _, p := range filtered.Performers {
+			if p.ID == created.id {
+				found = true
+				assert.Equal(s.t, created.name, p.Name)
+			}
+		}
+		assert.True(s.t, found, "Created performer %s not found in query results", created.name)
+	}
 }
 
 func (s *performerTestRunner) testQueryPerformersBirthdate() {
@@ -760,11 +769,27 @@ func (s *performerTestRunner) testQueryPerformersSceneCountSort() {
 	}
 
 	// Query performers sorted by SCENE_COUNT ASC (fewest scenes first)
+	// ASC puts the 0-scene performer first and the one WITH scenes last. With ~130
+	// performers in the suite and PerPage 100, that performer is off page 1 -- so a
+	// page scan for it cannot find it, and the ordering assertion below would be
+	// testing pagination rather than sort order. Filter to the two subjects instead,
+	// which is what the rest of this file does (see testQueryPerformers), and keep
+	// the sort under test intact.
 	result, err = s.client.queryPerformers(models.PerformerQueryInput{
 		Page:      1,
 		PerPage:   100,
 		Direction: models.SortDirectionEnumAsc,
 		Sort:      models.PerformerSortEnumSceneCount,
+		// ASC puts the 0-scene performer first and the with-scenes performer LAST.
+		// The page holds at most query.MaxPerPage (100) rows, and upstream #1215's
+		// fixtures push the suite past that, so the with-scenes performer falls off
+		// page 1 and a page scan for it cannot find it.
+		//
+		// There is no id criterion on PerformerQueryInput to narrow this (#1272 added
+		// one to SceneQueryInput only), so the scan is made total instead: walk pages
+		// until both subjects appear. The assertion under test is sort ORDER, and this
+		// keeps it about order rather than about pagination.
+		Name: nil,
 	})
 	assert.NoError(s.t, err, "Error querying performers by scene count ASC")
 
@@ -772,15 +797,35 @@ func (s *performerTestRunner) testQueryPerformersSceneCountSort() {
 	foundWithScenes = false
 	indexWithNoScenes = -1
 	indexWithScenes = -1
-	for i, p := range result.Performers {
-		if p.ID == performerWithNoScenes.ID {
-			foundWithNoScenes = true
-			indexWithNoScenes = i
+	// Walk pages until both subjects are seen, so the ORDER assertion below is about
+	// sort order and not about which page the subjects landed on. A single scan of
+	// page 1 is what upstream does, and it silently stops being a test of ordering
+	// once the suite creates more performers than one page holds.
+	// Offset by page so the two indices are positions in the WHOLE sorted result.
+	// Comparing a page-0 index against a page-1 index would be meaningless.
+	offset := 0
+	for page := 1; page <= 10 && !(foundWithNoScenes && foundWithScenes); page++ {
+		paged, err := s.client.queryPerformers(models.PerformerQueryInput{
+			Page:      page,
+			PerPage:   100,
+			Direction: models.SortDirectionEnumAsc,
+			Sort:      models.PerformerSortEnumSceneCount,
+		})
+		assert.NoError(s.t, err, "Error querying performers by scene count ASC")
+		if len(paged.Performers) == 0 {
+			break
 		}
-		if p.ID == performerWithScenes.ID {
-			foundWithScenes = true
-			indexWithScenes = i
+		for i, p := range paged.Performers {
+			if p.ID == performerWithNoScenes.ID && !foundWithNoScenes {
+				foundWithNoScenes = true
+				indexWithNoScenes = offset + i
+			}
+			if p.ID == performerWithScenes.ID && !foundWithScenes {
+				foundWithScenes = true
+				indexWithScenes = offset + i
+			}
 		}
+		offset += len(paged.Performers)
 	}
 
 	assert.True(s.t, foundWithNoScenes, "Performer with 0 scenes not found when sorting by SCENE_COUNT ASC")
@@ -836,9 +881,19 @@ func (s *performerTestRunner) testQueryPerformersSceneCountSort() {
 	assert.True(s.t, foundWithNoScenes, "Performer with 0 scenes not found when sorting by LAST_SCENE")
 	assert.True(s.t, foundWithScenes, "Performer with scenes not found when sorting by LAST_SCENE")
 
-	// Verify count matches actual performer count
-	totalCount := len(result.Performers)
-	assert.Equal(s.t, result.Count, totalCount, "Count field should match number of performers returned")
+	// The Count field is the TOTAL matching performers; len(result.Performers) is one
+	// PAGE of them. They are only equal while the total fits inside PerPage, so
+	// asserting equality here is wrong the moment the suite creates more performers
+	// than a page holds -- which is exactly what upstream #1215's new fixtures do
+	// (they push the total to ~130 against PerPage: 100). Upstream's own assertion
+	// has this bug; it never fired upstream because its suite had fewer performers.
+	//
+	// What is actually worth asserting is the relationship: a page cannot report more
+	// rows than the count says exist.
+	assert.GreaterOrEqual(s.t, result.Count, len(result.Performers),
+		"Count field reports fewer performers than the page returned")
+	assert.LessOrEqual(s.t, len(result.Performers), 100,
+		"page returned more rows than PerPage allows")
 }
 
 func TestQueryPerformers(t *testing.T) {
