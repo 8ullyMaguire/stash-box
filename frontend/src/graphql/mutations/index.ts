@@ -189,6 +189,9 @@ import {
   type ValidateChangeEmailMutation,
   type ValidateChangeEmailMutationVariables,
   VoteDocument,
+  VoteEloDocument,
+  type VoteEloMutation,
+  type VoteEloMutationVariables,
   type VoteMutation,
   type VoteMutationVariables,
 } from "../types";
@@ -780,3 +783,13 @@ export const useUpdateImageTypePreferences = (
     UpdateImageTypePreferencesMutationVariables
   >,
 ) => useMutation(UpdateImageTypePreferencesDocument, options);
+
+// voteElo records one side-by-side preference.
+//
+// The mutation returns the NEW rating for the winner, so a client can show the
+// effect of a vote immediately rather than making the curator wait for the next
+// matchup to redraw. That feedback is the entire reason the Elo loop is worth
+// having: a vote that visibly moves a number teaches what the vote meant.
+export const useVoteElo = (
+  options?: MutationHookOptions<VoteEloMutation, VoteEloMutationVariables>,
+) => useMutation(VoteEloDocument, options);

@@ -1,0 +1,22 @@
+#import "../fragments/PerformerFragment.gql"
+
+query EloMatchup($entityType: EloEntityType!) {
+  eloMatchup(entityType: $entityType) {
+    entityType
+    timesOffered
+    left {
+      ...PerformerFragment
+      completion {
+        score
+        missing
+      }
+    }
+    right {
+      ...PerformerFragment
+      completion {
+        score
+        missing
+      }
+    }
+  }
+}

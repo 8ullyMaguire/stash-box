@@ -1,0 +1,17 @@
+query CurationDashboard($threshold: Int!) {
+  performersBelow: countIncompleteEntities(
+    entityType: performer
+    below: $threshold
+  )
+  scenesBelow: countIncompleteEntities(entityType: scene, below: $threshold)
+  studiosBelow: countIncompleteEntities(entityType: studio, below: $threshold)
+  sitesBelow: countIncompleteEntities(entityType: site, below: $threshold)
+  tagsBelow: countIncompleteEntities(entityType: tag, below: $threshold)
+  userStreak {
+    currentStreak
+    longestStreak
+    totalActiveDays
+    activeToday
+    lastActiveDay
+  }
+}

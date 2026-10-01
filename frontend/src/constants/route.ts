@@ -1,3 +1,6 @@
+export const ROUTE_CURATION = "/curation";
+export const ROUTE_CURATION_MATCHUP = "/curation/matchup";
+export const ROUTE_CURATION_LEADERBOARD = "/curation/leaderboard";
 export const ROUTE_HOME = "/";
 export const ROUTE_LOGIN = "/login";
 export const ROUTE_LOGOUT = "/logout";

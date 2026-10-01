@@ -4,6 +4,7 @@ import {
   CategoryDocument,
   type CategoryQueryVariables,
   ConfigDocument,
+  CurationDashboardDocument,
   DraftDocument,
   type DraftQueryVariables,
   DraftsDocument,
@@ -12,6 +13,9 @@ import {
   EditsDocument,
   type EditsQueryVariables,
   EditUpdateDocument,
+  type EloEntityType,
+  EloLeaderboardDocument,
+  EloMatchupDocument,
   FetchSiteFaviconsDocument,
   type FetchSiteFaviconsQuery,
   type FetchSiteFaviconsQueryVariables,
@@ -396,4 +400,34 @@ export const useUnorganizedImages = (
 ) =>
   useQuery(UnorganizedImagesDocument, {
     variables,
+  });
+
+// Curation: the gamification surface.
+//
+// None of this existed in the client before. The backend has had Elo, trust,
+// quests and completion scores exposed for a while -- 38 GraphQL fields -- and
+// nothing in the UI called any of it, so none of it was reachable by a user
+// without hand-writing a query.
+//
+// DEFAULT_COMPLETION_THRESHOLD is 40 because it is the number the completion
+// score is built around: below it a record is still missing enough to be worth
+// someone else's attention. It is a named constant rather than a literal at the
+// call site because the same threshold has to mean the same thing on the
+// dashboard, on a record's own page, and in any copy describing it.
+export const DEFAULT_COMPLETION_THRESHOLD = 40;
+
+export const useCurationDashboard = (
+  threshold = DEFAULT_COMPLETION_THRESHOLD,
+) => useQuery(CurationDashboardDocument, { variables: { threshold } });
+
+export const useEloMatchup = (entityType: EloEntityType, skip = false) =>
+  useQuery(EloMatchupDocument, {
+    variables: { entityType },
+    skip: skip || !entityType,
+  });
+
+export const useEloLeaderboard = (entityType: EloEntityType, limit?: number) =>
+  useQuery(EloLeaderboardDocument, {
+    variables: { entityType, limit },
+    skip: !entityType,
   });

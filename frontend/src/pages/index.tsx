@@ -5,6 +5,7 @@ import {
   ROUTE_ACTIVATE,
   ROUTE_AUDITS,
   ROUTE_CATEGORIES,
+  ROUTE_CURATION,
   ROUTE_DRAFTS,
   ROUTE_EDITS,
   ROUTE_FORGOT_PASSWORD,
@@ -29,6 +30,7 @@ import Login from "src/Login";
 import ActivateUser from "src/pages/activateUser";
 import Audits from "src/pages/audits";
 import Categories from "src/pages/categories";
+import Curation from "src/pages/curation";
 import Drafts from "src/pages/drafts";
 import Edits from "src/pages/edits";
 import ForgotPassword from "src/pages/forgotPassword";
@@ -77,6 +79,7 @@ const Pages: FC = () => (
             />
             <Route path={ROUTE_IMAGE_TYPES} element={<ImageTypes />} />
             <Route path={`${ROUTE_IMAGE_REVIEW}/*`} element={<ImageReview />} />
+            <Route path={`${ROUTE_CURATION}/*`} element={<Curation />} />
             <Route path={`${ROUTE_DRAFTS}/*`} element={<Drafts />} />
             <Route path={ROUTE_NOTIFICATIONS} element={<Notifications />} />
             <Route path={`${ROUTE_AUDITS}/*`} element={<Audits />} />

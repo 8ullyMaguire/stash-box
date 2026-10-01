@@ -1,0 +1,15 @@
+mutation VoteElo($input: EloVoteInput!) {
+  voteElo(input: $input) {
+    rating {
+      entityType
+      entityId
+      rating
+      deviation
+      voteCount
+    }
+    matchup {
+      entityType
+      timesOffered
+    }
+  }
+}

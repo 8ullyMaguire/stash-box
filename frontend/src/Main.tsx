@@ -8,6 +8,7 @@ import SearchField, { SearchType } from "src/components/searchField";
 import {
   ROUTE_ACTIVATE,
   ROUTE_AUDITS,
+  ROUTE_CURATION,
   ROUTE_DRAFTS,
   ROUTE_EDITS,
   ROUTE_FORGOT_PASSWORD,
@@ -31,6 +32,7 @@ import { useAuth } from "src/hooks";
 import {
   canEdit,
   canModerate,
+  canVote,
   isAdmin,
   setCachedUser,
   userHref,
@@ -154,6 +156,16 @@ const Main: FC<Props> = ({ children }) => {
           <NavLink to={ROUTE_EDITS} className="nav-link">
             Edits
           </NavLink>
+          {/* Curation is gated on canVote because the matchup query requires the
+              VOTE role; showing the link to someone without it would land them on
+              an "not authorized" page they cannot leave. The dashboard and the
+              streak both work at READ, so this is the one entry point that needs
+              the check. */}
+          {canVote(user) && (
+            <NavLink to={ROUTE_CURATION} className="nav-link">
+              Curation
+            </NavLink>
+          )}
           {canEdit(user) && (
             <NavLink to={ROUTE_DRAFTS} className="nav-link">
               Drafts
