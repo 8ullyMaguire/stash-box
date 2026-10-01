@@ -1,13 +1,15 @@
 import { faImages } from "@fortawesome/free-solid-svg-icons";
 import type { Lens } from "@hookform/lenses";
-import cx from "classnames";
 import { type ChangeEvent, type FC, useRef, useState } from "react";
 import { Button, Col, Form, Row } from "react-bootstrap";
 import { useFieldArray } from "react-hook-form";
+import { judgedCropSizeVerdict } from "src/components/cropFrame";
 import { Image as ImageInput } from "src/components/form";
-import { Icon, LoadingIndicator } from "src/components/fragments";
+import { Icon } from "src/components/fragments";
 import Modal from "src/components/modal";
 import {
+  type ImageCropInput,
+  type ImageFragment,
   type ImageTypeEnum,
   type ImageTypeScopeEnum,
   useAddImage,
@@ -16,10 +18,12 @@ import {
   useUpdateImage,
 } from "src/graphql";
 import { useCurrentUser } from "src/hooks";
-import { errorMessage } from "src/utils";
+import { errorMessage, maxImageDate, partialDateError } from "src/utils";
 
+import CropStep, { type CropStepHandle } from "./CropStep";
 import ImageLabels from "./ImageLabels";
-import type { TypedImage } from "./types";
+import RecropEditor from "./RecropEditor";
+import { claimedCropType, type TypedImage } from "./types";
 
 const CLASSNAME = "EditImages";
 const CLASSNAME_IMAGES = `${CLASSNAME}-images`;
@@ -27,8 +31,6 @@ const CLASSNAME_INPUT = `${CLASSNAME}-input`;
 const CLASSNAME_INPUT_CONTAINER = `${CLASSNAME_INPUT}-container`;
 const CLASSNAME_DROP = `${CLASSNAME}-drop`;
 const CLASSNAME_PLACEHOLDER = `${CLASSNAME}-placeholder`;
-const CLASSNAME_IMAGE = `${CLASSNAME}-image`;
-const CLASSNAME_UPLOADING = `${CLASSNAME_IMAGE}-uploading`;
 const CLASSNAME_IMAGE_ENTRY = `${CLASSNAME}-image-entry`;
 
 interface EditImagesProps {
@@ -77,13 +79,39 @@ const EditImages: FC<EditImagesProps> = ({
     groups.flatMap((group) => group.types).find((type) => type.key === key)
       ?.name ?? key;
 
+  const hasTemplates = groups.some((group) =>
+    group.types.some((type) => type.crop_template),
+  );
+  const cropTemplates = Object.fromEntries(
+    images.flatMap((i) => {
+      const claimed = claimedCropType(groups, i.types)?.crop_template;
+      return claimed
+        ? [
+            [
+              i.image.id,
+              {
+                aspectRatio: claimed.aspect_ratio,
+                guides: claimed.guides,
+              },
+            ] as const,
+          ]
+        : [];
+    }),
+  );
+
   const { isModerator } = useCurrentUser();
-  const [imageData, setImageData] = useState<string>("");
   const [uploading, setUploading] = useState(false);
   const [addImage] = useAddImage();
   const [updateImage] = useUpdateImage();
   const [setImageOrganized, { loading: organizing }] = useSetImageOrganized();
+  const [recropTarget, setRecropTarget] = useState<ImageFragment>();
   const [error, setError] = useState<string>();
+  // Whether the pending upload is a crop: Upload then reads "Crop and upload" and offers Reset
+  const [crops, setCrops] = useState(false);
+  // The server checks the date's format, not its range,
+  // so Upload is disabled on an out-of-range date the same way Apply is
+  const [uploadDateValid, setUploadDateValid] = useState(true);
+  const cropStep = useRef<CropStepHandle>(null);
 
   // Organized is read from the form's opening snapshot plus this session's
   // own toggle flips; a fresh upload has no snapshot entry and is editable
@@ -129,7 +157,8 @@ const EditImages: FC<EditImagesProps> = ({
       .catch((e: unknown) => setError(errorMessage(e)));
   };
 
-  // What the server has for each image, so leaving one with unapplied edits can be caught: nothing here saves itself
+  // What the server has for each image, so leaving one with unapplied edits can be caught: nothing here saves itself.
+  // Moves forward at each point that reaches the server: a labelled upload, a recrop, a successful Apply
   const savedByID = useRef(
     new Map<
       string,
@@ -177,27 +206,38 @@ const EditImages: FC<EditImagesProps> = ({
     pending.proceed();
   };
 
-  const handleAddImage = () => {
+  // Crop and label are chosen in one action and land in one imageCreate
+  const handleAddImage = (
+    crop: ImageCropInput | undefined,
+    types: ImageTypeEnum[],
+    imageDate: string | null,
+  ) => {
     setError("");
     setUploading(true);
     addImage({
       variables: {
-        imageData: { file },
+        imageData: { file, crop, types, date: imageDate },
       },
     })
       .then((i) => {
-        if (i.data?.imageCreate?.id) {
-          if (
-            !images.some((image) => image.image.id === i.data?.imageCreate?.id)
-          ) {
+        const created = i.data?.imageCreate;
+        if (created) {
+          if (!images.some((image) => image.image.id === created.id)) {
+            // Read the response's own types/date rather than the submitted
+            // ones: a checksum dedup hit returns an existing, already
+            // categorized image whose labels this upload did not set
             append({
-              image: i.data.imageCreate,
-              types: [],
-              date: null,
+              image: created,
+              types: created.types,
+              date: created.date,
+            });
+            savedByID.current.set(created.id, {
+              types: created.types,
+              date: created.date,
             });
           }
           setFile(undefined);
-          setImageData("");
+          setCrops(false);
         }
       })
       .catch((e: unknown) => setError(errorMessage(e)))
@@ -208,24 +248,17 @@ const EditImages: FC<EditImagesProps> = ({
 
   const removeImage = () => {
     setFile(undefined);
+    setCrops(false);
     setError("");
-    setImageData("");
   };
 
   const onFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     if (event.target.validity.valid && event.target.files?.[0]) {
       setFile(event.target.files[0]);
-
-      const reader = new FileReader();
-      reader.onload = (e) =>
-        e.target?.result && setImageData(e.target.result as string);
-      reader.onerror = () => setImageData("");
-      reader.onabort = () => setImageData("");
-      reader.readAsDataURL(event.target.files[0]);
+      setError("");
     }
   };
 
-  // Labels and date reach the server only on "Apply", in one imageUpdate
   const [applyingId, setApplyingId] = useState<string>();
   const applyLabels = (imageId: string, value: TypedImage) => {
     setApplyingId(imageId);
@@ -251,25 +284,159 @@ const EditImages: FC<EditImagesProps> = ({
       });
   };
 
+  const handleRecropped = (
+    position: number,
+    newImage: ImageFragment,
+    addAsNew: boolean,
+  ) => {
+    const entry = {
+      image: newImage,
+      types: newImage.types,
+      date: newImage.date,
+    };
+    if (addAsNew) {
+      append(entry);
+      // The pending labels rode across onto the new row, so the source row
+      // returns to its saved state: leaving them would trip the unsaved-changes
+      // warning over work that has in fact been applied
+      const source = images[position];
+      const saved = savedByID.current.get(source.image.id) ?? {
+        types: [],
+        date: null,
+      };
+      update(position, {
+        image: source.image,
+        types: saved.types,
+        date: saved.date ?? null,
+      });
+    } else {
+      update(position, entry);
+    }
+    // Recrop always lands on a new row, carrying the source's labels and
+    // date across atomically, tracked under the new id since that is what the gallery now holds
+    savedByID.current.set(newImage.id, {
+      types: newImage.types,
+      date: newImage.date,
+    });
+    setRecropTarget(undefined);
+  };
+
   const isDisabled = maxImages !== undefined && images.length >= maxImages;
+  const roomForAnother = maxImages === undefined || images.length < maxImages;
+
+  // An organized image keeps its verified framing: a re-crop of it can only
+  // be added alongside, so without room for another image there is nothing to offer
+  const canRecrop = (imageId: string) =>
+    cropTemplates[imageId] !== undefined &&
+    (canRecategorize(imageId) || roomForAnother);
+
+  // Only true for images that can have labels and crop controls
+  const wantsRoom = file !== undefined && hasTemplates;
+
+  // Guarded again although every entrypoint is hidden when it is false
+  const openRecrop = (imageId: string) => {
+    if (!canRecrop(imageId)) return;
+    const entry = images.find((image) => image.image.id === imageId);
+    if (!entry) return;
+    setError("");
+    setRecropTarget({
+      ...entry.image,
+      types: entry.types,
+      date: entry.date,
+    });
+  };
+
+  // One row for everything acting on the pending upload, rendered under the
+  // picture while there is one and under the drop zone otherwise
+  const actions = (
+    <>
+      {error && <div className="text-danger text-end">Error: {error}</div>}
+      <div className="mt-4 d-flex">
+        {file && (
+          <>
+            <Button variant="danger" onClick={removeImage} disabled={uploading}>
+              Remove
+            </Button>
+
+            {crops && (
+              <Button
+                variant="secondary"
+                onClick={() => cropStep.current?.reset()}
+                disabled={uploading}
+                className="ms-2"
+              >
+                Reset
+              </Button>
+            )}
+
+            <Button
+              onClick={() => cropStep.current?.upload()}
+              disabled={uploading || !uploadDateValid}
+              className="ms-2"
+            >
+              {uploading
+                ? "Uploading..."
+                : crops
+                  ? "Crop and upload"
+                  : "Upload"}
+            </Button>
+          </>
+        )}
+        <Button
+          variant="danger"
+          onClick={() => original && replace(original)}
+          disabled={original === undefined}
+          className="ms-auto mt-auto"
+        >
+          Reset Images
+        </Button>
+      </div>
+    </>
+  );
 
   return (
     <>
       <Row className={`${CLASSNAME} w-100`}>
-        <Col xs={7} className={CLASSNAME_IMAGES}>
+        <Col xs={wantsRoom ? 4 : 7} className={CLASSNAME_IMAGES}>
           {images.map((i, index) => (
             <div className={CLASSNAME_IMAGE_ENTRY} key={i.image.id}>
               <ImageInput
                 image={i.image}
+                sizeVerdict={judgedCropSizeVerdict(
+                  i.image,
+                  i.image.originalImage ?? undefined,
+                  i.types,
+                )}
                 lightboxImages={images.map((image) => ({
                   ...image.image,
                   organized: isOrganized(image.image.id),
                 }))}
                 onRemove={() => remove(index)}
-                labels={labels}
-                confirmLeave={confirmLeave}
-                renderEditor={
-                  labellable
+                lightboxProps={{
+                  labels,
+                  cropTemplates,
+                  confirmLeave,
+                  onRecrop: (image) => openRecrop(image.id),
+                  canRecrop,
+                  renderCropEditor: (image) =>
+                    recropTarget?.id === image.id ? (
+                      <RecropEditor
+                        image={recropTarget}
+                        groups={groups}
+                        canAddAsNew={roomForAnother}
+                        addAsNewOnly={isOrganized(recropTarget.id)}
+                        onClose={() => setRecropTarget(undefined)}
+                        onRecropped={(newImage, addAsNew) => {
+                          const position = images.findIndex(
+                            (candidate) =>
+                              candidate.image.id === recropTarget.id,
+                          );
+                          if (position >= 0)
+                            handleRecropped(position, newImage, addAsNew);
+                        }}
+                      />
+                    ) : undefined,
+                  renderEditor: labellable
                     ? (image) => {
                         const position = images.findIndex(
                           (candidate) => candidate.image.id === image.id,
@@ -279,6 +446,13 @@ const EditImages: FC<EditImagesProps> = ({
                         // Drop the key, it does not need to be propagated
                         const { key: _key, ...current } = images[position];
                         const editable = canRecategorize(image.id);
+                        // The server only checks the date's format, not its
+                        // range, so Apply has to be the thing stopping an
+                        // out-of-range date from reaching it.
+                        const dateError = partialDateError(
+                          current.date,
+                          maxImageDate(),
+                        );
 
                         return (
                           <div>
@@ -294,6 +468,7 @@ const EditImages: FC<EditImagesProps> = ({
                                 className="mt-2"
                                 disabled={
                                   applyingId === image.id ||
+                                  !!dateError ||
                                   !hasUnsavedChanges(image.id)
                                 }
                                 onClick={() => applyLabels(image.id, current)}
@@ -318,23 +493,24 @@ const EditImages: FC<EditImagesProps> = ({
                           </div>
                         );
                       }
-                    : undefined
-                }
+                    : undefined,
+                }}
               />
             </div>
           ))}
         </Col>
-        <Col xs={5} className={CLASSNAME_INPUT}>
+        <Col xs={wantsRoom ? 8 : 5} className={CLASSNAME_INPUT}>
           <div className={CLASSNAME_INPUT_CONTAINER}>
             {file ? (
-              <div
-                className={cx(CLASSNAME_IMAGE, {
-                  [CLASSNAME_UPLOADING]: uploading,
-                })}
-              >
-                <img src={imageData} alt="" />
-                <LoadingIndicator message="Uploading image..." />
-              </div>
+              <CropStep
+                ref={cropStep}
+                file={file}
+                groups={groups}
+                onCropsChange={setCrops}
+                onDateValidChange={setUploadDateValid}
+                onUpload={handleAddImage}
+                actions={actions}
+              />
             ) : (
               !isDisabled && (
                 <div className={CLASSNAME_DROP}>
@@ -357,35 +533,7 @@ const EditImages: FC<EditImagesProps> = ({
               )
             )}
           </div>
-          {error && <div className="text-danger text-end">Error: {error}</div>}
-          <div className="mt-4 d-flex">
-            {file && (
-              <>
-                <Button
-                  variant="danger"
-                  onClick={() => removeImage()}
-                  disabled={!file || uploading}
-                >
-                  Remove
-                </Button>
-                <Button
-                  onClick={() => handleAddImage()}
-                  disabled={!file || uploading}
-                  className="ms-2"
-                >
-                  Upload
-                </Button>
-              </>
-            )}
-            <Button
-              variant="danger"
-              onClick={() => original && replace(original)}
-              disabled={original === undefined}
-              className="ms-auto mt-auto"
-            >
-              Reset Images
-            </Button>
-          </div>
+          {!file && actions}
         </Col>
       </Row>
       {pendingLeave && (

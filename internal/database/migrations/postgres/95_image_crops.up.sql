@@ -1,0 +1,28 @@
+-- RENUMBERED from upstream's 77. This fork already owns 77_add_elo_ratings, and
+-- golang-migrate keys on the numeric prefix, so two files claiming version 77 is a
+-- hard startup failure:
+--
+--   failed to create migration source: duplicate migration file: 77_image_crops.up.sql
+--
+-- Fifth time this fork has hit this family (#1183 73->90, #1262 76->88, #1266 76->93,
+-- #1215 76->94, now #1216 77->95). 95 sits directly above #1215's 94_image_types, so
+-- the crop bookkeeping lands after the image-type tables it references.
+--
+-- The uncropped bytes a cropped image was cut from, retained so a later
+-- recrop can use a wider frame than whatever the current crop kept. Never
+-- linked into scene_images/performer_images/studio_images, so it never
+-- appears in a gallery: it exists purely as backing material
+--
+-- Self-referencing and nullable: most rows (URL-only images, and any image
+-- with no crop history) have no original. ON DELETE SET NULL rather than
+-- CASCADE since ImageDestroy deletes by id unconditionally with no
+-- unused-check, and a derived row must survive that, just falling back to
+-- its own stored bytes the way every image behaved before this column
+-- existed
+--
+-- Always flat: an original's own original_image_id is always null, because
+-- Recrop resolves the source's original rather than linking to the source
+-- itself. Not expressible as a CHECK (would need a self-join), so this is an
+-- invariant of the service layer, not the schema
+ALTER TABLE images ADD COLUMN "original_image_id" uuid REFERENCES images("id") ON DELETE SET NULL;
+CREATE INDEX images_original_image_id_idx ON images (original_image_id);

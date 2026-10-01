@@ -2,6 +2,8 @@ import { faCodeMerge } from "@fortawesome/free-solid-svg-icons";
 import { type FC, useMemo } from "react";
 import { Button, Card, Col, Row, Table } from "react-bootstrap";
 import { Link } from "react-router-dom";
+import type { CropTemplateInfo } from "src/components/cropFrame";
+import { useDirectLabelEditor } from "src/components/editImages/useDirectLabelEditor";
 import {
   FavoriteStar,
   GenderIcon,
@@ -27,11 +29,12 @@ import {
 } from "src/constants/route";
 import {
   GenderEnum,
+  ImageTypeScopeEnum,
   type PerformerFragment as Performer,
   useConfig,
   usePerformer,
 } from "src/graphql";
-import { useCurrentUser, useImageTypeNames } from "src/hooks";
+import { useCurrentUser, useImageTypeVocabulary } from "src/hooks";
 import {
   createHref,
   formatBodyModifications,
@@ -43,21 +46,23 @@ import {
 const CLASSNAME = "PerformerInfo";
 const CLASSNAME_ACTIONS = "PerformerInfo-actions";
 
-const useImageLabels = (images: Performer["images"]) => {
-  const { typeName } = useImageTypeNames();
+const useImageLightboxInfo = (images: Performer["images"]) => {
+  const { typeName, templateFor } = useImageTypeVocabulary();
 
-  return useMemo(
-    () =>
-      Object.fromEntries(
-        images
-          .filter((image) => image.types.length > 0 || image.date)
-          .map((image) => [
-            image.id,
-            [...image.types.map(typeName), ...(image.date ? [image.date] : [])],
-          ]),
-      ),
-    [images, typeName],
-  );
+  return useMemo(() => {
+    const labels: Record<string, string[]> = {};
+    const cropTemplates: Record<string, CropTemplateInfo> = {};
+    for (const image of images) {
+      if (image.types.length > 0 || image.date)
+        labels[image.id] = [
+          ...image.types.map(typeName),
+          ...(image.date ? [image.date] : []),
+        ];
+      const template = templateFor(image.types);
+      if (template) cropTemplates[image.id] = template;
+    }
+    return { labels, cropTemplates };
+  }, [images, typeName, templateFor]);
 };
 
 interface Props {
@@ -123,7 +128,13 @@ export const PerformerInfo: FC<Props> = ({ performer }) => {
   const { data: config } = useConfig();
   const showGenitals = config?.getConfig.enable_genital_attributes ?? false;
   // Upstream #1215: per-image type labels, shown alongside the existing metadata.
-  const labels = useImageLabels(performer.images);
+  // Upstream #1216: the same information, plus the crop templates the lightbox needs
+  // and a direct label editor. Both hooks describe the SAME `labels` map, so only the
+  // #1216 hook is called and `labels` is destructured from it alone -- calling
+  // useImageLabels as well would compute the identical map twice.
+  const { labels, cropTemplates } = useImageLightboxInfo(performer.images);
+  const { renderEditor, editorLabel, confirmLeave, leavePrompt } =
+    useDirectLabelEditor(ImageTypeScopeEnum.PERFORMER, performer.images);
 
   return (
     <div className={CLASSNAME}>
@@ -279,8 +290,15 @@ export const PerformerInfo: FC<Props> = ({ performer }) => {
             size={600}
             alt="Performer"
             lightbox
-            labels={labels}
+            lightboxProps={{
+              labels,
+              cropTemplates,
+              renderEditor,
+              editorLabel,
+              confirmLeave,
+            }}
           />
+          {leavePrompt}
         </Col>
       </Row>
     </div>

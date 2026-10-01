@@ -1,5 +1,11 @@
 import { screen, waitFor } from "@testing-library/react";
-import { ImageTypeEnum, ImageTypeGroupEnum, RoleEnum } from "src/graphql";
+import {
+  CropGuideAxisEnum,
+  CropGuideRoleEnum,
+  ImageTypeEnum,
+  ImageTypeGroupEnum,
+  RoleEnum,
+} from "src/graphql";
 import RevertImageCategorizationGQL from "src/graphql/mutations/RevertImageCategorization.gql";
 import SetImageOrganizedGQL from "src/graphql/mutations/SetImageOrganized.gql";
 import ImageTypeGroupsGQL from "src/graphql/queries/ImageTypeGroups.gql";
@@ -39,6 +45,39 @@ const vocabulary = {
               description: null,
               enabled: true,
               conflicts_with: [],
+              crop_template: null,
+            },
+          ],
+        },
+        {
+          __typename: "ImageTypeGroup" as const,
+          key: ImageTypeGroupEnum.CROP,
+          name: "Crop",
+          description: null,
+          enabled: true,
+          types: [
+            {
+              __typename: "ImageType" as const,
+              key: ImageTypeEnum.CROP_FACE,
+              name: "Face",
+              description: null,
+              enabled: true,
+              conflicts_with: [],
+              crop_template: {
+                __typename: "CropTemplate" as const,
+                aspect_ratio: 2 / 3,
+                width: 1000,
+                height: 1500,
+                guides: [
+                  {
+                    __typename: "CropGuide" as const,
+                    axis: CropGuideAxisEnum.Y,
+                    position: 0.4,
+                    role: CropGuideRoleEnum.ANCHOR,
+                    label: "Bisects the eyes",
+                  },
+                ],
+              },
             },
           ],
         },
@@ -47,7 +86,7 @@ const vocabulary = {
   },
 };
 
-const feedImage = (id: string) => ({
+const feedImage = (id: string, types = [ImageTypeEnum.SHOT_PORTRAIT]) => ({
   __typename: "UnorganizedImage" as const,
   image: {
     __typename: "Image" as const,
@@ -55,9 +94,10 @@ const feedImage = (id: string) => ({
     url: `http://example.test/${id}`,
     width: 400,
     height: 600,
-    types: [ImageTypeEnum.SHOT_PORTRAIT],
+    types,
     date: "2024-05",
     organized: false,
+    originalImage: null,
     categorized_at: "2026-09-01T12:00:00Z",
     categorized_by: { __typename: "User" as const, id: "u-1", name: "carla" },
   },
@@ -68,6 +108,7 @@ const feedResponse = (
   ids: string[],
   performerID: string | null = null,
   userID: string | null = null,
+  types?: ImageTypeEnum[],
 ) => ({
   request: {
     query: UnorganizedImagesGQL,
@@ -85,7 +126,7 @@ const feedResponse = (
       queryUnorganizedImages: {
         __typename: "QueryUnorganizedImagesResultType" as const,
         count: ids.length,
-        images: ids.map(feedImage),
+        images: ids.map((id) => feedImage(id, types)),
       },
     },
   },
@@ -112,6 +153,28 @@ describe("ImageReview", () => {
     // The categorizer is named, since the feed is where a mod
     // would go looking for whom to ask about a label
     expect(screen.getByText("carla")).toBeInTheDocument();
+  });
+
+  // Sign-off judges the crop as much as the labels, and the lightbox is
+  // the only view large enough to judge it: it must know the claimed frame
+  it("opens a row's image with its claimed crop template's guides", async () => {
+    const { user } = renderForm(<ImageReview />, {
+      auth: moderator,
+      mocks: [
+        vocabulary,
+        feedResponse(["img-1"], null, null, [ImageTypeEnum.CROP_FACE]),
+      ],
+    });
+
+    expect(await screen.findByText("Alice")).toBeInTheDocument();
+    const [thumbnail] = document.querySelectorAll("button.Image");
+    await user.click(thumbnail);
+
+    await user.click(screen.getByRole("button", { name: "Show guides" }));
+
+    // Queried from the document: the lightbox renders into a portal.
+    expect(document.querySelectorAll(".CropOverlay-guide")).toHaveLength(1);
+    expect(screen.getByText("Bisects the eyes")).toBeInTheDocument();
   });
 
   it("narrows to one performer via the query string", async () => {
@@ -205,6 +268,7 @@ describe("ImageReview", () => {
               types: [],
               date: null,
               organized: false,
+              originalImage: null,
               categorized_at: null,
               categorized_by: null,
             },
@@ -259,6 +323,7 @@ describe("ImageReview", () => {
               types: [ImageTypeEnum.SHOT_PORTRAIT],
               date: "2024-05",
               organized: true,
+              originalImage: null,
             },
           },
         };

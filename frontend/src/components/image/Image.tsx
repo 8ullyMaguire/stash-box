@@ -5,6 +5,7 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import cx from "classnames";
 import { type FC, type ReactNode, useState } from "react";
+import type { CropTemplateInfo } from "src/components/cropFrame";
 import { Icon, LoadingIndicator } from "src/components/fragments";
 import ImageLightbox from "./ImageLightbox";
 
@@ -15,6 +16,7 @@ type Image = {
   url: string;
   width: number;
   height: number;
+  originalImage?: { url: string } | null;
   organized?: boolean;
 };
 
@@ -69,6 +71,20 @@ const ImageComponent: FC<ImageProps> = ({
   );
 };
 
+export interface LightboxProps {
+  labels?: Record<string, string[]>;
+  cropTemplates?: Record<string, CropTemplateInfo>;
+  /** Makes the lightbox an editor for whichever image is focused */
+  renderEditor?: (image: Image) => ReactNode;
+  editorLabel?: string;
+  /** Absent hides the re-crop entrypoints entirely */
+  onRecrop?: (image: Image) => void;
+  canRecrop?: (imageId: string) => boolean;
+  // Asked before focus moves away from an image; proceed lets it happen
+  confirmLeave?: (imageId: string, proceed: () => void) => void;
+  renderCropEditor?: (image: Image) => ReactNode;
+}
+
 interface ContainerProps {
   images: Image[] | Image | undefined;
   emptyMessage?: string;
@@ -81,12 +97,7 @@ interface ContainerProps {
   // Rendered inside the frame, which is sized to the image's aspect ratio so
   // an absolutely positioned corner lands on the image and not on letterboxing
   overlay?: ReactNode;
-  labels?: Record<string, string[]>;
-  // Makes the lightbox an editor for whichever image is focused
-  renderEditor?: (image: Image) => ReactNode;
-  editorLabel?: string;
-  // Asked before focus moves away from an image in the lightbox
-  confirmLeave?: (imageId: string, proceed: () => void) => void;
+  lightboxProps?: LightboxProps;
 }
 
 const ImageContainer: FC<ContainerProps> = ({
@@ -95,10 +106,7 @@ const ImageContainer: FC<ContainerProps> = ({
   lightbox,
   lightboxImages,
   overlay,
-  labels,
-  renderEditor,
-  editorLabel,
-  confirmLeave,
+  lightboxProps,
   ...props
 }) => {
   const [showLightbox, setShowLightbox] = useState(false);
@@ -139,10 +147,7 @@ const ImageContainer: FC<ContainerProps> = ({
       {showLightbox && (
         <ImageLightbox
           images={galleryImages}
-          labels={labels}
-          renderEditor={renderEditor}
-          editorLabel={editorLabel}
-          confirmLeave={confirmLeave}
+          {...lightboxProps}
           defaultIndex={Math.max(
             0,
             galleryImages.findIndex((i) => i.id === image.id),

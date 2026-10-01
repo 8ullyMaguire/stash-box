@@ -1,13 +1,22 @@
 import type { FC, ReactNode } from "react";
 import { Col, Row } from "react-bootstrap";
+import {
+  type CropSizeVerdict,
+  CropSizeWarning,
+  type CropTemplateInfo,
+  judgedCropSizeVerdict,
+} from "src/components/cropFrame";
 import type { Labelling } from "src/components/editImages";
 import ImageLabels from "src/components/editImages/ImageLabels";
-// Upstream #1223 (this fork): a deleted image renders a placeholder rather than
-// disappearing from the diff, so a removal is visible instead of silent.
-import { DeletedImage } from "src/components/fragments";
+import {
+  CroppedIndicator,
+  // Upstream #1223 (this fork): a deleted image renders a placeholder rather than
+  // disappearing from the diff, so a removal is visible instead of silent.
+  DeletedImage,
+} from "src/components/fragments";
 import ImageComponent from "src/components/image";
 import type { ImageTypeEnum } from "src/graphql";
-import { useImageTypeNames } from "src/hooks";
+import { useImageTypeVocabulary } from "src/hooks";
 
 type Image = {
   height: number;
@@ -16,6 +25,7 @@ type Image = {
   width: number;
   types?: string[];
   date?: string | null;
+  originalImage?: { url: string; width?: number; height?: number } | null;
 };
 
 const CLASSNAME = "ImageChangeRow";
@@ -31,21 +41,28 @@ const ImageCell: FC<{
   image: Image;
   gallery: Image[];
   labels: Record<string, string[]>;
+  cropTemplates: Record<string, CropTemplateInfo>;
   renderEditor: (image: { id: string }) => ReactNode;
-}> = ({ image, gallery, labels, renderEditor }) => (
+  sizeVerdict?: CropSizeVerdict;
+}> = ({ image, gallery, labels, cropTemplates, renderEditor, sizeVerdict }) => (
   <div className={CLASSNAME_IMAGE}>
     <ImageComponent
       images={image}
       alt=""
       size="full"
       lightboxImages={gallery}
-      labels={labels}
-      renderEditor={renderEditor}
-      editorLabel="Image classification and date"
+      lightboxProps={{
+        labels,
+        cropTemplates,
+        renderEditor,
+        editorLabel: "Image classification and date",
+      }}
     />
     <div className="text-center">
       {image.width} x {image.height}
     </div>
+    <CroppedIndicator original={image.originalImage} />
+    <CropSizeWarning verdict={sizeVerdict} />
   </div>
 );
 
@@ -54,7 +71,9 @@ const ImageChangeRow: FC<ImageChangeRowProps> = ({
   oldImages,
   showDiff = false,
 }) => {
-  const { groups, typeName } = useImageTypeNames({ includeDisabled: true });
+  const { groups, typeName, templateFor } = useImageTypeVocabulary({
+    includeDisabled: true,
+  });
 
   const added = (newImages ?? []).filter((image) => image !== null);
   const removed = (oldImages ?? []).filter((image) => image !== null);
@@ -63,11 +82,15 @@ const ImageChangeRow: FC<ImageChangeRowProps> = ({
   const gallery = [...added, ...removed];
 
   const labels: Record<string, string[]> = {};
+  const cropTemplates: Record<string, CropTemplateInfo> = {};
   const labelling: Record<string, Labelling> = {};
   for (const image of gallery) {
-    labels[image.id] = (image.types ?? []).map(typeName);
+    const types = image.types ?? [];
+    labels[image.id] = types.map(typeName);
+    const template = templateFor(types);
+    if (template) cropTemplates[image.id] = template;
     labelling[image.id] = {
-      types: (image.types ?? []) as ImageTypeEnum[],
+      types: types as ImageTypeEnum[],
       date: image.date ?? null,
     };
   }
@@ -86,13 +109,26 @@ const ImageChangeRow: FC<ImageChangeRowProps> = ({
     );
   };
 
+  const verdictFor = (image: Image): CropSizeVerdict | undefined => {
+    const original = image.originalImage;
+    return judgedCropSizeVerdict(
+      image,
+      original?.width && original.height
+        ? { width: original.width, height: original.height }
+        : undefined,
+      image.types ?? [],
+    );
+  };
+
   const cell = (image: Image) => (
     <ImageCell
       key={image.id}
       image={image}
       gallery={gallery}
       labels={labels}
+      cropTemplates={cropTemplates}
       renderEditor={renderLabelling}
+      sizeVerdict={verdictFor(image)}
     />
   );
 
@@ -108,14 +144,17 @@ const ImageChangeRow: FC<ImageChangeRowProps> = ({
             <>
               <h6>Removed</h6>
               <div className={CLASSNAME}>
-                {removed.map(cell)}
-                {/* Upstream #1215 replaced this fork's <DeletedImage> component with a
+                {/* Upstream wrote removed.map((image) => cell(image)), which is the
+                    same thing as removed.map(cell). Kept in the shorter form.
+                    Upstream #1215 replaced this fork's <DeletedImage> component with a
                     bare <img alt="Deleted">. Taking that side would revert #1223, which
                     exists because a raw broken-image glyph is indistinguishable from a
                     loading state -- the deletion has to be visible as a deletion. The
                     placeholder is restored here; the only thing given up is upstream's
                     CLASSNAME_IMAGE on the wrapper, which <DeletedImage> sets itself. */}
+                {removed.map(cell)}
                 {Array.from({ length: deletedCount }, (_, i) => (
+                  // biome-ignore lint/suspicious/noArrayIndexKey: the image is gone, there is no other key
                   <DeletedImage key={`deleted-${i}`} />
                 ))}
               </div>
@@ -127,7 +166,7 @@ const ImageChangeRow: FC<ImageChangeRowProps> = ({
         {added.length > 0 && (
           <>
             {showDiff && <h6>Added</h6>}
-            <div className={CLASSNAME}>{added.map(cell)}</div>
+            <div className={CLASSNAME}>{added.map((image) => cell(image))}</div>
           </>
         )}
       </Col>

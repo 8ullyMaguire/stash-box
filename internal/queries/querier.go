@@ -234,6 +234,9 @@ type Querier interface {
 	// still raise, which is correct -- that would be a bug, not a duplicate
 	// upload.
 	//
+	// Upstream #1216 adds original_image_id (a crop points at the image it was cut
+	// from), on top of #1215's date/organized/categorized_at/categorized_by.
+	//
 	// Upstream #1215 adds date/organized/categorized_at/categorized_by to this
 	// INSERT. They are unioned in rather than chosen between: they are new columns
 	// with no defaults to speak of, and dropping them would silently reset an
@@ -577,6 +580,8 @@ type Querier interface {
 	// pending edit predating image types has no such key, and jsonb_array_elements
 	// is STRICT, so a set-returning function given NULL yields zero rows rather
 	// than erroring. Keep added_images a flat UUID array for the same reason.
+	// An image kept only as another image's retained original is not unused: it
+	// backs a real recrop target, even though nothing links to it directly.
 	FindUnusedImages(ctx context.Context) ([]Image, error)
 	FindUser(ctx context.Context, id uuid.UUID) (User, error)
 	FindUserByEmail(ctx context.Context, upper interface{}) (User, error)
