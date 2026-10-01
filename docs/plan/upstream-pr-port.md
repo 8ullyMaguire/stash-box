@@ -54,15 +54,14 @@ This is why the per-PR gate is necessary but not sufficient — a full run at th
 end is the only thing that catches a collision between two individually-fine
 ports.
 
-## Not merged (14)
+## Dispositioned (14)
 
-| # | Why not |
+| # | Disposition |
 |---|---|
 | 928 | **Destructive.** Downgrades the base image `postgres:18` → `postgres:16` and drops the `pg-spgist_hamming` build that pHash fingerprint matching depends on. Merging breaks the production image. |
 | 1269 | **PORTED 2026-09-30** (`31edfd7b`). Was declined *for cause* — "pins schemaVersion 76 against our 88" — and that is still true of the patch but no longer of the outcome. Same two deviations as #1183, both forced. (1) Migration renumbered **76 → 91**: we already have TWO migrations numbered 76 (`76_add_user_trust`, `76_scene_title_text`), so a third would make the prefix ambiguous for golang-migrate. (2) The `schemaVersion = 76` pin **dropped**, not renumbered — the constant was deleted here deliberately and its comment records that it silently skipped migration 76 forever. One real union conflict: `resolver_model_performer_edit.go` had #1225's `[]*models.Image` widening colliding with #1269's new `Genitals` resolver, and taking either side drops the other feature. Coverage is genuinely good — create, find, edit, draft, converter both ways, enum resolution — but only after checking: an `-run Genital` probe matched nothing and looked untested, because those assertions live inside other test functions. Positive control: emptying the migration yields `column "genitals" of relation "performers" does not exist (42703)`. |
 | 1086 | **PORTED 2026-09-30** (`82cf90ba`). Recorded as superseded, which is true of *upstream* — their master already merged it — and was false of *us*: our `EditCard.tsx` predated the change. Verified by fetching upstream's current file, which already carries both the `compact` prop and a `VoteBar` at line 79. The one-line patch would not apply because its hunk context expects `showVoteBar &&` where our line reads `!compact &&`; applying it mechanically would have **reverted compact support that both forks now share**. Kept the now-redundant `!compact` guard on its new home rather than diverging from upstream over a cosmetic change. |
 | 1278 | Superseded. Wants a clearer cooldown error, but this fork already has a better one — `CooldownError` with `RetryAfter`, against upstream's bare `errors.New`. |
-| 1227→ already merged; remaining below | |
 | 1123 | **PORTED 2026-09-30** (`37489ef4`). Was recorded as "needs a real UI decision about which pending-URL behaviour wins" — there was no decision to make: the PR introduces the whole mechanism (19 lines in urlInput plus one yup rule per form) and ships its own tests in both forms' test files. Both conflicts were import statements, resolvable as the union of ours and theirs. Fixes a silent data loss: a typed-but-not-added URL was never submitted and the edit saved as if it were. |
 | 1076 | **SUPERSEDED — verified 2026-09-30, nothing to port.** The record said "touches criterion handling that #1270 and #1271 also changed", which is true but describes a *conflict*, not a *disposition*. Measured: the PR adds exactly **9** criterion applications (height, band_size, waist_size, hip_size, career_start_year, career_end_year, eye_color, hair_color, breast_type) and **all 9 are already in `internal/service/performer/query.go` on both branches**, at lines 204–229. Every column it filters on exists in our migrations. `gh` still reports CONFLICTING, which is now true and irrelevant — there is nothing left to apply. |
 | 1225 | **PORTED 2026-09-30** (`8fe9eb7d`). Was recorded as "conflicts in generated GraphQL code, needs a review"; re-checked as MERGEABLE, 13 files, zero conflicts, and a real user-visible bug. `imageList` dropped the nil for a since-pruned image and returned a SHORTER array, so the frontend rendered the wrong image's placeholder in the wrong slot; `[Image!]` made a nil unrepresentable, so the fix is nullable elements plus keeping the nil. Generated code regenerated, not taken from the patch. |
@@ -72,12 +71,28 @@ ports.
 | 1248 | **PORTED 2026-10-01** (`02b44a69`). The dependency review the row asked for found that 35 modules move and two are real swaps (`gorilla/websocket` -> `coder/websocket`, `go-ini/ini` -> `gopkg.in/ini.v1`). **pgx is HELD at 5.9.2 against the PR's 5.10.0**: 5.10.0 panics six integration packages at `initPostgres` with "pgxpool: too many failed attempts acquiring connection", reproducible in one package on a fresh database, and upstream master is still on 5.9.2 -- so upstream CI green meant nothing about it. govulncheck: no vulnerabilities. Generated code regenerated, not patched: gqlgen 0.17.95 renamed `DeferredGroup.Label` and the PR's hunks do not apply to our schema. |
 | 1215 | **PORTED 2026-10-01** (`3c3f173a`). Image type labels: a curator-defined vocabulary with per-viewer ordering, so a performer's thumbnail leads with the face crop. Migration **76 -> 94** (fourth collision of this family here). `schemaVersion = 76` declined again, third time. **`imageList` kept its signature** -- upstream changed it to return `[]models.Image`, but the `*_edit` resolvers need `[]*models.Image` and the nils it drops are what "an image that no longer exists" means to them; added `imageValueList` beside it. **Upstream's `return s.storeFile(...)` declined**: that predates #738 and #948. **Four upstream test bugs fixed**, all found by running the suite: a `Count` vs page-length equality that only holds under 100 fixtures; an ASC page-scan for a performer that ASC sorts off the page; an unguarded `toTypedImages(performer.images)` that crashed the whole form on #703 merge-source edits (line 221 of the same file already guards it); and a bare `<img alt="Deleted">` replacing #1223's `<DeletedImage>`. Gates: make it 31 packages (master 30), vitest 43 files / 498 tests (master 38 / 423). |
 | 1216 | **PORTED 2026-10-01** (`6e07fb70`). Image crops: a curator crops on upload, the pre-crop upload is retained as its own row so Recrop can frame from it, and `original_image_id` is flattened to the ROOT so repeated crops never compound. Migration **77 -> 95** (fifth collision of this family). `schemaVersion = 77` declined, fourth time. **Upstream's `return s.storeFile(...)` declined again**, same reason as #1215 -- it predates #738 and #948, so routing through it would drop both. Only 3 of 13 conflicts were substantive, because #1215 had already landed. **One real bug caught by the suite, not by reading the diff**: grafting the crop onto this fork's checksum path left `fileReader` captured BEFORE the crop, so checksum and dimensions both described the uncropped upload while the bytes on disk were cropped -- 200x200 stored for a 100x100 crop, and two different crops of one upload would deduplicate against each other. Upstream's own `ReadFull` fix WAS taken (a short Read yields a truncated image). Gates: make it 33 packages (master 31), vitest 54 files / 683 tests (master 43 / 498). |
-| 1266 | Conflicts in performer weight handling that overlaps this fork's `internal/service/elo` weight work. Needs a deliberate reconciliation of two independent weight implementations. |
+| 1266 | **PORTED 2026-09-30** (`9f08173e`, merged `094cd6b9`). Was recorded as needing "a deliberate reconciliation of two independent weight implementations" -- and there were two, but they are not in conflict: `85_add_vote_weight` weights how much a VOTE counts, while #1266's `weight` on a performer is a physical measurement in kg. Different units, different tables, same word. Reconciled by leaving both alone and naming the distinction in the column comment. The one real conflict was `performer.sql`, where the insert's column list had to carry `weight` while #1266's converter changes also touched the same struct; resolved as a union and regenerated. |
 
-The last group is not a failure to try — each is a feature port rather than a
-merge, and four of them would need schema regeneration, UI validation and a
-judgement call about overlapping existing work. They are the next unit of work,
-not part of this one.
+**Of these 14, ten are now PORTED** (#1269, #1086, #1123, #1225, #1183, #1248,
+#1215, #1216, #1266, plus #1227 which merged earlier and had a stray pointer row
+here). What remains is four, and none of them is a port:
+
+- **#928** — destructive. Downgrades the base image `postgres:18` → `postgres:16`
+  and drops the `pg-spgist_hamming` build that pHash fingerprint matching needs.
+- **#1278** — superseded. This fork already has the better error
+  (`CooldownError` with `RetryAfter`, against upstream's bare `errors.New`).
+- **#1076** — superseded, verified rather than assumed. Its 9 criterion
+  applications are already in `internal/service/performer/query.go` on both
+  branches. `gh` still reports CONFLICTING; there is nothing left to apply.
+- **#1155, #878** — upstream drafts, `mergeable=UNKNOWN`, conflicting. Drafts
+  against a tree this fork has diverged from for months; porting them would be
+  guessing at intent, not merging code.
+
+The heading used to read "Not merged (14)" and implied all fourteen were still
+outstanding. It was written when it was true and then left behind as each row was
+filled in, which is the failure mode of a status table updated by editing its
+contents without editing its claims. The count in a heading is the one field that
+no row can correct on its own.
 
 ## Dispositioned 2026-09-30 (session: R074 guard) — 5 PRs, not 40
 
