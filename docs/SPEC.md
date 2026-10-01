@@ -1,9 +1,9 @@
 # stash-box fork — SPEC
 
-**Status:** draft v0.2 — foundation, direction resolved (§6.1), vision amended (§7.17–§7.22)
+**Status:** draft v0.3 — foundation, direction resolved (§6.1), vision amended (§7.17–§7.22, §7.24)
 **Repo:** `~/code-local/go/stash-box` (clone of `github.com/stashapp/stash-box`)
 **Pinned upstream:** `b4b8aef2` ("Use setup-go native cache (#1250)", 2026-09-09)
-**Written:** 2026-09-28 · **Amended:** 2026-09-29 (§7.17–§7.22, mesh architecture)
+**Written:** 2026-09-28 · **Amended:** 2026-09-29 (§7.17–§7.22, mesh architecture) · 2026-10-01 (§7.24, curation completeness and preservation)
 
 Every fact in §2 was measured on this host on the clone, not taken from the
 README or `CLAUDE.md`. Where those two disagree with measurement, measurement
@@ -1198,6 +1198,281 @@ vanguards "weighted influence on gravity tuning" again, verbatim. The reason in
 §7.20 is unchanged and is not a reading of the draft: gravity is an operator
 control, priority and nomination are influence, a vote on the theme is control.
 
+
+### 7.24 Third intake amendment — curation completeness, archival, preservation (amended 2026-10-01)
+
+An AI-generated ranking of 31 completeness/archival/preservation ideas arrived
+titled "ranked by impact ÷ effort", self-described as unverified against the tree.
+It was verified here. Verdicts, adaptations and rejections with reasons are in
+`docs/track/INTAKE-2026-10-01-curation-completeness.md`; this section is what
+adopted.
+
+**Two findings reframed the whole paste before any of it was adopted.**
+
+**F1 — the premise is stale.** The draft ranks a bounty board #4 on the grounds
+that "the spec has them only as a one-liner". `80_add_authored_quests` and
+`81_add_bonus_points` already exist: `authored_quests` carries a bounded
+`bounty_points` (`0..10000`) plus a `reason` and an `authored_by`, and quest
+completion pays bonus XP. The pricing layer is largely present.
+
+**F2 — the top-ranked new idea is forbidden by the code's own comment.** The
+draft proposes auto-generating bounties from completion gaps, priced by marginal
+gain × rarity × age. `80_add_authored_quests` says, in the schema comment:
+
+> A BOUNTY is an operator decision -- "this gap is worth triple" -- and a promise
+> made by a person. A generated quest must not be able to manufacture one, so a
+> bounty lives only on an AUTHORED quest, and the generator never reads this
+> table.
+
+That is a decision with a stated reason — **a bounty is a promise, so it needs a
+promisor** — and the draft's version deletes the promisor. Rejected as written;
+the formula is adopted in 7.24.3 as a *suggested price shown to the author*.
+
+#### 7.24.1 Verified-unknown markers — the prerequisite for everything else here
+
+**The highest-value item in the paste, and adopted as the prerequisite it is.**
+Nothing in 95 migrations can express "this field is confirmed-absent", so
+completion can never legitimately reach 100%, gaps that are unanswerable get
+bountied forever, and quests recycle.
+
+Adapted deliberately:
+
+- **It is an edit, not a moderator field.** It attaches to the existing
+  edit/consensus machinery (`internal/service/edit`), not a parallel write path.
+  A curator with trust earns auto-approval; "not publicly knowable" is a low-risk,
+  high-value edit that should be earnable by exactly that logic. Making it a
+  moderator-only field would hollow out §7.6's trust levels and §7.7's reputation.
+- **It carries a reason code, not free text.** "Birthdate is not publicly
+  knowable" and "birthdate exists but nobody has looked" are different facts, and
+  the second must stay farmable. A free-text reason collapses them.
+- **No XP for asserting one on an entity you just edited.** Otherwise
+  verified-unknown becomes the cheapest XP-per-minute farm in the system — the
+  same shape §7.20 refused for vanguards, applied here for the same reason.
+
+#### 7.24.2 Expected-total denominators
+
+Adopted. §7.7 computes a completion score from missing metadata; a score without a
+denominator is a ratio with no meaning, and "the studio's site lists 412 scenes"
+is the only thing that turns "catalog the studio" into a countable target.
+
+**Sourced, trusted-contributor-or-moderator only.** A denominator is a claim about
+the world, so it carries `source_id`. An unsourced total is a rumour that silently
+deflates every completion score on the instance — worse than having no total,
+because the damage is invisible.
+
+#### 7.24.3 Bounty pricing — re-routed to the authored model
+
+The draft's five pricing traps are adopted; four of the five are already satisfied
+by migration 80 and are verified rather than re-adopted.
+
+| Trap | State | Evidence |
+|---|---|---|
+| Pay on edit applied, not on submit | already true | 80: the item leaves the quest "when the underlying field is actually filled, not when the claim expires" |
+| Claw back if later reverted | partly true | `KindQuestCompleted` bonus is the mechanism; explicit claw-back is not |
+| No payout for confirming your own edit | **new rule** | absent today |
+| Diminishing returns per entity | **new rule** | absent today |
+| XP/reputation only, never money | already true | `bounty_points` is `INTEGER`; no currency column exists anywhere |
+
+**The re-route:** an operator — or a curator whose trust level permits authoring —
+authors the quest, and the formula computes a *suggested* price the author may
+override. The generator never reads `authored_quests`. 7.24.3 therefore adds
+pricing assistance to the authoring surface and **does not** add a bounty
+generator.
+
+#### 7.24.4 Data-lint quests — the cheapest real work-item generator
+
+Adopted, and it needs no new subsystem. §7.7 already promises these in spirit
+("Resolve duplicate suspicion", "Link 10 unlinked scenes"); this names the source.
+
+Each detector is a **named SQL query emitting quest candidates**, against tables
+that already exist: `scene_urls` / `performer_urls` / `sites.url` for the duplicate
+-URL detector; `studios` + `scenes` for scene-dated-before-studio; alias
+collisions against the performer alias table; conflicting tags; covers below a
+minimum resolution.
+
+**Alias collisions emit quests and never auto-merge.** The merge path is the
+existing consensus flow in `internal/service/edit`, which already writes all four
+redirect tables (7.24.1's sibling — see the audit row below).
+
+The same SQL doubles as a **validation pass over imports**, which is the more
+valuable half of this item and is recorded in the plan phase.
+
+#### 7.24.5 Unmatched-fingerprint demand board, and the holder lower bound
+
+Adopted. `18_fingerprint_user` gives `scene_fingerprints.user_id` `NOT NULL` with
+an index on `(user_id, algorithm, hash)`, so the aggregation exists;
+`89_identification_federation` already provides the board to seed.
+
+**The boundary, now load-bearing:** aggregate by **hash and count only** — never
+store or expose the path, the user, or the scene. A miss is evidence that a copy
+exists somewhere; the miss record must not become a pointer to it. This is §7A's
+rule applied to a table that would otherwise be a quiet cross-instance locator.
+
+**Holder count is a lower bound, never a count.** Distinct fingerprint submitters
+bounds replicas from below, because one user holding three copies contributes the
+same as one holding one. It is exposed **thresholded**, and the endangered-copy
+notice (7.24.11, deferred) is built on it.
+
+#### 7.24.6 Fingerprint corroboration as a completion factor
+
+Adopted, and it is nearly free: a scene with one submission, or only one hash
+algorithm, gets a "needs a second independent submission" flag. The data is already
+there (`algorithm`, `user_id`, and the unique constraint on
+`(scene_id, fingerprint_id, user_id)`). This is a query plus one factor in §7.7's
+existing completion score — not a subsystem.
+
+#### 7.24.7 Bulk vandalism rollback
+
+Adopted. `mod_audit` exists and §7.13's operator surface already reads it, so this
+is one audited action: revert every edit by one user, or since one checkpoint, in a
+single transaction.
+
+**The revert must write the same audit shape as a normal edit**, or the audit
+trail acquires two formats and neither is readable.
+
+#### 7.24.8 Completion-delta preview
+
+Adopted. The edit form shows "this edit takes the scene from 62% to 71%", then
+suggests the next-highest-value missing field for that entity. It is a read of
+§7.7's existing completion score plus a ranking of missing fields by marginal
+gain — not a second, competing definition of completion.
+
+#### 7.24.9 Webhook events for bounties and preservation notices
+
+Adopted as wiring. `84_add_webhooks` already has `webhook_endpoints` and
+`webhook_deliveries` with `event_type` and a JSONB payload; this adds two event
+types and nothing else.
+
+#### 7.24.10 Review-queue bounties and easy-tier onboarding — one loop
+
+Adopted together, because they are one loop: pending edits nobody votes on block
+the multi-user verification §7.7 depends on. XP is paid for voting on the oldest
+pending items, and the same board is the source of a "first five edits" funnel.
+
+**The payout is for the vote, never for its outcome.** A reward keyed to the
+outcome is a reward for a position, which is §7.20's refusal — the same rule, the
+same reason, a third section.
+
+#### 7.24.11 Preservation and archival — adopted, deferred to its phase
+
+Recorded here so the ideas are not lost, and so their data dependencies are
+specified before the phase starts:
+
+- **Endangered-copy notice** — a scene with only one known holder tells that user
+  "you may hold the only known copy; consider backing up". Metadata plane only;
+  no path crosses the boundary (§7A). Built on 7.24.5's thresholded lower bound.
+- **Wanted list** — scenes known to exist, from denominators (7.24.2) or
+  fingerprint misses (7.24.5), with zero known holders. The "lost media" board.
+- **Backup and restore drill** — `cmd/` contains only `sdbimport` and `stash-box`;
+  **there is no backup command.** Adopted as a `backup` command producing a
+  consistent DB + image-store snapshot with checksums, plus a CI job that restores
+  it and runs the suite. This is the one item in the whole paste that should not
+  wait for its phase: preserving the archive starts with preserving the instance,
+  and the restore drill is what makes every other preservation claim testable.
+- **Nightly signed metadata dump** — self-describing, versioned (JSONL + schema +
+  hash list + README). The cold-storage artifact, the first draft of §7.17.4's
+  air-gap bundle, and the seed for read-only mirrors.
+- **Link-rot checker and archival submission** — periodically check
+  `scene_urls`, `performer_urls` and `sites.url`, flag dead ones, optionally
+  submit live ones to the Wayback Machine, store the archived link. Dead links
+  become "find an archive" quests. **One correction to the draft:** it says to
+  reuse "the webhook validator's resolve-then-check". The right thing is the
+  discipline, not that function — `internal/webhook/target.go` and
+  `internal/service/federation/baseurl.go` hold the SSRF resolution, and the
+  checker is itself an outbound fetch, so it must resolve-then-check exactly as
+  they do (§7A.3 rule 2). It is also operator-opt-in, because it submits URLs to
+  an external service.
+- **Release variants and reference copy** — encodes of one scene as variants, with
+  the highest-quality known one marked. One addition the draft omits: the variant
+  row needs a **re-checkable fingerprint set**, not a boolean, or "diverging
+  hashes reveal corruption" is not actually checkable.
+- **Cover and image upgrade quests** — low-resolution or hash-duplicate covers
+  trigger a quest; `94_image_types` / `95_image_crops` exist and the image service
+  already answers the duplicate half.
+
+#### 7.24.12 Deferred, adopted in principle
+
+- **Freshness and re-verification quests** — "last verified" on facts that rot
+  (studio active? site alive?). One more completion factor, following §7.17.2's
+  freshness pattern.
+- **Per-edit source citations** — a structured source link on high-impact fields,
+  so completion separates sourced from unsourced and confidence scoring has an
+  input. §7.7 counts source links already; this makes one a first-class field.
+- **Cross-entity inference suggestions** — co-star graph gaps, studio-network tag
+  inheritance, cluster members with differing performers, emitted as **pre-filled
+  draft edits for humans to vote on**. Never auto-applied, for the same reason
+  alias collisions are not (7.24.4).
+- **Gold-set reviewer calibration** — seed known-answer edits, measure vote
+  accuracy. `85_add_vote_weight` exists, so the mechanism is present; this is the
+  measurement that says whether the weights are right, which makes §7.6's "voting
+  consistency" trust input objective instead of asserted.
+- **Public state-of-archive page** — a completion heatmap by studio, generated from
+  §7.7's scores. It must aggregate rather than expose entities, so it cannot leak
+  anything a per-entity view would hide.
+- **Keyboard-driven triage mode** — fast match/mismatch and merge-review on
+  collages. It lowers per-contribution effort, which raises throughput against
+  every other item in this amendment.
+- **Campaign weekends** — time-boxed themed sprints. Thin, and §7.7 already has
+  federated joint campaigns, so this is a scoped instance of an existing mechanism.
+- **Early read-only metadata mirror** — §7.17.1's read-only role, fed by the
+  nightly dump. Carries no trust-model risk, which is why it precedes full
+  federation.
+- **Bot import pipeline** — the largest single completeness lever and the most
+  expensive. Batch drafts at low trust in a quorum queue (§7.18.1) so humans vote
+  rather than type. **Its stated precondition is accepted without reservation:
+  fix the modbot race (§8.1) first.** Importing at scale before that is fixed
+  amplifies it.
+
+#### 7.24.13 Audit row — redirect permanence needs an end-to-end test, not a feature
+
+The paste lists redirect-permanence as new work. It is **substantially built**:
+`06_deletion_and_redirects` creates all four redirect tables, and all four merge
+paths write them — `internal/service/edit/scene.go:648`, `studio.go:418`,
+`tag.go:310`, `performer.go:571`, each calling `Update*Redirects` — with
+read-time resolution in `FindStudioWithRedirect`.
+
+So this is not a spec row. It is **one row in the operator verification surface**:
+an end-to-end assertion that a stored Stash-library ID survives merge *and*
+delete. §4.3's compatibility claim depends on it and nothing tests it today, which
+is the only reason it appears here at all.
+
+#### 7.24.14 Rejected
+
+- **Auto-generated bounties from completion gaps** (7.24.3) — rejected as
+  written, on the reason quoted verbatim from `80_add_authored_quests`: a bounty
+  is a human promise, so it lives only on an authored quest, and **the generator
+  never reads that table**. The pricing formula is adopted as assistance to the
+  author; the generator is not adopted. *(A future draft will re-propose this.
+  This is the reason.)*
+- **Federated bounty exchange** — deferred to Phase 4 with the rest of
+  federation, and dependent on cross-instance trust machinery §7.17 does not yet
+  have.
+- **Holder count as an exact "how many copies exist"** — rejected as stated; it
+  is a lower bound (7.24.5) and one user with three copies counts once.
+- **Real-money bounties, swarm/torrent mirroring, a vanguard vote on what gets
+  prioritized, and any rule keyed on client-supplied region or device** — all
+  excluded by the paste itself, and all already barred: `bounty_points` is
+  `INTEGER`, §7.19 refuses the content layer, §7.20 refuses the influence vote,
+  and §7.23 D5 makes region/device a denylist evaluated *after* the five access
+  conditions, never instead of them.
+
+#### 7.24.15 Order of work
+
+By dependency, not by the paste's ranking:
+
+1. 7.24.1 verified-unknown · 7.24.2 denominators — everything below prices or
+   measures a gap, and needs both
+2. 7.24.4 data-lint quests · 7.24.5 fingerprint demand + holder bound
+3. 7.24.6 corroboration · 7.24.3 authored bounty pricing
+4. 7.24.7 rollback · 7.24.8 delta preview · 7.24.9 webhook events
+5. 7.24.10 review-queue bounties + onboarding
+6. 7.24.11 preservation (backup drill **first**, inside it)
+
+The paste's own "best cheap wedge" agrees with this order, and is right for the
+wrong reason: those items are cheap, but they are also *first*, because 7.24.1
+and 7.24.2 are what everything downstream prices against.
+
+---
 
 ### 7.16 What the vision needs from the existing codebase
 
