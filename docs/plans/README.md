@@ -26,7 +26,7 @@ describe only the first.
 | `NNNN-<slug>.md` | one GitHub issue, numbered, named after the real issue title |
 | `feature-0N-<slug>.md` | one phase of the federated mesh roadmap (`docs/SPEC.md` §7.15) |
 | `generate_plans.py` | regenerates the issue plans from the fixing commits |
-| [`publishing-plan.md`](publishing-plan.md) | how the two branches get published: `issue-fixes` and `main` |
+| [`publishing-plan.md`](publishing-plan.md) | superseded: the two-branch model (`issue-fixes` + `main`) as it was on 2026-09-29. One branch now |
 
 ## Roadmap phases
 
@@ -43,7 +43,7 @@ Start at `feature-00-roadmap.md` for the dependency order and sizing.
 | [`feature-phase-4-federation-mesh.md`](feature-phase-4-federation-mesh.md) | federation mesh, phase 4 | 01–03 |
 
 **None of the seven roadmap phases above is implemented.** All of that lands on
-the `main` branch; the issue fixes live on `issue-fixes`. The hand-written plans in
+the single `main` branch. The hand-written plans in
 `docs/plan/` are the exception and carry their own status — read the plan, not
 this file. See
 [`publishing-plan.md`](publishing-plan.md). Phases 1 and 2 are each larger than all 26

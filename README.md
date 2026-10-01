@@ -15,29 +15,41 @@ who opt in unlock content viewing. Every contribution earns reputation.
 
 | Branch | Contents |
 |---|---|
-| `issue-fixes` | Upstream bug fixes only — publishable as PRs against `stashapp/stash-box` |
-| `master` | `issue-fixes` plus the feature roadmap. Always a descendant, so the merge direction is one-way |
+| `main` | Everything: upstream bug fixes, pulls of upstream PRs, and this fork's own work |
 
-**Which branch does a change go to?** Upstream's own bugs, and pulls of upstream
-PRs, go to `issue-fixes` — they are diffs a maintainer could take as-is. Anything
-this fork invents goes to `master`. When a change belongs to `issue-fixes` and
-has already landed on `master`, the fix is to rebase `master` onto `issue-fixes`
-rather than merge `issue-fixes` up into it; merging upward is what breaks the
-guarantee that a commit on `master` can be described as "upstream fixes, plus
-ours".
+**One branch, `main`.** There used to be two — `issue-fixes` for upstream bug fixes
+and `master` for everything else, with a one-way promotion from the first to the
+second. `issue-fixes` is gone.
 
-`master` is a strict descendant of `issue-fixes`, so `git log
-issue-fixes..master` is exactly the fork's own work, and a diff of the two
-branches is exactly the set of PRs this fork would open upstream.
+It was deleted because it never earned its cost. Nothing was ever parked on it: every
+commit in its history was finished work, so it was not a staging area for anything
+that could not go wide. What it cost was a merge every time (eight promotions), and
+each promotion was a chance for the branches to disagree — which happened twice.
+`92_scene_title_text` and `88_scene_title_text` were the same statement, and it took
+two attempts to delete the duplicate, because each attempt landed on `master` while
+the copy on `issue-fixes` was untouched. Every promotion put it back. One branch does
+not have that failure mode.
 
-That invariant is checkable, and checking it costs one command:
+Topic branches per PR still exist — they are merged into `main` as they land and then
+deleted, which is what keeps `main` the only thing that needs to stay current.
+
+Upstream (`stashapp/stash-box`) still has its own `master`; that branch is theirs and
+is not affected by this fork's naming. `git log upstream/master..main` is this fork's
+work, and `git diff upstream/master...main` is the set of PRs it would open upstream.
+
+The equivalent invariant now is that `main` holds everything, and it is checkable
+with one command — no branch may carry commits `main` lacks:
 
 ```bash
-git rev-list --count master..issue-fixes     # must be 0 — master has nothing issue-fixes lacks
+git for-each-ref '--format=%(refname:short)' refs/heads/ | grep -v '^main$' | while read -r b; do
+  echo "$b: $(git rev-list --count main..$b)"
+done
 ```
 
-Last measured 2026-09-30: **0** behind, 64 ahead. A non-zero there means the
-guarantee is already broken and the fix is a rebase, not a merge.
+Every line must read `0`. A non-zero means finished work is stranded on a branch,
+and the fix is to merge it or delete the branch. `goal-check.py`'s C4 clause asserts
+exactly this, and reports UNKNOWN rather than PASS if it cannot enumerate the
+branches — the format string is quoted in the source for that reason.
 
 ### What's built here
 

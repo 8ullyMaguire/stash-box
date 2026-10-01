@@ -1,3 +1,14 @@
+> **SUPERSEDED 2026-10-01 — read the current branch model in README.md instead.**
+> This document is the record of how the two-branch model was set up on 2026-09-29 and
+> what it was for. It is kept because that reasoning is what justified dropping it.
+>
+> **The commands below are not current procedure.** Steps 3 and 4 create
+> `issue-fixes` and branch `main` off it; that branch has since been deleted and `main`
+> is now the only branch, so re-running them would recreate the branch this fork no
+> longer has. Remotes are also named differently now: `origin` is the fork
+> (8ullyMaguire/stash-box), `forgejo` is a mirror, and `upstream` is stash's own repo.
+> Use `scripts/pushall.sh` for the current push path.
+
 # Publishing plan — issue-fixes branch vs features branch
 
 Written at the request: "on next clean checkpoint I want to push to github with

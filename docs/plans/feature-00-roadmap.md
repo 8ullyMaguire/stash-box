@@ -52,12 +52,18 @@ shapes. Attempting them in order is right; attempting them quickly is not.
 
 | Branch | Contents |
 |---|---|
-| `issue-fixes` | the 28 issues solved so far. Frozen once published, and clean enough to send upstream as individual PRs. |
-| `main` | `issue-fixes` plus every phase below. The product vision lives here. |
+| `main` | Everything: the issues solved so far, the pulls of upstream PRs, and every phase below. The product vision lives here. |
 
-`main` is always a superset of `issue-fixes`: feature work branches from `main`
-and never the reverse. The mechanics, including the fork and remote layout, are
-in [`../publishing-plan.md`](../publishing-plan.md).
+There is one branch. Work lands on a topic branch and is merged into `main` as it
+is finished, then the topic branch is deleted — so `main` is the only thing that
+needs to stay current, and no branch can hold finished work `main` lacks. Upstream
+fixes are no longer separated onto a branch of their own; they are ordinary commits
+on `main`, identified by their commits and by the port table in
+[`../plan/upstream-pr-port.md`](../plan/upstream-pr-port.md) rather than by which
+branch they sit on.
+
+The two-branch model this replaced is recorded in
+[`../publishing-plan.md`](../publishing-plan.md), including why it was dropped.
 
 ## The modbot.go race — FIXED
 
