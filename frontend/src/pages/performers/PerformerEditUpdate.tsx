@@ -1,5 +1,6 @@
 import { type FC, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { toTypedImages } from "src/components/editImages";
 
 import {
   isMergeEdit,
@@ -134,7 +135,10 @@ export const PerformerEditUpdate: FC<{ edit: EditUpdate }> = ({ edit }) => {
       )}
       <PerformerForm
         performer={edit.target}
-        initial={edit.details}
+        initial={{
+          ...edit.details,
+          images: toTypedImages(edit.details.images),
+        }}
         options={edit.options}
         callback={doUpdate}
         saving={saving}
