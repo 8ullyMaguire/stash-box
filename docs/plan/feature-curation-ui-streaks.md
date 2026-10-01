@@ -53,42 +53,56 @@ structurally absent rather than merely unbuilt.
 
 The user was told this before implementation and approved the build.
 
-## Data model — no new table for streaks
+## Correction to this spec: the streak backend already existed
 
-A streak is derivable from `trust_events (user_id, created_at)` plus its
-`delta`. No `user_streaks` table is added, because a stored streak is a cached
-answer to a question the log already answers exactly, and a cached answer
-disagrees with the log the first time an event is backdated or deleted.
+This document originally planned to BUILD the streak service. It was already
+built, already mutation-tested, and already wired into `Factory.Streak()` -- by
+a concurrent session, mid-task, while this work was in progress. That was found
+by `grep` hitting `internal/queries/sql/streak.sql` and `streak_integration_test.go`
+during the first exploration.
 
-The one thing the log cannot give for free is *which* kind of action counts.
-`trust_events.kind` is free text by design ("the set grows with each roadmap
-phase, and a new event kind should not require a migration"). So the counting
-rule is an explicit allow-list in one place, not a guess over every kind.
+The existing implementation is better than what this spec proposed, so it was
+kept unchanged:
 
-**Counting rule:** a day counts if the user recorded a trust event of a kind in
-`StreakKinds` (`edit_approved`, `identification_solved`, `quest_completed`,
-`replica_hosted`) — i.e. **curation that produced durable value**, not activity
-for its own sake. Read-only browsing deliberately does not count: rewarding
-page views would make a streak measure mouse movement.
+- **No `user_streaks` table.** Same reasoning as here, arrived at independently.
+- **`now` is a parameter** to `For()`, so the boundary logic is injectable and
+  the tests drive it directly. `ForCurrent()` was added as a thin wrapper that
+  reads the database clock, so the *callers* cannot forget to.
+- **Activity days are truncated in the DATABASE's timezone**, in SQL, with the
+  cast to `timestamp` explicit. The comment in streak.sql records that getting
+  this wrong once made `ActiveToday` false for an event created a minute
+  earlier, and that bare `date_trunc` is inferred by sqlc as an INTERVAL.
+
+What was genuinely missing was the **binding**: `graphql/schema/types/streak.graphql`,
+the `DatabaseNow` query, `ForCurrent`, and the resolver. Those are what this work
+added.
+
+## Data model -- no new table for streaks
+
+A streak is derivable from `trust_events (user_id, created_at)`. No
+`user_streaks` table is added, because a stored streak is a cached answer to a
+question the log already answers exactly, and a cached answer disagrees with the
+log the first time an event is backdated or deleted.
+
+**Counting rule:** every day with any trust event counts, **deltas are not
+summed**. A `-1` event is a real contribution day -- the curator showed up and
+their edit was rejected, which is participation, not absence -- and filtering on
+a positive total would quietly end the streak of a user whose activity is all
+rejections. That rule is implemented and tested in `streak_integration_test.go`.
 
 ## Implementation
 
-### Backend (new, small)
+### Backend (as built)
 
-1. `internal/service/streak/streak.go`
-   - `Streak(ctx, userID) Streak` — walks distinct qualifying days descending
-     from today, counts the consecutive run, and returns `best` from a second
-     pass over all days. Today not yet active is **not** a break.
-   - DST/timezone: computed against the **instance** timezone from config, not
-     UTC, because "did you curate today" is a local-calendar question. A user in
-     UTC+13 should not lose a streak at 10:00 UTC.
-2. `internal/database/migrations/postgres/92_add_user_streak_cache.up.sql` —
-   **not created.** Deliberate: see "no new table". The computation is one index
-   scan over a single user's events and needs no cache.
-3. GraphQL `type Streak { current: Int! best: Int! activeToday: Boolean! }`,
-   `extend type Query { userStreak: Streak! @hasRole(role: READ) }`, in a new
-   `graphql/schema/types/streak.graphql`.
-4. Regenerate: `sqlc` → `gqlgen`. Generation order is a real dependency.
+1. `graphql/schema/types/streak.graphql` -- `Streak` type and `userStreak` at
+   READ, with **no `id:` argument** (a test pins this).
+2. `DatabaseNow` query in `internal/queries/sql/streak.sql` -- the database's
+   clock in the database's zone. sqlc first inferred it as `interface{}`;
+   `::timestamp` is what makes it `time.Time`.
+3. `Service.ForCurrent` -- thin wrapper over the injectable `For`.
+4. `internal/api/resolver_streak.go` -- reads the calling user, formats
+   `lastActiveDay` as `YYYY-MM-DD` rather than an instant.
+5. Regenerate `sqlc` then `gqlgen`.
 
 ### Frontend (the actual ask)
 
@@ -110,17 +124,48 @@ page views would make a streak measure mouse movement.
 12. Route constants + `Pages` wiring + a nav entry in `Main.tsx`, role-gated to
     users who can vote (`canVote`/role check per existing convention).
 
-## Completion bar
+## Completion bar -- as measured
 
-- `go build ./...`, `go vet ./...`, `gofmt -l ./internal/` all clean.
-- `go test ./internal/service/streak/` green, including: a streak crossing a DST
-  boundary; a user with no events; a user whose only events are non-qualifying
-  kinds; today-not-yet-active not breaking a run; and a run of exactly 1.
-- Mutation check on the streak walk: removing the "today is not a break" clause
-  and removing the kind allow-list must both be **killed**.
-- `pnpm run generate` exit 0; `pnpm run validate` exit 0.
-- Frontend suite green with no other suite on the box (this repo's suite is
-  load-sensitive and reports phantom failures under contention).
+| Check | Result |
+|---|---|
+| `go build ./...` | clean |
+| `go vet ./...` | clean |
+| `gofmt -l ./internal/` | empty |
+| streak resolver integration tests (`-tags=integration`) | 4/4 pass against real Postgres |
+| `pnpm run validate` (biome + format + tsc) | clean |
+| `vite build` | succeeds, 576-byte index |
+| `pnpm vitest run` | 689 tests / 55 files green, uncontended box |
+| StreakCard design mutations | 2/2 killed |
+
+**The design mutations are the ones that matter.** Two were applied on purpose
+and confirmed to fail the suite:
+
+1. A zero streak reframed as `"You lost your streak"` -- killed by
+   `reads a zero streak as 'No streak yet', never as a loss`.
+2. `activeToday` folded into `currentStreak > 0` -- killed by
+   `does not imply today is done when the streak is merely alive`.
+
+Neither is visible to `tsc` or `biome`. Both compile and type-check perfectly,
+and both are exactly the coercion the feature was specified to avoid. A design
+constraint that is only written in a comment is not a constraint.
+
+### One real bug the compiler could not catch
+
+`elapsed: the gqlgen `DateTime` scalar binds to `*string`, so
+`LastActiveDay *time.Time` did not assign. Fixing it by formatting in UTC would
+have been wrong: the value is a calendar day, and 2026-10-01 local midnight is
+2026-09-30 22:00 UTC, so the client would show the day before the one the
+database matched. It is formatted as a plain `YYYY-MM-DD`, which is what the
+field actually is, and pinned by a test that compares against the database's own
+`::date::text`.
+
+### The failed first run
+
+The first integration run failed with `"not authorized"`. `createTestUser(nil,
+nil)` passes an EMPTY role list, not the default -- the `nil` branch inside that
+helper fills in ADMIN, but passing an explicit nil slice through to it does not.
+The query needs READ. Cost one run; worth recording because "nil means default"
+is true in most Go helpers and false in this one.
 
 ## Verification commands
 

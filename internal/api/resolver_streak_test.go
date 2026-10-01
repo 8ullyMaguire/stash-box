@@ -75,10 +75,22 @@ func recordStreakEvent(t *testing.T, userID uuid.UUID, kind trust.KindEnum) {
 
 // A user with no contribution history is the ordinary first-run state, and it is
 // the first request a brand-new account makes. An error here would be the bug.
+//
+// This test creates its OWN user rather than using asAdmin, and the reason is
+// worth recording: asAdmin is a single shared admin account that every test in
+// the package drives. Other tests approve edits as it, which writes trust_events
+// for it, so by the time this test runs the admin has a real streak and expects
+// 0. That is a shared-fixture problem, not a bug in the resolver -- but it fails
+// only in the full suite, because running this file alone gives the admin no
+// history. A test that passes alone and fails in the suite is a fixture bug, and
+// the suite is where it is found.
 func TestUserStreakResolvesZeroForANewUser(t *testing.T) {
-	user := asAdmin(t)
+	fresh, err := asAdmin(t).createTestUser(nil, []models.RoleEnum{models.RoleEnumRead})
+	require.NoError(t, err)
 
-	got, err := user.client.userStreak()
+	runner := createTestRunner(t, fresh, []models.RoleEnum{models.RoleEnumRead})
+
+	got, err := runner.client.userStreak()
 	require.NoError(t, err, "a brand-new user asking for their streak must not error")
 
 	assert.Equal(t, 0, got.CurrentStreak)
