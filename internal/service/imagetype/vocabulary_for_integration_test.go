@@ -129,7 +129,7 @@ func TestVocabularyForAppliesStoredTypePreference(t *testing.T) {
 	require.Equal(t, 0, adjustedWide, "the listed type takes slot 0")
 	require.Equal(t, 1, adjustedFace, "the unlisted type keeps its instance position")
 
-require.Less(t, got.Rank([]models.ImageTypeEnum{cropWide})[cropGroup],
+	require.Less(t, got.Rank([]models.ImageTypeEnum{cropWide})[cropGroup],
 		baseline.Rank([]models.ImageTypeEnum{cropWide})[cropGroup],
 		"the listed type must move ahead of its instance position")
 
