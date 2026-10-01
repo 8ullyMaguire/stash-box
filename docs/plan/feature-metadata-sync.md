@@ -1,5 +1,19 @@
 # Metadata sync from stashdb.org — incremental, with a conflict policy
 
+Status: **Built, verified 2026-10-01.** Performers only, as scoped. All four
+tests named in Verification below exist and pass, and the two claims the design
+rests on are mutation-verified rather than merely asserted:
+
+- `shouldStop` with the margin removed, and with it inflated a thousandfold, are
+  both KILLED by `TestStopCondition` -- the safety margin is load-bearing.
+- `diffPerformerFields` with the absent-is-not-a-change rule dropped, inverted, or
+  with change detection short-circuited, are all KILLED by
+  `TestUpdatePreservesUnsetFields`. That rule is what stops an absent upstream
+  value from clearing a curator's height.
+
+Scope is performers, per the document's own Scope section; studios/tags/scenes are
+explicitly deferred to a later step.
+
 ## Problem
 
 An instance's metadata drifts from stashdb.org. Import tooling creates records;
