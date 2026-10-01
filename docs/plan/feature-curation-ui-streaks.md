@@ -1,7 +1,11 @@
 # Gamification frontend + streaks — SPEC
 
-Status: **Approved by owner 2026-10-01 ("implement the frontend and streaks").**
-Written before implementation, per the standing spec-before-code rule.
+Status: **Built, verified 2026-10-01.** Approved by the owner ("implement the
+frontend and streaks"); the frontend shipped in `c746ae04` and the streak binding
+in `35230b48`. Written before implementation, per the standing spec-before-code
+rule. Two premises in this document were wrong on the ground and are corrected
+below: the streak service already existed, and so did most of the gamification
+backend.
 
 ## Problem
 
