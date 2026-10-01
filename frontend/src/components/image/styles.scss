@@ -115,14 +115,53 @@ button.Image {
     justify-content: center;
     min-width: 0;
 
+    &-editing {
+      align-items: stretch;
+      flex-direction: row;
+      gap: 1.5rem;
+    }
+  }
+
+  &-editor {
+    display: flex;
+    flex: 0 0 min(22rem, 32%);
+    flex-direction: column;
+    overflow-y: auto;
+    // Room for the card's box-shadow edge, which a scroll container clips
+    padding: 1px 1px 1rem;
+
+    > :first-child {
+      margin-top: auto;
+    }
+  }
+
+  &-picture {
+    display: grid;
+    flex: 1;
+    grid-template-rows: 1fr auto;
+    justify-items: center;
+    min-height: 0;
+    min-width: 0;
+    padding-left: min(8rem, 18%);
+    padding-top: 1rem;
+
+    .ImageLightbox-main-editing & {
+      padding-left: 0;
+      padding-top: 0;
+    }
+
     .Image {
-      flex: 1;
+      height: 100%;
       min-height: 0;
+      min-width: 0;
+      width: 100%;
     }
 
     img {
       object-fit: contain;
       object-position: center;
+      height: 100%;
+      width: 100%;
     }
   }
 
@@ -222,12 +261,6 @@ button.Image {
     opacity: 1;
   }
 
-  &-editor {
-    flex: 0 0 auto;
-    margin-top: 0.75rem;
-    width: 100%;
-  }
-
   &-thumb {
     background: none;
     border: 2px solid rgba(255 255 255 / 70%);
@@ -262,5 +295,30 @@ button.Image {
       position: absolute;
       right: 0.25rem;
     }
+  }
+
+  // Sits in the caption line next to the dimensions, so turning the guides
+  // off is where you are already looking when they are in the way
+  &-guide-toggle,
+  &-recrop,
+  &-original-link {
+    font-size: inherit;
+    padding: 0;
+    vertical-align: baseline;
+  }
+
+  // Off-aspect is folded into this link rather than a second badge
+  &-recrop-off-aspect {
+    font-weight: bold;
+  }
+
+  &-overlay-box {
+    inset: 0;
+    pointer-events: none;
+    position: absolute;
+  }
+
+  &-overlay-picture {
+    position: absolute;
   }
 }

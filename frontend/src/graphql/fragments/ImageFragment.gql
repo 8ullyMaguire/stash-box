@@ -6,4 +6,12 @@ fragment ImageFragment on Image {
   types
   date
   organized
+  originalImage {
+    id
+    url
+    width
+    height
+    types
+    organized
+  }
 }

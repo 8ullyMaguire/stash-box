@@ -1,4 +1,5 @@
 import { uniq, uniqBy } from "lodash-es";
+import { toTypedImages } from "src/components/editImages";
 import type { MergeConflict } from "src/components/mergeConflicts";
 import type { SceneFragment as Scene } from "src/graphql";
 import { formatDuration } from "src/utils";
@@ -151,9 +152,14 @@ export const buildSceneMerge = (
     all.flatMap((scene) => scene.urls),
     (url) => `${url.url}-${url.site.id}`,
   );
+  // Upstream #1215 changed ImageFormInput.images from ImageFragment[] to
+  // TypedImage[], which wraps the image as {image, types, date} so a curator's type
+  // assignment travels with the image instead of being re-derived from it. Dedupe on
+  // the INNER image's id: two scenes sharing an image share the underlying row, and
+  // deduping on the wrapper would treat them as different and keep both.
   initial.images = uniqBy(
-    all.flatMap((scene) => scene.images),
-    (image) => image.id,
+    all.flatMap((scene) => toTypedImages(scene.images)),
+    (typed) => typed.image.id,
   );
   initial.tags = uniqBy(
     all.flatMap((scene) => scene.tags),

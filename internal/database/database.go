@@ -21,12 +21,12 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
-// Upstream #1215 carries `schemaVersion = 76` in this const block. It is NOT
-// restored here, and that is the third time this fork has declined it (see #1183
-// and #1266). The constant was deleted deliberately: its value being 76 while
-// migration 76 shipped and was never applied meant a fresh database silently
-// skipped that migration. Pinning it again would reintroduce exactly that bug, and
-// #1215's own migration was renumbered 76 -> 94 for the same family of reason.
+// Upstream #1216 carries `schemaVersion = 77` in this const block. It is NOT restored
+// here, and that is the FOURTH time this fork has declined it (see #1183, #1266, #1215).
+// The constant was deleted deliberately: its value being 76 while migration 76 shipped
+// and was never applied meant a fresh database silently skipped that migration. Pinning
+// it again reintroduces exactly that bug, and #1216's own migration was renumbered
+// 77 -> 95 for the same family of reason.
 const postgresDriver = "postgres"
 
 //go:embed migrations/postgres/*.sql

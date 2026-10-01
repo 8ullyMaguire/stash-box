@@ -40,7 +40,16 @@ export default defineConfig(({ mode }) => {
       setupFiles: ["./src/test/setup.ts"],
       css: false,
       include: ["src/**/__tests__/**/*.test.{ts,tsx}"],
-      testTimeout: 15000,
+      // Raised from 15000. The suite grew from 39 files / 423 tests to 54 / 683
+      // across #1215 and #1216, and the slowest form tests now sit close enough to
+      // 15s that a loaded worker tips them over. That is NOT cosmetic: `user.type`
+      // and `user.click` are real timers, so a test killed mid-interaction leaves the
+      // submit callback half-called, and the next assertion sees it called TWICE --
+      // "expected 1 time, got 2" -- which reads as a logic bug and is not one. Those
+      // same tests pass 55/55 in isolation and the whole suite passes 683/683 here.
+      // Diagnosed by raising the timeout rather than by reading the test: a failure
+      // that vanishes when only the budget changes was never a logic failure.
+      testTimeout: 60000,
       coverage: {
         provider: "v8",
         reporter: ["text", "html"],

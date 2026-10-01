@@ -41,3 +41,10 @@ func (r *imageResolver) CategorizedBy(ctx context.Context, obj *models.Image) (*
 	}
 	return dataloader.For(ctx).UserByID.Load(obj.CategorizedBy.UUID)
 }
+
+func (r *imageResolver) OriginalImage(ctx context.Context, obj *models.Image) (*models.Image, error) {
+	if !obj.OriginalImageID.Valid {
+		return nil, nil
+	}
+	return dataloader.For(ctx).ImageByID.Load(obj.OriginalImageID.UUID)
+}

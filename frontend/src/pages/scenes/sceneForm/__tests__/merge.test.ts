@@ -65,7 +65,12 @@ describe("buildSceneMerge", () => {
     const { initial } = buildSceneMerge(target, [source]);
 
     expect(initial.tags?.map((tag) => tag.id)).toEqual(["t1", "t2"]);
-    expect(initial.images?.map((image) => image.id)).toEqual(["i1", "i2"]);
+    // TypedImage wraps the image as {image, types, date} since upstream #1215,
+    // so the id lives one level down.
+    expect(initial.images?.map((typed) => typed.image.id)).toEqual([
+      "i1",
+      "i2",
+    ]);
   });
 
   it("reports a conflict when single-value fields differ", () => {

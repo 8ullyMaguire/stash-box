@@ -23,6 +23,7 @@ import (
 	"github.com/gofrs/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stashapp/stash-box/internal/email"
+	"github.com/stashapp/stash-box/internal/image/croptemplate"
 	"github.com/stashapp/stash-box/internal/queries"
 	"github.com/stashapp/stash-box/internal/service/authored"
 	"github.com/stashapp/stash-box/internal/service/award"
@@ -58,14 +59,17 @@ type Factory struct {
 	db       *pgxpool.Pool
 	withTxn  queries.WithTxnFunc
 	emailMgr *email.Manager
+
+	cropTemplates *croptemplate.Loader
 }
 
 // NewFactory creates a new service factory with the given database pool and email manager
 func NewFactory(pool *pgxpool.Pool, emailMgr *email.Manager) *Factory {
 	return &Factory{
-		db:       pool,
-		withTxn:  createWithTxnFunc(pool),
-		emailMgr: emailMgr,
+		db:            pool,
+		withTxn:       createWithTxnFunc(pool),
+		emailMgr:      emailMgr,
+		cropTemplates: croptemplate.NewLoader(),
 	}
 }
 
@@ -284,4 +288,9 @@ func (f *Factory) Fingerprint() *fingerprint.Fingerprint {
 // package, where ValidateBaseURL and netResolver live together.
 func (f *Factory) Federation() *federation.Service {
 	return federation.NewService(queries.New(f.db), nil)
+}
+
+// CropTemplates returns the shared crop template loader.
+func (f *Factory) CropTemplates() *croptemplate.Loader {
+	return f.cropTemplates
 }

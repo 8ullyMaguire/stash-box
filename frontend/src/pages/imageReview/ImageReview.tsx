@@ -3,7 +3,7 @@ import { type FC, useState } from "react";
 import { Button, Table } from "react-bootstrap";
 import { Link } from "react-router-dom";
 import { ErrorMessage, Icon } from "src/components/fragments";
-import Image from "src/components/image";
+import Image, { type LightboxProps } from "src/components/image";
 import { List } from "src/components/list";
 import Title from "src/components/title";
 import { ROUTE_IMAGE_REVIEW, ROUTE_USER } from "src/constants/route";
@@ -14,7 +14,7 @@ import {
 } from "src/graphql";
 import {
   useCurrentUser,
-  useImageTypeNames,
+  useImageTypeVocabulary,
   usePagination,
   useQueryParams,
 } from "src/hooks";
@@ -26,7 +26,7 @@ const PER_PAGE = 25;
 const ImageReview: FC = () => {
   const { isModerator } = useCurrentUser();
   const { page, setPage } = usePagination();
-  const { typeName } = useImageTypeNames();
+  const { typeName, templateFor } = useImageTypeVocabulary();
   const [params, setParams] = useQueryParams({
     performer: { name: "performer", type: "string" },
     user: { name: "user", type: "string" },
@@ -75,10 +75,29 @@ const ImageReview: FC = () => {
   );
   const hiddenCount = entries.length - visible.length;
 
+  type FeedImage = (typeof entries)[number]["image"];
+  const labelsFor = (image: FeedImage) => [
+    ...image.types.map(typeName),
+    ...(image.date ? [image.date] : []),
+  ];
+  const lightboxPropsFor = (image: FeedImage): LightboxProps => {
+    const template = templateFor(image.types);
+    return {
+      labels: { [image.id]: labelsFor(image) },
+      cropTemplates: template ? { [image.id]: template } : undefined,
+    };
+  };
+
   const rows = visible.map(({ image, performer }) => (
     <tr key={image.id}>
       <td>
-        <Image images={image} size={300} alt="" lightbox />
+        <Image
+          images={image}
+          size={300}
+          alt=""
+          lightbox
+          lightboxProps={lightboxPropsFor(image)}
+        />
       </td>
       <td>
         {performer ? (
@@ -87,12 +106,7 @@ const ImageReview: FC = () => {
           <em>Deleted performer</em>
         )}
       </td>
-      <td>
-        {[
-          ...image.types.map(typeName),
-          ...(image.date ? [image.date] : []),
-        ].join(", ")}
-      </td>
+      <td>{labelsFor(image).join(", ")}</td>
       <td className="text-nowrap">
         {image.categorized_at ? formatDateTime(image.categorized_at) : null}
       </td>

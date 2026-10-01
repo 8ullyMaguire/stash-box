@@ -1,3 +1,6 @@
+export { default as CroppedIndicator } from "./CroppedIndicator";
+// Upstream #1223 (this fork): a deleted image renders a placeholder rather than
+// vanishing from the diff, so a removal is visible instead of silent.
 export { default as DeletedImage } from "./DeletedImage";
 export { default as EditorCard } from "./EditorCard";
 export { default as ErrorMessage } from "./ErrorMessage";

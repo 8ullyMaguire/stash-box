@@ -1,9 +1,13 @@
 import { faXmark } from "@fortawesome/free-solid-svg-icons";
-import type { FC, ReactNode } from "react";
+import type { FC } from "react";
 import { Button } from "react-bootstrap";
 
+import {
+  type CropSizeVerdict,
+  CropSizeWarning,
+} from "src/components/cropFrame";
 import { Icon } from "src/components/fragments";
-import Image from "src/components/image";
+import Image, { type LightboxProps } from "src/components/image";
 import type { ImageFragment } from "src/graphql";
 
 type ImageType = Pick<ImageFragment, "id" | "url" | "width" | "height">;
@@ -12,9 +16,10 @@ interface ImageProps {
   image: ImageType;
   lightboxImages?: ImageType[];
   onRemove: () => void;
-  labels?: Record<string, string[]>;
-  renderEditor?: (image: ImageType) => ReactNode;
-  confirmLeave?: (imageId: string, proceed: () => void) => void;
+  lightboxProps?: LightboxProps;
+  // The host's judgement of this picture's size, so a contributor can drop an
+  // unusable one here rather than discovering it in the edit queue
+  sizeVerdict?: CropSizeVerdict;
 }
 
 const CLASSNAME = "ImageInput";
@@ -25,9 +30,8 @@ const ImageInput: FC<ImageProps> = ({
   image,
   lightboxImages,
   onRemove,
-  labels,
-  renderEditor,
-  confirmLeave,
+  lightboxProps,
+  sizeVerdict,
 }) => (
   <div className={CLASSNAME}>
     <Button
@@ -42,13 +46,12 @@ const ImageInput: FC<ImageProps> = ({
       className={CLASSNAME_IMAGE}
       size="full"
       lightboxImages={lightboxImages}
-      labels={labels}
-      renderEditor={renderEditor}
-      confirmLeave={confirmLeave}
+      lightboxProps={lightboxProps}
     />
     <div className="text-center">
       {image.width} x {image.height}
     </div>
+    <CropSizeWarning verdict={sizeVerdict} />
   </div>
 );
 
