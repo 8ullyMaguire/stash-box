@@ -26,7 +26,13 @@ echo
 echo "==> verifying every remote agrees with local HEAD ($HEAD_SHA)"
 status=0
 for remote in "$@"; do
-  for ref in refs/heads/master refs/heads/issue-fixes; do
+  # `main` only. issue-fixes -- the narrow->wide staging branch -- is gone: it never
+  # held anything the wide branch could not take, and it cost a merge every time.
+  # It also cost a duplicate migration. 92_scene_title_text was the same statement
+  # as 88_scene_title_text and survived two attempts to remove it, because each
+  # removal landed on master while the copy on issue-fixes was untouched, and every
+  # promotion put it back. Topic branches per PR still exist, merged into main.
+  for ref in refs/heads/main; do
     remote_sha=$(git ls-remote "$remote" "$ref" | cut -f1)
     local_sha=$(git rev-parse "$ref")
     if [ "$remote_sha" = "$local_sha" ]; then

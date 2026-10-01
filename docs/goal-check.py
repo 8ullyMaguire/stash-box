@@ -267,30 +267,41 @@ def c3_plan_built():
 
 
 # ---------------------------------------------------------------------------
-# C4 -- the narrow branch is fully merged into the wide one
-# ---------------------------------------------------------------------------
+# C4 -- no branch in this repository is stranded
+#
+# This used to be "the narrow branch is fully merged into the wide one", comparing
+# issue-fixes against master. Both names are gone. issue-fixes never held anything
+# the wide branch could not take -- zero commits in its whole history were parked
+# there -- and it cost a merge every time. It also cost a duplicate migration:
+# 92_scene_title_text was the same statement as 88_scene_title_text and survived two
+# attempts to remove it, because each removal landed on master while the copy on
+# issue-fixes was untouched, and every promotion put it back. master is now `main`.
+#
+# So the property is: no branch still exists holding commits main does not have. A
+# merged topic branch should be deleted, which is why merged passes and unmerged
+# fails -- and a branch under active development also trips it. That is the same
+# trade the old clause made, and it is a loud one.
 def c4_narrow_merged():
-    rc, _, _ = sh("git rev-parse --verify issue-fixes")
-    if rc != 0:
-        add("C4 narrow merged", "UNKNOWN", "branch `issue-fixes` does not exist")
-        return
-    rc, _, _ = sh("git merge-base --is-ancestor issue-fixes master")
-    if rc == 0:
-        # `--left-right` prints the LEFT side first, so this is
-        # (issue-fixes-only, master-only) -- master-only is the second field.
-        # Reading [0] reported "0 commits ahead" while master was ten ahead,
-        # which reads as "the branches are identical" when they are not.
-        _, counts, _ = sh("git rev-list --left-right --count issue-fixes...master")
-        fields = counts.split()
-        only_issue_fixes, only_master = (fields + ["?", "?"])[:2]
+    _, out, _ = sh("git for-each-ref --format=%(refname:short) refs/heads/")
+    branches = [b for b in out.split() if b != "main"]
+    if not branches:
         add("C4 narrow merged", "PASS",
-            f"issue-fixes is an ancestor of master: {only_master} commits on master "
-            f"alone, {only_issue_fixes} stranded on issue-fixes alone")
-    else:
-        _, ab, _ = sh("git rev-list --left-right --count issue-fixes...master")
+            "main is the only branch -- nothing can be stranded")
+        return
+
+    stranded = []
+    for b in branches:
+        rc, counts, _ = sh(f"git rev-list --count main..{b}")
+        n = counts.strip() if rc == 0 else "?"
+        if n != "0":
+            stranded.append(f"{b} (+{n})")
+    if stranded:
         add("C4 narrow merged", "FAIL",
-            f"issue-fixes is NOT merged into master ({ab} ahead/behind) -- "
-            "narrow-branch work is stranded")
+            "unmerged branch(es): " + "; ".join(stranded) +
+            " -- finished work must reach main, or its branch be deleted")
+    else:
+        add("C4 narrow merged", "PASS",
+            f"main plus {len(branches)} merged branch(es), none with unmerged commits")
 
 
 # ---------------------------------------------------------------------------
@@ -329,7 +340,7 @@ def c5_migrations_coherent():
     # Read the checked-out branch from disk (catches uncommitted work); read the
     # other branch from git, since it lives in someone else's worktree.
     rc_b, CURRENT_BRANCH, _ = sh("git rev-parse --abbrev-ref HEAD")
-    for branch in ("issue-fixes", "master"):
+    for branch in ("main",):
         rc, out, _ = sh(f"git ls-tree -r --name-only {branch} "
                         "-- internal/database/migrations/postgres/")
         if rc != 0:
