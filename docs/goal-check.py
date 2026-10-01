@@ -31,6 +31,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 UPSTREAM = "stashapp/stash-box"
+MIG_DIR = "internal/database/migrations/postgres"
 
 # The minimum number of packages that must be green. A run BELOW this is a
 # regression, not a pass -- a suite that lost tests looks identical to one that
@@ -44,7 +45,14 @@ UPSTREAM = "stashapp/stash-box"
 # clause below runs. Do not raise it to match the `make it` figure: that runs a
 # different, larger set of packages, and using its count here made the clause report
 # a regression that did not exist.
-BASELINE_PACKAGES = 29
+#
+# It must however be the SAME metric the clause computes, which it was not until
+# this was fixed. 29 was measured with the old `ok`-only count; the clause now counts
+# `ok` AND `?  [no test files]`, which is 56 (28 + 28). Comparing 56 against a floor
+# of 29 cannot fail, so a suite that lost 27 packages still reported PASS -- the floor
+# was decorative. Set with `--update-baseline`, which measures the tree rather than
+# trusting a remembered number.
+BASELINE_PACKAGES = 56
 
 results = []
 
@@ -267,9 +275,16 @@ def c4_narrow_merged():
         return
     rc, _, _ = sh("git merge-base --is-ancestor issue-fixes master")
     if rc == 0:
-        _, behind, _ = sh("git rev-list --left-right --count issue-fixes...master")
+        # `--left-right` prints the LEFT side first, so this is
+        # (issue-fixes-only, master-only) -- master-only is the second field.
+        # Reading [0] reported "0 commits ahead" while master was ten ahead,
+        # which reads as "the branches are identical" when they are not.
+        _, counts, _ = sh("git rev-list --left-right --count issue-fixes...master")
+        fields = counts.split()
+        only_issue_fixes, only_master = (fields + ["?", "?"])[:2]
         add("C4 narrow merged", "PASS",
-            f"issue-fixes is an ancestor of master (master is {behind.split()[0] if behind else '?'} commits ahead)")
+            f"issue-fixes is an ancestor of master: {only_master} commits on master "
+            f"alone, {only_issue_fixes} stranded on issue-fixes alone")
     else:
         _, ab, _ = sh("git rev-list --left-right --count issue-fixes...master")
         add("C4 narrow merged", "FAIL",
@@ -281,25 +296,45 @@ def c4_narrow_merged():
 # C5 -- migration numbering is coherent across both branches
 # ---------------------------------------------------------------------------
 def c5_migrations_coherent():
-    """Two DIFFERENT migrations claiming the same number is a golang-migrate hard
-    startup failure.
+    """Two DIFFERENT migrations claiming one number is a hard startup failure.
 
-    Not hypothetical here: the #1183 port hit exactly it, which is why its
-    migration was renumbered 73 -> 90. Pairing up/down is the normal case, so the
-    check keys on the up-file stem and only fires on a genuine name collision.
+    Not hypothetical: the #1183 port hit exactly it, which is why its migration was
+    renumbered 73 -> 90, and #1262's hit it too (upstream 76 vs this fork's
+    76_add_user_trust, renumbered to 88).
+
+    Pairing up/down is the normal case, so the check keys on the up-file stem and
+    only fires on a genuine name collision.
+
+    The second half is the one this repo needed, and it has already paid for
+    itself once. Two migrations with DIFFERENT numbers can still be the same
+    statement: 88_scene_title_text and 92_scene_title_text were both
+    `ALTER TABLE scenes ALTER COLUMN title TYPE text`, the second landing minutes
+    after the first. Distinct numbers, distinct files, so the numbering half of this
+    check passed and a reader had no way to know the second did nothing.
+
+    Postgres accepts the repeated ALTER (verified against a column that already held
+    data), so it was never a correctness bug -- it was a wasted migration version and
+    a reader-trap, which is exactly the class of thing a predicate should notice and
+    a count cannot. The duplicate was removed in 418bc701, which also replaced the
+    test that could not have caught it; the example is written in the past tense for
+    that reason, so the next reader does not go looking for a file that is gone.
+
+    Normalise before comparing: strip comments and whitespace, lowercase, collapse
+    runs of spaces. Two files whose statements differ only in formatting or a
+    comment are the same migration doing the same work.
     """
-    bad = []
+    bad_numbers = []
+    duplicate_sql = []
+    # Read the checked-out branch from disk (catches uncommitted work); read the
+    # other branch from git, since it lives in someone else's worktree.
+    rc_b, CURRENT_BRANCH, _ = sh("git rev-parse --abbrev-ref HEAD")
     for branch in ("issue-fixes", "master"):
         rc, out, _ = sh(f"git ls-tree -r --name-only {branch} "
                         "-- internal/database/migrations/postgres/")
         if rc != 0:
             add("C5 migrations coherent", "UNKNOWN", f"cannot list migrations on {branch}")
             return
-        # Key on the UP file's stem: `1_initial.up.sql` and `1_initial.down.sql`
-        # are the two halves of ONE migration, not two migrations. Counting them as
-        # duplicates is a false positive -- and the checker's own rule is that a
-        # check which cannot be evaluated honestly must say UNKNOWN, not invent a
-        # failure. The real defect is two DIFFERENT migration names on one number.
+
         nums = {}
         for path in out.splitlines():
             base = path.rsplit("/", 1)[-1]
@@ -308,15 +343,58 @@ def c5_migrations_coherent():
                 nums.setdefault(int(m.group(1)), set()).add(m.group(2))
         for n, names in sorted(nums.items()):
             if len(names) > 1:
-                bad.append(f"{branch}:{n} ({', '.join(sorted(names))})")
+                bad_numbers.append(f"{branch}:{n} ({', '.join(sorted(names))})")
 
-    if bad:
-        add("C5 migrations coherent", "FAIL",
-            "duplicate migration numbers: " + "; ".join(bad[:6])
-            + " -- golang-migrate fails at startup on this")
+        # Same statement, different numbers. Enumerate from the FILESYSTEM, not
+        # from git: a migration that has been written but not yet committed is
+        # exactly the one worth catching, and `git ls-tree` cannot see it. Verified
+        # by mutation -- a duplicate planted as an untracked file slipped past the
+        # git-based version of this check.
+        #
+        # For the branch that is NOT checked out here, fall back to git, because
+        # there is no filesystem copy to read.
+        files = sorted((REPO / MIG_DIR).glob("*.up.sql")) if (REPO / MIG_DIR).is_dir() else []
+        if branch != CURRENT_BRANCH:
+            rc2, out2, _ = sh(f"git ls-tree -r --name-only {branch} -- {MIG_DIR}/")
+            files = [REPO / p for p in out2.splitlines() if p.endswith(".up.sql")]
+        by_sql = {}
+        for full in files:
+            base = full.name
+            m = re.match(r"(\d+)_(.*)\.up\.sql$", base)
+            if not m:
+                continue
+            if not full.exists():
+                continue
+            sql = full.read_text()
+            sql = re.sub(r"--[^\n]*", " ", sql)          # line comments
+            sql = re.sub(r"/\*.*?\*/", " ", sql, flags=re.S)   # block comments
+            # Identifier quoting is not semantic: `ALTER TABLE scenes` and
+            # `ALTER TABLE "scenes"` are the same statement to Postgres. Verified by
+            # mutation -- a duplicate differing only in quoting and spacing slipped
+            # past without this.
+            sql = sql.replace('"', "")
+            sql = re.sub(r"\s+", " ", sql).strip().lower().rstrip(";")
+            if not sql:
+                continue
+            by_sql.setdefault(sql, []).append(f"{branch}:{m.group(1)}_{m.group(2)}")
+
+        for sql, where in by_sql.items():
+            nums_only = {int(w.split(":")[1].split("_")[0]) for w in where}
+            if len(where) > 1 and len(nums_only) > 1:
+                duplicate_sql.append(f"{', '.join(sorted(where))} -> {sql[:44]}")
+
+    problems = []
+    if bad_numbers:
+        problems.append("duplicate NUMBERS: " + "; ".join(bad_numbers[:4])
+                        + " -- golang-migrate fails at startup on this")
+    if duplicate_sql:
+        problems.append("same STATEMENT under different numbers: "
+                        + "; ".join(sorted(duplicate_sql)[:4]))
+    if problems:
+        add("C5 migrations coherent", "FAIL", " | ".join(problems))
     else:
         add("C5 migrations coherent", "PASS",
-            "no duplicate migration numbers on either branch")
+            "one migration per number, and no two migrations share a statement")
 
 
 # ---------------------------------------------------------------------------
@@ -332,13 +410,27 @@ def c6_suite():
         add("C6 suite", "FAIL",
             f"{len(fails)} failing package(s): " + "; ".join(fails[:4]))
         return
-    npkg = sum(1 for l in out.splitlines() if l.startswith("ok"))
+    # Count BOTH `ok  pkg` and `?   pkg  [no test files]`. The second form is a
+    # package that BUILDS and vets clean but has no untagged test -- which is the
+    # normal state for a package whose only tests are integration-tagged. Counting
+    # only "ok" made the baseline depend on that accident: adding an untagged test
+    # to internal/service/scene would have moved the number up, and removing one
+    # would have failed the clause for no reason a reader could care about.
+    # What must not happen is a package FAILING or DISAPPEARING, so those are
+    # checked separately and the floor is on total packages accounted for.
+    npkg = sum(1 for l in out.splitlines()
+               if l.startswith("ok") or l.startswith("?"))
+    notests = sum(1 for l in out.splitlines()
+                  if l.startswith("?") and "[no test files]" in l)
     if npkg < BASELINE_PACKAGES:
         add("C6 suite", "FAIL",
-            f"only {npkg} packages green, baseline is {BASELINE_PACKAGES} -- "
-            "a suite that LOST tests is not a pass")
+            f"only {npkg} packages accounted for, baseline is {BASELINE_PACKAGES} "
+            f"({notests} with no untagged test) -- a suite that LOST packages is "
+            "not a pass")
     else:
-        add("C6 suite", "PASS", f"{npkg} packages green (baseline {BASELINE_PACKAGES})")
+        add("C6 suite", "PASS",
+            f"{npkg} packages accounted for, {notests} with no untagged test "
+            f"(baseline {BASELINE_PACKAGES})")
 
     # The clause above runs WITHOUT -tags=integration, so it never executes the
     # integration tests -- and in this repo those hold the bulk of the suite,
@@ -417,13 +509,39 @@ def isolated_test_db():
     port = os.environ.get("INTEGRATION_PORT", "5436")
     user = os.environ.get("INTEGRATION_USER", "postgres")
     pw = os.environ.get("INTEGRATION_PASSWORD", "smoke_pw")
-    dbname = "goalcheck_" + secrets.token_hex(4)
+    # The prefix must identify THIS PROCESS, not this TOOL. Another session was
+    # running its own integration suite against a `goalcheck_*` database while this
+    # one swept the prefix -- and the symptom was
+    #   "FATAL: terminating connection due to administrator command"
+    # in five packages, i.e. this run dropping the other run's database mid-flight.
+    # That is the same collision the per-run database exists to prevent, arriving
+    # through the cleanup path instead of the create path.
+    #
+    # So the name carries the PID, and the sweep only touches databases whose name
+    # starts with this PID's own tag. Residue from a KILLED run of this same PID is
+    # unlikely (PIDs are not reused quickly), which is an acceptable trade for never
+    # killing someone else's work.
+    dbname = f"goalcheck_{os.getpid()}_{secrets.token_hex(4)}"
+    myprefix = f"goalcheck_{os.getpid()}_"
 
     def psql(sql, database="postgres"):
         return subprocess.run(
             ["sudo", "-n", "docker", "exec", container, "psql", "-U", user,
              "-d", database, "-c", sql],
             capture_output=True, text=True, timeout=120)
+
+    # Sweep THIS PROCESS's residue. A run killed mid-flight (a timeout, a Ctrl-C, a
+    # context limit) never reaches its own cleanup. Scoped to the PID above so a
+    # concurrent run's database is never touched.
+    stale = subprocess.run(
+        ["sudo", "-n", "docker", "exec", container, "psql", "-U", user,
+         "-d", "postgres", "-tAc",
+         f"SELECT datname FROM pg_database WHERE datname LIKE '{myprefix}%'"],
+        capture_output=True, text=True, timeout=120)
+    for old in stale.stdout.split():
+        psql("SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+             f"WHERE datname = '{old}' AND pid <> pg_backend_pid();")
+        psql(f'DROP DATABASE IF EXISTS "{old}";')
 
     if psql(f'CREATE DATABASE "{dbname}";').returncode != 0:
         return None, None

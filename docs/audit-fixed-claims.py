@@ -38,8 +38,15 @@ def main():
         n = int(num)
         m = re.search(r"fixed in `([^`]+)` with a test in `([^`]+)`", why)
         if not m:
-            # a plan-backed claim: "fixed in `<commit>`; per-issue plan `<file>`"
-            m2 = re.search(r"fixed in `([0-9a-f]{7,40})`", why)
+            # A plan-backed claim is "fixed in `<commit>`; per-issue plan `<file>`".
+            # A port-backed claim names the commit mid-sentence instead:
+            #   "shipped by porting upstream PR #1183 (`8c8160b5`): four keyset..."
+            # The first regex only matched the former, so #69 was reported as
+            # claiming nothing -- a false problem, and false problems are how a
+            # checker gets ignored. Take the FIRST commit-shaped token anywhere in
+            # the reason, in backticks or not.
+            m2 = re.search(r"`([0-9a-f]{7,40})`", why) or \
+                 re.search(r"\b([0-9a-f]{8,40})\b", why)
             if not m2:
                 problems.append(
                     f"#{n}: marked `fixed` but its plan cites NO commit, so nothing "
@@ -51,7 +58,15 @@ def main():
             if rc != 0:
                 problems.append(f"#{n}: cites commit {commit} which is NOT in this repo")
             else:
-                print(f"  ok   #{n:<6} plan-backed, commit {commit} exists")
+                # A commit that exists is necessary, not sufficient. Also require
+                # that the commit actually TOUCHED something, and say so.
+                touched = sh(f"git show --name-only --format= {commit}").stdout.split()
+                if not touched:
+                    problems.append(f"#{n}: commit {commit} exists but is EMPTY -- "
+                                    "an empty commit backs no claim")
+                else:
+                    print(f"  ok   #{n:<6} commit {commit} exists, "
+                          f"{len(touched)} file(s)")
             continue
 
         fixf, testf = m.group(1), m.group(2)

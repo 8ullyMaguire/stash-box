@@ -19,7 +19,7 @@ shape is checkable rather than asserted.
 import json, pathlib, re, sys, collections
 
 REPO = pathlib.Path("/home/alvaro/code-local/go/stash-box")
-FULL = pathlib.Path("/home/alvaro/.hermes/profiles/coding-3/cache/scratch/sb-issues-full.json")
+FULL = pathlib.Path(__file__).resolve().parent.parent / "docs" / "track" / "issues-open-full.json"
 OUT = REPO / "docs" / "ISSUES.md"
 
 data = {int(k): v for k, v in json.loads(FULL.read_text()).items()}
@@ -174,7 +174,12 @@ def classify(iss):
     title = (iss.get("title") or "")
     body = (iss.get("body") or "")
     text = (title + "\n" + body).lower()
-    labels = {l["name"].lower() for l in iss.get("labels", [])}
+    # labels are plain strings in docs/track/issues-open-full.json. The gh API hands
+    # back {"name": ...} objects and the first version of this file leaned on that,
+    # which meant the ledger could not be regenerated from the committed input
+    # without re-deriving it. Normalise here instead, so either shape works.
+    labels = {(l["name"] if isinstance(l, dict) else l).lower()
+              for l in iss.get("labels", [])}
 
     # 0a. A feature shipped by a port rather than by an issue fix.
     if n in PORTED_FEATURES and WORKLOG or n in PORTED_FEATURES:
@@ -258,9 +263,18 @@ def classify(iss):
                 "reports wrong behaviour of shipped code -- needs a fix with a "
                 "test that fails without it")
     if is_feature:
+        # Cite the WRITTEN policy, not a paraphrase of it. This used to say "the
+        # fork's policy is upstream bug fixes and spec-driven work" -- a rule
+        # asserted 138 times that appeared in no document in the repo, which is why
+        # 27c0aa65 hand-edited all 138 rows to cite SPEC.md section 0 and left this
+        # generator emitting the old wording. Running `classify-issues.py --write`
+        # therefore REGRESSED the ledger it supposedly generates. Fixed at the source
+        # so the generator and the artifact say the same thing.
         return ("feature-request", "not-relevant",
-                "upstream feature request; the fork's policy is upstream bug "
-                "fixes and spec-driven work, and no spec row asks for this")
+                "upstream feature request; declined under SPEC \u00a70 scope policy "
+                "(in scope: upstream bug fixes, security fixes, and this fork's own "
+                "spec-driven work; out of scope: upstream feature requests). To "
+                "revisit, add a spec row to docs/plan/ first")
     if has_bug_signal:
         return ("suspect-bug", "relevant",
                 f"no [Bug Report] prefix but the body describes a failure; needs "

@@ -20,7 +20,7 @@ import json, pathlib, re, subprocess, sys
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 PLANS = REPO / "docs" / "plans"
-CACHE = pathlib.Path("/home/alvaro/.hermes/profiles/coding-3/cache/scratch/sb-issues-full.json")
+CACHE = REPO / "docs" / "track" / "issues-open-full.json"
 
 
 def commit_exists(h):
