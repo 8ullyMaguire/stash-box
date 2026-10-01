@@ -262,3 +262,22 @@ func truncateDay(t time.Time) time.Time {
 func sameDay(a, b time.Time) bool {
 	return a.Year() == b.Year() && a.YearDay() == b.YearDay()
 }
+
+// ForCurrent computes the streak against the DATABASE's clock.
+//
+// It exists so callers do not each have to remember to fetch the right "now".
+// Two of them already got it wrong: time.Now() on the Go side reports the HOST's
+// calendar, and events are stamped by PostgreSQL, so a host whose clock is a
+// minute fast makes "active today" false for an event that landed two seconds
+// ago. That failure reads as a streak bug rather than a clock bug, which is why
+// the clock read belongs in one place.
+//
+// For() stays the injectable form and is what the tests drive; this is the thin
+// production wrapper over it, not a second implementation.
+func (s *Service) ForCurrent(ctx context.Context, userID uuid.UUID) (Streak, error) {
+	now, err := s.queries.DatabaseNow(ctx)
+	if err != nil {
+		return Streak{}, err
+	}
+	return s.For(ctx, userID, now)
+}

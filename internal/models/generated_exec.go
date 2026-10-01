@@ -712,6 +712,7 @@ type ComplexityRoot struct {
 		SearchTag                      func(childComplexity int, term string, limit *int) int
 		StudioChangelog                func(childComplexity int, since time.Time, afterID *uuid.UUID, limit *int) int
 		TagChangelog                   func(childComplexity int, since time.Time, afterID *uuid.UUID, limit *int) int
+		UserStreak                     func(childComplexity int) int
 		Version                        func(childComplexity int) int
 	}
 
@@ -893,6 +894,14 @@ type ComplexityRoot struct {
 		VoteCronInterval           func(childComplexity int) int
 		VotePromotionThreshold     func(childComplexity int) int
 		VotingPeriod               func(childComplexity int) int
+	}
+
+	Streak struct {
+		ActiveToday     func(childComplexity int) int
+		CurrentStreak   func(childComplexity int) int
+		LastActiveDay   func(childComplexity int) int
+		LongestStreak   func(childComplexity int) int
+		TotalActiveDays func(childComplexity int) int
 	}
 
 	Studio struct {
@@ -1301,6 +1310,7 @@ type QueryResolver interface {
 	IdentificationQuery(ctx context.Context, id uuid.UUID) (*IdentificationQuery, error)
 	ResolvedIdentificationQueries(ctx context.Context, entityType IdentificationTargetType, entityID uuid.UUID, limit *int) ([]IdentificationQuery, error)
 	MyIdentificationDetectiveScore(ctx context.Context) (*IdentificationDetective, error)
+	UserStreak(ctx context.Context) (*Streak, error)
 }
 type QueryEditsResultTypeResolver interface {
 	Count(ctx context.Context, obj *EditQuery) (int, error)
@@ -4946,6 +4956,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.TagChangelog(childComplexity, args["since"].(time.Time), args["after_id"].(*uuid.UUID), args["limit"].(*int)), true
+	case "Query.userStreak":
+		if e.ComplexityRoot.Query.UserStreak == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Query.UserStreak(childComplexity), true
 	case "Query.version":
 		if e.ComplexityRoot.Query.Version == nil {
 			break
@@ -5680,6 +5696,37 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.StashBoxConfig.VotingPeriod(childComplexity), true
+
+	case "Streak.activeToday":
+		if e.ComplexityRoot.Streak.ActiveToday == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Streak.ActiveToday(childComplexity), true
+	case "Streak.currentStreak":
+		if e.ComplexityRoot.Streak.CurrentStreak == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Streak.CurrentStreak(childComplexity), true
+	case "Streak.lastActiveDay":
+		if e.ComplexityRoot.Streak.LastActiveDay == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Streak.LastActiveDay(childComplexity), true
+	case "Streak.longestStreak":
+		if e.ComplexityRoot.Streak.LongestStreak == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Streak.LongestStreak(childComplexity), true
+	case "Streak.totalActiveDays":
+		if e.ComplexityRoot.Streak.TotalActiveDays == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Streak.TotalActiveDays(childComplexity), true
 
 	case "Studio.aliases":
 		if e.ComplexityRoot.Studio.Aliases == nil {
@@ -8934,6 +8981,70 @@ enum ValidSiteTypeEnum {
   STUDIO
 }
 `, BuiltIn: false},
+	{Name: "../../graphql/schema/types/streak.graphql", Input: `# Activity streak (SPEC §12, phase 2 step 8).
+#
+# A streak is a fact about a user's contribution history, and this schema is
+# deliberately built so that it can only ever be a fact.
+#
+# There is no stored streak. ` + "`" + `currentStreak` + "`" + ` is derived from trust_events on
+# every read, so "current" is a function of today and the log rather than a
+# number that must be decayed, scheduled and audited when a user goes quiet.
+# The absence of a decay mechanism is the load-bearing design choice here: a
+# streak you can LOSE is a lever, not a measurement, and this shape has no way
+# to express one.
+#
+# ` + "`" + `lastActiveDay` + "`" + ` exists for the same reason. A streak that silently drops to
+# zero tells the user nothing about when it ended; this lets the client say "your
+# last contribution was 14 days ago", which is the honest version of the same
+# fact.
+type Streak {
+  """
+  Consecutive active days ending today or yesterday. Zero means there is no
+  current run -- not that one was lost. The client renders this as "no streak
+  yet" rather than as a failure state, because nothing was taken away.
+  """
+  currentStreak: Int!
+
+  """
+  The longest run of consecutive days ever recorded. Recomputed on every read,
+  which is a full scan of one user's history; that is the price of not storing
+  it, and it is cheap because the rows are already loaded for ` + "`" + `currentStreak` + "`" + `.
+  """
+  longestStreak: Int!
+
+  """
+  Every distinct day with a contribution, ever. A lifetime total: unlike
+  ` + "`" + `currentStreak` + "`" + ` this never goes down, which is why it is the number a client
+  should show as progress and ` + "`" + `currentStreak` + "`" + ` should not be.
+  """
+  totalActiveDays: Int!
+
+  """
+  Whether today is an active day.
+
+  Deliberately NOT the same as ` + "`" + `currentStreak > 0` + "`" + `. A user whose streak is alive
+  on yesterday's activity has not contributed today, and a UI that showed only
+  the streak would imply a day that has not happened yet. Keeping these two
+  separate is what lets the interface be truthful about the present.
+  """
+  activeToday: Boolean!
+
+  """
+  The most recent day with a contribution, or null if never. Lets a client state
+  when a run ended instead of only showing that it is over.
+  """
+  lastActiveDay: DateTime
+}
+
+extend type Query {
+  """
+  The calling user's activity streak. There is no ` + "`" + `userStreak(id:)` + "`" + ` on purpose:
+  this is a private measure of one's own contribution, and exposing it for
+  arbitrary users turns a progress indicator into a public ranking of who has
+  been absent.
+  """
+  userStreak: Streak! @hasRole(role: READ)
+}`, BuiltIn: false},
 	{Name: "../../graphql/schema/types/studio.graphql", Input: `type Studio {
   id: ID!
   name: String!
@@ -10817,6 +10928,22 @@ func (ec *executionContext) childFields_StashBoxConfig(ctx context.Context, fiel
 		return ec.fieldContext_StashBoxConfig_enable_genital_attributes(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type StashBoxConfig", field.Name)
+}
+
+func (ec *executionContext) childFields_Streak(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "currentStreak":
+		return ec.fieldContext_Streak_currentStreak(ctx, field)
+	case "longestStreak":
+		return ec.fieldContext_Streak_longestStreak(ctx, field)
+	case "totalActiveDays":
+		return ec.fieldContext_Streak_totalActiveDays(ctx, field)
+	case "activeToday":
+		return ec.fieldContext_Streak_activeToday(ctx, field)
+	case "lastActiveDay":
+		return ec.fieldContext_Streak_lastActiveDay(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type Streak", field.Name)
 }
 
 func (ec *executionContext) childFields_Studio(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -29929,6 +30056,56 @@ func (ec *executionContext) fieldContext_Query_myIdentificationDetectiveScore(_ 
 	return fc, nil
 }
 
+func (ec *executionContext) _Query_userStreak(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_userStreak(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Query().UserStreak(ctx)
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal *Streak
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *Streak
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *Streak) graphql.Marshaler {
+			return ec.marshalNStreak2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐStreak(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_userStreak(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_Streak(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Query___type(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -33111,6 +33288,121 @@ func (ec *executionContext) _StashBoxConfig_enable_genital_attributes(ctx contex
 }
 func (ec *executionContext) fieldContext_StashBoxConfig_enable_genital_attributes(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("StashBoxConfig", field, false, false, errors.New("field of type Boolean does not have child fields"))
+}
+
+func (ec *executionContext) _Streak_currentStreak(ctx context.Context, field graphql.CollectedField, obj *Streak) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Streak_currentStreak(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.CurrentStreak, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Streak_currentStreak(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Streak", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _Streak_longestStreak(ctx context.Context, field graphql.CollectedField, obj *Streak) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Streak_longestStreak(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.LongestStreak, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Streak_longestStreak(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Streak", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _Streak_totalActiveDays(ctx context.Context, field graphql.CollectedField, obj *Streak) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Streak_totalActiveDays(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.TotalActiveDays, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Streak_totalActiveDays(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Streak", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _Streak_activeToday(ctx context.Context, field graphql.CollectedField, obj *Streak) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Streak_activeToday(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ActiveToday, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Streak_activeToday(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Streak", field, false, false, errors.New("field of type Boolean does not have child fields"))
+}
+
+func (ec *executionContext) _Streak_lastActiveDay(ctx context.Context, field graphql.CollectedField, obj *Streak) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Streak_lastActiveDay(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.LastActiveDay, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
+			return ec.marshalODateTime2ᚖstring(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_Streak_lastActiveDay(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Streak", field, false, false, errors.New("field of type DateTime does not have child fields"))
 }
 
 func (ec *executionContext) _Studio_id(ctx context.Context, field graphql.CollectedField, obj *Studio) (ret graphql.Marshaler) {
@@ -51311,6 +51603,28 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "userStreak":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_userStreak(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
 		case "__type":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Query___type(ctx, field)
@@ -54317,6 +54631,64 @@ func (ec *executionContext) _StashBoxConfig(ctx context.Context, sel ast.Selecti
 		case "enable_genital_attributes":
 			out.Values[i] = ec._StashBoxConfig_enable_genital_attributes(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var streakImplementors = []string{"Streak"}
+
+func (ec *executionContext) _Streak(ctx context.Context, sel ast.SelectionSet, obj *Streak) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, streakImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("Streak")
+		case "currentStreak":
+			out.Values[i] = ec._Streak_currentStreak(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "longestStreak":
+			out.Values[i] = ec._Streak_longestStreak(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "totalActiveDays":
+			out.Values[i] = ec._Streak_totalActiveDays(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "activeToday":
+			out.Values[i] = ec._Streak_activeToday(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "lastActiveDay":
+			out.Values[i] = ec._Streak_lastActiveDay(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
 				out.Invalids++
 			}
 		default:
@@ -58915,6 +59287,16 @@ func (ec *executionContext) marshalNStashBoxConfig2ᚖgithubᚗcomᚋstashappᚋ
 		return graphql.Null
 	}
 	return ec._StashBoxConfig(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNStreak2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐStreak(ctx context.Context, sel ast.SelectionSet, v *Streak) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._Streak(ctx, sel, v)
 }
 
 func (ec *executionContext) unmarshalNString2string(ctx context.Context, v any) (string, error) {

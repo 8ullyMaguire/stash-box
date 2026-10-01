@@ -1,0 +1,64 @@
+# Activity streak (SPEC §12, phase 2 step 8).
+#
+# A streak is a fact about a user's contribution history, and this schema is
+# deliberately built so that it can only ever be a fact.
+#
+# There is no stored streak. `currentStreak` is derived from trust_events on
+# every read, so "current" is a function of today and the log rather than a
+# number that must be decayed, scheduled and audited when a user goes quiet.
+# The absence of a decay mechanism is the load-bearing design choice here: a
+# streak you can LOSE is a lever, not a measurement, and this shape has no way
+# to express one.
+#
+# `lastActiveDay` exists for the same reason. A streak that silently drops to
+# zero tells the user nothing about when it ended; this lets the client say "your
+# last contribution was 14 days ago", which is the honest version of the same
+# fact.
+type Streak {
+  """
+  Consecutive active days ending today or yesterday. Zero means there is no
+  current run -- not that one was lost. The client renders this as "no streak
+  yet" rather than as a failure state, because nothing was taken away.
+  """
+  currentStreak: Int!
+
+  """
+  The longest run of consecutive days ever recorded. Recomputed on every read,
+  which is a full scan of one user's history; that is the price of not storing
+  it, and it is cheap because the rows are already loaded for `currentStreak`.
+  """
+  longestStreak: Int!
+
+  """
+  Every distinct day with a contribution, ever. A lifetime total: unlike
+  `currentStreak` this never goes down, which is why it is the number a client
+  should show as progress and `currentStreak` should not be.
+  """
+  totalActiveDays: Int!
+
+  """
+  Whether today is an active day.
+
+  Deliberately NOT the same as `currentStreak > 0`. A user whose streak is alive
+  on yesterday's activity has not contributed today, and a UI that showed only
+  the streak would imply a day that has not happened yet. Keeping these two
+  separate is what lets the interface be truthful about the present.
+  """
+  activeToday: Boolean!
+
+  """
+  The most recent day with a contribution, or null if never. Lets a client state
+  when a run ended instead of only showing that it is over.
+  """
+  lastActiveDay: DateTime
+}
+
+extend type Query {
+  """
+  The calling user's activity streak. There is no `userStreak(id:)` on purpose:
+  this is a private measure of one's own contribution, and exposing it for
+  arbitrary users turns a progress indicator into a public ranking of who has
+  been absent.
+  """
+  userStreak: Streak! @hasRole(role: READ)
+}

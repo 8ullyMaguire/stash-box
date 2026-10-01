@@ -57,3 +57,23 @@ ORDER BY day DESC;
 SELECT count(DISTINCT date_trunc('day', created_at))
 FROM trust_events
 WHERE user_id = $1;
+
+-- name: DatabaseNow :one
+-- The database's own clock, in the database's own timezone.
+--
+-- Two things are deliberate and both were bugs once.
+--
+-- AT TIME ZONE current_setting('TIMEZONE') keeps the value in the DATABASE's
+-- zone instead of letting the driver convert it to the host's. Streak days come
+-- back already truncated to the database's calendar, so `today` has to be in
+-- that same frame or the two disagree at midnight -- an event created a minute
+-- ago landing on "yesterday" and reporting a broken streak.
+--
+-- It is NOT time.Now() on the Go side. Events are stamped by PostgreSQL, so a
+-- host whose clock is a minute fast would report "not active today" for an
+-- event that landed two seconds ago, and the failure would look like a streak
+-- bug rather than a clock bug.
+-- Cast to timestamp, not timestamptz, for the same reason as ListUserActivityDays:
+-- timestamptz would hand the driver an instant to re-render in the HOST's zone, undoing
+-- the whole point of AT TIME ZONE.
+SELECT (now() AT TIME ZONE current_setting('TIMEZONE'))::timestamp AS now;

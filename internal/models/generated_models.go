@@ -1384,6 +1384,31 @@ type StashBoxConfig struct {
 	EnableGenitalAttributes    bool   `json:"enable_genital_attributes"`
 }
 
+type Streak struct {
+	// Consecutive active days ending today or yesterday. Zero means there is no
+	// current run -- not that one was lost. The client renders this as "no streak
+	// yet" rather than as a failure state, because nothing was taken away.
+	CurrentStreak int `json:"currentStreak"`
+	// The longest run of consecutive days ever recorded. Recomputed on every read,
+	// which is a full scan of one user's history; that is the price of not storing
+	// it, and it is cheap because the rows are already loaded for `currentStreak`.
+	LongestStreak int `json:"longestStreak"`
+	// Every distinct day with a contribution, ever. A lifetime total: unlike
+	// `currentStreak` this never goes down, which is why it is the number a client
+	// should show as progress and `currentStreak` should not be.
+	TotalActiveDays int `json:"totalActiveDays"`
+	// Whether today is an active day.
+	//
+	// Deliberately NOT the same as `currentStreak > 0`. A user whose streak is alive
+	// on yesterday's activity has not contributed today, and a UI that showed only
+	// the streak would imply a day that has not happened yet. Keeping these two
+	// separate is what lets the interface be truthful about the present.
+	ActiveToday bool `json:"activeToday"`
+	// The most recent day with a contribution, or null if never. Lets a client state
+	// when a run ended instead of only showing that it is over.
+	LastActiveDay *string `json:"lastActiveDay,omitempty"`
+}
+
 type StringCriterionInput struct {
 	Value    string            `json:"value"`
 	Modifier CriterionModifier `json:"modifier"`

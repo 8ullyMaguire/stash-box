@@ -358,6 +358,24 @@ type Querier interface {
 	CreateWebhookDelivery(ctx context.Context, arg CreateWebhookDeliveryParams) (WebhookDelivery, error)
 	// Webhook queries (SPEC §7.11, phase 3 step 3).
 	CreateWebhookEndpoint(ctx context.Context, arg CreateWebhookEndpointParams) (WebhookEndpoint, error)
+	// The database's own clock, in the database's own timezone.
+	//
+	// Two things are deliberate and both were bugs once.
+	//
+	// AT TIME ZONE current_setting('TIMEZONE') keeps the value in the DATABASE's
+	// zone instead of letting the driver convert it to the host's. Streak days come
+	// back already truncated to the database's calendar, so `today` has to be in
+	// that same frame or the two disagree at midnight -- an event created a minute
+	// ago landing on "yesterday" and reporting a broken streak.
+	//
+	// It is NOT time.Now() on the Go side. Events are stamped by PostgreSQL, so a
+	// host whose clock is a minute fast would report "not active today" for an
+	// event that landed two seconds ago, and the failure would look like a streak
+	// bug rather than a clock bug.
+	// Cast to timestamp, not timestamptz, for the same reason as ListUserActivityDays:
+	// timestamptz would hand the driver an instant to re-render in the HOST's zone, undoing
+	// the whole point of AT TIME ZONE.
+	DatabaseNow(ctx context.Context) (time.Time, error)
 	DeleteAllSceneFingerprintSubmissions(ctx context.Context, arg DeleteAllSceneFingerprintSubmissionsParams) (int64, error)
 	DeleteAuthoredQuest(ctx context.Context, id uuid.UUID) error
 	// Removing a collage. The snapshots it referenced are NOT deleted: the FK is ON
