@@ -11,7 +11,10 @@ import { Controller, useForm } from "react-hook-form";
 import { Link } from "react-router-dom";
 import Select from "react-select";
 import { renderPerformerDetails } from "src/components/editCard/ModifyEdit";
-import EditImages from "src/components/editImages";
+import EditImages, {
+  type TypedImage,
+  toTypedImages,
+} from "src/components/editImages";
 import {
   BodyModification,
   EditNote,
@@ -30,7 +33,7 @@ import {
   GenderEnum,
   GenitalEnum,
   HairColorEnum,
-  type ImageFragment,
+  ImageTypeScopeEnum,
   type PerformerFragment as Performer,
   type PerformerEditDetailsInput,
   type PerformerEditOptionsInput,
@@ -215,7 +218,7 @@ const PerformerForm: FC<PerformerProps> = ({
       career_end_year: initial?.career_end_year ?? performer?.career_end_year,
       tattoos: initial?.tattoos ?? performer?.tattoos ?? [],
       piercings: initial?.piercings ?? performer?.piercings ?? [],
-      images: initial?.images ?? performer?.images ?? [],
+      images: initial?.images ?? toTypedImages(performer?.images ?? []),
       urls: initial?.urls ?? performer?.urls ?? [],
       pendingUrl: "",
     },
@@ -303,7 +306,7 @@ const PerformerForm: FC<PerformerProps> = ({
       tattoos: data.tattoos ?? [],
       breast_type:
         BreastTypeEnum[data.breastType as keyof typeof BreastTypeEnum] || null,
-      image_ids: data.images.map((i) => i.id),
+      image_ids: data.images.map((i) => i.image.id),
       urls: data.urls?.map((u) => ({
         url: u.url,
         site_id: u.site.id,
@@ -807,10 +810,17 @@ const PerformerForm: FC<PerformerProps> = ({
 
         <Tab eventKey="images" title="Images">
           <EditImages
-            lens={lens.focus("images").cast<ImageFragment[]>()}
+            lens={lens.focus("images").cast<TypedImage[]>()}
             file={file}
             setFile={(f) => setFile(f)}
-            original={performer?.images}
+            // `?? []` matches line 221 above, which already guards this same field.
+            // Upstream #1215's line has no guard, and a merge-source edit builds a
+            // `performer` with no images, so `original` crashed the whole form on
+            // exactly the #703 merge-source tests.
+            original={
+              performer ? toTypedImages(performer.images ?? []) : undefined
+            }
+            target={ImageTypeScopeEnum.PERFORMER}
           />
 
           <NavButtons

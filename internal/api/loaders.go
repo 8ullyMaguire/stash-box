@@ -38,6 +38,26 @@ func imageList(ctx context.Context, imageIDs []uuid.UUID) ([]*models.Image, erro
 	return res, nil
 }
 
+// imageValueList is imageList with the nils already pruned.
+//
+// Upstream #1215 changed imageList ITSELF to return []models.Image, folding the
+// prune into it. That is not applied here, because the two contracts are both real
+// and they are not the same shape: the *_edit resolvers return the pointer slice
+// because gqlgen's nullable-image field is []*models.Image, while the gallery
+// resolvers want values. Changing the shared signature to satisfy the gallery would
+// force pruneNils onto every edit resolver, and the nil entries it drops are exactly
+// what "an image that no longer exists" means to those fields.
+//
+// Same dataloader, same request -- asking for both in one request is not a second
+// query, it is a second consumer of one result.
+func imageValueList(ctx context.Context, imageIDs []uuid.UUID) ([]models.Image, error) {
+	res, err := imageList(ctx, imageIDs)
+	if err != nil {
+		return nil, err
+	}
+	return pruneNils(res), nil
+}
+
 // maxBulkFindIDs is the maximum number of ids accepted by the bulk find queries.
 const maxBulkFindIDs = 100
 

@@ -1,5 +1,6 @@
 import { type FC, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { toTypedImages } from "src/components/editImages";
 
 import {
   isMergeEdit,
@@ -122,7 +123,10 @@ export const StudioEditUpdate: FC<{ edit: EditUpdate }> = ({ edit }) => {
       )}
       <StudioForm
         studio={edit.target}
-        initial={edit.details}
+        initial={{
+          ...edit.details,
+          images: toTypedImages(edit.details.images),
+        }}
         callback={doUpdate}
         saving={saving}
       />

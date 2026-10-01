@@ -233,7 +233,17 @@ type Querier interface {
 	// ON CONFLICT (checksum) does not cover the primary key: a repeated id would
 	// still raise, which is correct -- that would be a bug, not a duplicate
 	// upload.
+	//
+	// Upstream #1215 adds date/organized/categorized_at/categorized_by to this
+	// INSERT. They are unioned in rather than chosen between: they are new columns
+	// with no defaults to speak of, and dropping them would silently reset an
+	// image's organisation state on every duplicate-submission path that reaches
+	// here, which is the exact race the DO UPDATE exists to absorb.
 	CreateImage(ctx context.Context, arg CreateImageParams) (Image, error)
+	// Image audit queries
+	CreateImageAudit(ctx context.Context, arg CreateImageAuditParams) (ImageAudit, error)
+	// Image assignments
+	CreateImageTypeAssignments(ctx context.Context, arg []CreateImageTypeAssignmentsParams) (int64, error)
 	// Invite key queries
 	CreateInviteKey(ctx context.Context, arg CreateInviteKeyParams) (InviteKey, error)
 	CreateModAudit(ctx context.Context, arg CreateModAuditParams) (ModAudit, error)
@@ -334,6 +344,8 @@ type Querier interface {
 	CreateTagRedirect(ctx context.Context, arg CreateTagRedirectParams) error
 	// User queries
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
+	CreateUserImageTypeGroupPreferences(ctx context.Context, arg []CreateUserImageTypeGroupPreferencesParams) (int64, error)
+	CreateUserImageTypePreferences(ctx context.Context, arg []CreateUserImageTypePreferencesParams) (int64, error)
 	// User notification subscriptions
 	CreateUserNotificationSubscriptions(ctx context.Context, arg []CreateUserNotificationSubscriptionsParams) (int64, error)
 	// User roles
@@ -359,6 +371,7 @@ type Querier interface {
 	DeleteDraft(ctx context.Context, id uuid.UUID) error
 	DeleteEdit(ctx context.Context, id uuid.UUID) error
 	DeleteExpiredDrafts(ctx context.Context, dollar_1 interface{}) error
+	DeleteExpiredImageAudits(ctx context.Context, dollar_1 interface{}) error
 	DeleteExpiredModAudits(ctx context.Context, dollar_1 interface{}) error
 	DeleteExpiredUserTokens(ctx context.Context) error
 	DeleteFederationPeer(ctx context.Context, id uuid.UUID) error
@@ -370,6 +383,7 @@ type Querier interface {
 	// question that no longer exists.
 	DeleteForeignCandidatesByQuery(ctx context.Context, queryID uuid.UUID) error
 	DeleteImage(ctx context.Context, id uuid.UUID) error
+	DeleteImageTypeAssignments(ctx context.Context, imageID uuid.UUID) error
 	DeleteInviteKey(ctx context.Context, id uuid.UUID) error
 	DeleteNotificationsByEditComments(ctx context.Context, editID uuid.UUID) error
 	DeleteNotificationsByTargetID(ctx context.Context, id uuid.UUID) error
@@ -421,6 +435,8 @@ type Querier interface {
 	// every feature.
 	DeleteTasteVector(ctx context.Context, userID uuid.UUID) error
 	DeleteUser(ctx context.Context, id uuid.UUID) error
+	DeleteUserImageTypeGroupPreferences(ctx context.Context, userID uuid.UUID) error
+	DeleteUserImageTypePreferences(ctx context.Context, userID uuid.UUID) error
 	DeleteUserNotificationSubscriptions(ctx context.Context, userID uuid.UUID) error
 	DeleteUserRoles(ctx context.Context, userID uuid.UUID) error
 	DeleteUserToken(ctx context.Context, id uuid.UUID) error
@@ -478,6 +494,9 @@ type Querier interface {
 	FindImageIdsByPerformerIds(ctx context.Context, dollar_1 []uuid.UUID) ([]PerformerImage, error)
 	FindImageIdsBySceneIds(ctx context.Context, dollar_1 []uuid.UUID) ([]SceneImage, error)
 	FindImageIdsByStudioIds(ctx context.Context, dollar_1 []uuid.UUID) ([]StudioImage, error)
+	// Ordered by the vocabulary rather than alphabetically, so an image's labels
+	// read in the same priority order the admin set
+	FindImageTypesByImageIds(ctx context.Context, imageIds []uuid.UUID) ([]ImageTypeAssignment, error)
 	FindImagesByIds(ctx context.Context, dollar_1 []uuid.UUID) ([]Image, error)
 	FindImagesBySceneID(ctx context.Context, id uuid.UUID) ([]Image, error)
 	FindImagesByStudioID(ctx context.Context, id uuid.UUID) ([]Image, error)
@@ -554,6 +573,10 @@ type Querier interface {
 	FindTagsByIds(ctx context.Context, dollar_1 []uuid.UUID) ([]Tag, error)
 	FindTagsBySceneID(ctx context.Context, sceneID uuid.UUID) ([]Tag, error)
 	FindUnreadNotificationsByUser(ctx context.Context, arg FindUnreadNotificationsByUserParams) ([]Notification, error)
+	// The added_images path below has no COALESCE, and does not need one: a
+	// pending edit predating image types has no such key, and jsonb_array_elements
+	// is STRICT, so a set-returning function given NULL yields zero rows rather
+	// than erroring. Keep added_images a flat UUID array for the same reason.
 	FindUnusedImages(ctx context.Context) ([]Image, error)
 	FindUser(ctx context.Context, id uuid.UUID) (User, error)
 	FindUserByEmail(ctx context.Context, upper interface{}) (User, error)
@@ -571,6 +594,13 @@ type Querier interface {
 	// Get all fingerprints for multiple scenes with aggregated vote data
 	// When onlySubmitted is true, pass the actual user ID, when false pass NULL
 	GetAllFingerprints(ctx context.Context, arg GetAllFingerprintsParams) ([]GetAllFingerprintsRow, error)
+	GetAllImageTypeConflicts(ctx context.Context) ([]ImageTypeConflict, error)
+	// Image type vocabulary queries
+	//
+	// The vocabulary is seeded by migration and only sort_order is writable at
+	// runtime, so there is no create or delete here
+	GetAllImageTypeGroups(ctx context.Context) ([]ImageTypeGroup, error)
+	GetAllImageTypes(ctx context.Context) ([]ImageType, error)
 	GetAllSceneFingerprints(ctx context.Context, sceneID uuid.UUID) ([]GetAllSceneFingerprintsRow, error)
 	GetAllSiteCategories(ctx context.Context) ([]SiteCategory, error)
 	GetAllTagCategories(ctx context.Context) ([]TagCategory, error)
@@ -624,6 +654,11 @@ type Querier interface {
 	// would be counted for nothing.
 	GetIdentificationCandidate(ctx context.Context, id uuid.UUID) (GetIdentificationCandidateRow, error)
 	GetIdentificationQuery(ctx context.Context, id uuid.UUID) (IdentificationQuery, error)
+	// One image's trail, newest first. The optional action narrowing is what
+	// the revert uses to find the categorization state to restore.
+	GetImageAudits(ctx context.Context, arg GetImageAuditsParams) ([]ImageAudit, error)
+	// Types valid for one entity kind. $1 is a bare target name, e.g. 'PERFORMER'
+	GetImageTypesByTarget(ctx context.Context, target string) ([]ImageType, error)
 	// Gets current images for target entity and merges with edit's added_images/removed_images
 	GetImagesForEdit(ctx context.Context, id uuid.UUID) ([]Image, error)
 	// Gets current performers for target entity and merges with edit's added_performers/removed_performers
@@ -720,6 +755,10 @@ type Querier interface {
 	GetTagAliases(ctx context.Context, tagID uuid.UUID) ([]string, error)
 	GetTagCategoriesByIds(ctx context.Context, dollar_1 []uuid.UUID) ([]TagCategory, error)
 	GetTasteVector(ctx context.Context, userID uuid.UUID) (TasteVector, error)
+	GetUnorganizedImageCount(ctx context.Context, arg GetUnorganizedImageCountParams) (int64, error)
+	GetUserImageTypeGroupPreferences(ctx context.Context, userID uuid.UUID) ([]string, error)
+	// User preferences
+	GetUserImageTypePreferences(ctx context.Context, userID uuid.UUID) ([]string, error)
 	GetUserNotificationSubscriptions(ctx context.Context, userID uuid.UUID) ([]NotificationType, error)
 	GetUserRoles(ctx context.Context, userID uuid.UUID) ([]string, error)
 	GetUserRolesByUserIDs(ctx context.Context, dollar_1 []uuid.UUID) ([]UserRole, error)
@@ -1065,6 +1104,18 @@ type Querier interface {
 	// check when a query like this fails to validate.
 	QueryMatchupCandidates(ctx context.Context, arg QueryMatchupCandidatesParams) ([]Performer, error)
 	QueryModAudits(ctx context.Context, arg QueryModAuditsParams) ([]ModAudit, error)
+	// The moderator review feed: every attached image a contributor has
+	// categorized that no moderator has signed off on yet, newest categorization
+	// first so fresh work surfaces. Restricted to images on a performer: an
+	// unattached categorized image is riding a pending edit that may yet be voted
+	// down, and reviewing it early would be wasted work. The owning performer
+	// rides along because a bare thumbnail tells a reviewer nothing.
+	// LATERAL with LIMIT 1 rather than a plain join: a checksum-deduplicated
+	// image can in principle be attached to more than one performer, and a
+	// fanned-out join would duplicate feed rows and desynchronize the count.
+	// The optional narrowing to one contributor's work, keyed on who categorized
+	// the image last: the fast answer to "what has this user touched?"
+	QueryUnorganizedImages(ctx context.Context, arg QueryUnorganizedImagesParams) ([]QueryUnorganizedImagesRow, error)
 	ReassignPerformerAliases(ctx context.Context, arg ReassignPerformerAliasesParams) error
 	ReassignPerformerFavorites(ctx context.Context, arg ReassignPerformerFavoritesParams) error
 	ReassignStudioFavorites(ctx context.Context, arg ReassignStudioFavoritesParams) error
@@ -1192,6 +1243,16 @@ type Querier interface {
 	// own choice and is safe to keep.
 	SetContentViewingOptIn(ctx context.Context, arg SetContentViewingOptInParams) (UserTrust, error)
 	SetEditCommentHidden(ctx context.Context, arg SetEditCommentHiddenParams) (EditComment, error)
+	SetImageOrganized(ctx context.Context, arg SetImageOrganizedParams) (Image, error)
+	// Enabling
+	// Takes the complete set of disabled keys, so a group absent from the list is
+	// enabled. A type added to the vocabulary later is therefore on by default,
+	// which an "enabled set" would have silently reversed
+	//
+	// COALESCE because an array arriving as SQL NULL would set enabled = NULL on
+	// every row rather than enabling them: NOT (key = ANY(NULL)) is NULL, not true
+	SetImageTypeGroupsEnabled(ctx context.Context, disabled []string) error
+	SetImageTypesEnabled(ctx context.Context, disabled []string) error
 	// Moderation. Not restricted to flagged->published: a review can be flagged
 	// directly by a moderator, and a status transition table in SQL would need a
 	// trigger to enforce and a migration every time a state is added.
@@ -1255,6 +1316,11 @@ type Querier interface {
 	UpdateEditCommentText(ctx context.Context, arg UpdateEditCommentTextParams) (EditComment, error)
 	UpdateEditData(ctx context.Context, arg UpdateEditDataParams) (Edit, error)
 	UpdateFederationPeer(ctx context.Context, arg UpdateFederationPeerParams) (FederationPeer, error)
+	UpdateImage(ctx context.Context, arg UpdateImageParams) (Image, error)
+	// Both sort_order unique constraints are deferred, so a reorder can be one
+	// UPDATE per row without contriving a collision-free intermediate permutation.
+	UpdateImageTypeGroupSortOrder(ctx context.Context, arg UpdateImageTypeGroupSortOrderParams) error
+	UpdateImageTypeSortOrder(ctx context.Context, arg UpdateImageTypeSortOrderParams) error
 	// Retarget PENDING performer edits from a merged-away performer to the merge survivor.
 	//
 	// Issue #943: a merge soft-deletes the source and adds a redirect, but edits still
