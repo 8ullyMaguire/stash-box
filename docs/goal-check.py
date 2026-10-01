@@ -282,7 +282,19 @@ def c3_plan_built():
 # fails -- and a branch under active development also trips it. That is the same
 # trade the old clause made, and it is a loud one.
 def c4_narrow_merged():
-    _, out, _ = sh("git for-each-ref --format=%(refname:short) refs/heads/")
+    # The format string is QUOTED. Unquoted, `%(refname:short)` does not survive the
+    # shell and for-each-ref returns NOTHING -- so this saw an empty branch list and
+    # reported "main is the only branch" no matter how many branches existed. Caught
+    # by mutation: a branch holding an unmerged commit still produced that PASS.
+    rc, out, _ = sh("git for-each-ref '--format=%(refname:short)' refs/heads/")
+    if rc != 0 or not out.strip():
+        add("C4 narrow merged", "UNKNOWN",
+            "could not enumerate branches -- refusing to read an empty list as PASS")
+        return
+    if "main" not in out.split():
+        add("C4 narrow merged", "UNKNOWN",
+            "main is absent from the branch list; wrong repository or bad HEAD?")
+        return
     branches = [b for b in out.split() if b != "main"]
     if not branches:
         add("C4 narrow merged", "PASS",
