@@ -18,7 +18,7 @@
 | §7.24.2 `97_expected_totals` | **built** | `0e8b54e0`; 9 schema behaviours observed against a real database |
 | §7.24.4 `98_lint_quest_definitions` | **built** | `15689da1`; 12 schema behaviours observed |
 | §7.24.6 `99_fingerprint_corroboration` | **built** | `003d93b6`; 6 logic behaviours + a measured decision to add no index |
-| §7.24.3 `100_bounty_pricing_audit` | not started | — |
+| §7.24.3 `100_bounty_pricing_audit` | **built** | `569fba05`; 12 schema behaviours observed |
 | §7.24.8 `101_completion_field_weights` | **built (service)** | `b3676fe2`; `internal/service/completion/delta.go`, 11/11 mutations killed |
 | §7.24.8 `101_completion_field_weights` (migration) | not started | weights are in Go today; see below |
 | `internal/service/completion` | **extended, pre-existing** | `score.go` already existed (§7.7); `delta.go` adds §7.24.8 on top |
