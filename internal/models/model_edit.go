@@ -282,9 +282,41 @@ type SceneEdit struct {
 	Director            *string                    `json:"director,omitempty"`
 	Code                *string                    `json:"code,omitempty"`
 	DraftID             *uuid.UUID                 `json:"draft_id,omitempty"`
+	// VerifiedUnknowns are per-field claims that a value is NOT obtainable (SPEC §7.24.1).
+	//
+	// On the edit rather than beside it, deliberately. §7.24.1 makes a verified-unknown an
+	// EDIT, so it rides the existing consensus machinery and a curator with trust earns
+	// auto-approval: "not publicly knowable" is a low-risk, high-value claim and gating it
+	// behind a moderator-only path would hollow out the trust levels the rest of the system
+	// is built on. Making it a parallel write path would have been the easier implementation
+	// and would have earned nobody's trust.
+	//
+	// The XP exception is in internal/service/edit, at the single funnel every applied edit
+	// reaches -- not here, because "no XP for a self-affirming assertion" is a trust-system
+	// rule and this is a data shape.
+	VerifiedUnknowns []VerifiedUnknownInput `json:"verified_unknowns,omitempty"`
 }
 
 func (SceneEdit) IsEditDetails() {}
+
+// VerifiedUnknownInput is one field marked unanswerable, with a reason CODE and never free
+// text.
+//
+// §7.24.1: "Birthdate is not publicly knowable" and "birthdate exists but nobody has looked"
+// are DIFFERENT FACTS, and the second must stay farmable. A free-text reason collapses them,
+// and collapsing them turns verified-unknown into a way to clear a completion gap without
+// doing the work. The code set is in field_verification_reasons and enforced by an FK, so
+// the reason cannot be misspelled into a fourth meaning either.
+//
+// CitationURL is optional: an assertion is a curator's judgement, not a citation. This is
+// deliberately the opposite of §7.24.2's expected totals, where an unsourced total silently
+// deflates every completion score on the instance.
+type VerifiedUnknownInput struct {
+	// Field is the jsonb key on this entity's edit struct -- "date", not "date_of_scenes".
+	Field       string  `json:"field"`
+	ReasonCode  string  `json:"reason_code"`
+	CitationURL *string `json:"citation_url,omitempty"`
+}
 
 type SceneEditData struct {
 	New          *SceneEdit  `json:"new_data,omitempty"`
