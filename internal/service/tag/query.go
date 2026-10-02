@@ -13,7 +13,9 @@ import (
 
 func (s *Tag) Query(ctx context.Context, input models.TagQueryInput) (*models.QueryTagsResultType, error) {
 	psql := sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
-	query := psql.Select("tags.id").From("tags").Where(sq.Eq{"deleted": false})
+	query := // `deleted = false` inlined rather than `sq.Eq`, so the predicate is a literal instead of a
+		// bind parameter -- upstream PR #1280.
+		psql.Select("tags.id").From("tags").Where("deleted = false")
 
 	// Filter by name only
 	if input.Name != nil && *input.Name != "" {

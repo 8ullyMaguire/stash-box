@@ -119,6 +119,43 @@ ownership guarantee, 736 an existing test), and 761 needs a product call. The
 goal's own rule — "a ported PR may not remove a non-negotiable to be merged" —
 applies to all three.
 
+## Ported 2026-10-05 — 2 PRs, both after re-measuring
+
+`gh pr list --state open` reported **47** open PRs and two had no recorded decision:
+#1280 and #1281, both opened 2026-10-02 by `InfiniteStash`. Both are now decided and
+ported. Neither was taken on its description.
+
+| # | Decision | Why |
+|---|---|---|
+| 1281 | **Port** | Fixes a real bug **in our tree**, not just upstream. `GetConnMaxLifetime()` returned `C.Postgres.MaxIdleConns` — the max-idle-conns accessor was cloned and its body never changed. So `conn_max_lifetime` was ignored entirely, and with no config file set the value was 0, which `pgxpool` reads as "never recycle a connection". Unbounded lifetimes are what produce a pool handing out dead sockets behind a pgbouncer or a NAT that drops idle connections. 4 tests, each failing for its own reason before the fix; there was no test for it at all before. |
+| 1280 | **Port** | Two independent changes: inline the `deleted = false` predicates so they are literals rather than bind parameters, and add `ExecuteCountCustomPlan` for counts whose selectivity depends on a filter value. Verified both empirically before porting — `sq.Eq{"deleted": false}` really does emit `deleted = $1` with one bind value, and the inlined form emits `deleted = false` with none. 4 tests over the SQL generation. |
+
+### I got #1280 wrong first, and the port note records it
+
+`ExecuteCountCustomPlan` calls
+`db.QueryRow(ctx, sql, append([]any{pgx.QueryExecModeCacheDescribe}, args...)...)`.
+`DBTX.QueryRow` is pgx's plain `(ctx, sql, args...)`, there is no variadic exec-mode
+parameter, and `QueryExecMode` is an `int32` enum — not something bindable. I read the
+signature, concluded the mode would land on the query's own `$1`, and started writing a
+"do not port" note.
+
+**That was wrong.** pgx runs an option loop over the *leading* arguments before binding
+anything (`conn.go`: `for len(args) > 0 { switch arg := args[0].(type) { case QueryExecMode:
+mode = arg; args = args[1:] ... } }`), so a leading `QueryExecMode` is consumed as a driver
+option and never becomes a bind parameter.
+
+The test that corrected it is the one that matters, because it settles the question rather
+than arguing it: a call with **no placeholders at all** —
+`QueryRow(ctx, "SELECT 7", pgx.QueryExecModeCacheDescribe)` — succeeds and returns 7. If
+the mode were being bound as `$1` it could not. `internal/config/exec_mode_option_test.go`
+keeps that, plus a parameter-shift check across several `LIMIT` values and a sweep over
+every mode pgx defines, because which modes are consumed is a property of the pgx version
+and a dependency bump can change it under a port decision.
+
+**Why the error is worth writing down.** The failure mode I expected — a silently wrong
+count — is the one a pagination UI shows as "no results" with nothing in the logs. Reading a
+function signature is not evidence about driver behaviour; the check costs one query.
+
 ## Reusable
 
 `scripts/port-upstream-prs.sh` runs the whole sequence: smallest blast radius

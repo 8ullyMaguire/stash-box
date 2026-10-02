@@ -69,7 +69,9 @@ func (s *Studio) buildStudioQuery(psql sq.StatementBuilderType, input models.Stu
 
 	query = query.
 		LeftJoin("studios as parent_studio ON studios.parent_studio_id = parent_studio.id").
-		Where(sq.Eq{"studios.deleted": false})
+		// Inlined rather than `sq.Eq`, so the predicate is a literal instead of a bind
+		// parameter -- upstream PR #1280.
+		Where("studios.deleted = false")
 
 	// Filter by URL
 	if input.URL != nil && *input.URL != "" {

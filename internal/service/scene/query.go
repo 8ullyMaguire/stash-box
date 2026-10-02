@@ -63,7 +63,9 @@ func (s *Scene) QueryCountForPerformer(ctx context.Context, input models.SceneQu
 
 	countQuery := psql.Select("COUNT(*)").FromSelect(innerQuery, "subquery")
 
-	return queryhelper.ExecuteCount(ctx, countQuery, s.queries.DB(), "QueryScenesCount")
+	// Custom plan: an ILIKE filter makes the count's selectivity value-dependent, and a
+	// generic plan is then computed over the wrong number of rows. Upstream PR #1280.
+	return queryhelper.ExecuteCountCustomPlan(ctx, countQuery, s.queries.DB(), "QueryScenesCount")
 }
 
 func (s *Scene) buildSceneQuery(psql sq.StatementBuilderType, input models.SceneQueryInput, performerID *uuid.UUID, userID uuid.UUID, forCount bool) (sq.SelectBuilder, error) {
@@ -273,7 +275,9 @@ func (s *Scene) buildSceneQuery(psql sq.StatementBuilderType, input models.Scene
 	}
 
 	// Only non-deleted scenes
-	query = query.Where(sq.Eq{"scenes.deleted": false})
+	// Only non-deleted scenes. Inlined rather than `sq.Eq`, so the predicate is a literal
+	// instead of a bind parameter -- upstream PR #1280.
+	query = query.Where("scenes.deleted = false")
 
 	// Apply sort and pagination
 	switch input.Sort {

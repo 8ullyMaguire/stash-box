@@ -684,7 +684,19 @@ func GetMaxIdleConns() int {
 }
 
 func GetConnMaxLifetime() int {
-	return C.Postgres.MaxIdleConns
+	// This returned `C.Postgres.MaxIdleConns` — the max-idle-conns accessor was cloned and
+	// its body never changed. `conn_max_lifetime` was therefore ignored entirely, and with
+	// no config file set at all the value was 0, which pgxpool reads as "never recycle a
+	// connection". Unbounded lifetimes are what produce a pool handing out dead sockets
+	// behind a pgbouncer or a NAT that drops idle connections.
+	//
+	// The default mirrors GetMaxIdleConns' shape: unset falls back to a real value rather
+	// than to the disabling 0. 60 minutes is what upstream proposed and is a sensible
+	// recycle point for a long-lived server.
+	if C.Postgres.ConnMaxLifetime <= 0 {
+		return 60
+	}
+	return C.Postgres.ConnMaxLifetime
 }
 
 func GetCSP() string {

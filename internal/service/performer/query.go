@@ -52,7 +52,9 @@ func (s *Performer) QueryCount(ctx context.Context, input models.PerformerQueryI
 	psql := sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
 	query := s.buildPerformerQuery(psql, input, user.ID, true)
 
-	return queryhelper.ExecuteCount(ctx, query, s.queries.DB(), "QueryPerformersCount")
+	// Custom plan: the performer count's selectivity depends on the filter values, and a
+	// generic plan is then computed over the wrong number of rows. Upstream PR #1280.
+	return queryhelper.ExecuteCountCustomPlan(ctx, query, s.queries.DB(), "QueryPerformersCount")
 }
 
 func (s *Performer) buildPerformerQuery(psql sq.StatementBuilderType, input models.PerformerQueryInput, userID uuid.UUID, forCount bool) sq.SelectBuilder {
@@ -252,7 +254,9 @@ func (s *Performer) buildPerformerQuery(psql sq.StatementBuilderType, input mode
 	}
 
 	// Only non-deleted performers
-	query = query.Where(sq.Eq{"deleted": false})
+	// Only non-deleted performers. Inlined rather than `sq.Eq`, so the predicate is a
+	// literal instead of a bind parameter -- upstream PR #1280.
+	query = query.Where("deleted = false")
 
 	return query
 }
