@@ -16,8 +16,8 @@
 | `96_field_verification_state` | **built** | applies cleanly after 01–95; 11 schema checks observed against a real database |
 | §7.24.1 write path through `internal/service/edit` | **built** | `b5b242d1`; 7/7 mutations killed |
 | §7.24.2 `97_expected_totals` | **built** | `0e8b54e0`; 9 schema behaviours observed against a real database |
-| §7.24.4 `98_lint_quest_definitions` | not started | — |
-| §7.24.6 `99_fingerprint_corroboration` | not started | — |
+| §7.24.4 `98_lint_quest_definitions` | **built** | `15689da1`; 12 schema behaviours observed |
+| §7.24.6 `99_fingerprint_corroboration` | **built** | `003d93b6`; 6 logic behaviours + a measured decision to add no index |
 | §7.24.3 `100_bounty_pricing_audit` | not started | — |
 | §7.24.8 `101_completion_field_weights` | not started | — |
 | `internal/service/completion` | not started | — |
@@ -52,27 +52,30 @@
    that page can exist (it would be an entity claim of the opposite kind). A total's source is
    an ordinary entity claim — "this page lists 412" — which is exactly what a url row is.
 
-### Verified, not assumed
+### How this is verified, and why not by integration tests
 
-`pg_search` is unavailable on this host, so `go test -tags=integration` cannot run at all
-here — the repo's own `TestEloMigrationApplied` fails identically, which is why goal-check
-reports C6b as UNKNOWN rather than PASS. Migration 96 was therefore verified by applying all
-96 migrations to a scratch database with the bm25 indexes shimmed out (shim local only, never
-written back), then observing eleven behaviours:
+`pg_search` is unavailable on this host, so `go test -tags=integration` cannot run at all —
+the repo's own `TestEloMigrationApplied` fails identically, which is why `docs/goal-check.py`
+reports C6b as UNKNOWN rather than PASS. Rather than assert the migrations are untested, there
+are two committed harnesses:
 
-- refused: unknown reason code (FK), NULL reason, NULL asserted_by, unknown asserted_by,
-  duplicate (entity_type, entity_id, field)
-- accepted: a well-formed assertion; two different fields on one entity; the same field on two
-  entities; the same field and entity_id under two entity_types; cited and uncited assertions
-- seeded: `not_yet_looked` has `suppresses_gap = false` and the other two true, which is the
-  farm rule §7.24.1 depends on — if `not_yet_looked` suppressed, asserting "nobody looked"
-  would close the quest without anyone doing the work.
+```
+PGPASSWORD=… python3 docs/verify-724-schema.py sb_check
+```
 
-Scope here is §7.24.1 through §7.24.10 — the items that are cheap and
-unblocking. §7.24.11 (preservation) is a separate phase and deliberately not
-started, with one exception noted at the end.
+- **`docs/apply-all-scratch.py`** applies every migration in order to a scratch database with
+  the bm25 indexes shimmed out. **The shim is local to the script and is never written back to
+  the repo** — migrations 56 and 58 need `CREATE EXTENSION pg_search`, and stripping only those
+  statements is enough to prove a later migration applies against the schema its predecessors
+  produce. It reports the highest migration NUMBER, not the file count, because **number 92 does
+  not exist in this repo** and "applied 98 migrations" reads as though 92 were covered.
+- **`docs/verify-724-schema.py`** rebuilds the database and checks 43 behaviours across
+  migrations 96–99. The rebuild is mandatory: checking a dirty database produced 17 failures
+  that read as schema regressions and were all stale rows meeting a UNIQUE key.
 
----
+Both take `PGPASSWORD` from the environment and refuse to run without it. Each previously
+carried its own default, which is how the parent and child scripts ended up disagreeing about
+the same credential.
 
 ## Why this order
 
