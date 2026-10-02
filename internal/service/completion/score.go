@@ -320,6 +320,14 @@ func percent(earned, total int) int {
 // a caller, and only the second is a failure worth retrying.
 var ErrUnknownEntityType = errors.New("unknown completion entity type")
 
+// ErrUnknownField is returned when a field is not scored for the entity type it was asked
+// about. Separate from ErrUnknownEntityType because the two mean different things to a caller:
+// an unknown type is a bad constant, while an unknown field is usually a caller passing a
+// plausible-looking field name for the wrong entity -- and §7.24.1's write path already refuses
+// that same mistake for quests, so Preview refuses it too rather than previewing a delta
+// computed against a different entity's weights.
+var ErrUnknownField = errors.New("field is not scored for this entity type")
+
 // specs is the per-type weight list. The single place a field is declared
 // scorable, so a field cannot be valid for one type and absent from another's
 // definition without the difference being visible here.
