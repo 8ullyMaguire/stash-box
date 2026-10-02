@@ -66,7 +66,12 @@ def recreate(db):
 
 def main():
     db = sys.argv[1] if len(sys.argv) > 1 else "sb_scratch"
-    through = 99
+    # Default to the HIGHEST migration that exists, not a hardcoded number. The default was 99
+    # and silently skipped 100 when it was added -- the script reported "applied through 99" and
+    # looked like it had done its job. A verification harness with a pinned ceiling goes stale
+    # quietly, which is the one thing it must not do.
+    through = max(int(os.path.basename(f).split("_")[0])
+                  for f in glob.glob(os.path.join(MIG, "*.up.sql")))
     if "--through" in sys.argv:
         through = int(sys.argv[sys.argv.index("--through") + 1])
 

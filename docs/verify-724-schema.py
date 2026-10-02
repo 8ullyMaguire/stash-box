@@ -44,8 +44,15 @@ class Checks:
         self.failures = []
 
     def expect(self, label, sql, should_pass, setup=""):
-        """Run one statement (plus optional setup) and report whether it was accepted."""
-        passed, err = run(self.db, setup + sql)
+        """Run one statement (plus optional setup) and report whether it was accepted.
+
+        %U% in either argument is replaced with a fresh unique user name, so a check never
+        collides with a row an earlier check or an earlier run left behind. Substituting here
+        rather than at each call site is what stopped the repeated "checks passed because they
+        refused on users_name_key" failures.
+        """
+        token = "k" + uuid.uuid4().hex[:10]
+        passed, err = run(self.db, (setup + sql).replace("%U%", token))
         ok = passed == should_pass
         mark = GREEN + "ok  " + RESET if ok else RED + "BAD " + RESET
         got = "accepted" if passed else "refused"
@@ -244,6 +251,56 @@ def main():
     c.expect("zero bounty accepted ('no bounty' is an answer, not a missing value)",
              det("free_rule") + "UPDATE lint_quest_definitions SET bounty_points=0 "
              "WHERE slug='free_rule';", True)
+
+    # ---------------------------------------------------------------- §7.24.3
+    section("§7.24.3 bounty pricing audit (migration 100)")
+
+    Q = "(SELECT id FROM authored_quests LIMIT 1)"
+
+    def price(sug, fin, ovr, src, u, quest=None):
+        return ("INSERT INTO bounty_pricing_audit (quest_id,suggested_points,final_points,"
+                "was_overridden,price_source,priced_by) VALUES (%s,%s,%s,%s,%s,%s);\n"
+                % (quest or Q, sug, fin, ovr, src, U(u)))
+
+    quest_setup = ("INSERT INTO authored_quests (id,entity_type,field,target,reason,created_at) "
+                   "VALUES (gen_random_uuid(),'performer','birthdate',5,'for the archive',NOW());")
+
+    c.expect("author_declared, not overridden accepted",
+             price("0", "42", "FALSE", "'author_declared'", "%U%"), True,
+             user_setup("%U%") + quest_setup)
+    c.expect("author_overrode, flagged, points differ accepted",
+             price("40", "45", "TRUE", "'author_overrode'", "%U%"), True,
+             user_setup("%U%") + quest_setup)
+    c.expect("generated, not overridden, points equal accepted",
+             price("40", "40", "FALSE", "'generated'", "%U%"), True,
+             user_setup("%U%") + quest_setup)
+    # The next three ARE §7.24.3's clause: "the evidence that the generator never wrote a bounty."
+    c.expect("generated but flagged overridden REFUSED (a generator cannot be overridden)",
+             price("40", "45", "TRUE", "'generated'", "%U%"), False,
+             user_setup("%U%") + quest_setup)
+    c.expect("generated with points CHANGED REFUSED (the generator wrote a bounty)",
+             price("40", "45", "FALSE", "'generated'", "%U%"), False,
+             user_setup("%U%") + quest_setup)
+    c.expect("author_overrode but NOT flagged REFUSED (the override is the fact calibration reads)",
+             price("40", "45", "FALSE", "'author_overrode'", "%U%"), False,
+             user_setup("%U%") + quest_setup)
+    c.expect("author_declared but flagged overridden REFUSED",
+             price("40", "45", "TRUE", "'author_declared'", "%U%"), False,
+             user_setup("%U%") + quest_setup)
+    c.expect("unknown price_source REFUSED (the set is closed, not free text)",
+             price("40", "40", "FALSE", "'whatever'", "%U%"), False,
+             user_setup("%U%") + quest_setup)
+    c.expect("NULL price_source REFUSED",
+             price("40", "40", "FALSE", "NULL", "%U%"), False,
+             user_setup("%U%") + quest_setup)
+    c.expect("NULL priced_by REFUSED (who decided must be answerable)",
+             price("40", "40", "FALSE", "'generated'", "NULL"), False, quest_setup)
+    c.expect("absurd final_points REFUSED",
+             price("40", "99999", "TRUE", "'author_overrode'", "%U%"), False,
+             user_setup("%U%") + quest_setup)
+    c.expect("unknown quest_id REFUSED",
+             price("40", "40", "FALSE", "'generated'", "%U%", quest="gen_random_uuid()"),
+             False, user_setup("%U%"))
 
     # ---------------------------------------------------------------- §7.24.6
     section("§7.24.6 fingerprint corroboration (migration 99)")
