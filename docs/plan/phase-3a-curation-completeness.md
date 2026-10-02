@@ -1,7 +1,61 @@
 # Plan — Phase 3a: curation completeness (spec §7.24.1–§7.24.10)
 
 **Spec:** `docs/SPEC.md` §7.24 · **Intake review:** `docs/track/INTAKE-2026-10-01-curation-completeness.md`
-**Written:** 2026-10-01 · **Status:** specified, not started
+**Written:** 2026-10-01 · **Amended:** 2026-10-05
+**Status:** in progress — §7.24.1 schema built, §7.24.1 service and gates outstanding
+
+> **This document is the source of truth for what is NOT built.** `docs/goal-check.py` clause
+> C3 requires every plan document to read `Status: Built`, and it will keep failing until the
+> phase is finished. Do not mark it Built to make the gate pass: C3 is a proxy for "the work is
+> done", and setting it by hand is exactly the kind of gate that becomes decoration.
+
+## Progress
+
+| Item | State | Evidence |
+|---|---|---|
+| `96_field_verification_state` | **built** | applies cleanly after 01–95; 11 schema checks observed against a real database |
+| §7.24.1 write path through `internal/service/edit` | **not started** | — |
+| §7.24.2 `97_expected_totals` | not started | — |
+| §7.24.4 `98_lint_quest_definitions` | not started | — |
+| §7.24.6 `99_fingerprint_corroboration` | not started | — |
+| §7.24.3 `100_bounty_pricing_audit` | not started | — |
+| §7.24.8 `101_completion_field_weights` | not started | — |
+| `internal/service/completion` | not started | — |
+| `internal/service/lint` | not started | — |
+| frontend (4 surfaces) | not started | — |
+| §7.24.11 exception: `cmd/backup` | not started | — |
+
+### Two departures from the plan as written, both forced by the existing schema
+
+1. **`citation_url` is a plain text column, not a `source_id` FK.** There is no `sources` table
+   in this schema — citations live in `scene_urls`, `performer_urls`, `studio_urls`, each of
+   which is a per-entity claim with its own edit trail. An assertion's citation is not that:
+   it is a note about why a field is *unverifiable*, and the entity in question may have no url
+   row for the page that says nothing about them. Putting it in those tables would make a
+   "this page does not mention height" claim sit alongside rows that assert the opposite kind
+   of thing. §7.24.2's expected totals are the opposite case and DO get `source_id NOT NULL`
+   in `97` — an unsourced total silently deflates every completion score, whereas an unsourced
+   unknown suppresses one gap and is a normal thing to record.
+
+2. **`field_verification_reasons` is created BEFORE `field_verification_states`,** so
+   `reason_code`'s FK has a target. The plan listed them as separate tables; the ordering is
+   forced by the reference.
+
+### Verified, not assumed
+
+`pg_search` is unavailable on this host, so `go test -tags=integration` cannot run at all
+here — the repo's own `TestEloMigrationApplied` fails identically, which is why goal-check
+reports C6b as UNKNOWN rather than PASS. Migration 96 was therefore verified by applying all
+96 migrations to a scratch database with the bm25 indexes shimmed out (shim local only, never
+written back), then observing eleven behaviours:
+
+- refused: unknown reason code (FK), NULL reason, NULL asserted_by, unknown asserted_by,
+  duplicate (entity_type, entity_id, field)
+- accepted: a well-formed assertion; two different fields on one entity; the same field on two
+  entities; the same field and entity_id under two entity_types; cited and uncited assertions
+- seeded: `not_yet_looked` has `suppresses_gap = false` and the other two true, which is the
+  farm rule §7.24.1 depends on — if `not_yet_looked` suppressed, asserting "nobody looked"
+  would close the quest without anyone doing the work.
 
 Scope here is §7.24.1 through §7.24.10 — the items that are cheap and
 unblocking. §7.24.11 (preservation) is a separate phase and deliberately not
