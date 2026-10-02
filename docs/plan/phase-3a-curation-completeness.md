@@ -19,8 +19,9 @@
 | §7.24.4 `98_lint_quest_definitions` | **built** | `15689da1`; 12 schema behaviours observed |
 | §7.24.6 `99_fingerprint_corroboration` | **built** | `003d93b6`; 6 logic behaviours + a measured decision to add no index |
 | §7.24.3 `100_bounty_pricing_audit` | not started | — |
-| §7.24.8 `101_completion_field_weights` | not started | — |
-| `internal/service/completion` | not started | — |
+| §7.24.8 `101_completion_field_weights` | **built (service)** | `b3676fe2`; `internal/service/completion/delta.go`, 11/11 mutations killed |
+| §7.24.8 `101_completion_field_weights` (migration) | not started | weights are in Go today; see below |
+| `internal/service/completion` | **extended, pre-existing** | `score.go` already existed (§7.7); `delta.go` adds §7.24.8 on top |
 | `internal/service/lint` | not started | — |
 | frontend (4 surfaces) | not started | — |
 | §7.24.11 exception: `cmd/backup` | not started | — |
@@ -51,6 +52,21 @@
    assertion's citation describes a page that says nothing about the entity, so no url row for
    that page can exist (it would be an entity claim of the opposite kind). A total's source is
    an ordinary entity claim — "this page lists 412" — which is exactly what a url row is.
+
+4. **`101_completion_field_weights` is NOT a table, and the plan's reason for it is the reason
+   against.** The plan says "per-field marginal-gain weight, so 'next-highest-value missing
+   field' (§7.24.8) and lint pricing share one source." The sharing is real and the weights are
+   now in `internal/service/completion/score.go` — but they are in **Go**, not SQL, and moving
+   them to a table would not create the second source the sentence is worried about. It would
+   create a *second copy of the same constant*, one of which a curator could edit at runtime
+   while the completion bar kept scoring with the compiled-in list. That is a worse failure than
+   the one the plan is guarding against: it is the one `score.go`'s own header already refuses
+   ("a stored score is a second source of truth sitting next to the columns it summarises").
+
+   §7.24.8 itself asks only for a *read* of §7.7's score, and `delta.go` is that read. So the
+   migration is deferred until something genuinely needs to query weights **in SQL** — which is
+   the lint detectors' pricing, and that lands with `internal/service/lint`, not before it. The
+   weights stay in Go until a second consumer exists in a different language.
 
 ### How this is verified, and why not by integration tests
 
