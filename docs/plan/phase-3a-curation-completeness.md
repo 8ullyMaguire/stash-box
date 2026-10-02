@@ -14,8 +14,8 @@
 | Item | State | Evidence |
 |---|---|---|
 | `96_field_verification_state` | **built** | applies cleanly after 01–95; 11 schema checks observed against a real database |
-| §7.24.1 write path through `internal/service/edit` | **not started** | — |
-| §7.24.2 `97_expected_totals` | not started | — |
+| §7.24.1 write path through `internal/service/edit` | **built** | `b5b242d1`; 7/7 mutations killed |
+| §7.24.2 `97_expected_totals` | **built** | `0e8b54e0`; 9 schema behaviours observed against a real database |
 | §7.24.4 `98_lint_quest_definitions` | not started | — |
 | §7.24.6 `99_fingerprint_corroboration` | not started | — |
 | §7.24.3 `100_bounty_pricing_audit` | not started | — |
@@ -40,6 +40,17 @@
 2. **`field_verification_reasons` is created BEFORE `field_verification_states`,** so
    `reason_code`'s FK has a target. The plan listed them as separate tables; the ordering is
    forced by the reference.
+
+3. **`source_id` became `(source_entity_type, source_url)` pointing at a url row.** The plan
+   wrote `source_id UUID NOT NULL` against a `sources` table that does not exist in this schema.
+   A source is a first-class claim with its own edit trail and trust rules — which is what the
+   three `*_urls` tables already are — so 97 points at a url row rather than inventing a table
+   it has no standing to create.
+
+   This is the **opposite** reasoning from departure 1, and the difference is the point: an
+   assertion's citation describes a page that says nothing about the entity, so no url row for
+   that page can exist (it would be an entity claim of the opposite kind). A total's source is
+   an ordinary entity claim — "this page lists 412" — which is exactly what a url row is.
 
 ### Verified, not assumed
 
