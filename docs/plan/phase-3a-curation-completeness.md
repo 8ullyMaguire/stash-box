@@ -14,6 +14,7 @@
 | Item | State | Evidence |
 |---|---|---|
 | `96_field_verification_state` | **built** | applies cleanly after 01–95; 11 schema checks observed against a real database |
+| `102_field_verification_cascade` | **built** | 2026-10-04; fixes a real defect in 96 — see below |
 | §7.24.1 write path through `internal/service/edit` | **built** | `b5b242d1`; 7/7 mutations killed |
 | §7.24.2 `97_expected_totals` | **built** | `0e8b54e0`; 9 schema behaviours observed against a real database |
 | §7.24.4 `98_lint_quest_definitions` | **built** | `15689da1`; 12 schema behaviours observed |
@@ -68,12 +69,84 @@
    the lint detectors' pricing, and that lands with `internal/service/lint`, not before it. The
    weights stay in Go until a second consumer exists in a different language.
 
-### How this is verified, and why not by integration tests
+### Third departure: 96's cascade did not exist, and the number 101 was already spoken for
 
-`pg_search` is unavailable on this host, so `go test -tags=integration` cannot run at all —
-the repo's own `TestEloMigrationApplied` fails identically, which is why `docs/goal-check.py`
-reports C6b as UNKNOWN rather than PASS. Rather than assert the migrations are untested, there
-are two committed harnesses:
+**`102_field_verification_cascade` fixes a real defect, not a gap in the plan.** 96's header
+states the intent:
+
+> ON DELETE CASCADE, unlike most of the edit machinery. An assertion about a deleted entity
+> is not a historical record anyone needs … keeping it would let a re-created entity of the
+> same name inherit confidence nobody gave it.
+
+`entity_id` is **polymorphic** — one `(entity_type, entity_id)` pair, not four nullable FKs —
+so PostgreSQL cannot carry that cascade, and 96's only cascade is on `asserted_by`, which is
+the author and not the subject. Measured on a real database:
+
+```
+insert performer P, insert assertion for P   -> assertion count 1
+delete from performers where id = P          -> DELETE 1
+assertion count                              -> 1        <-- the claim is false
+```
+
+An assertion outliving its entity suppresses a completion gap for an entity that no longer
+exists, and hands that suppression to a future entity of the same name. This is the failure
+§7.24.1 exists to prevent, arriving through the feature that implements it.
+
+**Why 102 and not 101.** Departure 4 above defers `101_completion_field_weights`. Reserving a
+number for work that is deliberately not being built is the only thing that number is for, so
+the cascade migration takes the next free one rather than the next convenient one.
+
+**Why a trigger and not four partial FKs.** `performer_id`/`scene_id`/… would cascade for
+free, but they permit a row claiming a performer AND a scene at once, which is exactly the
+objection 96's header raises against a four-column shape. The trigger keeps the entity-type
+vocabulary in one place and **raises** on an unrecognised entity table rather than skipping —
+an assertion nothing can ever clean up suppresses a gap forever.
+
+The same gap exists in `76_add_user_trust` (`trust_events`) and 79's identification board, so
+this is the shape this schema uses for polymorphic references rather than a mistake unique to
+96. Those are **not fixed here** — a polymorphic reference with no cascade is a design
+question about those two tables, not a bug fix to smuggle in alongside this one.
+
+### How this is verified — corrected 2026-10-04, because the old answer was obsolete
+
+The section this replaces read:
+
+> `pg_search` is unavailable on this host, so `go test -tags=integration` cannot run at all …
+> which is why `docs/goal-check.py` reports C6b as UNKNOWN rather than PASS.
+
+**That is no longer true, and it was never the whole reason.** A container built from
+`docker/production/postgres/Dockerfile` (PG 18 + pg_search 0.21.8 + bktree) runs here, and with
+it the suite is **34 packages green with `-tags=integration`** and C6b PASSES. Getting there
+needed two fixes to `goal-check.py` itself — it connected `psql` over the container's unix
+socket instead of the port it had been told to use, and `CREATE DATABASE` never installed
+pg_search/bktree into the database it created. Both made C6b report UNKNOWN on a host that
+had a working database and a passing suite.
+
+**The lesson, which is the reason this section exists at all:** for six days this plan
+explained an UNKNOWN clause by blaming the environment, and the environment was fine. A clause
+that cannot distinguish "no database" from "the gate cannot reach the database" will report
+the second whenever the first happens, and the explanation will be believed. The suite being
+run is a separate question from the gate being able to run it.
+
+Run it:
+
+```bash
+sudo -n docker run -d --name sbx-pg-a --network host \
+  -e POSTGRES_PASSWORD=smoke_pw -e POSTGRES_USER=postgres \
+  -e POSTGRES_DB='stash-box-test' -e PGDATA=/tmp/pgdata -p 55434 \
+  stashbox-pg:18
+PGPASSWORD=smoke_pw psql -h 127.0.0.1 -p 55434 -U postgres -d 'stash-box-test' \
+  -c 'CREATE EXTENSION IF NOT EXISTS pg_search; CREATE EXTENSION IF NOT EXISTS bktree;'
+cd ~/code-local/go/stash-box
+POSTGRES_DB='postgres:smoke_pw@127.0.0.1:55434/stash-box-test?sslmode=disable' make it
+```
+
+`--network host` rather than `-p`: on this host the bridge network did not assign an IP to a
+newly created container, so published ports silently refused connections. `POSTGRES_DB` is a
+**bare DSN** with no `postgres://` — see `internal/config/exec_mode_option_test.go`.
+
+The migrations themselves are additionally checked against a real database by applying all of
+them in numeric order to a scratch database. There are two committed harnesses:
 
 ```
 PGPASSWORD=… python3 docs/verify-724-schema.py sb_check

@@ -17,7 +17,13 @@ import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MIG = os.path.join(REPO, "internal/database/migrations/postgres")
-HOST, USER = "127.0.0.1", "gravity"
+HOST = os.environ.get("VERIFY_HOST", "127.0.0.1")
+# `gravity` was hardcoded here AND in verify-724-schema.py, and it is another project's
+# role on this host. Both scripts now read the same three variables, so pointing them at a
+# scratch PostgreSQL means setting them once instead of editing two files -- and they can no
+# longer disagree about which database they are talking to.
+PORT = os.environ.get("VERIFY_PORT", "5432")
+USER = os.environ.get("VERIFY_USER", "postgres")
 # PGPASSWORD comes from the environment when set. The default is the local development
 # password, and it is deliberately NOT hardcoded as a fallback: an earlier version read
 # os.environ.get("PGPASSWORD", "smoke_pw") here and in the parent script, so a run with a
@@ -49,7 +55,7 @@ def shim(sql: str) -> str:
 
 def psql(db, sql, quiet=True):
     r = subprocess.run(
-        ["psql", "-h", HOST, "-U", USER, "-d", db, "-v", "ON_ERROR_STOP=1", "-q", "-c", sql],
+        ["psql", "-h", HOST, "-p", PORT, "-U", USER, "-d", db, "-v", "ON_ERROR_STOP=1", "-q", "-c", sql],
         env=ENV, capture_output=True, text=True)
     if r.returncode and not quiet:
         sys.stderr.write(r.stderr)
@@ -57,9 +63,9 @@ def psql(db, sql, quiet=True):
 
 
 def recreate(db):
-    subprocess.run(["dropdb", "-h", HOST, "-U", USER, "--if-exists", db], env=ENV,
+    subprocess.run(["dropdb", "-h", HOST, "-p", PORT, "-U", USER, "--if-exists", db], env=ENV,
                    capture_output=True)
-    r = subprocess.run(["createdb", "-h", HOST, "-U", USER, db], env=ENV, capture_output=True, text=True)
+    r = subprocess.run(["createdb", "-h", HOST, "-p", PORT, "-U", USER, db], env=ENV, capture_output=True, text=True)
     if r.returncode:
         sys.exit("createdb failed: " + r.stderr.strip())
 

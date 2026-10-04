@@ -21,7 +21,13 @@ import subprocess
 import sys
 import uuid
 
-HOST, USER = "127.0.0.1", "gravity"
+HOST = os.environ.get("VERIFY_HOST", "127.0.0.1")
+# The port and role were hardcoded to `gravity`, which is another project's database on
+# this host. The scratch database this script checks is created by
+# docs/apply-all-scratch.py in whatever PostgreSQL the caller points it at -- so the two
+# disagreed, and the failure named a role rather than a missing database.
+PORT = os.environ.get("VERIFY_PORT", "5432")
+USER = os.environ.get("VERIFY_USER", "postgres")
 # One source of truth for the credential: the environment. See the note in
 # apply-all-scratch.py -- a hardcoded fallback here made the parent and the child disagree.
 ENV = dict(os.environ)
@@ -33,7 +39,7 @@ GREEN, RED, YELLOW, RESET = "\033[32m", "\033[31m", "\033[33m", "\033[0m"
 
 def run(db, sql):
     r = subprocess.run(
-        ["psql", "-h", HOST, "-U", USER, "-d", db, "-v", "ON_ERROR_STOP=1", "-q", "-c", sql],
+        ["psql", "-h", HOST, "-p", PORT, "-U", USER, "-d", db, "-v", "ON_ERROR_STOP=1", "-q", "-c", sql],
         env=ENV, capture_output=True, text=True)
     return r.returncode == 0, (r.stderr or "").strip().split("\n")[0]
 
@@ -65,8 +71,23 @@ class Checks:
             print("     %s%s%s" % (YELLOW, err[:100], RESET))
         return passed
 
-    def equal(self, label, sql, want):
-        r = subprocess.run(["psql", "-h", HOST, "-U", USER, "-d", self.db, "-tAq", "-c", sql],
+    def equal(self, label, sql, want, setup=""):
+        # `setup` exists because §7.24.1's cascade checks need a user row to exist before
+        # the statement runs (asserted_by is NOT NULL REFERENCES users), and a check that
+        # inlines its own INSERT has to repeat that INSERT in three places. Returning early
+        # on a failed setup rather than asserting: a missing fixture that then produces the
+        # right count by accident is the failure mode this harness exists to prevent.
+        if setup:
+            r0 = subprocess.run(
+                ["psql", "-h", HOST, "-p", PORT, "-U", USER, "-d", self.db, "-tAq",
+                 "-v", "ON_ERROR_STOP=1", "-c", setup],
+                env=ENV, capture_output=True, text=True)
+            if r0.returncode != 0:
+                print(RED + "BAD " + RESET + " %-58s setup failed: %s"
+                      % (label, (r0.stderr or r0.stdout).strip()[:160]))
+                self.failures.append(label + " (setup)")
+                return False
+        r = subprocess.run(["psql", "-h", HOST, "-p", PORT, "-U", USER, "-d", self.db, "-tAq", "-c", sql],
                            env=ENV, capture_output=True, text=True)
         got = r.stdout.strip()
         ok = got == str(want)
@@ -181,6 +202,71 @@ def main():
             "f")
     c.equal("the closed reason set is exactly 3 codes",
             "SELECT count(*) FROM field_verification_reasons;", 3)
+
+    # ------------------------------------------------ §7.24.1 cascade (migration 102)
+    section("§7.24.1 entity cascade (migration 102)")
+
+    # 96's header claims ON DELETE CASCADE from the entity, and `entity_id` being
+    # polymorphic means no foreign key can carry it. These three checks are what that claim
+    # looks like when it is actually true.
+    #
+    # Each needs its OWN entity ids. A single id reused across the checks would pass for
+    # free: once the first delete has cascaded, there is nothing left for the second to
+    # cascade, so a broken trigger would still see the count fall.
+    c.equal("deleting a performer removes its assertion",
+            "CREATE TEMP TABLE _p1 AS SELECT gen_random_uuid() AS pid;\n"
+            "INSERT INTO performers (id,name,created_at,updated_at) "
+            "SELECT pid,'cascade-probe-1',now(),now() FROM _p1;\n"
+            + FV + "SELECT gen_random_uuid(),'performer',pid,'height',"
+            "'not_publicly_knowable'," + U("k1") + ",now() FROM _p1;\n"
+            "DELETE FROM performers WHERE id = (SELECT pid FROM _p1);\n"
+            "SELECT count(*) FROM field_verification_states "
+            "WHERE entity_type='performer' AND entity_id=(SELECT pid FROM _p1);",
+            0, user_setup("k1"))
+
+    # The discriminator. A trigger that ignored entity_type, or that matched on the id
+    # alone, would delete this scene's assertion when the performer went -- and the check
+    # above would still pass.
+    c.equal("deleting a performer leaves another type's assertion alone",
+            "CREATE TEMP TABLE _x AS SELECT gen_random_uuid() AS pid, "
+            "gen_random_uuid() AS sid;\n"
+            "INSERT INTO performers (id,name,created_at,updated_at) "
+            "SELECT pid,'cascade-probe-2',now(),now() FROM _x;\n"
+            "INSERT INTO scenes (id,title,created_at,updated_at) "
+            "SELECT sid,'cascade-probe-2',now(),now() FROM _x;\n"
+            + FV + "SELECT gen_random_uuid(),'performer',pid,'height',"
+            "'not_publicly_knowable'," + U("k2") + ",now() FROM _x;\n"
+            + FV + "SELECT gen_random_uuid(),'scene',sid,'title',"
+            "'not_publicly_knowable'," + U("k2") + ",now() FROM _x;\n"
+            "DELETE FROM performers WHERE id = (SELECT pid FROM _x);\n"
+            "SELECT count(*) FROM field_verification_states "
+            "WHERE entity_type='scene' AND entity_id=(SELECT sid FROM _x);",
+            1, user_setup("k2"))
+
+    c.equal("deleting the author still cascades (asserted_by, from 96)",
+            "CREATE TEMP TABLE _a AS SELECT gen_random_uuid() AS aid;\n"
+            "INSERT INTO users (id,name,password_hash,email,api_key,last_api_call,"
+            "created_at,updated_at) SELECT aid,'cascade-author','x','ca@t.io',"
+            "'k'||aid::text,now(),now(),now() FROM _a;\n"
+            + FV + "SELECT gen_random_uuid(),'performer',gen_random_uuid(),'height',"
+            "'not_publicly_knowable',aid,now() FROM _a;\n"
+            "DELETE FROM users WHERE id = (SELECT aid FROM _a);\n"
+            "SELECT count(*) FROM field_verification_states "
+            "WHERE asserted_by=(SELECT aid FROM _a);",
+            0)
+
+    # TRUNCATE fires no row-level trigger. The integration suite truncates between
+    # packages, so without a truncate trigger the assertions outlive every entity in the
+    # table and the next package starts with rows pointing at nothing.
+    c.equal("TRUNCATE performers clears assertions (no row-level trigger fires)",
+            "CREATE TEMP TABLE _t AS SELECT gen_random_uuid() AS pid;\n"
+            "INSERT INTO performers (id,name,created_at,updated_at) "
+            "SELECT pid,'cascade-probe-3',now(),now() FROM _t;\n"
+            + FV + "SELECT gen_random_uuid(),'performer',pid,'height',"
+            "'not_publicly_knowable'," + U("k3") + ",now() FROM _t;\n"
+            "TRUNCATE performers CASCADE;\n"
+            "SELECT count(*) FROM field_verification_states;",
+            0, user_setup("k3"))
 
     # ---------------------------------------------------------------- §7.24.2
     section("§7.24.2 expected totals (migration 97)")
