@@ -559,18 +559,37 @@ def isolated_test_db():
     dbname = f"goalcheck_{os.getpid()}_{secrets.token_hex(4)}"
     myprefix = f"goalcheck_{os.getpid()}_"
 
+    def psql_cmd(database="postgres"):
+        # -h 127.0.0.1 -p <port>, NOT the default unix socket.
+        #
+        # `psql` with no host connects over /var/run/postgresql/.s.PGSQL.<port>, and
+        # that file exists only if the server inside the container was started on 5432
+        # with a socket in the usual place. A container started with `-p 55434` puts its
+        # socket at .s.PGSQL.55434, so every psql call in this function fails with
+        # `connection to server on socket "/var/run/postgresql/.s.PGSQL.5432" failed: No
+        # such file or directory` -- while returning exit code 0 in some shells, which is
+        # how isolated_test_db() ends up returning (None, None) and C6b reports UNKNOWN
+        # on a machine that has a perfectly good database.
+        #
+        # Measured: with INTEGRATION_PORT=55434 the sweep and CREATE both failed this way
+        # and goal-check exited after 60s having run no tests at all -- an UNKNOWN that
+        # looked exactly like a slow suite.
+        #
+        # Connecting over TCP to the port we were told to use removes the dependence on
+        # the container's socket path entirely.
+        return ["sudo", "-n", "docker", "exec", container, "psql",
+                "-h", "127.0.0.1", "-p", port, "-U", user, "-d", database]
+
     def psql(sql, database="postgres"):
         return subprocess.run(
-            ["sudo", "-n", "docker", "exec", container, "psql", "-U", user,
-             "-d", database, "-c", sql],
+            psql_cmd(database) + ["-c", sql],
             capture_output=True, text=True, timeout=120)
 
     # Sweep THIS PROCESS's residue. A run killed mid-flight (a timeout, a Ctrl-C, a
     # context limit) never reaches its own cleanup. Scoped to the PID above so a
     # concurrent run's database is never touched.
     stale = subprocess.run(
-        ["sudo", "-n", "docker", "exec", container, "psql", "-U", user,
-         "-d", "postgres", "-tAc",
+        psql_cmd("postgres") + ["-tAc",
          f"SELECT datname FROM pg_database WHERE datname LIKE '{myprefix}%'"],
         capture_output=True, text=True, timeout=120)
     for old in stale.stdout.split():
@@ -578,8 +597,40 @@ def isolated_test_db():
              f"WHERE datname = '{old}' AND pid <> pg_backend_pid();")
         psql(f'DROP DATABASE IF EXISTS "{old}";')
 
-    if psql(f'CREATE DATABASE "{dbname}";').returncode != 0:
+    created = psql(f'CREATE DATABASE "{dbname}";')
+    if created.returncode != 0:
+        # Report WHY rather than letting the caller print a bare "no integration
+        # database available", which reads as an environment problem when it may be an
+        # authentication or connectivity one with a specific fix.
+        print(f"[C6b] could not create {dbname}: "
+              f"{(created.stderr or created.stdout).strip()[:300]}", flush=True)
         return None, None
+    # CREATE DATABASE prints "CREATE DATABASE" to stdout even on some failure paths, so
+    # confirm the database is really there before handing back a DSN.
+    probe = subprocess.run(
+        psql_cmd("postgres") + ["-tAc",
+         f"SELECT 1 FROM pg_database WHERE datname = '{dbname}'"],
+        capture_output=True, text=True, timeout=120)
+    if probe.stdout.strip() != "1":
+        print(f"[C6b] {dbname} not present after CREATE: "
+              f"{(probe.stderr or probe.stdout).strip()[:300]}", flush=True)
+        return None, None
+
+    # The extensions must exist in the NEW database. CREATE DATABASE copies nothing from
+    # template1 unless the extension was installed THERE, and this function creates an
+    # empty database -- so every subsequent run found migration 56 failing on a missing
+    # pg_search, and C6b reported UNKNOWN for a reason that has nothing to do with the
+    # suite. Installing them per-database is what makes the isolation worth anything: a
+    # shared database would have the extensions and would also share its tables.
+    for ext in ("pg_search", "bktree"):
+        made = psql(f'CREATE EXTENSION IF NOT EXISTS "{ext}";')
+        if made.returncode != 0:
+            print(f"[C6b] could not create extension {ext} in {dbname}: "
+                  f"{(made.stderr or made.stdout).strip()[:300]}", flush=True)
+            # Drop the database rather than handing back a DSN that will fail inside the
+            # suite, where the error names a migration instead of the setup.
+            psql(f'DROP DATABASE IF EXISTS "{dbname}";')
+            return None, None
 
     def cleanup():
         # Terminate stragglers first: a still-open connection blocks DROP DATABASE
