@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/gofrs/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -81,7 +82,29 @@ func TestAnUnknownReasonCodeIsRefusedByTheSchema(t *testing.T) {
 		uuid.Must(uuid.NewV4()), uuid.Must(uuid.NewV4()), user)
 	require.Error(t, err, "a reason code outside the registry was accepted, so the FK is "+
 		"missing and an assertion can carry a reason nothing validates")
-	assert.Contains(t, err.Error(), "field_verification_reasons")
+
+	// Assert on the CONSTRAINT, not on the prose of the error. pgx surfaces SQLSTATE 23503
+	// and the constraint name; the human-readable "is not present in table
+	// field_verification_reasons" sentence lives in the server's DETAIL field, which
+	// `err.Error()` does NOT include:
+	//
+	//	Error()       = ERROR: insert or update on table "field_verification_states"
+	//	                violates foreign key constraint
+	//	                "field_verification_states_reason_code_fkey" (SQLSTATE 23503)
+	//	Detail        = Key (reason_code)=(because_i_said_so) is not present in table
+	//	                "field_verification_reasons".
+	//
+	// This assertion used to require the DETAIL sentence inside err.Error(), so it failed
+	// while the FK was working perfectly -- a green constraint reported as broken. Naming
+	// the constraint is also the stronger claim: it survives a wording change in any
+	// PostgreSQL release.
+	var pgErr *pgconn.PgError
+	require.ErrorAs(t, err, &pgErr, "expected a PostgreSQL error, got %T", err)
+	assert.Equal(t, "23503", pgErr.Code, "foreign_key_violation")
+	assert.Equal(t, "field_verification_states_reason_code_fkey", pgErr.ConstraintName,
+		"the violated constraint must be the reason_code FK -- a different one would "+
+			"mean this insert failed for an unrelated reason and proved nothing about "+
+			"the registry")
 }
 
 func TestAnAssertionWithNoReasonIsRefused(t *testing.T) {

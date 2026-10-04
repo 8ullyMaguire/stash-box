@@ -34,6 +34,53 @@ func NewScene(queries *queries.Queries, withTxn queries.WithTxnFunc) *Scene {
 	}
 }
 
+// bm25Search runs a ParadeDB BM25 query inside a transaction with
+// plan_cache_mode = force_custom_plan.
+//
+// WHY. The BM25 queries in this schema select `pdb.agg(...) OVER ()` and order by
+// `pdb.score(...)`. ParadeDB implements those with a custom scan that only recognises its
+// own query shape, and PostgreSQL's planner will switch the statement to a GENERIC plan
+// after five executions of the prepared statement. Under a generic plan the custom scan
+// is no longer intercepting the aggregate, and the query fails at run time with:
+//
+//	window_agg placeholder should not be executed - custom scan should have
+//	intercepted this. JSON: {"entries":[{"Aggregate":{"Custom":{"agg_json":
+//	{"value_count":{"field":"scene_id"}}, ...}}], "uses_our_operator":false}
+//	(SQLSTATE XX000)
+//
+// This is not hypothetical and it is not a version quirk: it is why
+// `Performer.bm25Search` exists (internal/service/performer/service.go). Scene search was
+// the one BM25 caller that never got the same guard, and
+// TestSceneSearchRankingRegressions/scene_is_findable_by_scene_code fails on it -- the
+// sixth subtest, because five executions happen before it and the failure needs a
+// prepared statement that has been reused.
+//
+// NOT a generic method, and deliberately so. `Performer.bm25Search` is declared `[T any]`,
+// which Go does not permit on a method -- a method may not introduce type parameters --
+// and that is one of the reasons this branch does not compile ("method must have no type
+// parameters"). This takes a concrete result type instead, so the same guard is available
+// here without the construct that breaks the build.
+//
+// It returns ids and the window-aggregate total together, because both come out of the
+// same SearchScenes result set and reading them inside the transaction keeps the count and
+// the ids from being two separate prepared statements against a moving target.
+//
+// `SET LOCAL` scopes the override to this transaction, so nothing leaks to the pool's
+// other sessions.
+func (s *Scene) bm25Search(ctx context.Context, fn func(*queries.Queries) ([]uuid.UUID, int32, error)) ([]uuid.UUID, int32, error) {
+	var ids []uuid.UUID
+	var total int32
+	err := s.withTxn(func(q *queries.Queries) error {
+		if _, err := q.DB().Exec(ctx, "SET LOCAL plan_cache_mode = force_custom_plan"); err != nil {
+			return err
+		}
+		var err error
+		ids, total, err = fn(q)
+		return err
+	})
+	return ids, total, err
+}
+
 // WithTxn executes a function within a transaction
 func (s *Scene) WithTxn(fn func(*queries.Queries) error) error {
 	return s.withTxn(fn)
@@ -168,18 +215,34 @@ func (s *Scene) SearchScenesWithCount(ctx context.Context, term string, limit in
 		}, nil
 	}
 
-	rows, err := s.queries.SearchScenes(ctx, queries.SearchScenesParams{
-		Tokens: tokens,
-		Limit:  int32(limit),
-		Offset: int32(offset),
+	// Runs through bm25Search: SearchScenes selects `pdb.agg(...) OVER ()` and orders by
+	// `pdb.score(...)`, so it needs force_custom_plan or PostgreSQL's switch to a generic
+	// plan (after five executions of the prepared statement) makes ParadeDB's custom scan
+	// stop intercepting the window aggregate and the query fails with
+	// "window_agg placeholder should not be executed". See bm25Search's comment.
+	ids, totalCount, err := s.bm25Search(ctx, func(q *queries.Queries) ([]uuid.UUID, int32, error) {
+		rows, err := q.SearchScenes(ctx, queries.SearchScenesParams{
+			Tokens: tokens,
+			Limit:  int32(limit),
+			Offset: int32(offset),
+		})
+		if err != nil {
+			return nil, 0, err
+		}
+		out := make([]uuid.UUID, len(rows))
+		for i, row := range rows {
+			out[i] = row.SceneID
+		}
+		// total_count comes from the window aggregate on the first row; with no rows
+		// there is no aggregate to read and the count is 0 by definition.
+		var total int32
+		if len(rows) > 0 {
+			total = int32(parseParadeDBCount(rows[0].TotalCount))
+		}
+		return out, total, nil
 	})
 	if err != nil {
 		return nil, err
-	}
-
-	ids := make([]uuid.UUID, len(rows))
-	for i, row := range rows {
-		ids[i] = row.SceneID
 	}
 
 	scenePtrs, _ := s.LoadIds(ctx, ids)
@@ -190,10 +253,7 @@ func (s *Scene) SearchScenesWithCount(ctx context.Context, term string, limit in
 		}
 	}
 
-	count := 0
-	if len(rows) > 0 {
-		count = parseParadeDBCount(rows[0].TotalCount)
-	}
+	count := int(totalCount)
 
 	return &models.SceneQuery{
 		SearchResults: &models.SceneSearchResults{

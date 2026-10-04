@@ -115,9 +115,30 @@ func testPool(t *testing.T) *pgxpool.Pool {
 	if databaseURL == "" {
 		t.Skip("POSTGRES_DB not set")
 	}
-	pool, err := pgxpool.New(context.Background(), databaseURL)
+	// The `postgres://` prefix is REQUIRED, and omitting it fails in the worst possible
+	// way: `pgxpool.New` does not reject a bare DSN. It parses, and produces a config
+	// whose Host is the empty string -- which pgx resolves to the unix socket directory,
+	// so the failure surfaces as `dial unix /tmp/.s.PGSQL.5432: no such file or
+	// directory` and reads like a Postgres that is not running.
+	//
+	// Measured, on a suite that WAS up and reachable on 127.0.0.1:55434:
+	//
+	//	pgxpool.ParseConfig("postgres:smoke_pw@127.0.0.1:55434/stash-box-test?...")
+	//	  -> err=<nil> host="/tmp" port=5432 user="alvaro" db=""
+	//	pgxpool.ParseConfig("postgres://postgres:smoke_pw@127.0.0.1:55434/...")
+	//	  -> err=<nil> host="127.0.0.1" port=55434 user="postgres" db="stash-box-test"
+	//
+	// `internal/database.Initialize` has always prepended the scheme for exactly this
+	// reason. This helper was the one place that did not, and the resulting failure named
+	// the socket instead of the cause -- the same shape as the config note in
+	// CLAUDE.md about viper reading a config file that does not exist.
+	pool, err := pgxpool.New(context.Background(), "postgres://"+databaseURL)
 	if err != nil {
 		t.Fatalf("connect: %v", err)
+	}
+	if pool.Config().ConnConfig.Host == "" || pool.Config().ConnConfig.Port == 0 {
+		t.Fatalf("POSTGRES_DB parsed to host=%q port=%d -- the `postgres://` prefix is missing",
+			pool.Config().ConnConfig.Host, pool.Config().ConnConfig.Port)
 	}
 	t.Cleanup(pool.Close)
 	return pool

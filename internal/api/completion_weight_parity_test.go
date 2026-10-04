@@ -313,7 +313,26 @@ func TestTheCountQueryIsValidSQL(t *testing.T) {
 			// PREPARE's strictness, not about the query. sqlc's generated call
 			// passes exactly these types at run time, so declaring them tests the
 			// query as it is actually used.
-			_, err := dbtest.DB().Exec(t.Context(), "PREPARE q AS "+stmt)
+			// A DISTINCT prepared-statement name per subtest, and DEALLOCATE afterwards.
+			//
+			// Both subtests below used `PREPARE q`, so the second one failed with
+			// `prepared statement "q" already exists (SQLSTATE 42P05)` -- an error about
+			// the harness's own bookkeeping that reads exactly like the query being
+			// untypeable, and lands in the assert.NoError below whose message claims the
+			// query does not type-check. The first subtest was reported as the failure when
+			// it was the second that collided.
+			//
+			// Prepared statements are session-scoped, and the suite shares one pool, so
+			// this is not merely a within-test problem: a leftover `q` can collide with any
+			// later test in this package that prepares the same name.
+			stmtName := "parity_" + strings.ToLower(name)
+			_, err := dbtest.DB().Exec(t.Context(), "PREPARE "+stmtName+" AS "+stmt)
+			// DEALLOCATE unconditionally, and ignore its error: if PREPARE failed there is
+			// nothing to deallocate, and a cleanup that fails the test would report a second
+			// problem on top of the real one.
+			defer func() {
+				_, _ = dbtest.DB().Exec(t.Context(), "DEALLOCATE "+stmtName)
+			}()
 			assert.NoError(t, err,
 				"%s does not type-check. PostgreSQL has no boolean*integer "+
 					"operator, so a weight term must be `(NOT (...))::int * N` -- "+
