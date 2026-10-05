@@ -68,7 +68,7 @@ instance ever gets a real deployment and SSR becomes worth its cost.
 | 24 | Tag hierarchy | no — vocabulary project | — | `[!]` |
 | 25 | Studio completeness race | **DONE** (`9727dbf9`) — migration 97's table was read by nothing; real read path added | W3 | `[x]` |
 | 26 | RSS feeds | no | — | `[ ]` |
-| 27 | Similar performers | no — cheapest recommendation available | W5 | `[ ]` |
+| 27 | Similar performers | **DONE** (`0492229a`) — co-occurrence ranking over GraphQL; the score is decomposed into checkable facts, and a bare number is explicitly not for display | W5 | `[x]` |
 | 28 | Shareable lists | no — needs moderation | — | `[!]` |
 | 29 | Structured reviews | no — and **no review GraphQL type exists at all** | — | `[!]` |
 | 30 | Follow + notify | no | W8 | `[ ]` |
@@ -517,6 +517,17 @@ So item 27 (similar performers) cannot lean on a shared studio, and neither can
 anything else that wants to recommend performers by affiliation.
 
 ### Standing verification state
+
+**The integration DSN is `stash-box-test`, and a wrong one fails SILENTLY.**
+`POSTGRES_DB` must be
+`postgres@127.0.0.1:55434/stash-box-test?sslmode=disable&password=smoke_pw`.
+Point it at any other database and the suite does not error — `pgDropAll` drops the
+tables, migrations recreate the schema, and the tests run against an archive with
+**zero data**. Every assertion that expects rows fails with a plausible "expected 1,
+got 0", which reads as a bug in whatever you just wrote rather than as a fixture that
+never loaded. I lost several turns to this. Other databases on this host
+(`sbx-live`, `sbx_scratch`, `sbx_v2`) exist and are not interchangeable; only
+`stash-box-test` is repopulated by the harness.
 
 **Integration tests need `-p 1`.** Packages share one database and each calls
 `pgDropAll` on entry, so parallel packages drop each other's tables mid-migration
