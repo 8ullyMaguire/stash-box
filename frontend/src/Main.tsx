@@ -11,6 +11,7 @@ import {
   ROUTE_CURATION,
   ROUTE_DRAFTS,
   ROUTE_EDITS,
+  ROUTE_ELO_LEADERBOARD,
   ROUTE_FORGOT_PASSWORD,
   ROUTE_HOME,
   ROUTE_IDENTIFICATION,
@@ -164,6 +165,13 @@ const Main: FC<Props> = ({ children }) => {
               button inside is gated instead -- see IdentificationQuery.tsx. */}
           <NavLink to={ROUTE_IDENTIFICATION} className="nav-link">
             Identify
+          </NavLink>
+          {/* Leaderboard. Ungated: eloLeaderboard is @hasRole(READ). It used to
+              live inside the canVote-gated Curation entry, so a read-only user
+              could not see a leaderboard at all -- the SPEC 7.26 defect again,
+              this time shipped inside a "growth" list. */}
+          <NavLink to={ROUTE_ELO_LEADERBOARD} className="nav-link">
+            Leaderboard
           </NavLink>
           {/* Curation is gated on canVote because the matchup query requires the
               VOTE role; showing the link to someone without it would land them on

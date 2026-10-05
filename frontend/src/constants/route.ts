@@ -1,6 +1,10 @@
 export const ROUTE_CURATION = "/curation";
 export const ROUTE_CURATION_MATCHUP = "/curation/matchup";
-export const ROUTE_CURATION_LEADERBOARD = "/curation/leaderboard";
+// The leaderboard is a TOP-LEVEL route, not /curation/leaderboard:
+// `eloLeaderboard` is @hasRole(READ) while `eloMatchup` is @hasRole(VOTE), so
+// hiding the leaderboard behind the VOTE-gated curation tree denied a
+// read-only user a surface the schema already permits them. SPEC 7.26's shape.
+export const ROUTE_ELO_LEADERBOARD = "/leaderboard";
 
 // Identification board (SPEC section 5). Mounted at the top level rather than
 // under /curation, because reading the board is allowed at READ while the

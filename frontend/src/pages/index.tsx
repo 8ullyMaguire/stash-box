@@ -8,6 +8,7 @@ import {
   ROUTE_CURATION,
   ROUTE_DRAFTS,
   ROUTE_EDITS,
+  ROUTE_ELO_LEADERBOARD,
   ROUTE_FORGOT_PASSWORD,
   ROUTE_HOME,
   ROUTE_IDENTIFICATION,
@@ -39,6 +40,7 @@ import Home from "src/pages/home";
 import Identification from "src/pages/identification";
 import ImageReview from "src/pages/imageReview";
 import ImageTypes from "src/pages/imageTypes";
+import EloLeaderboard from "src/pages/leaderboard";
 import Notifications from "src/pages/notifications";
 import Performers from "src/pages/performers";
 import RegisterUser from "src/pages/registerUser";
@@ -87,6 +89,10 @@ const Pages: FC = () => (
             <Route
               path={`${ROUTE_IDENTIFICATION}/*`}
               element={<Identification />}
+            />
+            <Route
+              path={`${ROUTE_ELO_LEADERBOARD}/*`}
+              element={<EloLeaderboard />}
             />
             <Route path={`${ROUTE_CURATION}/*`} element={<Curation />} />
             <Route path={`${ROUTE_DRAFTS}/*`} element={<Drafts />} />
