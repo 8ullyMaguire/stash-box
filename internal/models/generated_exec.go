@@ -501,6 +501,8 @@ type ComplexityRoot struct {
 		RescindInviteCode                 func(childComplexity int, code uuid.UUID) int
 		ResetPassword                     func(childComplexity int, input ResetPasswordInput) int
 		ResolveIdentificationQuery        func(childComplexity int, input IdentificationResolveInput) int
+		ReviewDelete                      func(childComplexity int, id uuid.UUID) int
+		ReviewSubmit                      func(childComplexity int, input ReviewSubmitInput) int
 		RevokeInvite                      func(childComplexity int, input RevokeInviteInput) int
 		SceneCreate                       func(childComplexity int, input SceneCreateInput) int
 		SceneDeleteFingerprintSubmissions func(childComplexity int, input DeleteFingerprintSubmissionsInput) int
@@ -587,6 +589,8 @@ type ComplexityRoot struct {
 		PenisLength           func(childComplexity int) int
 		Piercings             func(childComplexity int) int
 		QueryScenes           func(childComplexity int, input SceneQueryInput) int
+		ReviewSummary         func(childComplexity int) int
+		Reviews               func(childComplexity int, perPage *int, page *int) int
 		SceneCount            func(childComplexity int) int
 		Scenes                func(childComplexity int, input *PerformerScenesInput) int
 		SimilarPerformerCount func(childComplexity int, minShared *int) int
@@ -734,6 +738,7 @@ type ComplexityRoot struct {
 		QueryUnorganizedImages         func(childComplexity int, input UnorganizedImagesQueryInput) int
 		QueryUsers                     func(childComplexity int, input UserQueryInput) int
 		ResolvedIdentificationQueries  func(childComplexity int, entityType IdentificationTargetType, entityID uuid.UUID, limit *int) int
+		Review                         func(childComplexity int, id uuid.UUID) int
 		SceneChangelog                 func(childComplexity int, since time.Time, afterID *uuid.UUID, limit *int) int
 		SceneCollage                   func(childComplexity int, sceneID uuid.UUID) int
 		SceneSnapshots                 func(childComplexity int, sceneID uuid.UUID) int
@@ -819,6 +824,25 @@ type ComplexityRoot struct {
 	QueryUsersResultType struct {
 		Count func(childComplexity int) int
 		Users func(childComplexity int) int
+	}
+
+	Review struct {
+		Author     func(childComplexity int) int
+		Body       func(childComplexity int) int
+		CreatedAt  func(childComplexity int) int
+		EntityID   func(childComplexity int) int
+		EntityType func(childComplexity int) int
+		ID         func(childComplexity int) int
+		Rating     func(childComplexity int) int
+		Status     func(childComplexity int) int
+		UpdatedAt  func(childComplexity int) int
+		Verified   func(childComplexity int) int
+	}
+
+	ReviewSummary struct {
+		Average    func(childComplexity int) int
+		RatedCount func(childComplexity int) int
+		TotalCount func(childComplexity int) int
 	}
 
 	Scene struct {
@@ -953,20 +977,22 @@ type ComplexityRoot struct {
 	}
 
 	Studio struct {
-		Aliases      func(childComplexity int) int
-		ChildStudios func(childComplexity int) int
-		Completion   func(childComplexity int) int
-		Created      func(childComplexity int) int
-		Deleted      func(childComplexity int) int
-		ID           func(childComplexity int) int
-		Images       func(childComplexity int) int
-		IsFavorite   func(childComplexity int) int
-		Name         func(childComplexity int) int
-		Parent       func(childComplexity int) int
-		Performers   func(childComplexity int, input PerformerQueryInput) int
-		SubStudios   func(childComplexity int, input *StudioQueryInput) int
-		Updated      func(childComplexity int) int
-		Urls         func(childComplexity int) int
+		Aliases       func(childComplexity int) int
+		ChildStudios  func(childComplexity int) int
+		Completion    func(childComplexity int) int
+		Created       func(childComplexity int) int
+		Deleted       func(childComplexity int) int
+		ID            func(childComplexity int) int
+		Images        func(childComplexity int) int
+		IsFavorite    func(childComplexity int) int
+		Name          func(childComplexity int) int
+		Parent        func(childComplexity int) int
+		Performers    func(childComplexity int, input PerformerQueryInput) int
+		ReviewSummary func(childComplexity int) int
+		Reviews       func(childComplexity int, perPage *int, page *int) int
+		SubStudios    func(childComplexity int, input *StudioQueryInput) int
+		Updated       func(childComplexity int) int
+		Urls          func(childComplexity int) int
 	}
 
 	StudioEdit struct {
@@ -1262,6 +1288,8 @@ type MutationResolver interface {
 	UnvoteIdentificationCandidate(ctx context.Context, candidateID uuid.UUID) (*IdentificationCandidate, error)
 	ResolveIdentificationQuery(ctx context.Context, input IdentificationResolveInput) (*IdentificationQuery, error)
 	AbandonIdentificationQuery(ctx context.Context, id uuid.UUID) (*IdentificationQuery, error)
+	ReviewSubmit(ctx context.Context, input ReviewSubmitInput) (*Review, error)
+	ReviewDelete(ctx context.Context, id uuid.UUID) (bool, error)
 }
 type NotificationResolver interface {
 	Created(ctx context.Context, obj *Notification) (*time.Time, error)
@@ -1296,6 +1324,8 @@ type PerformerResolver interface {
 	Completion(ctx context.Context, obj *Performer) (*Completion, error)
 	SimilarPerformers(ctx context.Context, obj *Performer, minShared *int, limit *int) ([]SimilarPerformer, error)
 	SimilarPerformerCount(ctx context.Context, obj *Performer, minShared *int) (int, error)
+	Reviews(ctx context.Context, obj *Performer, perPage *int, page *int) ([]Review, error)
+	ReviewSummary(ctx context.Context, obj *Performer) (*ReviewSummary, error)
 }
 type PerformerDraftResolver interface {
 	Image(ctx context.Context, obj *PerformerDraft) (*Image, error)
@@ -1384,6 +1414,7 @@ type QueryResolver interface {
 	IdentificationQuery(ctx context.Context, id uuid.UUID) (*IdentificationQuery, error)
 	ResolvedIdentificationQueries(ctx context.Context, entityType IdentificationTargetType, entityID uuid.UUID, limit *int) ([]IdentificationQuery, error)
 	MyIdentificationDetectiveScore(ctx context.Context) (*IdentificationDetective, error)
+	Review(ctx context.Context, id uuid.UUID) (*Review, error)
 	UserStreak(ctx context.Context) (*Streak, error)
 }
 type QueryEditsResultTypeResolver interface {
@@ -1483,6 +1514,8 @@ type StudioResolver interface {
 	Updated(ctx context.Context, obj *Studio) (*time.Time, error)
 	Performers(ctx context.Context, obj *Studio, input PerformerQueryInput) (*PerformerQuery, error)
 	Completion(ctx context.Context, obj *Studio) (*Completion, error)
+	Reviews(ctx context.Context, obj *Studio, perPage *int, page *int) ([]Review, error)
+	ReviewSummary(ctx context.Context, obj *Studio) (*ReviewSummary, error)
 }
 type StudioEditResolver interface {
 	Parent(ctx context.Context, obj *StudioEdit) (*Studio, error)
@@ -3390,6 +3423,28 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.ResolveIdentificationQuery(childComplexity, args["input"].(IdentificationResolveInput)), true
+	case "Mutation.reviewDelete":
+		if e.ComplexityRoot.Mutation.ReviewDelete == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_reviewDelete_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.ReviewDelete(childComplexity, args["id"].(uuid.UUID)), true
+	case "Mutation.reviewSubmit":
+		if e.ComplexityRoot.Mutation.ReviewSubmit == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_reviewSubmit_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.ReviewSubmit(childComplexity, args["input"].(ReviewSubmitInput)), true
 	case "Mutation.revokeInvite":
 		if e.ComplexityRoot.Mutation.RevokeInvite == nil {
 			break
@@ -4092,6 +4147,23 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Performer.QueryScenes(childComplexity, args["input"].(SceneQueryInput)), true
+	case "Performer.reviewSummary":
+		if e.ComplexityRoot.Performer.ReviewSummary == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Performer.ReviewSummary(childComplexity), true
+	case "Performer.reviews":
+		if e.ComplexityRoot.Performer.Reviews == nil {
+			break
+		}
+
+		args, err := ec.field_Performer_reviews_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Performer.Reviews(childComplexity, args["perPage"].(*int), args["page"].(*int)), true
 	case "Performer.scene_count":
 		if e.ComplexityRoot.Performer.SceneCount == nil {
 			break
@@ -5071,6 +5143,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.ResolvedIdentificationQueries(childComplexity, args["entityType"].(IdentificationTargetType), args["entityId"].(uuid.UUID), args["limit"].(*int)), true
+	case "Query.review":
+		if e.ComplexityRoot.Query.Review == nil {
+			break
+		}
+
+		args, err := ec.field_Query_review_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.Review(childComplexity, args["id"].(uuid.UUID)), true
 	case "Query.sceneChangelog":
 		if e.ComplexityRoot.Query.SceneChangelog == nil {
 			break
@@ -5403,6 +5486,86 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.QueryUsersResultType.Users(childComplexity), true
+
+	case "Review.author":
+		if e.ComplexityRoot.Review.Author == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Review.Author(childComplexity), true
+	case "Review.body":
+		if e.ComplexityRoot.Review.Body == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Review.Body(childComplexity), true
+	case "Review.createdAt":
+		if e.ComplexityRoot.Review.CreatedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Review.CreatedAt(childComplexity), true
+	case "Review.entityId":
+		if e.ComplexityRoot.Review.EntityID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Review.EntityID(childComplexity), true
+	case "Review.entityType":
+		if e.ComplexityRoot.Review.EntityType == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Review.EntityType(childComplexity), true
+	case "Review.id":
+		if e.ComplexityRoot.Review.ID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Review.ID(childComplexity), true
+	case "Review.rating":
+		if e.ComplexityRoot.Review.Rating == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Review.Rating(childComplexity), true
+	case "Review.status":
+		if e.ComplexityRoot.Review.Status == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Review.Status(childComplexity), true
+	case "Review.updatedAt":
+		if e.ComplexityRoot.Review.UpdatedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Review.UpdatedAt(childComplexity), true
+	case "Review.verified":
+		if e.ComplexityRoot.Review.Verified == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Review.Verified(childComplexity), true
+
+	case "ReviewSummary.average":
+		if e.ComplexityRoot.ReviewSummary.Average == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ReviewSummary.Average(childComplexity), true
+	case "ReviewSummary.ratedCount":
+		if e.ComplexityRoot.ReviewSummary.RatedCount == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ReviewSummary.RatedCount(childComplexity), true
+	case "ReviewSummary.totalCount":
+		if e.ComplexityRoot.ReviewSummary.TotalCount == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ReviewSummary.TotalCount(childComplexity), true
 
 	case "Scene.code":
 		if e.ComplexityRoot.Scene.Code == nil {
@@ -6096,6 +6259,23 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Studio.Performers(childComplexity, args["input"].(PerformerQueryInput)), true
+	case "Studio.reviewSummary":
+		if e.ComplexityRoot.Studio.ReviewSummary == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Studio.ReviewSummary(childComplexity), true
+	case "Studio.reviews":
+		if e.ComplexityRoot.Studio.Reviews == nil {
+			break
+		}
+
+		args, err := ec.field_Studio_reviews_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Studio.Reviews(childComplexity, args["perPage"].(*int), args["page"].(*int)), true
 	case "Studio.sub_studios":
 		if e.ComplexityRoot.Studio.SubStudios == nil {
 			break
@@ -6737,6 +6917,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputQueryExistingSceneInput,
 		ec.unmarshalInputQueryNotificationsInput,
 		ec.unmarshalInputResetPasswordInput,
+		ec.unmarshalInputReviewSubmitInput,
 		ec.unmarshalInputRevokeInviteInput,
 		ec.unmarshalInputRoleCriterionInput,
 		ec.unmarshalInputSceneCreateInput,
@@ -9163,6 +9344,174 @@ extend type Performer {
   similarPerformerCount(minShared: Int = 2): Int!
     @hasRole(role: READ)
 }`, BuiltIn: false},
+	{Name: "../../graphql/schema/types/review.graphql", Input: `# Structured reviews over GraphQL (SPEC §7.10, growth item 29).
+#
+# THE TRACKER SAID THIS TYPE DID NOT EXIST, and that was wrong. The ` + "`" + `reviews` + "`" + ` table has
+# been there the whole time, with 11 sqlc queries, a service package, unit tests and an
+# integration test against it. Only the GraphQL surface was missing. So this file is
+# almost entirely wiring, and the design work is in choosing what NOT to expose.
+
+"""
+A user's review of a directory entity (a performer, studio, or site).
+
+` + "`" + `rating` + "`" + ` is NULLABLE ON PURPOSE. A review with a body and no rating is a real thing to
+write -- "a studio whose ethics I have questions about" has no 1-to-5 value -- and a
+schema that required a rating would force people to invent one. It is also what keeps a
+zero out of the average: an unrated review cannot contribute to a mean, and the summary
+reports rated and total counts separately so a single review is never mistaken for a
+consensus.
+"""
+type Review {
+  id: ID!
+
+  "The user who wrote it."
+  author: User!
+
+  "What is being reviewed. A closed set rather than free text, so a client can resolve it."
+  entityType: ReviewEntityTypeEnum!
+
+  "The id of the reviewed entity, within ` + "`" + `entityType` + "`" + `."
+  entityId: ID!
+
+  "1-5, or null when the reviewer wrote prose without a numeric rating."
+  rating: Int
+
+  body: String!
+
+  """
+  The moderator's usage confirmation: has this person actually worked with this
+  performer/studio/site.
+
+  Read-only to authors. A review cannot vouch for itself, so the author-facing path
+  (` + "`" + `reviewSubmit` + "`" + `) never sets this.
+  """
+  verified: Boolean!
+
+  """
+  Moderation state.
+
+  ` + "`" + `FLAGGED` + "`" + ` and ` + "`" + `REMOVED` + "`" + ` are never listed on an entity page -- that filtering is in the
+  query, not applied afterwards, so a client cannot infer a review was flagged by its
+  absence any more than it can by its presence. An author still sees their own flagged
+  review as ` + "`" + `FLAGGED` + "`" + `.
+  """
+  status: ReviewStatusEnum!
+
+  """
+  Preserved across an edit, so "how long has this person held this opinion" stays
+  answerable even though the intermediate ratings do not.
+  """
+  createdAt: Time!
+  updatedAt: Time!
+}
+
+enum ReviewEntityTypeEnum {
+  PERFORMER
+  STUDIO
+  SITE
+}
+
+enum ReviewStatusEnum {
+  "Visible to everyone who can read."
+  PUBLISHED
+  "Flagged by a moderator, awaiting a decision. Still visible to its author."
+  FLAGGED
+  "Removed by a moderator. Kept so its author can read it; never listed."
+  REMOVED
+}
+
+"""
+An entity's rating summary.
+
+The two counts are separate and must stay separate: a page showing "4.2" over one review
+is indistinguishable from a consensus, and the counts are the only thing that tells them
+apart.
+"""
+type ReviewSummary {
+  """
+  The mean rating, or null when nothing has been rated.
+
+  Null rather than 0 for an entity with no ratings, because 0 is not a rating and would
+  render as "rated zero by everyone".
+  """
+  average: Float
+
+  "How many reviews carried a rating. These are the only ones in the average."
+  ratedCount: Int!
+
+  "How many published reviews exist, rated or not."
+  totalCount: Int!
+}
+
+input ReviewSubmitInput {
+  "What is being reviewed."
+  entityType: ReviewEntityTypeEnum!
+  entityId: ID!
+
+  "1-5, or omit it entirely to write prose only."
+  rating: Int
+
+  "Must not be empty. An empty review is noise, and a body-only review is legitimate."
+  body: String!
+}
+
+extend type Performer {
+  """
+  Published reviews, newest first.
+
+  An empty list is normal and not an error: most performers have no reviews, and a
+  brand-new site having an error here would be a broken page rather than an exceptional
+  condition.
+  """
+  reviews(perPage: Int = 25, page: Int = 1): [Review!]! @hasRole(role: READ)
+
+  "The rating summary rendered next to the performer."
+  reviewSummary: ReviewSummary! @hasRole(role: READ)
+}
+
+extend type Studio {
+  reviews(perPage: Int = 25, page: Int = 1): [Review!]! @hasRole(role: READ)
+  reviewSummary: ReviewSummary! @hasRole(role: READ)
+}
+
+extend type Query {
+  "A single review by id, or null."
+  review(id: ID!): Review @hasRole(role: READ)
+}
+
+extend type Mutation {
+  """
+  Write or replace your review of an entity.
+
+  One mutation for both because a person editing their review is the same act as writing
+  it: submitting twice updates. A separate ` + "`" + `reviewUpdate` + "`" + ` would let a client create two
+  reviews where the author wanted one.
+
+  Errors if you have already reviewed this entity AND the review is removed -- a removed
+  review is not silently overwritten.
+
+  Requires ` + "`" + `MODERATE` + "`" + `. A review is opinion ABOUT the archive, not a change TO it, and
+  must not be routed through edit-approval machinery -- the review service's own header
+  says so, and doing so would empty the directory.
+
+  KNOWN ROUGH EDGE, recorded rather than hidden. ` + "`" + `MODERATE` + "`" + ` looks too high a bar for
+  "leave a comment", but it is the only floor that works: ` + "`" + `RoleEnum.Implies` + "`" + `
+  (internal/models/extension_role_enum.go) models a FLAT hierarchy -- ADMIN implies
+  everything, every other role implies only READ and itself. So ` + "`" + `EDIT` + "`" + ` does not imply
+  ` + "`" + `MODERATE` + "`" + ` and a plain editor cannot review, which is backwards from how this schema
+  treats authority elsewhere. Requiring ` + "`" + `EDIT` + "`" + ` instead is equally wrong: a plain
+  MODERATE user then cannot review at all.
+
+  The real fix is to model the EDIT < MODERATE implication in ` + "`" + `Implies()` + "`" + `. That changes
+  authorization for every existing field using those roles, so it is deliberately NOT
+  done here as a drive-by.
+  
+  """
+  reviewSubmit(input: ReviewSubmitInput!): Review! @hasRole(role: MODERATE)
+
+  "Delete your own review. Authors only; a moderator removes reviews by flagging."
+  reviewDelete(id: ID!): Boolean! @hasRole(role: MODERATE)
+}`, BuiltIn: false},
 	{Name: "../../graphql/schema/types/scene.graphql", Input: `type PerformerAppearance {
   performer: Performer!
   """Performing as alias"""
@@ -11259,6 +11608,10 @@ func (ec *executionContext) childFields_Performer(ctx context.Context, field gra
 		return ec.fieldContext_Performer_similarPerformers(ctx, field)
 	case "similarPerformerCount":
 		return ec.fieldContext_Performer_similarPerformerCount(ctx, field)
+	case "reviews":
+		return ec.fieldContext_Performer_reviews(ctx, field)
+	case "reviewSummary":
+		return ec.fieldContext_Performer_reviewSummary(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type Performer", field.Name)
 }
@@ -11441,6 +11794,44 @@ func (ec *executionContext) childFields_QueryUsersResultType(ctx context.Context
 		return ec.fieldContext_QueryUsersResultType_users(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type QueryUsersResultType", field.Name)
+}
+
+func (ec *executionContext) childFields_Review(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "id":
+		return ec.fieldContext_Review_id(ctx, field)
+	case "author":
+		return ec.fieldContext_Review_author(ctx, field)
+	case "entityType":
+		return ec.fieldContext_Review_entityType(ctx, field)
+	case "entityId":
+		return ec.fieldContext_Review_entityId(ctx, field)
+	case "rating":
+		return ec.fieldContext_Review_rating(ctx, field)
+	case "body":
+		return ec.fieldContext_Review_body(ctx, field)
+	case "verified":
+		return ec.fieldContext_Review_verified(ctx, field)
+	case "status":
+		return ec.fieldContext_Review_status(ctx, field)
+	case "createdAt":
+		return ec.fieldContext_Review_createdAt(ctx, field)
+	case "updatedAt":
+		return ec.fieldContext_Review_updatedAt(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type Review", field.Name)
+}
+
+func (ec *executionContext) childFields_ReviewSummary(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "average":
+		return ec.fieldContext_ReviewSummary_average(ctx, field)
+	case "ratedCount":
+		return ec.fieldContext_ReviewSummary_ratedCount(ctx, field)
+	case "totalCount":
+		return ec.fieldContext_ReviewSummary_totalCount(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type ReviewSummary", field.Name)
 }
 
 func (ec *executionContext) childFields_Scene(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -11649,6 +12040,10 @@ func (ec *executionContext) childFields_Studio(ctx context.Context, field graphq
 		return ec.fieldContext_Studio_performers(ctx, field)
 	case "completion":
 		return ec.fieldContext_Studio_completion(ctx, field)
+	case "reviews":
+		return ec.fieldContext_Studio_reviews(ctx, field)
+	case "reviewSummary":
+		return ec.fieldContext_Studio_reviewSummary(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type Studio", field.Name)
 }
@@ -12605,6 +13000,34 @@ func (ec *executionContext) field_Mutation_resolveIdentificationQuery_args(ctx c
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_reviewDelete_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (uuid.UUID, error) {
+			return ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_reviewSubmit_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
+		func(ctx context.Context, v any) (ReviewSubmitInput, error) {
+			return ec.unmarshalNReviewSubmitInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐReviewSubmitInput(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_revokeInvite_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -13250,6 +13673,28 @@ func (ec *executionContext) field_Performer_queryScenes_args(ctx context.Context
 		return nil, err
 	}
 	args["input"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Performer_reviews_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "perPage",
+		func(ctx context.Context, v any) (*int, error) {
+			return ec.unmarshalOInt2ᚖint(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["perPage"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "page",
+		func(ctx context.Context, v any) (*int, error) {
+			return ec.unmarshalOInt2ᚖint(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["page"] = arg1
 	return args, nil
 }
 
@@ -13965,6 +14410,20 @@ func (ec *executionContext) field_Query_resolvedIdentificationQueries_args(ctx c
 	return args, nil
 }
 
+func (ec *executionContext) field_Query_review_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (uuid.UUID, error) {
+			return ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	return args, nil
+}
+
 func (ec *executionContext) field_Query_sceneChangelog_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -14302,6 +14761,28 @@ func (ec *executionContext) field_Studio_performers_args(ctx context.Context, ra
 		return nil, err
 	}
 	args["input"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Studio_reviews_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "perPage",
+		func(ctx context.Context, v any) (*int, error) {
+			return ec.unmarshalOInt2ᚖint(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["perPage"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "page",
+		func(ctx context.Context, v any) (*int, error) {
+			return ec.unmarshalOInt2ᚖint(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["page"] = arg1
 	return args, nil
 }
 
@@ -24981,6 +25462,130 @@ func (ec *executionContext) fieldContext_Mutation_abandonIdentificationQuery(ctx
 	return fc, nil
 }
 
+func (ec *executionContext) _Mutation_reviewSubmit(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_reviewSubmit(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().ReviewSubmit(ctx, fc.Args["input"].(ReviewSubmitInput))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "MODERATE")
+				if err != nil {
+					var zeroVal *Review
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *Review
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *Review) graphql.Marshaler {
+			return ec.marshalNReview2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐReview(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_reviewSubmit(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_Review(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_reviewSubmit_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_reviewDelete(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_reviewDelete(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().ReviewDelete(ctx, fc.Args["id"].(uuid.UUID))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "MODERATE")
+				if err != nil {
+					var zeroVal bool
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal bool
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_reviewDelete(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_reviewDelete_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Notification_created(ctx context.Context, field graphql.CollectedField, obj *Notification) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -26303,6 +26908,118 @@ func (ec *executionContext) fieldContext_Performer_similarPerformerCount(ctx con
 	if fc.Args, err = ec.field_Performer_similarPerformerCount_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Performer_reviews(ctx context.Context, field graphql.CollectedField, obj *Performer) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Performer_reviews(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Performer().Reviews(ctx, obj, fc.Args["perPage"].(*int), fc.Args["page"].(*int))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal []Review
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal []Review
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, obj, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v []Review) graphql.Marshaler {
+			return ec.marshalNReview2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐReviewᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Performer_reviews(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Performer",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_Review(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Performer_reviews_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Performer_reviewSummary(ctx context.Context, field graphql.CollectedField, obj *Performer) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Performer_reviewSummary(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Performer().ReviewSummary(ctx, obj)
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal *ReviewSummary
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *ReviewSummary
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, obj, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *ReviewSummary) graphql.Marshaler {
+			return ec.marshalNReviewSummary2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐReviewSummary(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Performer_reviewSummary(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Performer",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ReviewSummary(ctx, field)
+		},
 	}
 	return fc, nil
 }
@@ -31672,6 +32389,68 @@ func (ec *executionContext) fieldContext_Query_myIdentificationDetectiveScore(_ 
 	return fc, nil
 }
 
+func (ec *executionContext) _Query_review(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_review(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().Review(ctx, fc.Args["id"].(uuid.UUID))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal *Review
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *Review
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *Review) graphql.Marshaler {
+			return ec.marshalOReview2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐReview(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_Query_review(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_Review(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_review_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Query_userStreak(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -32616,6 +33395,314 @@ func (ec *executionContext) fieldContext_QueryUsersResultType_users(_ context.Co
 		},
 	}
 	return fc, nil
+}
+
+func (ec *executionContext) _Review_id(ctx context.Context, field graphql.CollectedField, obj *Review) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Review_id(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v uuid.UUID) graphql.Marshaler {
+			return ec.marshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Review_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Review", field, false, false, errors.New("field of type ID does not have child fields"))
+}
+
+func (ec *executionContext) _Review_author(ctx context.Context, field graphql.CollectedField, obj *Review) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Review_author(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Author, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *User) graphql.Marshaler {
+			return ec.marshalNUser2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐUser(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Review_author(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Review",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_User(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Review_entityType(ctx context.Context, field graphql.CollectedField, obj *Review) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Review_entityType(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.EntityType, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v ReviewEntityTypeEnum) graphql.Marshaler {
+			return ec.marshalNReviewEntityTypeEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐReviewEntityTypeEnum(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Review_entityType(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Review", field, false, false, errors.New("field of type ReviewEntityTypeEnum does not have child fields"))
+}
+
+func (ec *executionContext) _Review_entityId(ctx context.Context, field graphql.CollectedField, obj *Review) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Review_entityId(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.EntityID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v uuid.UUID) graphql.Marshaler {
+			return ec.marshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Review_entityId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Review", field, false, false, errors.New("field of type ID does not have child fields"))
+}
+
+func (ec *executionContext) _Review_rating(ctx context.Context, field graphql.CollectedField, obj *Review) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Review_rating(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Rating, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *int) graphql.Marshaler {
+			return ec.marshalOInt2ᚖint(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_Review_rating(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Review", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _Review_body(ctx context.Context, field graphql.CollectedField, obj *Review) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Review_body(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Body, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Review_body(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Review", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _Review_verified(ctx context.Context, field graphql.CollectedField, obj *Review) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Review_verified(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Verified, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Review_verified(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Review", field, false, false, errors.New("field of type Boolean does not have child fields"))
+}
+
+func (ec *executionContext) _Review_status(ctx context.Context, field graphql.CollectedField, obj *Review) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Review_status(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Status, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v ReviewStatusEnum) graphql.Marshaler {
+			return ec.marshalNReviewStatusEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐReviewStatusEnum(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Review_status(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Review", field, false, false, errors.New("field of type ReviewStatusEnum does not have child fields"))
+}
+
+func (ec *executionContext) _Review_createdAt(ctx context.Context, field graphql.CollectedField, obj *Review) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Review_createdAt(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.CreatedAt, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v time.Time) graphql.Marshaler {
+			return ec.marshalNTime2timeᚐTime(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Review_createdAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Review", field, false, false, errors.New("field of type Time does not have child fields"))
+}
+
+func (ec *executionContext) _Review_updatedAt(ctx context.Context, field graphql.CollectedField, obj *Review) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Review_updatedAt(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.UpdatedAt, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v time.Time) graphql.Marshaler {
+			return ec.marshalNTime2timeᚐTime(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Review_updatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Review", field, false, false, errors.New("field of type Time does not have child fields"))
+}
+
+func (ec *executionContext) _ReviewSummary_average(ctx context.Context, field graphql.CollectedField, obj *ReviewSummary) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ReviewSummary_average(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Average, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *float64) graphql.Marshaler {
+			return ec.marshalOFloat2ᚖfloat64(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_ReviewSummary_average(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ReviewSummary", field, false, false, errors.New("field of type Float does not have child fields"))
+}
+
+func (ec *executionContext) _ReviewSummary_ratedCount(ctx context.Context, field graphql.CollectedField, obj *ReviewSummary) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ReviewSummary_ratedCount(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.RatedCount, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ReviewSummary_ratedCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ReviewSummary", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _ReviewSummary_totalCount(ctx context.Context, field graphql.CollectedField, obj *ReviewSummary) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ReviewSummary_totalCount(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.TotalCount, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ReviewSummary_totalCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ReviewSummary", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
 func (ec *executionContext) _Scene_id(ctx context.Context, field graphql.CollectedField, obj *Scene) (ret graphql.Marshaler) {
@@ -35618,6 +36705,118 @@ func (ec *executionContext) fieldContext_Studio_completion(_ context.Context, fi
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return ec.childFields_Completion(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Studio_reviews(ctx context.Context, field graphql.CollectedField, obj *Studio) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Studio_reviews(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Studio().Reviews(ctx, obj, fc.Args["perPage"].(*int), fc.Args["page"].(*int))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal []Review
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal []Review
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, obj, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v []Review) graphql.Marshaler {
+			return ec.marshalNReview2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐReviewᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Studio_reviews(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Studio",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_Review(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Studio_reviews_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Studio_reviewSummary(ctx context.Context, field graphql.CollectedField, obj *Studio) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Studio_reviewSummary(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Studio().ReviewSummary(ctx, obj)
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal *ReviewSummary
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *ReviewSummary
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, obj, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *ReviewSummary) graphql.Marshaler {
+			return ec.marshalNReviewSummary2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐReviewSummary(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Studio_reviewSummary(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Studio",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ReviewSummary(ctx, field)
 		},
 	}
 	return fc, nil
@@ -42840,6 +44039,57 @@ func (ec *executionContext) unmarshalInputResetPasswordInput(ctx context.Context
 				return it, err
 			}
 			it.Email = data
+		}
+	}
+	return it, nil
+}
+
+func (ec *executionContext) unmarshalInputReviewSubmitInput(ctx context.Context, obj any) (ReviewSubmitInput, error) {
+	var it ReviewSubmitInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"entityType", "entityId", "rating", "body"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "entityType":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("entityType"))
+			data, err := ec.unmarshalNReviewEntityTypeEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐReviewEntityTypeEnum(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.EntityType = data
+		case "entityId":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("entityId"))
+			data, err := ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.EntityID = data
+		case "rating":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("rating"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Rating = data
+		case "body":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("body"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Body = data
 		}
 	}
 	return it, nil
@@ -50586,6 +51836,20 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "reviewSubmit":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_reviewSubmit(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "reviewDelete":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_reviewDelete(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -51656,6 +52920,82 @@ func (ec *executionContext) _Performer(ctx context.Context, sel ast.SelectionSet
 					}
 				}()
 				res = ec._Performer_similarPerformerCount(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "reviews":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Performer_reviews(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "reviewSummary":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Performer_reviewSummary(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -54096,6 +55436,28 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "review":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_review(ctx, field)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
 		case "userStreak":
 			field := field
 
@@ -55297,6 +56659,137 @@ func (ec *executionContext) _QueryUsersResultType(ctx context.Context, sel ast.S
 			}
 		case "users":
 			out.Values[i] = ec._QueryUsersResultType_users(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var reviewImplementors = []string{"Review"}
+
+func (ec *executionContext) _Review(ctx context.Context, sel ast.SelectionSet, obj *Review) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, reviewImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("Review")
+		case "id":
+			out.Values[i] = ec._Review_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "author":
+			out.Values[i] = ec._Review_author(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "entityType":
+			out.Values[i] = ec._Review_entityType(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "entityId":
+			out.Values[i] = ec._Review_entityId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "rating":
+			out.Values[i] = ec._Review_rating(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		case "body":
+			out.Values[i] = ec._Review_body(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "verified":
+			out.Values[i] = ec._Review_verified(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "status":
+			out.Values[i] = ec._Review_status(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "createdAt":
+			out.Values[i] = ec._Review_createdAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "updatedAt":
+			out.Values[i] = ec._Review_updatedAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var reviewSummaryImplementors = []string{"ReviewSummary"}
+
+func (ec *executionContext) _ReviewSummary(ctx context.Context, sel ast.SelectionSet, obj *ReviewSummary) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, reviewSummaryImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ReviewSummary")
+		case "average":
+			out.Values[i] = ec._ReviewSummary_average(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		case "ratedCount":
+			out.Values[i] = ec._ReviewSummary_ratedCount(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "totalCount":
+			out.Values[i] = ec._ReviewSummary_totalCount(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -57795,6 +59288,82 @@ func (ec *executionContext) _Studio(ctx context.Context, sel ast.SelectionSet, o
 				}()
 				res = ec._Studio_completion(ctx, field, obj)
 				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "reviews":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Studio_reviews(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "reviewSummary":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Studio_reviewSummary(ctx, field, obj)
+				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
 				return res
@@ -61811,6 +63380,71 @@ func (ec *executionContext) unmarshalNResetPasswordInput2githubᚗcomᚋstashapp
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
+func (ec *executionContext) marshalNReview2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐReview(ctx context.Context, sel ast.SelectionSet, v Review) graphql.Marshaler {
+	return ec._Review(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNReview2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐReviewᚄ(ctx context.Context, sel ast.SelectionSet, v []Review) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNReview2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐReview(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNReview2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐReview(ctx context.Context, sel ast.SelectionSet, v *Review) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._Review(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalNReviewEntityTypeEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐReviewEntityTypeEnum(ctx context.Context, v any) (ReviewEntityTypeEnum, error) {
+	var res ReviewEntityTypeEnum
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNReviewEntityTypeEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐReviewEntityTypeEnum(ctx context.Context, sel ast.SelectionSet, v ReviewEntityTypeEnum) graphql.Marshaler {
+	return v
+}
+
+func (ec *executionContext) unmarshalNReviewStatusEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐReviewStatusEnum(ctx context.Context, v any) (ReviewStatusEnum, error) {
+	var res ReviewStatusEnum
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNReviewStatusEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐReviewStatusEnum(ctx context.Context, sel ast.SelectionSet, v ReviewStatusEnum) graphql.Marshaler {
+	return v
+}
+
+func (ec *executionContext) unmarshalNReviewSubmitInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐReviewSubmitInput(ctx context.Context, v any) (ReviewSubmitInput, error) {
+	res, err := ec.unmarshalInputReviewSubmitInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNReviewSummary2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐReviewSummary(ctx context.Context, sel ast.SelectionSet, v *ReviewSummary) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._ReviewSummary(ctx, sel, v)
+}
+
 func (ec *executionContext) unmarshalNRevokeInviteInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRevokeInviteInput(ctx context.Context, v any) (RevokeInviteInput, error) {
 	res, err := ec.unmarshalInputRevokeInviteInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
@@ -63756,6 +65390,13 @@ func (ec *executionContext) unmarshalOPerformerSearchFilter2ᚖgithubᚗcomᚋst
 	}
 	res, err := ec.unmarshalInputPerformerSearchFilter(ctx, v)
 	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOReview2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐReview(ctx context.Context, sel ast.SelectionSet, v *Review) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._Review(ctx, sel, v)
 }
 
 func (ec *executionContext) unmarshalORoleCriterionInput2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleCriterionInput(ctx context.Context, v any) (*RoleCriterionInput, error) {

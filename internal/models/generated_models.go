@@ -1203,6 +1203,71 @@ type ResetPasswordInput struct {
 	Email string `json:"email"`
 }
 
+// A user's review of a directory entity (a performer, studio, or site).
+//
+// `rating` is NULLABLE ON PURPOSE. A review with a body and no rating is a real thing to
+// write -- "a studio whose ethics I have questions about" has no 1-to-5 value -- and a
+// schema that required a rating would force people to invent one. It is also what keeps a
+// zero out of the average: an unrated review cannot contribute to a mean, and the summary
+// reports rated and total counts separately so a single review is never mistaken for a
+// consensus.
+type Review struct {
+	ID uuid.UUID `json:"id"`
+	// The user who wrote it.
+	Author *User `json:"author"`
+	// What is being reviewed. A closed set rather than free text, so a client can resolve it.
+	EntityType ReviewEntityTypeEnum `json:"entityType"`
+	// The id of the reviewed entity, within `entityType`.
+	EntityID uuid.UUID `json:"entityId"`
+	// 1-5, or null when the reviewer wrote prose without a numeric rating.
+	Rating *int   `json:"rating,omitempty"`
+	Body   string `json:"body"`
+	// The moderator's usage confirmation: has this person actually worked with this
+	// performer/studio/site.
+	//
+	// Read-only to authors. A review cannot vouch for itself, so the author-facing path
+	// (`reviewSubmit`) never sets this.
+	Verified bool `json:"verified"`
+	// Moderation state.
+	//
+	// `FLAGGED` and `REMOVED` are never listed on an entity page -- that filtering is in the
+	// query, not applied afterwards, so a client cannot infer a review was flagged by its
+	// absence any more than it can by its presence. An author still sees their own flagged
+	// review as `FLAGGED`.
+	Status ReviewStatusEnum `json:"status"`
+	// Preserved across an edit, so "how long has this person held this opinion" stays
+	// answerable even though the intermediate ratings do not.
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+type ReviewSubmitInput struct {
+	// What is being reviewed.
+	EntityType ReviewEntityTypeEnum `json:"entityType"`
+	EntityID   uuid.UUID            `json:"entityId"`
+	// 1-5, or omit it entirely to write prose only.
+	Rating *int `json:"rating,omitempty"`
+	// Must not be empty. An empty review is noise, and a body-only review is legitimate.
+	Body string `json:"body"`
+}
+
+// An entity's rating summary.
+//
+// The two counts are separate and must stay separate: a page showing "4.2" over one review
+// is indistinguishable from a consensus, and the counts are the only thing that tells them
+// apart.
+type ReviewSummary struct {
+	// The mean rating, or null when nothing has been rated.
+	//
+	// Null rather than 0 for an entity with no ratings, because 0 is not a rating and would
+	// render as "rated zero by everyone".
+	Average *float64 `json:"average,omitempty"`
+	// How many reviews carried a rating. These are the only ones in the average.
+	RatedCount int `json:"ratedCount"`
+	// How many published reviews exist, rated or not.
+	TotalCount int `json:"totalCount"`
+}
+
 type RevokeInviteInput struct {
 	UserID uuid.UUID `json:"user_id"`
 	Amount int       `json:"amount"`
@@ -3518,6 +3583,123 @@ func (e *PerformerSortEnum) UnmarshalJSON(b []byte) error {
 }
 
 func (e PerformerSortEnum) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+type ReviewEntityTypeEnum string
+
+const (
+	ReviewEntityTypeEnumPerformer ReviewEntityTypeEnum = "PERFORMER"
+	ReviewEntityTypeEnumStudio    ReviewEntityTypeEnum = "STUDIO"
+	ReviewEntityTypeEnumSite      ReviewEntityTypeEnum = "SITE"
+)
+
+var AllReviewEntityTypeEnum = []ReviewEntityTypeEnum{
+	ReviewEntityTypeEnumPerformer,
+	ReviewEntityTypeEnumStudio,
+	ReviewEntityTypeEnumSite,
+}
+
+func (e ReviewEntityTypeEnum) IsValid() bool {
+	switch e {
+	case ReviewEntityTypeEnumPerformer, ReviewEntityTypeEnumStudio, ReviewEntityTypeEnumSite:
+		return true
+	}
+	return false
+}
+
+func (e ReviewEntityTypeEnum) String() string {
+	return string(e)
+}
+
+func (e *ReviewEntityTypeEnum) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = ReviewEntityTypeEnum(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid ReviewEntityTypeEnum", str)
+	}
+	return nil
+}
+
+func (e ReviewEntityTypeEnum) MarshalGQL(w io.Writer) {
+	_, _ = fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *ReviewEntityTypeEnum) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e ReviewEntityTypeEnum) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+type ReviewStatusEnum string
+
+const (
+	// Visible to everyone who can read.
+	ReviewStatusEnumPublished ReviewStatusEnum = "PUBLISHED"
+	// Flagged by a moderator, awaiting a decision. Still visible to its author.
+	ReviewStatusEnumFlagged ReviewStatusEnum = "FLAGGED"
+	// Removed by a moderator. Kept so its author can read it; never listed.
+	ReviewStatusEnumRemoved ReviewStatusEnum = "REMOVED"
+)
+
+var AllReviewStatusEnum = []ReviewStatusEnum{
+	ReviewStatusEnumPublished,
+	ReviewStatusEnumFlagged,
+	ReviewStatusEnumRemoved,
+}
+
+func (e ReviewStatusEnum) IsValid() bool {
+	switch e {
+	case ReviewStatusEnumPublished, ReviewStatusEnumFlagged, ReviewStatusEnumRemoved:
+		return true
+	}
+	return false
+}
+
+func (e ReviewStatusEnum) String() string {
+	return string(e)
+}
+
+func (e *ReviewStatusEnum) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = ReviewStatusEnum(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid ReviewStatusEnum", str)
+	}
+	return nil
+}
+
+func (e ReviewStatusEnum) MarshalGQL(w io.Writer) {
+	_, _ = fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *ReviewStatusEnum) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e ReviewStatusEnum) MarshalJSON() ([]byte, error) {
 	var buf bytes.Buffer
 	e.MarshalGQL(&buf)
 	return buf.Bytes(), nil
