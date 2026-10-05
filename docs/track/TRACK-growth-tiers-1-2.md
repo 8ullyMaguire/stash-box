@@ -32,7 +32,7 @@ instance ever gets a real deployment and SSR becomes worth its cost.
 | W1 Identification board UI | 2 | `[x]` 01d2c514, dcba9b10 | reachable + votable, mutation-verified |
 | W2 Public Elo | 4, 5 | `[~]` 4 done (682c3071), 5 pending | READ sees a leaderboard — **live-confirmed** |
 | W3 Completion & coverage | 6, 9, 25, 59 | `[x]` **all four done** | live bar + archive page both verified |
-| W4 Discovery surfaces | 19, 22, 44, 87 | `[ ]` | 4 routes render content |
+| W4 Discovery surfaces | 19, 22, 44, 87 | `[~]` 44 done (already existed), 87 partial | trending verified live |
 | W5 Discovery by relationship | 27, 12, 21, 57 | `[ ]` | collage type exposed |
 | W6 Spotlight & social proof | 11, 23, 46, 84 | `[ ]` | no coercive framing |
 | W7 Search quality | 16, 69 | `[ ]` | alias query verified working |
@@ -60,10 +60,10 @@ instance ever gets a real deployment and SSR becomes worth its cost.
 | 16 | Autocomplete | **largely built** — global `SearchField`; gap is alias-awareness | W7 | `[ ]` |
 | 17 | OAuth | no — out of scope, security surface | — | `[!]` |
 | 18 | API rate limiting | no — out of scope, security surface | — | `[!]` |
-| 19 | Random scene | no | W4 | `[ ]` |
+| 19 | Random scene | no — `SceneSortEnum` has no RANDOM; needs a real `ORDER BY random()` | W4 | `[ ]` |
 | 20 | Dark mode + mobile | no — real, wanted, **its own workstream** | — | `[!]` |
 | 21 | Performer timeline | no | W5 | `[ ]` |
-| 22 | Scene of the Week | no | W4 | `[ ]` |
+| 22 | Scene of the Week | no — a *weekly window* is new; `trending` is a 7-day count, not a ranked pick | W4 | `[ ]` |
 | 23 | Contributor profiles | partial — user pages exist, no public stats | W6 | `[ ]` |
 | 24 | Tag hierarchy | no — vocabulary project | — | `[!]` |
 | 25 | Studio completeness race | **DONE** (`9727dbf9`) — migration 97's table was read by nothing; real read path added | W3 | `[x]` |
@@ -74,7 +74,7 @@ instance ever gets a real deployment and SSR becomes worth its cost.
 | 30 | Follow + notify | no | W8 | `[ ]` |
 | 32, 39, 40, 48, 54 | T3–6 strays | — | — | recorded, not adopted |
 | 35 | Fingerprint merge candidates | clusters exist (migration 99) | W8 | `[ ]` |
-| 44 | Trending | no — needs a rollup table (D4) | W4 | `[ ]` |
+| 44 | Trending | **ALREADY BUILT** — migration 60 matviews + hourly cron; `/scenes?sort=trending` verified live | W4 | `[x]` |
 | 46 | "How I found it" stories | no | W6 | `[ ]` |
 | 47 | OpenGraph | no — same SSR dependency | — | `[-]` removed |
 | 50 | Community recruitment | not a build | — | `[!]` |
@@ -82,7 +82,7 @@ instance ever gets a real deployment and SSR becomes worth its cost.
 | 59 | "What's missing" per studio | **DONE** (`9727dbf9`) — same read path; uncounted studios get their own list | W3 | `[x]` |
 | 69 | Tag synonyms | no alias table for tags | W7 | `[ ]` |
 | 84 | Preservation hero | no | W6 | `[ ]` |
-| 87 | "Most wanted" | no | W4 | `[ ]` |
+| 87 | "Most wanted" | partial — `sort=popularity` exists (all-time user_count); "wanted" implies a stated intent | W4 | `[~]` |
 
 ---
 
@@ -383,6 +383,42 @@ same number. So there is now a two-type test of very different sizes (1/2 and
 
 Live: `0% complete`, `0 of 6 catalogued`, per-type cards with counts and links, for
 a READ-only user.
+
+### W4 — discovery surfaces: the tracker was wrong about three of four
+
+Checked before building, and three items turned out to already exist:
+
+- **44 Trending — ALREADY BUILT.** Migration 60 creates `scene_popularity_trending`
+  as a MATERIALIZED VIEW over `scene_fingerprints` with a **7-day** window, and
+  `internal/cron/cron.go:183` refreshes it hourly. `SceneSortEnum.TRENDING` and
+  `POPULARITY` are both implemented in `internal/service/scene/query.go:284-295`,
+  and `SceneList` already reads `?sort=` — so Home's `/scenes?sort=trending` link
+  works. My tracker said "needs a rollup table (D4)". The rollup table has existed
+  since migration 60.
+
+  Note: the matviews do **not** appear in `information_schema.tables` (they are in
+  `pg_matviews`), so a first check reported them as absent — which is how this
+  nearly got "built" a second time.
+
+- **87 Most wanted — partial.** `sort=popularity` ranks by all-time `user_count`.
+  A true "most wanted" is a stated intent, not an observed count.
+
+- **22 Scene of the Week / 19 Random scene — genuinely absent.** A weekly pick is
+  not `trending`: trending is a 7-day count, not a ranked selection, and
+  `SceneSortEnum` has no RANDOM.
+
+**Verified live** (after seeding submissions, `scripts/seed-trending.sql`):
+`sort=trending` returns *Trending Leader* then *Quietly Submitted* and **omits** the
+scene whose only submission is 200+ days old; `sort=popularity` and
+`sort=created_at` order differently. So trending genuinely is not popularity.
+
+**Two seed bugs, both instructive:**
+- `scene_fingerprints` has no `fingerprint` column — identity lives in a separate
+  `fingerprints(id, algorithm, hash)` table. The first draft failed on its first
+  insert. `duration` and `vote` are also NOT NULL.
+- `FROM users, generate_series(1,14)` is a **cartesian product**: 196 submissions,
+  all three scenes scoring 14. Trending then looked *broken* rather than
+  mis-seeded, which is the more misleading failure.
 
 ### Standing verification state
 
