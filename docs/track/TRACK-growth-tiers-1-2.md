@@ -31,7 +31,7 @@ instance ever gets a real deployment and SSR becomes worth its cost.
 |---|---|---|---|
 | W1 Identification board UI | 2 | `[x]` 01d2c514, dcba9b10 | reachable + votable, mutation-verified |
 | W2 Public Elo | 4, 5 | `[~]` 4 done (682c3071), 5 pending | READ sees a leaderboard — **live-confirmed** |
-| W3 Completion & coverage | 6, 9, 25, 59 | `[ ]` | derived % correct, no drift |
+| W3 Completion & coverage | 6, 9, 25, 59 | `[~]` 6 done (faf5d556), 9/25/59 pending | live bar names what is missing |
 | W4 Discovery surfaces | 19, 22, 44, 87 | `[ ]` | 4 routes render content |
 | W5 Discovery by relationship | 27, 12, 21, 57 | `[ ]` | collage type exposed |
 | W6 Spotlight & social proof | 11, 23, 46, 84 | `[ ]` | no coercive framing |
@@ -47,7 +47,7 @@ instance ever gets a real deployment and SSR becomes worth its cost.
 | 3 | Browser extension | no — and out of scope | — | `[!]` |
 | 4 | Public Elo leaderboards | **FIXED** — was behind the VOTE gate; now `/leaderboard`, ungated, 7 tests | W2 | `[x]` |
 | 5 | Daily matchup micro-app | no — needs the D3 anonymous-vote decision | W2 | `[ ]` |
-| 6 | Completion % + CTA | **no** — no per-entity % in the schema at all | W3 | `[ ]` |
+| 6 | Completion % + CTA | **DONE** (`faf5d556`) — backend was already complete; the UI was missing | W3 | `[x]` |
 | 7 | Reddit bot | no — out of scope, abuse risk | — | `[!]` |
 | 8 | Stash desktop sync | no — out of scope | — | `[!]` |
 | 9 | State of the Archive | no | W3 | `[ ]` |
@@ -255,6 +255,42 @@ showing a read-only user an unauthorized page.
 1580/60 votes, 1512/57, 1502/3. The vote-count column is the point of the page —
 a rating is a mean over the votes cast, so 3 votes and 60 votes can differ by a
 point while meaning very different things.
+
+### W3 — Completion bars (item 6) — `faf5d556`
+
+**My tracker was wrong about this one.** It said the completion scoring did not
+exist. It did: the scoring service, the weights, and the GraphQL `Completion` type
+on all five entities were already built and tested. The item was a *missing UI*,
+not a missing backend — so this was built against the real schema instead of
+against my plan's guess at it.
+
+The plan had also assumed the bar would show "0 of 20 fields". It shows
+**"0 of 80 weighted fields filled"**, because `total` is a weight sum (a birthdate
+is worth 15, an eye colour 2). Rendering it as "0 of 80" reads as *80 fields are
+missing* when 12 are. The schema says so outright — "so a client can render '55 of
+110'" — and I still got it wrong first, and only saw it because the live page was
+open next to the plan.
+
+**Live:** `0% complete — 0 of 80 weighted fields filled`, the 12 missing fields
+named in human labels, CTA a real anchor to `/performers/<id>/edit`.
+
+**Two bugs found by verifying rather than assuming:**
+
+1. `<Button as={Link}>` renders `<a role="button">`, which **overrides** the
+   anchor's implicit link role. A screen reader announces "button" for something
+   that navigates, and open-in-new-tab does not work. Fixed with a plain
+   `<Link className="btn ...">`.
+
+   **This is only observable to a `getByRole` query.** Every href assertion and
+   `querySelector("a")` passes on the broken version. This repo had **zero** tests
+   querying by role before this one — so "does this suite query by role at all?"
+   is now a standing question for any new UI here.
+
+2. `completion` is deliberately **not** in `PerformerFragment`: it is a resolver
+   that reads the database per entity, so the shared fragment would fire one per
+   row in every list view. Detail pages ask for it; lists do not.
+
+**15 tests, 6 mutations, all caught.**
 
 ### Standing verification state
 
