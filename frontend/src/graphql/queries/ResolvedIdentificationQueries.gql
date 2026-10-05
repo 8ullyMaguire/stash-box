@@ -1,0 +1,35 @@
+query ResolvedIdentificationQueries(
+  $entityType: IdentificationTargetType!
+  $entityId: ID!
+  $limit: Int
+) {
+  resolvedIdentificationQueries(
+    entityType: $entityType
+    entityId: $entityId
+    limit: $limit
+  ) {
+    ...IdentificationQuerySummary
+    resolvedType
+    resolvedId
+    resolvedAt
+    resolvedBy {
+      id
+      name
+    }
+  }
+}
+
+fragment IdentificationQuerySummary on IdentificationQuery {
+  id
+  targetType
+  targetId
+  description
+  status
+  createdAt
+  candidates {
+    id
+    entityType
+    entityId
+    voteCount
+  }
+}

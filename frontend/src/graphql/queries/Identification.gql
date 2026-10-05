@@ -1,0 +1,20 @@
+query IdentificationBoard($limit: Int) {
+  listOpenIdentificationQueries(limit: $limit) {
+    ...IdentificationQuerySummary
+  }
+}
+
+fragment IdentificationQuerySummary on IdentificationQuery {
+  id
+  targetType
+  targetId
+  description
+  status
+  createdAt
+  candidates {
+    id
+    entityType
+    entityId
+    voteCount
+  }
+}

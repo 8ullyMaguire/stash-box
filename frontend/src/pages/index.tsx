@@ -10,6 +10,7 @@ import {
   ROUTE_EDITS,
   ROUTE_FORGOT_PASSWORD,
   ROUTE_HOME,
+  ROUTE_IDENTIFICATION,
   ROUTE_IMAGE_REVIEW,
   ROUTE_IMAGE_TYPES,
   ROUTE_LOGIN,
@@ -35,6 +36,7 @@ import Drafts from "src/pages/drafts";
 import Edits from "src/pages/edits";
 import ForgotPassword from "src/pages/forgotPassword";
 import Home from "src/pages/home";
+import Identification from "src/pages/identification";
 import ImageReview from "src/pages/imageReview";
 import ImageTypes from "src/pages/imageTypes";
 import Notifications from "src/pages/notifications";
@@ -79,6 +81,13 @@ const Pages: FC = () => (
             />
             <Route path={ROUTE_IMAGE_TYPES} element={<ImageTypes />} />
             <Route path={`${ROUTE_IMAGE_REVIEW}/*`} element={<ImageReview />} />
+            {/* Identification board. Mounted at the top level, NOT under
+                /curation: the board reads at READ while /curation is gated on
+                VOTE, so nesting it there would hide it from read-only users. */}
+            <Route
+              path={`${ROUTE_IDENTIFICATION}/*`}
+              element={<Identification />}
+            />
             <Route path={`${ROUTE_CURATION}/*`} element={<Curation />} />
             <Route path={`${ROUTE_DRAFTS}/*`} element={<Drafts />} />
             <Route path={ROUTE_NOTIFICATIONS} element={<Notifications />} />

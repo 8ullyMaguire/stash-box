@@ -104,6 +104,7 @@ import {
   PerformerEditUpdateDocument,
   type PerformerEditUpdateMutation,
   type PerformerEditUpdateMutationVariables,
+  PostIdentificationQueryDocument,
   RecropImageDocument,
   type RecropImageMutation,
   type RecropImageMutationVariables,
@@ -119,6 +120,7 @@ import {
   ResetPasswordDocument,
   type ResetPasswordMutation,
   type ResetPasswordMutationVariables,
+  ResolveIdentificationQueryDocument,
   RevertImageCategorizationDocument,
   type RevertImageCategorizationMutation,
   type RevertImageCategorizationMutationVariables,
@@ -192,6 +194,7 @@ import {
   VoteEloDocument,
   type VoteEloMutation,
   type VoteEloMutationVariables,
+  VoteIdentificationCandidateDocument,
   type VoteMutation,
   type VoteMutationVariables,
 } from "../types";
@@ -793,3 +796,18 @@ export const useUpdateImageTypePreferences = (
 export const useVoteElo = (
   options?: MutationHookOptions<VoteEloMutation, VoteEloMutationVariables>,
 ) => useMutation(VoteEloDocument, options);
+
+// --- Identification board (SPEC §5, growth workstream W1) ---
+//
+// All three require VOTE. The board reads at READ and contributes at VOTE, so
+// every one of these fails for a read-only user; the UI hides the controls
+// rather than rendering a button that returns "not authorized".
+
+export const usePostIdentificationQuery = () =>
+  useMutation(PostIdentificationQueryDocument);
+
+export const useVoteIdentificationCandidate = () =>
+  useMutation(VoteIdentificationCandidateDocument);
+
+export const useResolveIdentificationQuery = () =>
+  useMutation(ResolveIdentificationQueryDocument);

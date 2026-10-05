@@ -1,6 +1,13 @@
 export const ROUTE_CURATION = "/curation";
 export const ROUTE_CURATION_MATCHUP = "/curation/matchup";
 export const ROUTE_CURATION_LEADERBOARD = "/curation/leaderboard";
+
+// Identification board (SPEC section 5). Mounted at the top level rather than
+// under /curation, because reading the board is allowed at READ while the
+// curation route is gated on VOTE -- nesting it there would hide it from every
+// read-only user, which is the 7.26 defect in a new place.
+export const ROUTE_IDENTIFICATION = "/identification";
+export const ROUTE_IDENTIFICATION_QUERY = "/identification/:id";
 export const ROUTE_HOME = "/";
 export const ROUTE_LOGIN = "/login";
 export const ROUTE_LOGOUT = "/logout";

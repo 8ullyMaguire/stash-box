@@ -22,6 +22,10 @@ import {
   FingerprintClustersDocument,
   type FingerprintClustersQueryVariables,
   FullPerformerDocument,
+  IdentificationBoardDocument,
+  type IdentificationBoardQuery,
+  IdentificationQueryDetailDocument,
+  type IdentificationQueryDetailQuery,
   ImageTypeGroupsDocument,
   type ImageTypeGroupsQueryVariables,
   MeDocument,
@@ -447,3 +451,30 @@ export const useEloLeaderboard = (entityType: EloEntityType, limit?: number) =>
     variables: { entityType, limit },
     skip: !entityType,
   });
+
+// --- Identification board (SPEC §5, growth workstream W1) ---
+//
+// The backend has had ten identification query fields since migration 79 and no
+// frontend page read any of them. These hooks are that page's data layer.
+//
+// The board is READ for reading and VOTE for contributing, so the list and the
+// detail query are readable by anyone logged in, while post/vote/resolve are not
+// -- which is why the UI must hide the contribution controls rather than let them
+// fail for a READ user. See IdentificationBoard.tsx for the gating.
+
+export const useIdentificationBoard = (limit?: number) =>
+  useQuery(IdentificationBoardDocument, { variables: { limit } });
+
+export const useIdentificationQuery = (id: string) =>
+  useQuery(IdentificationQueryDetailDocument, {
+    variables: { id },
+    skip: !id,
+  });
+
+export type IdentificationSummary = NonNullable<
+  IdentificationBoardQuery["listOpenIdentificationQueries"]
+>[number];
+
+export type IdentificationDetail = NonNullable<
+  IdentificationQueryDetailQuery["identificationQuery"]
+>;

@@ -13,6 +13,7 @@ import {
   ROUTE_EDITS,
   ROUTE_FORGOT_PASSWORD,
   ROUTE_HOME,
+  ROUTE_IDENTIFICATION,
   ROUTE_IMAGE_REVIEW,
   ROUTE_IMAGE_TYPES,
   ROUTE_LOGIN,
@@ -155,6 +156,14 @@ const Main: FC<Props> = ({ children }) => {
           </NavLink>
           <NavLink to={ROUTE_EDITS} className="nav-link">
             Edits
+          </NavLink>
+          {/* Identification board. Ungated, deliberately: the board READS at READ
+              (listOpenIdentificationQueries is @hasRole(READ)) and only
+              CONTRIBUTES at VOTE, so gating the entry on canVote would hide it
+              from exactly the read-only users it is most useful to. The vote
+              button inside is gated instead -- see IdentificationQuery.tsx. */}
+          <NavLink to={ROUTE_IDENTIFICATION} className="nav-link">
+            Identify
           </NavLink>
           {/* Curation is gated on canVote because the matchup query requires the
               VOTE role; showing the link to someone without it would land them on

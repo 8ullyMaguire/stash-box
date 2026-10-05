@@ -1,0 +1,25 @@
+mutation VoteIdentificationCandidate($candidateId: ID!) {
+  voteIdentificationCandidate(candidateId: $candidateId) {
+    id
+    voteCount
+    votedByMe
+  }
+}
+
+mutation UnvoteIdentificationCandidate($candidateId: ID!) {
+  unvoteIdentificationCandidate(candidateId: $candidateId) {
+    id
+    voteCount
+    votedByMe
+  }
+}
+
+mutation ResolveIdentificationQuery($input: IdentificationResolveInput!) {
+  resolveIdentificationQuery(input: $input) {
+    id
+    status
+    resolvedType
+    resolvedId
+    resolvedAt
+  }
+}

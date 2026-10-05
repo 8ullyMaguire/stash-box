@@ -1,0 +1,20 @@
+mutation PostIdentificationQuery($input: IdentificationPostInput!) {
+  postIdentificationQuery(input: $input) {
+    ...IdentificationQuerySummary
+  }
+}
+
+fragment IdentificationQuerySummary on IdentificationQuery {
+  id
+  targetType
+  targetId
+  description
+  status
+  createdAt
+  candidates {
+    id
+    entityType
+    entityId
+    voteCount
+  }
+}

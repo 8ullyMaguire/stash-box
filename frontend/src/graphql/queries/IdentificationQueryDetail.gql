@@ -1,0 +1,47 @@
+query IdentificationQueryDetail($id: ID!) {
+  identificationQuery(id: $id) {
+    ...IdentificationQuerySummary
+    snapshotId
+    resolvedType
+    resolvedId
+    resolvedAt
+    resolvedBy {
+      id
+      name
+    }
+    candidates {
+      id
+      queryId
+      entityType
+      entityId
+      note
+      voteCount
+      votedByMe
+      createdAt
+      suggestedBy {
+        id
+        name
+      }
+      entity {
+        id
+        name
+        disambiguation
+      }
+    }
+  }
+}
+
+fragment IdentificationQuerySummary on IdentificationQuery {
+  id
+  targetType
+  targetId
+  description
+  status
+  createdAt
+  candidates {
+    id
+    entityType
+    entityId
+    voteCount
+  }
+}
