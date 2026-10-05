@@ -25,7 +25,9 @@ package api
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"strings"
 
 	"github.com/gofrs/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -117,15 +119,53 @@ func listItemToModel(row *queries.ListItem) *models.ListItem {
 	return m
 }
 
+// listAuditToModel maps one audit row. The actor is NOT filled in here: doing so would need
+// a database lookup per row, and the caller has the service. Passing a nil resolver is how
+// this field shipped dead -- see fillAuditActors.
 func listAuditToModel(row *queries.ListAudit) *models.ListAudit {
 	if row == nil {
 		return nil
 	}
 	return &models.ListAudit{
-		ID:        row.ID,
-		Action:    models.ListAuditActionEnum(row.Action),
+		ID: row.ID,
+		// The column holds the lower-case verb ('publish') because that is what the
+		// service writes; the enum is upper case. Casting raw would emit a value that is
+		// not a member of the enum, which is what the live server did: the field is
+		// declared ListAuditActionEnum! and came back "publish". Normalising here keeps the
+		// casing in one place rather than in every writer.
+		Action:    models.ListAuditActionEnum(strings.ToUpper(row.Action)),
 		CreatedAt: timestamptzToString(row.CreatedAt),
 	}
+}
+
+// fillAuditActors resolves the actor for each audit row.
+//
+// This function existing at all is a bug that survived a green test suite: listAuditToModel
+// built the model without an Actor, the field was declared nullable ("or null if that
+// account no longer exists"), and the unit tests passed a null actor in -- so they agreed
+// with the broken behaviour. Only a live query against a row with a real actor showed
+// `actor: null` on a publication that demonstrably had one.
+//
+// A NULL actor_id is left as nil. That is the signal the frontend renders as "a former
+// member", and it is deliberately distinct from a lookup failure: a missing account and an
+// unresolvable one must not look the same.
+func (r *Resolver) fillAuditActors(ctx context.Context, audit []queries.ListAudit) error {
+	for i := range audit {
+		if !audit[i].ActorID.Valid || audit[i].ActorID.UUID == uuid.Nil {
+			continue
+		}
+		actor, err := r.services.User().FindByID(ctx, audit[i].ActorID.UUID)
+		if err != nil {
+			// sql.ErrNoRows here means the account is gone, which is exactly the
+			// "former member" case the schema documents. Leave the nil and carry on.
+			if errors.Is(err, sql.ErrNoRows) {
+				continue
+			}
+			return err
+		}
+		audit[i].Actor = actor
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -253,9 +293,14 @@ func (r *Resolver) hydrate(ctx context.Context, m *models.List) error {
 		// list already resolved.
 		m.AuditTrail = []models.ListAudit{}
 	} else {
+		if err := r.fillAuditActors(ctx, audit); err != nil {
+			return mapListError(err)
+		}
 		m.AuditTrail = make([]models.ListAudit, 0, len(audit))
 		for i := range audit {
-			m.AuditTrail = append(m.AuditTrail, *listAuditToModel(&audit[i]))
+			entry := listAuditToModel(&audit[i])
+			entry.Actor = audit[i].Actor
+			m.AuditTrail = append(m.AuditTrail, *entry)
 		}
 	}
 

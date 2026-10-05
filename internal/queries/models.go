@@ -425,6 +425,12 @@ type ListAudit struct {
 	ActorID   uuid.NullUUID      `db:"actor_id" json:"actor_id"`
 	Action    string             `db:"action" json:"action"`
 	CreatedAt pgtype.Timestamptz `db:"created_at" json:"created_at"`
+
+	// Actor is not a column. It is filled in by the resolver, which already has the
+	// user service, so the audit query does not join users -- one extra lookup per row
+	// here would mean an N+1 on every list page, and the owner path already resolves the
+	// owner separately anyway.
+	Actor *models.User `db:"-" json:"actor,omitempty"`
 }
 
 type ListItem struct {
