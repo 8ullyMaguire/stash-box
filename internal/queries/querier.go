@@ -28,6 +28,7 @@ type Querier interface {
 	// per query: re-suggesting is not more signal, and allowing it would let one
 	// person weight the vote.
 	AddIdentificationCandidate(ctx context.Context, arg AddIdentificationCandidateParams) (IdentificationCandidate, error)
+	AddListItem(ctx context.Context, arg AddListItemParams) (ListItem, error)
 	// Record that `alternative_site_id` is an alternative to `site_id`.
 	//
 	// The self-link is prevented by the table's CHECK and NOT re-checked here. Adding
@@ -168,8 +169,10 @@ type Querier interface {
 	// deleted does not count: the vote is evidence about a question that no longer
 	// exists.
 	CountIdentificationVotesForUser(ctx context.Context, userID uuid.UUID) (int64, error)
+	CountListItems(ctx context.Context, listID uuid.UUID) (int64, error)
 	CountNotificationsByUser(ctx context.Context, arg CountNotificationsByUserParams) (int64, error)
 	CountPerformerSearchMatches(ctx context.Context, arg CountPerformerSearchMatchesParams) (interface{}, error)
+	CountPublishedLists(ctx context.Context) (int64, error)
 	// Total published reviews for an entity, unpaginated. Separate from
 	// GetReviewAverage because the paginated list is capped at 100 by the caller and
 	// a count taken from a capped list is a count of the cap.
@@ -349,6 +352,13 @@ type Querier interface {
 	CreateImageTypeAssignments(ctx context.Context, arg []CreateImageTypeAssignmentsParams) (int64, error)
 	// Invite key queries
 	CreateInviteKey(ctx context.Context, arg CreateInviteKeyParams) (InviteKey, error)
+	// A new list, PRIVATE by construction.
+	//
+	// `published_at` and `published_by` are absent from this statement entirely rather than
+	// set to NULL. A create that mentioned them would be a create that could publish, and the
+	// policy says publication is a separate, deliberate, auditable act -- so the way to make
+	// that structural is for the INSERT to have no column to publish through.
+	CreateList(ctx context.Context, arg CreateListParams) (List, error)
 	CreateModAudit(ctx context.Context, arg CreateModAuditParams) (ModAudit, error)
 	CreateOrReplaceFingerprint(ctx context.Context, arg CreateOrReplaceFingerprintParams) error
 	// Performer queries
@@ -511,6 +521,7 @@ type Querier interface {
 	DeleteImage(ctx context.Context, id uuid.UUID) error
 	DeleteImageTypeAssignments(ctx context.Context, imageID uuid.UUID) error
 	DeleteInviteKey(ctx context.Context, id uuid.UUID) error
+	DeleteList(ctx context.Context, id uuid.UUID) error
 	DeleteNotificationsByEditComments(ctx context.Context, editID uuid.UUID) error
 	DeleteNotificationsByTargetID(ctx context.Context, id uuid.UUID) error
 	DeletePerformer(ctx context.Context, id uuid.UUID) error
@@ -627,6 +638,27 @@ type Querier interface {
 	FindImagesBySceneID(ctx context.Context, id uuid.UUID) ([]Image, error)
 	FindImagesByStudioID(ctx context.Context, id uuid.UUID) ([]Image, error)
 	FindInviteKey(ctx context.Context, id uuid.UUID) (InviteKey, error)
+	FindList(ctx context.Context, id uuid.UUID) (List, error)
+	// A list's publication history, newest first.
+	FindListAudit(ctx context.Context, listID uuid.UUID) ([]ListAudit, error)
+	// Lookup for the "you already have a list called this" check. Scoped to the owner because
+	// names are unique per owner, not globally.
+	FindListByName(ctx context.Context, arg FindListByNameParams) (List, error)
+	// A list's contents in display order.
+	//
+	// `position` then `id`: position is client-supplied and ties are common (every item added
+	// in one bulk request gets the same position), so id breaks them deterministically. Without
+	// the tiebreak, two clients paginating the same list can see different orders.
+	FindListItems(ctx context.Context, listID uuid.UUID) ([]ListItem, error)
+	// Batch lookup by id, used to resolve the lists a caller may see.
+	//
+	// Deliberately NOT filtered on published_at. Visibility is decided by the caller with the
+	// full row in hand -- a draft is returned with its NULL published_at so the caller can tell
+	// "private" from "does not exist" -- and a filter here would erase that distinction.
+	FindListsByIds(ctx context.Context, dollar_1 []uuid.UUID) ([]List, error)
+	// Everything an owner has, drafts included. This is the one listing that shows private
+	// lists, and it is reachable only by someone entitled to see that owner's drafts.
+	FindListsByOwner(ctx context.Context, ownerID uuid.UUID) ([]List, error)
 	// Find merge target IDs for performers (for merges where these are sources)
 	FindMergeIDsByPerformerIds(ctx context.Context, performerIds []uuid.UUID) ([]FindMergeIDsByPerformerIdsRow, error)
 	// Find merge source IDs for performers (for merges where these are targets)
@@ -675,6 +707,11 @@ type Querier interface {
 	FindPerformerWithRedirect(ctx context.Context, id uuid.UUID) ([]Performer, error)
 	FindPerformersByIds(ctx context.Context, dollar_1 []uuid.UUID) ([]Performer, error)
 	FindPerformersByURL(ctx context.Context, arg FindPerformersByURLParams) ([]Performer, error)
+	// The browse listing: PUBLISHED lists only, newest publication first.
+	//
+	// The WHERE is not decoration. It mirrors the partial index, so the query is answered by
+	// the index alone; a draft is not merely excluded from the result, it is not in the index.
+	FindPublishedLists(ctx context.Context, arg FindPublishedListsParams) ([]List, error)
 	FindReview(ctx context.Context, id uuid.UUID) (Review, error)
 	// Used by the upsert path to decide create-vs-update, and by the service to turn a
 	// duplicate submission into an update rather than a constraint error.
@@ -1408,6 +1445,13 @@ type Querier interface {
 	PerformersMissingField(ctx context.Context, limit int32) ([]uuid.UUID, error)
 	// Prepare a fingerprint move by dropping reports and dupe fingerprint submissions
 	PruneSceneFingerprintsForMove(ctx context.Context, arg PruneSceneFingerprintsForMoveParams) ([]PruneSceneFingerprintsForMoveRow, error)
+	// Publish, recording WHEN and WHO in the same statement.
+	//
+	// One statement rather than an UPDATE followed by an INSERT into list_audit, because the
+	// two must agree: a publication without its audit row is exactly the state the policy
+	// forbids, and splitting the write makes that state reachable if the second statement
+	// fails.
+	PublishList(ctx context.Context, arg PublishListParams) (List, error)
 	// Matchup candidate selection (SPEC §9: "two performers side by side, who do you
 	// prefer, one click, next matchup").
 	// Draw a pool of performers eligible to appear in a matchup.
@@ -1481,6 +1525,7 @@ type Querier interface {
 	// silently recompute it on every replay, which is exactly the retroactive
 	// re-weighting the column exists to prevent.
 	RecordEloVote(ctx context.Context, arg RecordEloVoteParams) (EloVote, error)
+	RecordListAudit(ctx context.Context, arg RecordListAuditParams) error
 	// ON CONFLICT DO NOTHING makes a retried or duplicated event a no-op rather
 	// than a silent double increment. The matching partial state is a real
 	// concern: an edit can be applied twice by a retried request, and without this
@@ -1492,7 +1537,13 @@ type Querier interface {
 	// Releasing a claim. Restricted to the claimer's own rows by the WHERE, so one
 	// curator cannot release another's work.
 	ReleaseAuthoredQuestItem(ctx context.Context, arg ReleaseAuthoredQuestItemParams) (AuthoredQuestItem, error)
+	RemoveListItem(ctx context.Context, id uuid.UUID) error
+	RemoveListItemsByEntity(ctx context.Context, arg RemoveListItemsByEntityParams) error
 	RemoveSiteAlternative(ctx context.Context, arg RemoveSiteAlternativeParams) error
+	// Set an explicit position for one item. Reordering is one row at a time rather than a bulk
+	// swap, because a list has no version column and a concurrent reorder would otherwise be
+	// last-write-wins across the whole list with no way to detect it.
+	ReorderListItems(ctx context.Context, arg ReorderListItemsParams) error
 	ResetVotes(ctx context.Context, editID uuid.UUID) error
 	// Resolves a set of UUIDs to the type of entity they belong to, used to turn
 	// bare UUIDs in comments into links.
@@ -1668,6 +1719,10 @@ type Querier interface {
 	TriggerSceneEditNotifications(ctx context.Context, id uuid.UUID) error
 	TriggerStudioEditNotifications(ctx context.Context, id uuid.UUID) error
 	TriggerUpdatedEditNotifications(ctx context.Context, id uuid.UUID) error
+	// Return to private. The `published_at IS NOT NULL` guard means unpublishing something
+	// already private is a no-op returning no rows, so a caller cannot fabricate an
+	// unpublish event for a list that was never published.
+	UnpublishList(ctx context.Context, id uuid.UUID) (List, error)
 	UnvoteIdentificationCandidate(ctx context.Context, arg UnvoteIdentificationCandidateParams) error
 	UpdateEdit(ctx context.Context, arg UpdateEditParams) (Edit, error)
 	UpdateEditCommentText(ctx context.Context, arg UpdateEditCommentTextParams) (EditComment, error)
@@ -1678,6 +1733,9 @@ type Querier interface {
 	// UPDATE per row without contriving a collision-free intermediate permutation.
 	UpdateImageTypeGroupSortOrder(ctx context.Context, arg UpdateImageTypeGroupSortOrderParams) error
 	UpdateImageTypeSortOrder(ctx context.Context, arg UpdateImageTypeSortOrderParams) error
+	// Rename / re-describe. NOT re-parenting and NOT publishing: publishing is its own
+	// statement so it can carry an audit row, and it takes an actor argument.
+	UpdateList(ctx context.Context, arg UpdateListParams) (List, error)
 	// Retarget PENDING performer edits from a merged-away performer to the merge survivor.
 	//
 	// Issue #943: a merge soft-deletes the source and adds a redirect, but edits still

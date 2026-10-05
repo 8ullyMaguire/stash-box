@@ -27,13 +27,18 @@
 # fails as a confusing codegen error, not as an obvious one. This regenerates from the
 # directory every time, so adding a migration needs no second edit.
 #
-# Committed output: internal/database/sqlc-schema-files.txt, referenced from sqlc.yaml.
+# It ALSO rewrites the `schema:` block in sqlc.yaml. That is the part I got wrong the
+# first time: I wrote the generator to emit a list file and then INLINED that list into
+# sqlc.yaml by hand, so adding a migration still needed a second manual edit -- and
+# migration 107 needed exactly that edit while the file's own comment claimed otherwise.
+# Now the generator owns both, and running it is the whole procedure.
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 DIR="internal/database/migrations/postgres"
 OUT="internal/database/sqlc-schema-files.txt"
+YAML="sqlc.yaml"
 
 # Sort on the leading integer with `sort -n` on a version key, then strip it. The `.up.sql`
 # files only: `.down.sql` is the inverse and replaying it would UNDO the schema.
@@ -58,4 +63,25 @@ esac
 if ! sed -n '10p' "$OUT" | grep -q '/10_tag_categories.up.sql$'; then
   echo "NOTE: migration 10 is not at line 10 -- listing is $(sed -n '10p' "$OUT")"
 fi
-echo "OK: numeric order confirmed"
+
+# Rewrite sqlc.yaml's `schema:` block from $OUT.
+#
+# Done with awk rather than sed or a YAML round trip: sed's multiline replacement is exactly
+# the kind of thing that silently mangles a config file, and a YAML library would reformat
+# comments we want kept. awk replaces only the lines between `schema:` and the next
+# top-level key, which is the only region that changes.
+awk -v out="$OUT" '
+  /^    schema:/ {
+    print
+    while ((getline line < out) > 0) print "      - " line
+    close(out)
+    skipping = 1
+    next
+  }
+  skipping && /^    [a-z_]+:/ { skipping = 0 }
+  skipping { next }
+  { print }
+' "$YAML" > "$YAML.tmp"
+mv "$YAML.tmp" "$YAML"
+
+echo "OK: sqlc.yaml regenerated with $(wc -l < "$OUT") schema paths"

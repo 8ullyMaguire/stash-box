@@ -407,6 +407,35 @@ type LintQuestDefinition struct {
 	CreatedAt    time.Time     `db:"created_at" json:"created_at"`
 }
 
+type List struct {
+	ID          uuid.UUID          `db:"id" json:"id"`
+	OwnerID     uuid.UUID          `db:"owner_id" json:"owner_id"`
+	Name        string             `db:"name" json:"name"`
+	Description *string            `db:"description" json:"description"`
+	PublishedAt pgtype.Timestamptz `db:"published_at" json:"published_at"`
+	PublishedBy uuid.NullUUID      `db:"published_by" json:"published_by"`
+	OwnerName   string             `db:"owner_name" json:"owner_name"`
+	CreatedAt   pgtype.Timestamptz `db:"created_at" json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `db:"updated_at" json:"updated_at"`
+}
+
+type ListAudit struct {
+	ID        uuid.UUID          `db:"id" json:"id"`
+	ListID    uuid.UUID          `db:"list_id" json:"list_id"`
+	ActorID   uuid.NullUUID      `db:"actor_id" json:"actor_id"`
+	Action    string             `db:"action" json:"action"`
+	CreatedAt pgtype.Timestamptz `db:"created_at" json:"created_at"`
+}
+
+type ListItem struct {
+	ID         uuid.UUID          `db:"id" json:"id"`
+	ListID     uuid.UUID          `db:"list_id" json:"list_id"`
+	EntityType *string            `db:"entity_type" json:"entity_type"`
+	EntityID   uuid.NullUUID      `db:"entity_id" json:"entity_id"`
+	Position   int                `db:"position" json:"position"`
+	CreatedAt  pgtype.Timestamptz `db:"created_at" json:"created_at"`
+}
+
 type ModAudit struct {
 	ID         uuid.UUID       `db:"id" json:"id"`
 	Action     ModAuditAction  `db:"action" json:"action"`

@@ -119,6 +119,7 @@ sql:
       - internal/database/migrations/postgres/103_scene_search_recall.up.sql
       - internal/database/migrations/postgres/105_refresh_collage_current_duration.up.sql
       - internal/database/migrations/postgres/106_tag_category_nesting.up.sql
+      - internal/database/migrations/postgres/107_shareable_lists.up.sql
     queries: "internal/queries/sql"
     gen:
       go:
