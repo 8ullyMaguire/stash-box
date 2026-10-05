@@ -506,3 +506,81 @@ func TestIdentificationBoardReturnsEveryNonNullFieldTheUIRenders(t *testing.T) {
 		"an open query has not been resolved; a non-nil zero time means "+
 			"resolvedAt is being derived from updated_at again")
 }
+
+// The LIST must carry its candidates, not just the detail view.
+//
+// Second omission of the same shape as the createdAt bug, found by clicking the
+// live board: ListOpenIdentificationQueries returned toModelQueries(...) without
+// ever calling withCandidates, so every row rendered with an empty candidate
+// list. The board said "0 votes - no suggestions yet" about a question that had
+// two suggestions in the database.
+//
+// The existing list tests only asserted the query did not error and that ids
+// came back, so a list with no candidates passed. `candidates` is non-null in
+// the schema, so gqlgen happily returns [] and nothing downstream complains --
+// the page is simply wrong, which is the hardest class of defect to notice.
+func TestIdentificationBoardListCarriesCandidates(t *testing.T) {
+	admin := asAdmin(t)
+	sceneA := createSceneWithDuration(t, "Board List Candidate A", intPtr(300))
+	sceneB := createSceneWithDuration(t, "Board List Candidate B", intPtr(400))
+
+	queryID := gqlPostQuery(t, admin.client.Client, "scene", "a question with real suggestions")
+	first := gqlSuggest(t, admin.client.Client, queryID, sceneA.String())
+	gqlSuggest(t, admin.client.Client, queryID, sceneB.String())
+
+	// Vote on one so the tally is non-zero as well as non-empty: a list that
+	// loads candidates but not their counts is the same defect one level down.
+	var vote struct {
+		VoteIdentificationCandidate struct {
+			ID        string
+			VoteCount int
+		}
+	}
+	require.NoError(t, admin.client.Post(`
+		mutation Vote($id: ID!) { voteIdentificationCandidate(candidateId: $id) { id voteCount } }
+	`, &vote, client.Var("id", first)))
+	require.Equal(t, 1, vote.VoteIdentificationCandidate.VoteCount)
+
+	var list struct {
+		ListOpenIdentificationQueries []struct {
+			ID         string
+			Candidates []struct {
+				ID        string
+				EntityID  string
+				VoteCount int
+			}
+		}
+	}
+	require.NoError(t, admin.client.Post(`
+		query Board($limit: Int) {
+			listOpenIdentificationQueries(limit: $limit) {
+				id candidates { id entityId voteCount }
+			}
+		}
+	`, &list, client.Var("limit", 50)))
+
+	var found bool
+	for _, q := range list.ListOpenIdentificationQueries {
+		if q.ID != queryID {
+			continue
+		}
+		found = true
+		require.Len(t, q.Candidates, 2,
+			"the list must carry the question's candidates: the board renders a "+
+				"vote tally per row from them, so an empty list reads as 'nobody "+
+				"has suggested anything' about a question with two suggestions")
+		var total int
+		seen := map[string]bool{}
+		for _, c := range q.Candidates {
+			total += c.VoteCount
+			seen[c.EntityID] = true
+		}
+		assert.Equal(t, 1, total,
+			"the per-row vote tally is summed from the candidates' voteCount, so "+
+				"a candidate loaded without its count renders as a board that "+
+				"cannot be voted on")
+		assert.True(t, seen[sceneA.String()], "the voted candidate must be present")
+		assert.True(t, seen[sceneB.String()], "the second candidate must be present")
+	}
+	assert.True(t, found, "the posted query must appear in the board list")
+}

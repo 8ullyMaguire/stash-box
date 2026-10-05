@@ -131,6 +131,11 @@ func candidateToModel(ctx context.Context, s *identification.Service, c *identif
 		// and every service-level test still passes -- the count is in the
 		// service's struct and simply never crossed the boundary.
 		VoteCount: c.VoteCount,
+		// `createdAt` on a candidate is `Time!` too (identification.graphql:119).
+		// Dropping it here fails the WHOLE board query, not just this field,
+		// because gqlgen rejects the non-null contract before the client can
+		// render a partial candidate.
+		CreatedAt: c.CreatedAt,
 	}
 	// Only performers have a dataloader in this version, matching how the elo
 	// resolver handles the same problem: the schema accepts five target types and
@@ -198,11 +203,30 @@ func orDefaultInt(limit *int, fallback int) int {
 
 // ListOpenIdentificationQueries returns the board's queue.
 func (r *queryResolver) ListOpenIdentificationQueries(ctx context.Context, limit *int) ([]models.IdentificationQuery, error) {
-	list, err := r.services.Identification().ListOpen(ctx, orDefaultInt(limit, 50))
+	s := r.services.Identification()
+	list, err := s.ListOpen(ctx, orDefaultInt(limit, 50))
 	if err != nil {
 		return nil, err
 	}
-	return toModelQueries(list), nil
+	out := toModelQueries(list)
+
+	// Load candidates for the whole page in ONE pass.
+	//
+	// This call was missing entirely, so the board rendered every row with an
+	// empty candidate list and the page reported "0 votes - no suggestions yet"
+	// for questions that had two. Found by clicking the live board after the
+	// createdAt fix, and by the same class of omission that fix exposed: a
+	// conversion helper existed (withCandidates) and was wired to the DETAIL
+	// resolver but not the LIST one.
+	//
+	// The loop rather than a helper per row is deliberate -- N+1 for a board is
+	// one query per question, and a 50-row board is 50 round trips.
+	for i := range out {
+		if err := withCandidates(ctx, s, &out[i], uuid.Nil); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
 }
 
 // IdentificationQuery reads one query, with its candidates.

@@ -184,6 +184,14 @@ type Candidate struct {
 	Note        *string
 	SuggestedBy *uuid.UUID
 	VoteCount   int
+	// CreatedAt is what the schema's `createdAt: Time!` resolves from. It was
+	// missing from this struct entirely, so no construction site could set it and
+	// candidateToModel had nothing to copy -- the third instance of the same
+	// omission that dropped Query.CreatedAt and left the list without
+	// candidates. Found because the new board test asked for candidates'
+	// createdAt and only FAILED when another test had run first (list index 1),
+	// which is what made it look like pollution rather than a real gap.
+	CreatedAt time.Time
 }
 
 // Service manages the identification board.
@@ -321,6 +329,7 @@ func (s *Service) Suggest(ctx context.Context, queryID uuid.UUID, entityType Tar
 		Note:        row.Note,
 		SuggestedBy: uuidPtr(row.SuggestedBy),
 		VoteCount:   0,
+		CreatedAt:   row.CreatedAt,
 	}, nil
 }
 
@@ -353,6 +362,7 @@ func (s *Service) GetCandidate(ctx context.Context, candidateID uuid.UUID) (*Can
 		EntityID:    row.EntityID,
 		SuggestedBy: uuidPtr(row.SuggestedBy),
 		VoteCount:   int(tally),
+		CreatedAt:   row.CreatedAt,
 	}, nil
 }
 
@@ -425,6 +435,7 @@ func (s *Service) ListCandidates(ctx context.Context, queryID uuid.UUID) ([]*Can
 			Note:        row.Note,
 			SuggestedBy: uuidPtr(row.SuggestedBy),
 			VoteCount:   int(row.VoteCount),
+			CreatedAt:   row.CreatedAt,
 		})
 	}
 	return out, nil
