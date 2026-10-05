@@ -1,7 +1,6 @@
 import type { FC } from "react";
 import { Route, Routes, useParams } from "react-router-dom";
 import Title from "src/components/title";
-import { ROUTE_IDENTIFICATION_QUERY } from "src/constants/route";
 import IdentificationBoard from "./IdentificationBoard";
 import IdentificationQuery from "./IdentificationQuery";
 

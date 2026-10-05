@@ -2,6 +2,7 @@ import { groupBy, keyBy, sortBy } from "lodash-es";
 import type { FC } from "react";
 import { Tab, Tabs } from "react-bootstrap";
 import { useLocation, useNavigate } from "react-router-dom";
+import CompletionBar from "src/components/CompletionBar";
 import CheckboxSelect from "src/components/checkboxSelect";
 import { EditList, SceneList, URLList } from "src/components/list";
 import {
@@ -84,6 +85,10 @@ const PerformerComponent: FC<Props> = ({ performer }) => {
 
   return (
     <>
+      <CompletionBar
+        completion={performer.completion}
+        entityId={performer.id}
+      />
       <PerformerInfo performer={performer} />
       <hr className="my-2" />
       <Tabs

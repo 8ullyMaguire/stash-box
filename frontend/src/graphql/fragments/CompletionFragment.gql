@@ -1,0 +1,7 @@
+fragment CompletionFields on Completion {
+  entityType
+  score
+  missing
+  total
+  earned
+}

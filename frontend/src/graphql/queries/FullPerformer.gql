@@ -1,7 +1,15 @@
 #import "../fragments/PerformerFragment.gql"
+#import "../fragments/CompletionFragment.gql"
 query FullPerformer($id: ID!) {
   findPerformer(id: $id) {
     ...PerformerFragment
+    # Deliberately NOT in PerformerFragment: completion is a resolver that reads
+    # the database per entity, so putting it in the shared fragment would fire
+    # one per row in every list view -- a 50-row performer list becomes 50
+    # scoring queries. The detail page asks for it; the list does not.
+    completion {
+      ...CompletionFields
+    }
     studios {
       scene_count
       studio {

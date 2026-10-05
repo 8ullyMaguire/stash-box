@@ -294,7 +294,7 @@ describe("identification board — route declaration", () => {
     // literal ${...} sequence in this file, which biome's
     // noTemplateCurlyInString rejects, and its own fix (useTemplate) would
     // reintroduce the literal. concat satisfies both.
-    const routePath = (name: string) => "path={`" + "$" + "{" + name + "}/*`}";
+    const routePath = (name: string) => `path={\`${"${"}${name}}/*\`}`;
     const identRoute = routePath("ROUTE_IDENTIFICATION");
     const curationRoute = routePath("ROUTE_CURATION");
 
