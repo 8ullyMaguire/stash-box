@@ -978,6 +978,13 @@ type Querier interface {
 	GetImageTypesByTarget(ctx context.Context, target string) ([]ImageType, error)
 	// Gets current images for target entity and merges with edit's added_images/removed_images
 	GetImagesForEdit(ctx context.Context, id uuid.UUID) ([]Image, error)
+	// A single item by its own id.
+	//
+	// Needed by reorder and remove, which are addressed by ITEM id and must therefore
+	// resolve the item's list before deciding whether the caller may touch it. Without this,
+	// the only alternative is FindListItems(listID) -- which takes a LIST id -- so addressing
+	// an item would silently resolve the wrong row.
+	GetListItem(ctx context.Context, id uuid.UUID) (ListItem, error)
 	// Gets current performers for target entity and merges with edit's added_performers/removed_performers
 	GetMergedPerformersForEdit(ctx context.Context, id uuid.UUID) ([]GetMergedPerformersForEditRow, error)
 	// Gets current aliases for target studio entity and merges with edit's added_aliases/removed_aliases

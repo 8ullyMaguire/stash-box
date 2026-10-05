@@ -87,6 +87,15 @@ RETURNING *;
 -- name: RemoveListItem :exec
 DELETE FROM list_items WHERE id = $1;
 
+-- name: GetListItem :one
+-- A single item by its own id.
+--
+-- Needed by reorder and remove, which are addressed by ITEM id and must therefore
+-- resolve the item's list before deciding whether the caller may touch it. Without this,
+-- the only alternative is FindListItems(listID) -- which takes a LIST id -- so addressing
+-- an item would silently resolve the wrong row.
+SELECT * FROM list_items WHERE id = $1;
+
 -- name: FindListItems :many
 -- A list's contents in display order.
 --

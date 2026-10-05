@@ -354,6 +354,30 @@ func (q *Queries) FindPublishedLists(ctx context.Context, arg FindPublishedLists
 	return items, nil
 }
 
+const getListItem = `-- name: GetListItem :one
+SELECT id, list_id, entity_type, entity_id, position, created_at FROM list_items WHERE id = $1
+`
+
+// A single item by its own id.
+//
+// Needed by reorder and remove, which are addressed by ITEM id and must therefore
+// resolve the item's list before deciding whether the caller may touch it. Without this,
+// the only alternative is FindListItems(listID) -- which takes a LIST id -- so addressing
+// an item would silently resolve the wrong row.
+func (q *Queries) GetListItem(ctx context.Context, id uuid.UUID) (ListItem, error) {
+	row := q.db.QueryRow(ctx, getListItem, id)
+	var i ListItem
+	err := row.Scan(
+		&i.ID,
+		&i.ListID,
+		&i.EntityType,
+		&i.EntityID,
+		&i.Position,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const publishList = `-- name: PublishList :one
 UPDATE lists SET published_at = now(), published_by = $2, updated_at = now()
 WHERE id = $1 AND published_at IS NULL
