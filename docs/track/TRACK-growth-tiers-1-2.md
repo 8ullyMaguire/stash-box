@@ -165,6 +165,62 @@ target rather than assuming the pre-format string still matches.
 **Gate:** `validate` exit 0 · frontend 713/713 across 58 files · `vite build`
 clean · `go build`/`go vet`/`gofmt -l` clean · `go test` clean.
 
+### Live verification (browser, real server, real database)
+
+Run against `sbx-live` — a **separate database from `sbx-scratch`**, because the
+integration suite calls `pgDropAll` at teardown and wipes everything it shares.
+Using the scratch DB meant the live user and seed vanished after every test run,
+which reads as "login is broken".
+
+Server: `scripts/` + `/tmp/sbx --config_file .config-dev/config.yml` on
+127.0.0.1:9999, SPA mounted at `/app`. Four config traps, all of which report a
+symptom pointing somewhere else, recorded in the config file itself:
+
+| Mistake | Symptom | Real cause |
+|---|---|---|
+| `database:` as a nested host/port block | `dial tcp [::1]:5432: connection refused` | one DSN string key, not a block |
+| DSN **with** `postgres://` | `lookup postgres: no such host` | `database.Initialize` prepends the scheme |
+| `host: http://127.0.0.1:9999` | `too many colons in address` | `host` is a bare host |
+| `frontends[].prefix: ""` | `skipping frontend with ... reserved prefix` | `""` and `"/"` are both rejected |
+| no `VITE_BASE_PATH` on the vite build | every route redirects to `/login` | `BrowserRouter basename={BASE_URL}` |
+
+The last one is a §7.26 cousin: a **stale/wrong-base build renders every route
+blank at HTTP 200**, and the redirect looks like an auth problem.
+
+**Confirmed in the browser, not inferred:**
+
+- board list shows the seeded question, "asked today", and the summed tally
+- detail page shows both candidates, the note, the entity link, and the
+  deleted-entity branch ("suggested entity no longer exists")
+- a VOTE user gets a **Vote** button per candidate
+- a READ user gets the whole thread, the tally, the note, the explanatory line,
+  and **zero** vote buttons
+- the nav shows **Identify** for READ and **hides Curation** — the canVote gate,
+  and live confirmation of the W2 item-4 defect (leaderboard sits behind it)
+
+### Three backend defects the live check found, all tests green
+
+Every one of these passed the full unit and integration suite before the browser
+was opened. All three are the same shape: **a value exists in the database and
+never crosses the API boundary.**
+
+1. `Query.CreatedAt` never copied → `createdAt: Time!` null → the **entire**
+   `listOpenIdentificationQueries` query errored, board was an error page.
+2. `ListOpenIdentificationQueries` never called `withCandidates` → every row had
+   an empty candidate list, so the board claimed "no suggestions yet" about
+   questions that had two.
+3. `identification.Candidate` had **no** `CreatedAt` field at all → same
+   non-null failure one level deeper, at `candidates[0].createdAt`.
+
+(3) is the instructive one. The new test **passed in isolation and failed in the
+full run**, at list index 1 — index 0 was the query the test itself posted with no
+candidates. The obvious read is "another test polluted mine". It was not: the
+assertion was working and the isolated pass was the accident. **A test that only
+fails in company is still a real failure**, and explaining it away as interference
+would have shipped a board that was broken for every question with a suggestion.
+
+All three are mutation-verified against the exact production error text.
+
 **Not done here (deliberately, both noted in the spec):** `postIdentificationQuery`
 and `resolveIdentificationQuery` have no UI. Posting needs a form to describe a
 half-remembered scene, which is a separate page; resolving needs the full thread
