@@ -33,7 +33,7 @@ instance ever gets a real deployment and SSR becomes worth its cost.
 | W2 Public Elo | 4, 5 | `[~]` 4 done (682c3071), 5 pending | READ sees a leaderboard — **live-confirmed** |
 | W3 Completion & coverage | 6, 9, 25, 59 | `[x]` **all four done** | live bar + archive page both verified |
 | W4 Discovery surfaces | 19, 22, 44, 87 | `[~]` 44 done (already existed), 87 partial | trending verified live |
-| W5 Discovery by relationship | 27, 12, 21, 57 | `[ ]` | collage type exposed |
+| W5 Discovery by relationship | 27, 12, 21, 57 | `[~]` **12 done** (`dbc334d4`) | collages reachable end to end |
 | W6 Spotlight & social proof | 11, 23, 46, 84 | `[ ]` | no coercive framing |
 | W7 Search quality | 16, 69 | `[ ]` | alias query verified working |
 | W8 Retention | 15, 30, 35 | `[ ]` | follow → notify round trip |
@@ -53,7 +53,7 @@ instance ever gets a real deployment and SSR becomes worth its cost.
 | 9 | State of the Archive | **DONE** (`f26c97c9`) — `/archive`, READ, live-confirmed | W3 | `[x]` |
 | 10 | GraphQL playground | **YES, already mounted** at `/playground` (`server.go:203`, non-prod) | — | `[ ]` README only |
 | 11 | Detective of the Week | no | W6 | `[ ]` |
-| 12 | Collage previews | service only — no GraphQL type | W5 | `[ ]` |
+| 12 | Collage previews | **DONE** (`dbc334d4`) — GraphQL type + migration 105; live-verified | W5 | `[x]` |
 | 13 | "Because you liked X" | no — **blocked on W2** (taste vector first) | — | `[!]` |
 | 14 | Email digest | no — **no mail transport exists** | — | `[!]` needs owner decision |
 | 15 | Stewardship program | no | W8 | `[ ]` |
@@ -419,6 +419,78 @@ scene whose only submission is 200+ days old; `sort=popularity` and
 - `FROM users, generate_series(1,14)` is a **cartesian product**: 196 submissions,
   all three scenes scoring 14. Trending then looked *broken* rather than
   mis-seeded, which is the more misleading failure.
+
+### W5 — item 12 collages: the service was finished, the schema was absent
+
+My tracker said "service only — no GraphQL type". True, and it understated the
+size of the gap: snapshots, generation, frame selection with a pure sampling
+rule, and an under-snapshotted quest query **all existed with integration tests**,
+and no client could reach any of it.
+
+**Type binding could not go the obvious way.** gqlgen generates into
+`internal/models`, so binding a GraphQL type to a service struct makes models
+import the service → queries → models. The error is
+`imports internal/service/collage ... import cycle not allowed`, naming four
+packages and none of the cause. Hence hand-written model types plus resolver
+conversion, the rule `ClusterSceneSubmission` already follows.
+
+**Three schema-level mistakes, all caught before a client saw them:**
+
+- default `frameCount: 10` — the service **rejects** it (§8's range is 12–24). Every
+  client calling `generateCollage` without an explicit count would have failed, with
+  an error naming a range the schema never mentioned. Now 16, off `DefaultFrames`.
+- `fraction: Float!` — but a duration can be *unknown*, and `0.0` is a real position
+  (the start of a scene). Non-null cannot express "unknown" without inventing the
+  opening frame; erroring instead failed the whole query once per frame. Nullable now.
+- `sceneCollage` returns null rather than an empty collage: "no collage yet" is an
+  invitation, "zero frames" is a bug.
+
+#### `stale` could never be true — the column that was never updated
+
+Migration 78 added `current_duration_ms` beside `source_duration_ms` precisely so a
+client could tell a collage generated before a duration correction from one
+generated after. **Nothing ever updated it** — written once by the collage INSERT,
+no trigger, no updater, no query. So `current == source` always, `stale` was
+permanently false, and the diagnostic lived only in a comment.
+
+Both tests asserting staleness read `false`. I assumed the tests were wrong before
+checking `pg_trigger` and finding nothing.
+
+Migration 105 fires on the **scene**, not the collage: the scene's duration is what
+changes, and collages are what must learn about it. A trigger rather than service
+code because the correction arrives via edits, imports, federation, the API and an
+operator's `psql` — only a trigger catches all of them, which is precisely the path
+that had already been missed. `NULL` duration maps to `NULL`, not 0, or every
+durationless scene would read stale.
+
+**The migration had to be replayable**, and that was not foresight:
+`scripts/verify-105.sh` applies it directly, so the next server start found the
+trigger present, died with `trigger already exists`, and **left nothing listening**.
+A hand-applied migration with no `schema_migrations` row makes the app unbootable
+unless the file is idempotent.
+
+#### The mutation harness was lying — third time this session
+
+`git checkout -- <untracked file>` is a silent no-op, so all nine mutations stayed
+live, each contaminated the next, and the harness reported **"9 caught, 0 survived"
+while measuring nothing**. It now snapshots files, refuses to mutate text it cannot
+find, and aborts if a `MUTANT` marker survives a restore.
+
+With honest results, three findings:
+
+1. Removing the nil-duration guard on `fraction` **survived**. Unreachable from a
+   scene that never had a duration (`Generate` returns `ErrNoDuration`); reachable
+   only when a duration is *cleared* after a collage exists. Now tested.
+2. My resolver's negative-timestamp guard was an **equivalent mutant** — the service
+   already rejects negatives. Removed; the rule lives in one layer, and the mutation
+   retargeted there.
+3. `sed -i '/^\t"errors"$/d'` to drop an unused import **deleted the guard on the
+   next line too**, and the test kept passing. Found by grepping for the guard the
+   harness said was missing.
+
+11 mutations, all caught. Live: 12 frames with exact fractions; after correcting
+100s → 200s, `stale` reads true, `sourceDuration` stays 100000, and fractions
+recompute (0.3 → 0.15).
 
 ### Standing verification state
 
