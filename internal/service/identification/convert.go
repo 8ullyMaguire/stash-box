@@ -57,6 +57,7 @@ func queryFromRow(row queries.IdentificationQuery) *Query {
 		ResolvedType: targetTypePtr(row.ResolvedType),
 		ResolvedID:   uuidPtr(row.ResolvedID),
 		ResolvedBy:   uuidPtr(row.ResolvedBy),
+		ResolvedAt:   row.ResolvedAt,
 		CreatedAt:    row.CreatedAt,
 		UpdatedAt:    row.UpdatedAt,
 	}

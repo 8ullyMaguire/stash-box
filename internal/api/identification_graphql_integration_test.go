@@ -4,6 +4,7 @@ package api_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/99designs/gqlgen/client"
 	"github.com/gofrs/uuid"
@@ -376,4 +377,119 @@ func TestIdentificationQueryReadIncludesZeroVoteCandidates(t *testing.T) {
 	assert.Equal(t, 0, resp.IdentificationQuery.Candidates[0].VoteCount,
 		"a candidate nobody has voted for must still be listed; an inner join "+
 			"would hide it, which is exactly when it needs to be seen")
+}
+
+// Every NON-NULL field the board renders must survive the row -> service ->
+// resolver round trip.
+//
+// This test exists because the board was broken in the live app while every
+// service test passed. `toModelQuery` dropped CreatedAt, and CreatedAt is
+// `Time!` in the schema, so gqlgen rejected the whole field and
+// listOpenIdentificationQueries returned
+//
+//	the requested element is null which the schema does not allow
+//
+// with data:null. The board rendered as an error page. The existing board test
+// above asked for `{ id status }` only, so it never touched the field and could
+// not see the break; the frontend tests mocked the response for the same reason.
+//
+// The lesson generalises: a test that selects a SUBSET of a type's non-null
+// fields is not a test of that type. So this one asks for every field the UI
+// reads, which is the set that actually has to work.
+func TestIdentificationBoardReturnsEveryNonNullFieldTheUIRenders(t *testing.T) {
+	admin := asAdmin(t)
+
+	var post idQueryResponse
+	require.NoError(t, admin.client.Post(`
+		mutation Post($input: IdentificationPostInput!) {
+			postIdentificationQuery(input: $input) { id }
+		}
+	`, &post, client.Var("input", map[string]any{
+		"targetType":  "scene",
+		"description": "every non-null field check",
+	})))
+	require.NotNil(t, post.PostIdentificationQuery)
+	queryID := post.PostIdentificationQuery.ID
+
+	// The exact field set IdentificationBoard.tsx and IdentificationQuery.tsx
+	// request, plus the detail page's resolution fields. createdAt and voteCount
+	// are the two that have each been dropped by a resolver at least once.
+	var list struct {
+		ListOpenIdentificationQueries []struct {
+			ID          string
+			TargetType  string
+			Description string
+			Status      string
+			CreatedAt   time.Time
+			Candidates  []struct {
+				ID          string
+				EntityType  string
+				EntityID    string
+				VoteCount   int
+				VotedByMe   bool
+				Note        *string
+				CreatedAt   time.Time
+				SuggestedBy *struct {
+					ID string
+				}
+			}
+		}
+	}
+
+	require.NoError(t, admin.client.Post(`
+		query Board($limit: Int) {
+			listOpenIdentificationQueries(limit: $limit) {
+				id targetType description status createdAt
+				candidates { id entityType entityId voteCount votedByMe note createdAt suggestedBy { id } }
+			}
+		}
+	`, &list, client.Var("limit", 50)),
+		"asking for createdAt must not fail the query: it is Time!, so a resolver "+
+			"that leaves it zero takes the entire list down with it")
+
+	require.NotEmpty(t, list.ListOpenIdentificationQueries)
+
+	var found bool
+	for _, q := range list.ListOpenIdentificationQueries {
+		if q.ID != queryID {
+			continue
+		}
+		found = true
+		assert.Equal(t, "scene", q.TargetType)
+		assert.Equal(t, "every non-null field check", q.Description)
+		assert.Equal(t, "open", q.Status)
+		assert.False(t, q.CreatedAt.IsZero(),
+			"createdAt came back as the zero time, which is the exact shape of the "+
+				"bug this test was written for: the value exists in the row and never "+
+				"crossed the resolver")
+	}
+	assert.True(t, found, "the query just posted must appear in the board list")
+
+	// The detail page, which additionally reads the resolution fields.
+	var one struct {
+		IdentificationQuery *struct {
+			ID           string
+			CreatedAt    time.Time
+			ResolvedAt   *time.Time
+			ResolvedBy   *struct{ ID string }
+			SnapshotID   *string
+			ResolvedID   *string
+			ResolvedType *string
+		}
+	}
+	require.NoError(t, admin.client.Post(`
+		query One($id: ID!) {
+			identificationQuery(id: $id) {
+				id createdAt resolvedAt resolvedBy { id } snapshotId resolvedId resolvedType
+			}
+		}
+	`, &one, client.Var("id", queryID)))
+	require.NotNil(t, one.IdentificationQuery)
+	assert.False(t, one.IdentificationQuery.CreatedAt.IsZero())
+	// An open query has no resolution, and resolvedAt is nullable in the schema,
+	// so this must be null rather than the zero time. A zero time here would mean
+	// the old updatedAt-based mapping had been reintroduced.
+	assert.Nil(t, one.IdentificationQuery.ResolvedAt,
+		"an open query has not been resolved; a non-nil zero time means "+
+			"resolvedAt is being derived from updated_at again")
 }

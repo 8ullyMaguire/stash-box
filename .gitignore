@@ -64,3 +64,6 @@ stash-box-config.yml
 # TODO - we'll add this in later
 vendor
 __pycache__/
+
+# local dev/live-verify config (holds a db password)
+.config-dev/

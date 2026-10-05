@@ -40,7 +40,23 @@ while read -r name; do
   applied=$((applied + 1))
 done < <(ls "$MIGRATIONS" | grep '\.up\.sql$' | sort -V)
 
+# Mark the schema as fully migrated.
+#
+# The loop above pipes each .up.sql through psql directly, which does NOT write
+# golang-migrate's schema_migrations table. So the database is left with the full
+# schema and a schema_migrations row saying version 1, dirty -- and the app's
+# runMigrations (database.go:99) then tries to apply migration 1 again and dies
+# with `relation "performers" already exists`. That error reads like a schema
+# problem and is really a bookkeeping one.
+#
+# Force the version to the highest migration actually applied, with dirty=false,
+# so the app starts instead of re-running the chain.
+HIGHEST=$(ls "$MIGRATIONS" | grep '\.up\.sql$' | sort -V | tail -1 | cut -d_ -f1)
+"${PSQL[@]}" -c "INSERT INTO schema_migrations (version, dirty) VALUES ($HIGHEST, false)
+  ON CONFLICT (version) DO UPDATE SET dirty = false;" >/dev/null
+
 echo "database:    $DB"
+echo "schema_migrations: version $HIGHEST, dirty false"
 echo "migrations:  $applied applied"
 echo "tables:      $("${PSQL[@]}" -tAc "select count(*) from pg_tables where schemaname='public'")"
 echo "triggers:    $("${PSQL[@]}" -tAc "select count(*) from pg_trigger where not tgisinternal")"

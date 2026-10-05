@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"errors"
-	"time"
 
 	"github.com/gofrs/uuid"
 
@@ -50,6 +49,17 @@ func toModelQuery(q *identification.Query) *models.IdentificationQuery {
 		Description: q.Description,
 		SnapshotID:  q.SnapshotID,
 		Status:      models.IdentificationStatus(q.Status),
+		// CreatedAt is `Time!` in the schema (identification.graphql:72), so leaving
+		// it zero is not a cosmetic omission: gqlgen rejects the whole field and
+		// `listOpenIdentificationQueries` returns
+		//   "the requested element is null which the schema does not allow"
+		// with data:null -- the board renders as an error page rather than as a
+		// half-empty list.
+		//
+		// Found by driving the real app, not by a test. Every unit test mocked the
+		// query result, so the mapping was never exercised against a row that
+		// actually came from the database.
+		CreatedAt: q.CreatedAt,
 	}
 	if q.ResolvedType != nil {
 		t := models.IdentificationTargetType(*q.ResolvedType)
@@ -91,7 +101,18 @@ func queryToModelWithResolution(ctx context.Context, s *identification.Service, 
 		}
 		out.ResolvedBy = user
 	}
-	if ts, ok := q.UpdatedAt.(time.Time); ok && q.Status == identification.StatusSolved {
+	// `resolvedAt` is the column named resolved_at, not updated_at. The old code
+	// asserted q.UpdatedAt to time.Time and published THAT as the resolution
+	// time, so a solved query reported the moment its row was last touched as
+	// the moment it was solved. `ResolvedAt` was added to the service Query
+	// precisely so this could be read from the right place.
+	//
+	// The type assertion was also what hid the first bug: with UpdatedAt typed
+	// `any`, `q.UpdatedAt.(time.Time)` compiled and the whole `if` was a silent
+	// no-op whenever the assertion failed, which is why `resolvedAt` was always
+	// null in the live app while every service test still passed.
+	if q.ResolvedAt != nil {
+		ts := *q.ResolvedAt
 		out.ResolvedAt = &ts
 	}
 	return out, nil

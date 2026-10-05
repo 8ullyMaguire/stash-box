@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/gofrs/uuid"
 	"github.com/jackc/pgx/v5"
@@ -159,8 +160,19 @@ type Query struct {
 	ResolvedType *TargetType
 	ResolvedID   *uuid.UUID
 	ResolvedBy   *uuid.UUID
-	CreatedAt    any
-	UpdatedAt    any
+	// ResolvedAt is the moment the query was solved. Distinct from UpdatedAt:
+	// updating a solved query's description does not change when it was solved.
+	ResolvedAt *time.Time
+	// time.Time, not `any`. The column is NOT NULL, and the sqlc row already
+	// types it as time.Time (internal/queries/models.go:337-338). Widening it to
+	// `any` here meant the API converter could not assign it to the model's
+	// time.Time, so the field was silently dropped -- and because the schema
+	// declares `createdAt: Time!`, dropping it made the entire
+	// listOpenIdentificationQueries query fail rather than render a blank date.
+	// `any` is never the right type for a value a consumer must put in a
+	// non-null field; it only defers the error to a place that cannot explain it.
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // Candidate is a suggested answer, with its tally.
