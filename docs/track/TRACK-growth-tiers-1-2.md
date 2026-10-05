@@ -31,7 +31,7 @@ instance ever gets a real deployment and SSR becomes worth its cost.
 |---|---|---|---|
 | W1 Identification board UI | 2 | `[x]` 01d2c514, dcba9b10 | reachable + votable, mutation-verified |
 | W2 Public Elo | 4, 5 | `[~]` 4 done (682c3071), 5 pending | READ sees a leaderboard — **live-confirmed** |
-| W3 Completion & coverage | 6, 9, 25, 59 | `[~]` 6, 25, 59 done; **9 pending** | live bar names what is missing |
+| W3 Completion & coverage | 6, 9, 25, 59 | `[x]` **all four done** | live bar + archive page both verified |
 | W4 Discovery surfaces | 19, 22, 44, 87 | `[ ]` | 4 routes render content |
 | W5 Discovery by relationship | 27, 12, 21, 57 | `[ ]` | collage type exposed |
 | W6 Spotlight & social proof | 11, 23, 46, 84 | `[ ]` | no coercive framing |
@@ -50,7 +50,7 @@ instance ever gets a real deployment and SSR becomes worth its cost.
 | 6 | Completion % + CTA | **DONE** (`faf5d556`) — backend was already complete; the UI was missing | W3 | `[x]` |
 | 7 | Reddit bot | no — out of scope, abuse risk | — | `[!]` |
 | 8 | Stash desktop sync | no — out of scope | — | `[!]` |
-| 9 | State of the Archive | no | W3 | `[ ]` |
+| 9 | State of the Archive | **DONE** (`f26c97c9`) — `/archive`, READ, live-confirmed | W3 | `[x]` |
 | 10 | GraphQL playground | **YES, already mounted** at `/playground` (`server.go:203`, non-prod) | — | `[ ]` README only |
 | 11 | Detective of the Week | no | W6 | `[ ]` |
 | 12 | Collage previews | service only — no GraphQL type | W5 | `[ ]` |
@@ -342,6 +342,47 @@ silently empty read**.
 rather than embedding the SQL, because a test that re-types the query under test
 has tested the typing — the `deleted IS NULL` mutation left every SQL-embedding
 test green.
+
+### W3 — State of the Archive (item 9) — `f26c97c9`
+
+The backend had the **numerator** (`countIncompleteEntities`, per type) but no
+**denominator**. `findPerformers { count }` and its four siblings each apply their
+own filters and soft-delete rules, so composing them into an archive total would
+mean five round trips whose numbers could disagree with the completion counts shown
+beside them — hence one five-row `UNION ALL`, `CountArchiveEntities`.
+
+**Framing is the design.** A page whose headline is "X incomplete" is a debt
+report. The headline is what is *done*; each type's missing count is secondary and
+links to that type's list; nothing counts down or says "only X left" (§7.25).
+
+**Three defects only the running app found:**
+
+1. **`sites` has no `deleted` column.** It is a small fixed table of scrapers, not
+   curated content. A uniform `NOT deleted` failed the whole field with
+   `column "deleted" does not exist` — an error naming a *column*, which sends you
+   looking for a dropped column rather than at the one table that never had one.
+2. **Empty types rendered "Completion not measured" AND "No records yet"** on one
+   card. No numerator because there is nothing to count is not a numerator that
+   failed to load; emptiness is now checked first.
+3. **The card clamped with `Math.min` but not `Math.max`, and the headline had the
+   mirror-image gap** — so a negative aggregate rendered `aria-valuenow="-67"`.
+
+**Two mutations were REDUNDANT, not survived** — and the code is better for it:
+
+- the `Math.max(…, 0)` floor on the headline numerator is dead arithmetic (`pct`
+  already clamps to 0..100; removing it changed nothing in 17 tests). Removed,
+  because unreachable defensiveness makes the equivalent mutant survive *every*
+  test and hides that the arithmetic is no longer what is checked.
+- two `?? 0` fallbacks after a null-excluding filter are unreachable; replaced with
+  a named type-guard predicate, which is also what lets TypeScript narrow.
+
+**19 tests, 9 distinct mutations, all caught.** A mutation to the *headline* reducer
+survived every one-type fixture — a single type makes the headline and its card the
+same number. So there is now a two-type test of very different sizes (1/2 and
+99/100 = 98%) where **neither card reads 98%**.
+
+Live: `0% complete`, `0 of 6 catalogued`, per-type cards with counts and links, for
+a READ-only user.
 
 ### Standing verification state
 
