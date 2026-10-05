@@ -154,6 +154,25 @@ describe("identification board — reachable content", () => {
     expect(screen.getByText(/\b3 votes\b/)).toBeInTheDocument();
   });
 
+  it("links each question at its own detail route, with the id in the href", async () => {
+    // MUTATION: replace(":id", query.id) with replace(":id", "") -> this goes red.
+    //
+    // Found by mutation, not by reading: the href is the whole reachability
+    // claim for the board, and a link that drops the id lands the user on the
+    // list page looking at a board they already had. Nothing else in the suite
+    // noticed, because the description still renders either way.
+    renderForm(<IdentificationBoard />, {
+      auth: readAuth,
+      mocks: [configMock, boardMock],
+      route: "/identification",
+    });
+
+    const link = await screen.findByRole("link", {
+      name: /hotel room, rainy night, around 2016/i,
+    });
+    expect(link).toHaveAttribute("href", "/identification/q1");
+  });
+
   it("says plainly when nothing is open", async () => {
     // MUTATION: delete this branch -> the empty state renders nothing and the
     // page looks broken rather than quiet.
