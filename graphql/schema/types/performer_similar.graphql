@@ -1,0 +1,79 @@
+# Similar performers (SPEC §7.5, growth item 27).
+#
+# The recommendation is co-occurrence: performers who appear in the same scenes. It is
+# the only strong similarity signal this schema actually has — there is no
+# performer-to-tag table, and no performer-to-studio relationship at all (no
+# studio_performers table, no performers.studio_id), so "similar" cannot mean "shares a
+# tag" or "shares a studio". Building on the absence of those would mean inventing a
+# taxonomy this archive does not have.
+
+"""
+One recommended performer, with the evidence that recommended them.
+
+The evidence fields are the design. A recommendation that cannot say WHY it
+recommended something is one a curator can only conclude is broken: they see an
+unrelated performer and have no way to check the claim. Reporting the observable
+facts instead of a bare score lets a client render something checkable, and lets a
+developer tell a scoring change from a data change when the ranking shifts.
+"""
+type SimilarPerformer {
+  "The recommendation."
+  performer: Performer!
+
+  "Scenes both performers appear in. The raw evidence."
+  scenesShared: Int!
+
+  """
+  How many scenes the SUBJECT appears in.
+
+  Exposed because `scenesShared` means different things for a performer in 4 scenes
+  and one in 400. A client rendering "6 scenes together" without this overstates the
+  pairing: 6 shared scenes out of 4 is the whole career, and 6 out of 400 is a
+  coincidence.
+  """
+  targetScenes: Int!
+
+  """
+  Distinct THIRD performers who appear alongside both of these.
+
+  This is what separates "the same scene twice" from "the same circle": two people
+  who keep appearing with the same third party are more alike than two who share
+  scenes only with strangers.
+  """
+  coPerformers: Int!
+
+  """
+  The ranking value, roughly 0.0-2.0.
+
+  1.0 means "in every one of the subject's scenes we have met". Values above 1.0 mean
+  the pairing recurs through other people. Exposed for ordering and debugging, NOT
+  for display: a client rendering "87% match" from this invents a precision the
+  heuristic does not have. Render `scenesShared` and `coPerformers` instead.
+  """
+  score: Float!
+}
+
+extend type Performer {
+  """
+  Performers who appear alongside this one, most alike first.
+
+  An empty list is normal and not an error: a performer with no scenes, or one who has
+  never shared two scenes with anybody, has no similar performers on this instance.
+  That is a fact about the archive, not a failure.
+
+  Excludes this performer and soft-deleted performers, and never returns a performer
+  who shares fewer than `minShared` scenes.
+  """
+  similarPerformers(minShared: Int = 2, limit: Int = 10): [SimilarPerformer!]!
+    @hasRole(role: READ)
+
+  """
+  How many performers clear the shared-scene floor for this one.
+
+  Separate from `similarPerformers` because that list is limited to a page, while "12
+  performers qualify and you are showing 10" is information a client needs and cannot
+  get from the list alone.
+  """
+  similarPerformerCount(minShared: Int = 2): Int!
+    @hasRole(role: READ)
+}

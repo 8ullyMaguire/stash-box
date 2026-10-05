@@ -1,0 +1,127 @@
+-- name: FindSimilarPerformers :many
+-- Performers who appear in the same scenes as a given performer (growth item 27,
+-- SPEC §7.5's "cheapest recommendation available").
+--
+-- CO-OCCURRENCE is the signal because it is the only strong one this schema
+-- actually has. There is no performer-to-tag table and no performer-to-studio
+-- relationship at all -- a performer reaches a studio only indirectly, through the
+-- scenes they appear in -- so "similar" cannot mean "shares a tag" or "shares a
+-- studio". Co-appearance is the one thing that genuinely correlates.
+--
+-- WHY THIS IS A QUERY AND NOT A RECOMPUTATION. A recommendation that cannot say
+-- WHY it recommended something is a recommendation nobody can act on: a curator
+-- who sees an unrelated performer recommended to them can only conclude the feature
+-- is broken. So the score is decomposed into the three observable facts that
+-- produced it (scenes_shared, co_performers, target_scenes), and the caller
+-- reports those numbers rather than a bare score. A client can render "you have
+-- appeared together 6 times, alongside 4 of the same performers" — which is
+-- checkable — instead of a floating-point ranking that is not.
+--
+-- THE DENOMINATOR IS ASYMMETRIC ON PURPOSE. `target_scenes` is the SUBJECT's scene
+-- count, so `scenes_shared / target_scenes` is "what fraction of this performer's
+-- work have we seen together in". Using the shared count's own min/max instead
+-- would let a prolific performer dominate every result: someone in 400 scenes
+-- shares 20 with everybody, which is noise dressed as a recommendation. A pair in
+-- 2 scenes who shared both is a much stronger statement than a pair in 400 who
+-- shared 20.
+--
+-- EXCLUDES the subject (a performer trivially co-occurs with themselves via every
+-- scene) and soft-deleted performers, because recommending a deleted performer
+-- breaks the list's own links.
+--
+-- `min_shared` bounds the evidence. One shared scene is not similarity, it is a
+-- coincidence -- and a single co-appearance in a crowded scene is the most likely
+-- case in the whole dataset, so without this floor the top result is whoever
+-- happened to share a four-hander.
+--
+-- ORDER BY score then name so the ranking is DETERMINISTIC: ties broken by name
+-- rather than by an unspecified heap order, which would otherwise make the same
+-- query return different rows for the same data.
+WITH target_scenes AS (
+    SELECT sp.scene_id
+    FROM scene_performers sp
+    JOIN scenes s ON s.id = sp.scene_id
+    WHERE sp.performer_id = $1
+      AND NOT s.deleted
+),
+subject_size AS (
+    SELECT count(*)::int AS target_scenes
+    FROM target_scenes
+)
+SELECT
+    other.performer_id,
+    -- Shared scenes, which is the raw evidence.
+    count(DISTINCT other.scene_id)::int AS scenes_shared,
+    -- How much of the subject's work that is.
+    (SELECT target_scenes FROM subject_size) AS target_scenes,
+    -- Distinct THIRD performers appearing alongside the subject and this performer.
+    -- Two people who keep appearing with the same third person are more alike than
+    -- two who share scenes only with strangers, and this is the part that
+    -- distinguishes "same scene twice" from "same circle".
+    count(DISTINCT other2.performer_id)::int AS co_performers,
+    -- The score: how much of the subject's work was shared, scaled by whether the
+    -- pairing recurs through other people. A pair in 2 scenes sharing both with 3
+    -- common co-stars outranks a pair in 400 scenes sharing 20 with none.
+    -- Parenthesised so the cast applies to the PRODUCT, not to its last term: as a
+    -- bare trailing `::float8` sqlc binds it to the multiplication's right operand and
+    -- still inferred int32, which would silently truncate every score to 1.
+    (((count(DISTINCT other.scene_id)::float
+       / GREATEST((SELECT target_scenes FROM subject_size), 1))
+      * (1.0 + LEAST(count(DISTINCT other2.performer_id)::float / 5.0, 1.0)))::float8) AS score
+FROM scene_performers other
+JOIN target_scenes ts ON ts.scene_id = other.scene_id
+-- LEFT, not INNER: a co-performer is EXTRA evidence, not a requirement. With an inner
+-- join, any performer who never shares a scene with a third party is dropped from the
+-- results entirely -- which is the "two people keep appearing together" case, the most
+-- natural recommendation of all. An inner join turned that into an EMPTY LIST, and an
+-- empty list reads as "no similar performers" rather than as the bug it was.
+LEFT JOIN scene_performers other2
+     ON other2.scene_id = other.scene_id
+    AND other2.performer_id <> $1
+    AND other2.performer_id <> other.performer_id
+JOIN performers p ON p.id = other.performer_id
+WHERE other.performer_id <> $1
+  AND NOT p.deleted
+GROUP BY other.performer_id, p.name
+HAVING count(DISTINCT other.scene_id) >= sqlc.arg(min_shared)::int
+-- p.name is in the GROUP BY because the deterministic tie-break below orders by it.
+-- Without it Postgres rejects the query outright ("column p.name must appear in the
+-- GROUP BY"), and nothing caught that until the shipped SQL was extracted from the
+-- generated Go and executed -- sqlc only type-checks, it never runs.
+ORDER BY score DESC, p.name ASC
+LIMIT sqlc.arg(lim)::int;
+
+-- name: CountSimilarPerformers :one
+-- How many performers clear the shared-scene floor for a subject.
+--
+-- Separate from FindSimilarPerformers on purpose: the list is limited to a page,
+-- but "12 performers qualify and you can see 20" is information a client needs and
+-- cannot get from the list alone.
+--
+-- IT MUST SCOPE TO THE SUBJECT'S SCENES. This query originally had no join back to
+-- the subject: it just counted every performer in the archive with enough scenes,
+-- filtered only by `other.performer_id <> $1`. That made it agree with the list by
+-- coincidence on a sparse database and disagree wildly on a real one -- a performer
+-- with NO scenes at all reported 2. Worse, it was not wrong-looking: it returned a
+-- plausible small integer, which is exactly the kind of bug that ships.
+-- The floor is PERFORMER, so the shared-scene tally has to be grouped per performer
+-- before it is counted. An aggregate over the whole set with a bare HAVING applies
+-- the floor to the TOTAL, which counts every performer in the archive whenever there
+-- are at least `min_shared` performers -- the opposite of the intended filter.
+SELECT count(*)::int
+FROM (
+    SELECT other.performer_id
+    FROM scene_performers other
+    -- Scoped to scenes the SUBJECT is in. Without this join the count is an
+    -- archive-wide census rather than a similarity count.
+    JOIN scene_performers target
+         ON target.scene_id = other.scene_id
+        AND target.performer_id = $1
+    JOIN scenes s ON s.id = other.scene_id
+    JOIN performers p ON p.id = other.performer_id
+    WHERE other.performer_id <> $1
+      AND NOT s.deleted
+      AND NOT p.deleted
+    GROUP BY other.performer_id
+    HAVING count(DISTINCT other.scene_id) >= sqlc.arg(min_shared)::int
+) qualifying;

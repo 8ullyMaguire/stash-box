@@ -554,48 +554,50 @@ type ComplexityRoot struct {
 	}
 
 	Performer struct {
-		Age             func(childComplexity int) int
-		Aliases         func(childComplexity int) int
-		BandSize        func(childComplexity int) int
-		BirthDate       func(childComplexity int) int
-		Birthdate       func(childComplexity int) int
-		BreastType      func(childComplexity int) int
-		CareerEndYear   func(childComplexity int) int
-		CareerStartYear func(childComplexity int) int
-		Completion      func(childComplexity int) int
-		Country         func(childComplexity int) int
-		Created         func(childComplexity int) int
-		CupSize         func(childComplexity int) int
-		DeathDate       func(childComplexity int) int
-		Deleted         func(childComplexity int) int
-		Disambiguation  func(childComplexity int) int
-		Edits           func(childComplexity int) int
-		Ethnicity       func(childComplexity int) int
-		EyeColor        func(childComplexity int) int
-		Gender          func(childComplexity int) int
-		Genitals        func(childComplexity int) int
-		HairColor       func(childComplexity int) int
-		Height          func(childComplexity int) int
-		HipSize         func(childComplexity int) int
-		ID              func(childComplexity int) int
-		Images          func(childComplexity int) int
-		IsFavorite      func(childComplexity int) int
-		Measurements    func(childComplexity int) int
-		MergedIds       func(childComplexity int) int
-		MergedIntoID    func(childComplexity int) int
-		Name            func(childComplexity int) int
-		PenisLength     func(childComplexity int) int
-		Piercings       func(childComplexity int) int
-		QueryScenes     func(childComplexity int, input SceneQueryInput) int
-		SceneCount      func(childComplexity int) int
-		Scenes          func(childComplexity int, input *PerformerScenesInput) int
-		Studios         func(childComplexity int, studioID *uuid.UUID) int
-		Tattoos         func(childComplexity int) int
-		Thumbnail       func(childComplexity int) int
-		Updated         func(childComplexity int) int
-		Urls            func(childComplexity int) int
-		WaistSize       func(childComplexity int) int
-		Weight          func(childComplexity int) int
+		Age                   func(childComplexity int) int
+		Aliases               func(childComplexity int) int
+		BandSize              func(childComplexity int) int
+		BirthDate             func(childComplexity int) int
+		Birthdate             func(childComplexity int) int
+		BreastType            func(childComplexity int) int
+		CareerEndYear         func(childComplexity int) int
+		CareerStartYear       func(childComplexity int) int
+		Completion            func(childComplexity int) int
+		Country               func(childComplexity int) int
+		Created               func(childComplexity int) int
+		CupSize               func(childComplexity int) int
+		DeathDate             func(childComplexity int) int
+		Deleted               func(childComplexity int) int
+		Disambiguation        func(childComplexity int) int
+		Edits                 func(childComplexity int) int
+		Ethnicity             func(childComplexity int) int
+		EyeColor              func(childComplexity int) int
+		Gender                func(childComplexity int) int
+		Genitals              func(childComplexity int) int
+		HairColor             func(childComplexity int) int
+		Height                func(childComplexity int) int
+		HipSize               func(childComplexity int) int
+		ID                    func(childComplexity int) int
+		Images                func(childComplexity int) int
+		IsFavorite            func(childComplexity int) int
+		Measurements          func(childComplexity int) int
+		MergedIds             func(childComplexity int) int
+		MergedIntoID          func(childComplexity int) int
+		Name                  func(childComplexity int) int
+		PenisLength           func(childComplexity int) int
+		Piercings             func(childComplexity int) int
+		QueryScenes           func(childComplexity int, input SceneQueryInput) int
+		SceneCount            func(childComplexity int) int
+		Scenes                func(childComplexity int, input *PerformerScenesInput) int
+		SimilarPerformerCount func(childComplexity int, minShared *int) int
+		SimilarPerformers     func(childComplexity int, minShared *int, limit *int) int
+		Studios               func(childComplexity int, studioID *uuid.UUID) int
+		Tattoos               func(childComplexity int) int
+		Thumbnail             func(childComplexity int) int
+		Updated               func(childComplexity int) int
+		Urls                  func(childComplexity int) int
+		WaistSize             func(childComplexity int) int
+		Weight                func(childComplexity int) int
 	}
 
 	PerformerAppearance struct {
@@ -883,6 +885,14 @@ type ComplexityRoot struct {
 		Tags                func(childComplexity int) int
 		Title               func(childComplexity int) int
 		Urls                func(childComplexity int) int
+	}
+
+	SimilarPerformer struct {
+		CoPerformers func(childComplexity int) int
+		Performer    func(childComplexity int) int
+		ScenesShared func(childComplexity int) int
+		Score        func(childComplexity int) int
+		TargetScenes func(childComplexity int) int
 	}
 
 	Site struct {
@@ -1284,6 +1294,8 @@ type PerformerResolver interface {
 	IsFavorite(ctx context.Context, obj *Performer) (bool, error)
 
 	Completion(ctx context.Context, obj *Performer) (*Completion, error)
+	SimilarPerformers(ctx context.Context, obj *Performer, minShared *int, limit *int) ([]SimilarPerformer, error)
+	SimilarPerformerCount(ctx context.Context, obj *Performer, minShared *int) (int, error)
 }
 type PerformerDraftResolver interface {
 	Image(ctx context.Context, obj *PerformerDraft) (*Image, error)
@@ -4097,6 +4109,28 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Performer.Scenes(childComplexity, args["input"].(*PerformerScenesInput)), true
+	case "Performer.similarPerformerCount":
+		if e.ComplexityRoot.Performer.SimilarPerformerCount == nil {
+			break
+		}
+
+		args, err := ec.field_Performer_similarPerformerCount_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Performer.SimilarPerformerCount(childComplexity, args["minShared"].(*int)), true
+	case "Performer.similarPerformers":
+		if e.ComplexityRoot.Performer.SimilarPerformers == nil {
+			break
+		}
+
+		args, err := ec.field_Performer_similarPerformers_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Performer.SimilarPerformers(childComplexity, args["minShared"].(*int), args["limit"].(*int)), true
 	case "Performer.studios":
 		if e.ComplexityRoot.Performer.Studios == nil {
 			break
@@ -5719,6 +5753,37 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.SceneEdit.Urls(childComplexity), true
+
+	case "SimilarPerformer.coPerformers":
+		if e.ComplexityRoot.SimilarPerformer.CoPerformers == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimilarPerformer.CoPerformers(childComplexity), true
+	case "SimilarPerformer.performer":
+		if e.ComplexityRoot.SimilarPerformer.Performer == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimilarPerformer.Performer(childComplexity), true
+	case "SimilarPerformer.scenesShared":
+		if e.ComplexityRoot.SimilarPerformer.ScenesShared == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimilarPerformer.ScenesShared(childComplexity), true
+	case "SimilarPerformer.score":
+		if e.ComplexityRoot.SimilarPerformer.Score == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimilarPerformer.Score(childComplexity), true
+	case "SimilarPerformer.targetScenes":
+		if e.ComplexityRoot.SimilarPerformer.TargetScenes == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimilarPerformer.TargetScenes(childComplexity), true
 
 	case "Site.category":
 		if e.ComplexityRoot.Site.Category == nil {
@@ -9019,6 +9084,85 @@ type QueryExistingPerformerResult {
   performers: [Performer!]!
 }
 `, BuiltIn: false},
+	{Name: "../../graphql/schema/types/performer_similar.graphql", Input: `# Similar performers (SPEC §7.5, growth item 27).
+#
+# The recommendation is co-occurrence: performers who appear in the same scenes. It is
+# the only strong similarity signal this schema actually has — there is no
+# performer-to-tag table, and no performer-to-studio relationship at all (no
+# studio_performers table, no performers.studio_id), so "similar" cannot mean "shares a
+# tag" or "shares a studio". Building on the absence of those would mean inventing a
+# taxonomy this archive does not have.
+
+"""
+One recommended performer, with the evidence that recommended them.
+
+The evidence fields are the design. A recommendation that cannot say WHY it
+recommended something is one a curator can only conclude is broken: they see an
+unrelated performer and have no way to check the claim. Reporting the observable
+facts instead of a bare score lets a client render something checkable, and lets a
+developer tell a scoring change from a data change when the ranking shifts.
+"""
+type SimilarPerformer {
+  "The recommendation."
+  performer: Performer!
+
+  "Scenes both performers appear in. The raw evidence."
+  scenesShared: Int!
+
+  """
+  How many scenes the SUBJECT appears in.
+
+  Exposed because ` + "`" + `scenesShared` + "`" + ` means different things for a performer in 4 scenes
+  and one in 400. A client rendering "6 scenes together" without this overstates the
+  pairing: 6 shared scenes out of 4 is the whole career, and 6 out of 400 is a
+  coincidence.
+  """
+  targetScenes: Int!
+
+  """
+  Distinct THIRD performers who appear alongside both of these.
+
+  This is what separates "the same scene twice" from "the same circle": two people
+  who keep appearing with the same third party are more alike than two who share
+  scenes only with strangers.
+  """
+  coPerformers: Int!
+
+  """
+  The ranking value, roughly 0.0-2.0.
+
+  1.0 means "in every one of the subject's scenes we have met". Values above 1.0 mean
+  the pairing recurs through other people. Exposed for ordering and debugging, NOT
+  for display: a client rendering "87% match" from this invents a precision the
+  heuristic does not have. Render ` + "`" + `scenesShared` + "`" + ` and ` + "`" + `coPerformers` + "`" + ` instead.
+  """
+  score: Float!
+}
+
+extend type Performer {
+  """
+  Performers who appear alongside this one, most alike first.
+
+  An empty list is normal and not an error: a performer with no scenes, or one who has
+  never shared two scenes with anybody, has no similar performers on this instance.
+  That is a fact about the archive, not a failure.
+
+  Excludes this performer and soft-deleted performers, and never returns a performer
+  who shares fewer than ` + "`" + `minShared` + "`" + ` scenes.
+  """
+  similarPerformers(minShared: Int = 2, limit: Int = 10): [SimilarPerformer!]!
+    @hasRole(role: READ)
+
+  """
+  How many performers clear the shared-scene floor for this one.
+
+  Separate from ` + "`" + `similarPerformers` + "`" + ` because that list is limited to a page, while "12
+  performers qualify and you are showing 10" is information a client needs and cannot
+  get from the list alone.
+  """
+  similarPerformerCount(minShared: Int = 2): Int!
+    @hasRole(role: READ)
+}`, BuiltIn: false},
 	{Name: "../../graphql/schema/types/scene.graphql", Input: `type PerformerAppearance {
   performer: Performer!
   """Performing as alias"""
@@ -11111,6 +11255,10 @@ func (ec *executionContext) childFields_Performer(ctx context.Context, field gra
 		return ec.fieldContext_Performer_updated(ctx, field)
 	case "completion":
 		return ec.fieldContext_Performer_completion(ctx, field)
+	case "similarPerformers":
+		return ec.fieldContext_Performer_similarPerformers(ctx, field)
+	case "similarPerformerCount":
+		return ec.fieldContext_Performer_similarPerformerCount(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type Performer", field.Name)
 }
@@ -11339,6 +11487,22 @@ func (ec *executionContext) childFields_Scene(ctx context.Context, field graphql
 		return ec.fieldContext_Scene_completion(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type Scene", field.Name)
+}
+
+func (ec *executionContext) childFields_SimilarPerformer(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "performer":
+		return ec.fieldContext_SimilarPerformer_performer(ctx, field)
+	case "scenesShared":
+		return ec.fieldContext_SimilarPerformer_scenesShared(ctx, field)
+	case "targetScenes":
+		return ec.fieldContext_SimilarPerformer_targetScenes(ctx, field)
+	case "coPerformers":
+		return ec.fieldContext_SimilarPerformer_coPerformers(ctx, field)
+	case "score":
+		return ec.fieldContext_SimilarPerformer_score(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type SimilarPerformer", field.Name)
 }
 
 func (ec *executionContext) childFields_Site(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -13100,6 +13264,42 @@ func (ec *executionContext) field_Performer_scenes_args(ctx context.Context, raw
 		return nil, err
 	}
 	args["input"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Performer_similarPerformerCount_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "minShared",
+		func(ctx context.Context, v any) (*int, error) {
+			return ec.unmarshalOInt2ᚖint(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["minShared"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Performer_similarPerformers_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "minShared",
+		func(ctx context.Context, v any) (*int, error) {
+			return ec.unmarshalOInt2ᚖint(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["minShared"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "limit",
+		func(ctx context.Context, v any) (*int, error) {
+			return ec.unmarshalOInt2ᚖint(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["limit"] = arg1
 	return args, nil
 }
 
@@ -25983,6 +26183,130 @@ func (ec *executionContext) fieldContext_Performer_completion(_ context.Context,
 	return fc, nil
 }
 
+func (ec *executionContext) _Performer_similarPerformers(ctx context.Context, field graphql.CollectedField, obj *Performer) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Performer_similarPerformers(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Performer().SimilarPerformers(ctx, obj, fc.Args["minShared"].(*int), fc.Args["limit"].(*int))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal []SimilarPerformer
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal []SimilarPerformer
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, obj, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v []SimilarPerformer) graphql.Marshaler {
+			return ec.marshalNSimilarPerformer2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSimilarPerformerᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Performer_similarPerformers(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Performer",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_SimilarPerformer(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Performer_similarPerformers_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Performer_similarPerformerCount(ctx context.Context, field graphql.CollectedField, obj *Performer) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Performer_similarPerformerCount(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Performer().SimilarPerformerCount(ctx, obj, fc.Args["minShared"].(*int))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal int
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal int
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, obj, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Performer_similarPerformerCount(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Performer",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Performer_similarPerformerCount_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _PerformerAppearance_performer(ctx context.Context, field graphql.CollectedField, obj *PerformerAppearance) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -33849,6 +34173,130 @@ func (ec *executionContext) fieldContext_SceneEdit_fingerprints(_ context.Contex
 		},
 	}
 	return fc, nil
+}
+
+func (ec *executionContext) _SimilarPerformer_performer(ctx context.Context, field graphql.CollectedField, obj *SimilarPerformer) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SimilarPerformer_performer(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Performer, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *Performer) graphql.Marshaler {
+			return ec.marshalNPerformer2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐPerformer(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SimilarPerformer_performer(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimilarPerformer",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_Performer(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimilarPerformer_scenesShared(ctx context.Context, field graphql.CollectedField, obj *SimilarPerformer) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SimilarPerformer_scenesShared(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ScenesShared, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SimilarPerformer_scenesShared(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SimilarPerformer", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _SimilarPerformer_targetScenes(ctx context.Context, field graphql.CollectedField, obj *SimilarPerformer) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SimilarPerformer_targetScenes(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.TargetScenes, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SimilarPerformer_targetScenes(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SimilarPerformer", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _SimilarPerformer_coPerformers(ctx context.Context, field graphql.CollectedField, obj *SimilarPerformer) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SimilarPerformer_coPerformers(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.CoPerformers, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SimilarPerformer_coPerformers(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SimilarPerformer", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _SimilarPerformer_score(ctx context.Context, field graphql.CollectedField, obj *SimilarPerformer) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SimilarPerformer_score(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Score, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v float64) graphql.Marshaler {
+			return ec.marshalNFloat2float64(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SimilarPerformer_score(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SimilarPerformer", field, false, false, errors.New("field of type Float does not have child fields"))
 }
 
 func (ec *executionContext) _Site_id(ctx context.Context, field graphql.CollectedField, obj *Site) (ret graphql.Marshaler) {
@@ -51160,6 +51608,82 @@ func (ec *executionContext) _Performer(ctx context.Context, sel ast.SelectionSet
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "similarPerformers":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Performer_similarPerformers(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "similarPerformerCount":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Performer_similarPerformerCount(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -56117,6 +56641,64 @@ func (ec *executionContext) _SceneEdit(ctx context.Context, sel ast.SelectionSet
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var similarPerformerImplementors = []string{"SimilarPerformer"}
+
+func (ec *executionContext) _SimilarPerformer(ctx context.Context, sel ast.SelectionSet, obj *SimilarPerformer) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, similarPerformerImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("SimilarPerformer")
+		case "performer":
+			out.Values[i] = ec._SimilarPerformer_performer(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "scenesShared":
+			out.Values[i] = ec._SimilarPerformer_scenesShared(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "targetScenes":
+			out.Values[i] = ec._SimilarPerformer_targetScenes(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "coPerformers":
+			out.Values[i] = ec._SimilarPerformer_coPerformers(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "score":
+			out.Values[i] = ec._SimilarPerformer_score(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -61404,6 +61986,26 @@ func (ec *executionContext) marshalNSceneSortEnum2githubᚗcomᚋstashappᚋstas
 func (ec *executionContext) unmarshalNSceneUpdateInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSceneUpdateInput(ctx context.Context, v any) (SceneUpdateInput, error) {
 	res, err := ec.unmarshalInputSceneUpdateInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNSimilarPerformer2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSimilarPerformer(ctx context.Context, sel ast.SelectionSet, v SimilarPerformer) graphql.Marshaler {
+	return ec._SimilarPerformer(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNSimilarPerformer2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSimilarPerformerᚄ(ctx context.Context, sel ast.SelectionSet, v []SimilarPerformer) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNSimilarPerformer2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSimilarPerformer(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
 }
 
 func (ec *executionContext) marshalNSite2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSite(ctx context.Context, sel ast.SelectionSet, v Site) graphql.Marshaler {

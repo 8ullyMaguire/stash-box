@@ -1326,6 +1326,40 @@ type SceneUpdateInput struct {
 	Code           *string                    `json:"code,omitempty"`
 }
 
+// One recommended performer, with the evidence that recommended them.
+//
+// The evidence fields are the design. A recommendation that cannot say WHY it
+// recommended something is one a curator can only conclude is broken: they see an
+// unrelated performer and have no way to check the claim. Reporting the observable
+// facts instead of a bare score lets a client render something checkable, and lets a
+// developer tell a scoring change from a data change when the ranking shifts.
+type SimilarPerformer struct {
+	// The recommendation.
+	Performer *Performer `json:"performer"`
+	// Scenes both performers appear in. The raw evidence.
+	ScenesShared int `json:"scenesShared"`
+	// How many scenes the SUBJECT appears in.
+	//
+	// Exposed because `scenesShared` means different things for a performer in 4 scenes
+	// and one in 400. A client rendering "6 scenes together" without this overstates the
+	// pairing: 6 shared scenes out of 4 is the whole career, and 6 out of 400 is a
+	// coincidence.
+	TargetScenes int `json:"targetScenes"`
+	// Distinct THIRD performers who appear alongside both of these.
+	//
+	// This is what separates "the same scene twice" from "the same circle": two people
+	// who keep appearing with the same third party are more alike than two who share
+	// scenes only with strangers.
+	CoPerformers int `json:"coPerformers"`
+	// The ranking value, roughly 0.0-2.0.
+	//
+	// 1.0 means "in every one of the subject's scenes we have met". Values above 1.0 mean
+	// the pairing recurs through other people. Exposed for ordering and debugging, NOT
+	// for display: a client rendering "87% match" from this invents a precision the
+	// heuristic does not have. Render `scenesShared` and `coPerformers` instead.
+	Score float64 `json:"score"`
+}
+
 type SiteCategoryCreateInput struct {
 	Name        string  `json:"name"`
 	Description *string `json:"description,omitempty"`

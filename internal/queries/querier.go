@@ -203,6 +203,23 @@ type Querier interface {
 	CountSceneSnapshots(ctx context.Context, sceneID uuid.UUID) (int64, error)
 	CountScenesByPerformer(ctx context.Context, performerID uuid.UUID) (int64, error)
 	CountScenesByPerformerIds(ctx context.Context, dollar_1 []uuid.UUID) ([]CountScenesByPerformerIdsRow, error)
+	// How many performers clear the shared-scene floor for a subject.
+	//
+	// Separate from FindSimilarPerformers on purpose: the list is limited to a page,
+	// but "12 performers qualify and you can see 20" is information a client needs and
+	// cannot get from the list alone.
+	//
+	// IT MUST SCOPE TO THE SUBJECT'S SCENES. This query originally had no join back to
+	// the subject: it just counted every performer in the archive with enough scenes,
+	// filtered only by `other.performer_id <> $1`. That made it agree with the list by
+	// coincidence on a sparse database and disagree wildly on a real one -- a performer
+	// with NO scenes at all reported 2. Worse, it was not wrong-looking: it returned a
+	// plausible small integer, which is exactly the kind of bug that ships.
+	// The floor is PERFORMER, so the shared-scene tally has to be grouped per performer
+	// before it is counted. An aggregate over the whole set with a bare HAVING applies
+	// the floor to the TOTAL, which counts every performer in the archive whenever there
+	// are at least `min_shared` performers -- the opposite of the intended filter.
+	CountSimilarPerformers(ctx context.Context, arg CountSimilarPerformersParams) (int, error)
 	// For the "N alternatives" badge on a site card.
 	CountSiteAlternatives(ctx context.Context, siteID uuid.UUID) (int, error)
 	CountUnreadNotificationsByUserGroupedByType(ctx context.Context, userID uuid.UUID) ([]CountUnreadNotificationsByUserGroupedByTypeRow, error)
@@ -645,6 +662,54 @@ type Querier interface {
 	FindScenesByFingerprintsExactWithHash(ctx context.Context, hashes []int64) ([]FindScenesByFingerprintsExactWithHashRow, error)
 	// Scene fingerprints (use fingerprint.sql for most fingerprint operations)
 	FindScenesByFullFingerprintsWithHash(ctx context.Context, arg FindScenesByFullFingerprintsWithHashParams) ([]FindScenesByFullFingerprintsWithHashRow, error)
+	// Performers who appear in the same scenes as a given performer (growth item 27,
+	// SPEC §7.5's "cheapest recommendation available").
+	//
+	// CO-OCCURRENCE is the signal because it is the only strong one this schema
+	// actually has. There is no performer-to-tag table and no performer-to-studio
+	// relationship at all -- a performer reaches a studio only indirectly, through the
+	// scenes they appear in -- so "similar" cannot mean "shares a tag" or "shares a
+	// studio". Co-appearance is the one thing that genuinely correlates.
+	//
+	// WHY THIS IS A QUERY AND NOT A RECOMPUTATION. A recommendation that cannot say
+	// WHY it recommended something is a recommendation nobody can act on: a curator
+	// who sees an unrelated performer recommended to them can only conclude the feature
+	// is broken. So the score is decomposed into the three observable facts that
+	// produced it (scenes_shared, co_performers, target_scenes), and the caller
+	// reports those numbers rather than a bare score. A client can render "you have
+	// appeared together 6 times, alongside 4 of the same performers" — which is
+	// checkable — instead of a floating-point ranking that is not.
+	//
+	// THE DENOMINATOR IS ASYMMETRIC ON PURPOSE. `target_scenes` is the SUBJECT's scene
+	// count, so `scenes_shared / target_scenes` is "what fraction of this performer's
+	// work have we seen together in". Using the shared count's own min/max instead
+	// would let a prolific performer dominate every result: someone in 400 scenes
+	// shares 20 with everybody, which is noise dressed as a recommendation. A pair in
+	// 2 scenes who shared both is a much stronger statement than a pair in 400 who
+	// shared 20.
+	//
+	// EXCLUDES the subject (a performer trivially co-occurs with themselves via every
+	// scene) and soft-deleted performers, because recommending a deleted performer
+	// breaks the list's own links.
+	//
+	// `min_shared` bounds the evidence. One shared scene is not similarity, it is a
+	// coincidence -- and a single co-appearance in a crowded scene is the most likely
+	// case in the whole dataset, so without this floor the top result is whoever
+	// happened to share a four-hander.
+	//
+	// ORDER BY score then name so the ranking is DETERMINISTIC: ties broken by name
+	// rather than by an unspecified heap order, which would otherwise make the same
+	// query return different rows for the same data.
+	// LEFT, not INNER: a co-performer is EXTRA evidence, not a requirement. With an inner
+	// join, any performer who never shares a scene with a third party is dropped from the
+	// results entirely -- which is the "two people keep appearing together" case, the most
+	// natural recommendation of all. An inner join turned that into an EMPTY LIST, and an
+	// empty list reads as "no similar performers" rather than as the bug it was.
+	// p.name is in the GROUP BY because the deterministic tie-break below orders by it.
+	// Without it Postgres rejects the query outright ("column p.name must appear in the
+	// GROUP BY"), and nothing caught that until the shipped SQL was extracted from the
+	// generated Go and executed -- sqlc only type-checks, it never runs.
+	FindSimilarPerformers(ctx context.Context, arg FindSimilarPerformersParams) ([]FindSimilarPerformersRow, error)
 	FindSiteCategory(ctx context.Context, id int) (SiteCategory, error)
 	FindSitesByIds(ctx context.Context, dollar_1 []uuid.UUID) ([]Site, error)
 	FindStudio(ctx context.Context, id uuid.UUID) (Studio, error)
