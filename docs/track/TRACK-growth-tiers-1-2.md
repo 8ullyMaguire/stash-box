@@ -33,7 +33,7 @@ instance ever gets a real deployment and SSR becomes worth its cost.
 | W2 Public Elo | 4, 5 | `[~]` 4 done (682c3071), 5 pending | READ sees a leaderboard — **live-confirmed** |
 | W3 Completion & coverage | 6, 9, 25, 59 | `[x]` **all four done** | live bar + archive page both verified |
 | W4 Discovery surfaces | 19, 22, 44, 87 | `[~]` 44 done (already existed), 87 partial | trending verified live |
-| W5 Discovery by relationship | 27, 12, 21, 57 | `[~]` **12 done** (`dbc334d4`) | collages reachable end to end |
+| W5 Discovery by relationship | 27, 12, 21, 57 | `[~]` 12 + 57 done | collages reachable; debut sort verified |
 | W6 Spotlight & social proof | 11, 23, 46, 84 | `[ ]` | no coercive framing |
 | W7 Search quality | 16, 69 | `[ ]` | alias query verified working |
 | W8 Retention | 15, 30, 35 | `[ ]` | follow → notify round trip |
@@ -78,7 +78,7 @@ instance ever gets a real deployment and SSR becomes worth its cost.
 | 46 | "How I found it" stories | no | W6 | `[ ]` |
 | 47 | OpenGraph | no — same SSR dependency | — | `[-]` removed |
 | 50 | Community recruitment | not a build | — | `[!]` |
-| 57 | Debut tracking | no — `min(date)` | W5 | `[ ]` |
+| 57 | Debut tracking | **ALREADY BUILT** — `PerformerSortEnum.DEBUT` + integration test; order verified live | W5 | `[x]` |
 | 59 | "What's missing" per studio | **DONE** (`9727dbf9`) — same read path; uncounted studios get their own list | W3 | `[x]` |
 | 69 | Tag synonyms | no alias table for tags | W7 | `[ ]` |
 | 84 | Preservation hero | no | W6 | `[ ]` |
@@ -491,6 +491,30 @@ With honest results, three findings:
 11 mutations, all caught. Live: 12 frames with exact fractions; after correcting
 100s → 200s, `stale` reads true, `sourceDuration` stays 100000, and fractions
 recompute (0.3 → 0.15).
+
+### W5 audit — item 57 was already built too
+
+Fifth tracker entry in a row whose "no" was wrong. `PerformerSortEnum.DEBUT`
+exists in the schema, has an integration test
+(`performer_integration_test.go:838`), and sorts performers by the minimum date of
+their scenes.
+
+**Verified live** (`scripts/seed-debut.sql`): Cy (2016-04-01) → Ada (2019-01-15)
+→ Bo (2021-06-20), then the unknown-debut performers **last**. Two properties that
+matter and are both observable:
+
+- `birthdate` is deliberately in a *different* order from debut (Bo was born
+  1980, Ada 1985), so a sort that secretly used birthdate is detectable.
+- Performers with **no scenes** sort **last**, not first. An unknown debut is not an
+  early career, and a naive `ORDER BY min(date)` puts NULLs first and claims
+  otherwise.
+
+**Schema fact worth writing down: there is no performer↔studio relationship.**
+No `studio_performers` table and no `performers.studio_id` — checked
+`information_schema` for every column matching `%studio%`. A performer reaches a
+studio only indirectly, through `scenes.studio_id → scene_performers.performer_id`.
+So item 27 (similar performers) cannot lean on a shared studio, and neither can
+anything else that wants to recommend performers by affiliation.
 
 ### Standing verification state
 
