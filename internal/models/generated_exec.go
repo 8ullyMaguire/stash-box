@@ -30,6 +30,8 @@ type Config = graphql.Config[ResolverRoot, DirectiveRoot, ComplexityRoot]
 
 type ResolverRoot interface {
 	ClusterSceneSubmission() ClusterSceneSubmissionResolver
+	Collage() CollageResolver
+	CollageFrame() CollageFrameResolver
 	Draft() DraftResolver
 	Edit() EditResolver
 	EditComment() EditCommentResolver
@@ -55,12 +57,14 @@ type ResolverRoot interface {
 	SceneDraft() SceneDraftResolver
 	SceneEdit() SceneEditResolver
 	Site() SiteResolver
+	Snapshot() SnapshotResolver
 	Studio() StudioResolver
 	StudioEdit() StudioEditResolver
 	Tag() TagResolver
 	TagCategory() TagCategoryResolver
 	TagEdit() TagEditResolver
 	URL() URLResolver
+	UnderSnapshottedScene() UnderSnapshottedSceneResolver
 	UnorganizedImage() UnorganizedImageResolver
 	User() UserResolver
 }
@@ -111,6 +115,23 @@ type ComplexityRoot struct {
 		Reports            func(childComplexity int) int
 		Scene              func(childComplexity int) int
 		Submissions        func(childComplexity int) int
+	}
+
+	Collage struct {
+		Duration       func(childComplexity int) int
+		FrameCount     func(childComplexity int) int
+		Frames         func(childComplexity int) int
+		GeneratedAt    func(childComplexity int) int
+		ID             func(childComplexity int) int
+		SourceDuration func(childComplexity int) int
+		Stale          func(childComplexity int) int
+	}
+
+	CollageFrame struct {
+		Fraction  func(childComplexity int) int
+		ID        func(childComplexity int) int
+		Snapshot  func(childComplexity int) int
+		Timestamp func(childComplexity int) int
 	}
 
 	CommentCommentedEdit struct {
@@ -439,6 +460,7 @@ type ComplexityRoot struct {
 	Mutation struct {
 		AbandonIdentificationQuery        func(childComplexity int, id uuid.UUID) int
 		ActivateNewUser                   func(childComplexity int, input ActivateNewUserInput) int
+		AddSnapshot                       func(childComplexity int, sceneID uuid.UUID, timestamp int) int
 		AmendEdit                         func(childComplexity int, input AmendEditInput) int
 		ApproveEdit                       func(childComplexity int, input ApproveEditInput) int
 		CancelEdit                        func(childComplexity int, input CancelEditInput) int
@@ -453,6 +475,7 @@ type ComplexityRoot struct {
 		FederationPeerCreate              func(childComplexity int, input FederationPeerCreateInput) int
 		FederationPeerDelete              func(childComplexity int, id uuid.UUID) int
 		FederationPeerUpdate              func(childComplexity int, input FederationPeerUpdateInput) int
+		GenerateCollage                   func(childComplexity int, sceneID uuid.UUID, frameCount *int) int
 		GenerateInviteCode                func(childComplexity int) int
 		GenerateInviteCodes               func(childComplexity int, input *GenerateInviteCodeInput) int
 		GrantInvite                       func(childComplexity int, input GrantInviteInput) int
@@ -710,6 +733,8 @@ type ComplexityRoot struct {
 		QueryUsers                     func(childComplexity int, input UserQueryInput) int
 		ResolvedIdentificationQueries  func(childComplexity int, entityType IdentificationTargetType, entityID uuid.UUID, limit *int) int
 		SceneChangelog                 func(childComplexity int, since time.Time, afterID *uuid.UUID, limit *int) int
+		SceneCollage                   func(childComplexity int, sceneID uuid.UUID) int
+		SceneSnapshots                 func(childComplexity int, sceneID uuid.UUID) int
 		SearchPerformer                func(childComplexity int, term string, limit *int) int
 		SearchPerformers               func(childComplexity int, term string, limit *int, page *int, perPage *int, filter *PerformerSearchFilter) int
 		SearchScene                    func(childComplexity int, term string, limit *int) int
@@ -718,6 +743,7 @@ type ComplexityRoot struct {
 		SearchTag                      func(childComplexity int, term string, limit *int) int
 		StudioChangelog                func(childComplexity int, since time.Time, afterID *uuid.UUID, limit *int) int
 		TagChangelog                   func(childComplexity int, since time.Time, afterID *uuid.UUID, limit *int) int
+		UnderSnapshottedScenes         func(childComplexity int, minimum *int, limit *int) int
 		UserStreak                     func(childComplexity int) int
 		Version                        func(childComplexity int) int
 	}
@@ -886,6 +912,12 @@ type ComplexityRoot struct {
 		URL   func(childComplexity int) int
 	}
 
+	Snapshot struct {
+		CreatedAt func(childComplexity int) int
+		ID        func(childComplexity int) int
+		Timestamp func(childComplexity int) int
+	}
+
 	StashBoxConfig struct {
 		EditUpdateLimit            func(childComplexity int) int
 		EnableGenitalAttributes    func(childComplexity int) int
@@ -975,6 +1007,12 @@ type ComplexityRoot struct {
 		URL  func(childComplexity int) int
 	}
 
+	UnderSnapshottedScene struct {
+		Minimum       func(childComplexity int) int
+		Scene         func(childComplexity int) int
+		SnapshotCount func(childComplexity int) int
+	}
+
 	UnorganizedImage struct {
 		Image     func(childComplexity int) int
 		Performer func(childComplexity int) int
@@ -1058,6 +1096,18 @@ type ComplexityRoot struct {
 
 type ClusterSceneSubmissionResolver interface {
 	Scene(ctx context.Context, obj *ClusterSceneSubmission) (*Scene, error)
+}
+type CollageResolver interface {
+	SourceDuration(ctx context.Context, obj *Collage) (*int, error)
+	Duration(ctx context.Context, obj *Collage) (*int, error)
+	GeneratedAt(ctx context.Context, obj *Collage) (*time.Time, error)
+	Frames(ctx context.Context, obj *Collage) ([]CollageFrame, error)
+	Stale(ctx context.Context, obj *Collage) (bool, error)
+}
+type CollageFrameResolver interface {
+	Timestamp(ctx context.Context, obj *CollageFrame) (int, error)
+	Fraction(ctx context.Context, obj *CollageFrame) (*float64, error)
+	Snapshot(ctx context.Context, obj *CollageFrame) (*CollageSnapshot, error)
 }
 type DraftResolver interface {
 	Created(ctx context.Context, obj *Draft) (*time.Time, error)
@@ -1190,6 +1240,8 @@ type MutationResolver interface {
 	MarkNotificationsRead(ctx context.Context, notification *MarkNotificationReadInput) (bool, error)
 	UpdateNotificationSubscriptions(ctx context.Context, subscriptions []NotificationEnum) (bool, error)
 	UpdateImageTypePreferences(ctx context.Context, input ImageTypePreferencesInput) (bool, error)
+	AddSnapshot(ctx context.Context, sceneID uuid.UUID, timestamp int) (*CollageSnapshot, error)
+	GenerateCollage(ctx context.Context, sceneID uuid.UUID, frameCount *int) (*Collage, error)
 	VoteElo(ctx context.Context, input EloVoteInput) (*EloVoteResult, error)
 	FederationPeerCreate(ctx context.Context, input FederationPeerCreateInput) (*FederationPeer, error)
 	FederationPeerUpdate(ctx context.Context, input FederationPeerUpdateInput) (*FederationPeer, error)
@@ -1306,6 +1358,9 @@ type QueryResolver interface {
 	QueryModAudits(ctx context.Context, input ModAuditQueryInput) (*ModAuditQuery, error)
 	QueryUnorganizedImages(ctx context.Context, input UnorganizedImagesQueryInput) (*UnorganizedImagesQuery, error)
 	ArchiveEntityCounts(ctx context.Context) ([]ArchiveEntityCount, error)
+	SceneSnapshots(ctx context.Context, sceneID uuid.UUID) ([]CollageSnapshot, error)
+	SceneCollage(ctx context.Context, sceneID uuid.UUID) (*Collage, error)
+	UnderSnapshottedScenes(ctx context.Context, minimum *int, limit *int) ([]UnderSnapshottedScene, error)
 	CountIncompleteEntities(ctx context.Context, entityType EntityType, below int) (int, error)
 	EloMatchup(ctx context.Context, entityType EloEntityType) (*EloMatchup, error)
 	EloRating(ctx context.Context, entityType EloEntityType, id uuid.UUID) (*EloRating, error)
@@ -1399,6 +1454,10 @@ type SiteResolver interface {
 	Updated(ctx context.Context, obj *Site) (*time.Time, error)
 	Completion(ctx context.Context, obj *Site) (*Completion, error)
 }
+type SnapshotResolver interface {
+	Timestamp(ctx context.Context, obj *CollageSnapshot) (int, error)
+	CreatedAt(ctx context.Context, obj *CollageSnapshot) (*time.Time, error)
+}
 type StudioResolver interface {
 	Aliases(ctx context.Context, obj *Studio) ([]string, error)
 	Urls(ctx context.Context, obj *Studio) ([]URL, error)
@@ -1439,6 +1498,11 @@ type TagEditResolver interface {
 type URLResolver interface {
 	Type(ctx context.Context, obj *URL) (string, error)
 	Site(ctx context.Context, obj *URL) (*Site, error)
+}
+type UnderSnapshottedSceneResolver interface {
+	Scene(ctx context.Context, obj *UnderSnapshottedScene) (*Scene, error)
+
+	Minimum(ctx context.Context, obj *UnderSnapshottedScene) (int, error)
 }
 type UnorganizedImageResolver interface {
 	Performer(ctx context.Context, obj *UnorganizedImage) (*Performer, error)
@@ -1609,6 +1673,74 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.ClusterSceneSubmission.Submissions(childComplexity), true
+
+	case "Collage.duration":
+		if e.ComplexityRoot.Collage.Duration == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Collage.Duration(childComplexity), true
+	case "Collage.frameCount":
+		if e.ComplexityRoot.Collage.FrameCount == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Collage.FrameCount(childComplexity), true
+	case "Collage.frames":
+		if e.ComplexityRoot.Collage.Frames == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Collage.Frames(childComplexity), true
+	case "Collage.generatedAt":
+		if e.ComplexityRoot.Collage.GeneratedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Collage.GeneratedAt(childComplexity), true
+	case "Collage.id":
+		if e.ComplexityRoot.Collage.ID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Collage.ID(childComplexity), true
+	case "Collage.sourceDuration":
+		if e.ComplexityRoot.Collage.SourceDuration == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Collage.SourceDuration(childComplexity), true
+	case "Collage.stale":
+		if e.ComplexityRoot.Collage.Stale == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Collage.Stale(childComplexity), true
+
+	case "CollageFrame.fraction":
+		if e.ComplexityRoot.CollageFrame.Fraction == nil {
+			break
+		}
+
+		return e.ComplexityRoot.CollageFrame.Fraction(childComplexity), true
+	case "CollageFrame.id":
+		if e.ComplexityRoot.CollageFrame.ID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.CollageFrame.ID(childComplexity), true
+	case "CollageFrame.snapshot":
+		if e.ComplexityRoot.CollageFrame.Snapshot == nil {
+			break
+		}
+
+		return e.ComplexityRoot.CollageFrame.Snapshot(childComplexity), true
+	case "CollageFrame.timestamp":
+		if e.ComplexityRoot.CollageFrame.Timestamp == nil {
+			break
+		}
+
+		return e.ComplexityRoot.CollageFrame.Timestamp(childComplexity), true
 
 	case "CommentCommentedEdit.comment":
 		if e.ComplexityRoot.CommentCommentedEdit.Comment == nil {
@@ -2805,6 +2937,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.ActivateNewUser(childComplexity, args["input"].(ActivateNewUserInput)), true
+	case "Mutation.addSnapshot":
+		if e.ComplexityRoot.Mutation.AddSnapshot == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_addSnapshot_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.AddSnapshot(childComplexity, args["sceneID"].(uuid.UUID), args["timestamp"].(int)), true
 	case "Mutation.amendEdit":
 		if e.ComplexityRoot.Mutation.AmendEdit == nil {
 			break
@@ -2959,6 +3102,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.FederationPeerUpdate(childComplexity, args["input"].(FederationPeerUpdateInput)), true
+	case "Mutation.generateCollage":
+		if e.ComplexityRoot.Mutation.GenerateCollage == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_generateCollage_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.GenerateCollage(childComplexity, args["sceneID"].(uuid.UUID), args["frameCount"].(*int)), true
 	case "Mutation.generateInviteCode":
 		if e.ComplexityRoot.Mutation.GenerateInviteCode == nil {
 			break
@@ -4894,6 +5048,28 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.SceneChangelog(childComplexity, args["since"].(time.Time), args["after_id"].(*uuid.UUID), args["limit"].(*int)), true
+	case "Query.sceneCollage":
+		if e.ComplexityRoot.Query.SceneCollage == nil {
+			break
+		}
+
+		args, err := ec.field_Query_sceneCollage_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.SceneCollage(childComplexity, args["sceneID"].(uuid.UUID)), true
+	case "Query.sceneSnapshots":
+		if e.ComplexityRoot.Query.SceneSnapshots == nil {
+			break
+		}
+
+		args, err := ec.field_Query_sceneSnapshots_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.SceneSnapshots(childComplexity, args["sceneID"].(uuid.UUID)), true
 	case "Query.searchPerformer":
 		if e.ComplexityRoot.Query.SearchPerformer == nil {
 			break
@@ -4982,6 +5158,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.TagChangelog(childComplexity, args["since"].(time.Time), args["after_id"].(*uuid.UUID), args["limit"].(*int)), true
+	case "Query.underSnapshottedScenes":
+		if e.ComplexityRoot.Query.UnderSnapshottedScenes == nil {
+			break
+		}
+
+		args, err := ec.field_Query_underSnapshottedScenes_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.UnderSnapshottedScenes(childComplexity, args["minimum"].(*int), args["limit"].(*int)), true
 	case "Query.userStreak":
 		if e.ComplexityRoot.Query.UserStreak == nil {
 			break
@@ -5644,6 +5831,25 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.SiteFavicon.URL(childComplexity), true
 
+	case "Snapshot.createdAt":
+		if e.ComplexityRoot.Snapshot.CreatedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Snapshot.CreatedAt(childComplexity), true
+	case "Snapshot.id":
+		if e.ComplexityRoot.Snapshot.ID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Snapshot.ID(childComplexity), true
+	case "Snapshot.timestamp":
+		if e.ComplexityRoot.Snapshot.Timestamp == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Snapshot.Timestamp(childComplexity), true
+
 	case "StashBoxConfig.edit_update_limit":
 		if e.ComplexityRoot.StashBoxConfig.EditUpdateLimit == nil {
 			break
@@ -6051,6 +6257,25 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.URL.URL(childComplexity), true
+
+	case "UnderSnapshottedScene.minimum":
+		if e.ComplexityRoot.UnderSnapshottedScene.Minimum == nil {
+			break
+		}
+
+		return e.ComplexityRoot.UnderSnapshottedScene.Minimum(childComplexity), true
+	case "UnderSnapshottedScene.scene":
+		if e.ComplexityRoot.UnderSnapshottedScene.Scene == nil {
+			break
+		}
+
+		return e.ComplexityRoot.UnderSnapshottedScene.Scene(childComplexity), true
+	case "UnderSnapshottedScene.snapshotCount":
+		if e.ComplexityRoot.UnderSnapshottedScene.SnapshotCount == nil {
+			break
+		}
+
+		return e.ComplexityRoot.UnderSnapshottedScene.SnapshotCount(childComplexity), true
 
 	case "UnorganizedImage.image":
 		if e.ComplexityRoot.UnorganizedImage.Image == nil {
@@ -6606,6 +6831,164 @@ extend type Query {
     @hasRole(role: READ)
 }
 `, BuiltIn: false},
+	{Name: "../../graphql/schema/types/collage.graphql", Input: `# Scene collages (SPEC §7.25.1, growth item 12).
+#
+# The service has existed and been tested since it was written — snapshots,
+# generation, frame selection with strategies, and an under-snapshotted query for
+# quests. None of it was reachable: no GraphQL type, so a client could not read a
+# collage or ask for one. That is a whole feature behind a missing schema block.
+#
+# Timestamps are milliseconds, not seconds, and that is not arbitrary: the
+# underlying snapshots are stored in ms and a scene's duration is an integer
+# second count. Converting in the schema would make the client's seek arithmetic
+# lossy for no benefit.
+
+"""
+One timestamped frame claim for a scene.
+Snapshots are the input to a collage and exist independently of one: a scene with
+hand-placed snapshots and no generated collage is the normal state early in a
+scene's life.
+"""
+type Snapshot {
+  id: ID!
+
+  "Milliseconds into the scene. The client seeks the video it already has; nothing is fetched from this server."
+  timestamp: Int!
+
+  "When this snapshot was claimed."
+  createdAt: Time!
+}
+
+"""
+One selected frame of a generated collage.
+
+` + "`" + `fraction` + "`" + ` is sent alongside ` + "`" + `timestamp` + "`" + ` because a client holding a DIFFERENT
+duration for the scene — a corrected one, or its own copy — should scrub by
+fraction and land in the right place regardless. A collage generated against a
+stale duration has its frames bunched at one end, and the fraction is what makes
+that recoverable rather than merely wrong.
+
+` + "`" + `fraction` + "`" + ` is NULLABLE, and that is load-bearing. It is null when the scene's
+duration is unknown -- a duration that was never recorded, or one that was
+corrected away after the collage was generated. 0.0 is a REAL position (the very
+start of a scene), so a non-null Float cannot express "unknown" without either
+inventing the opening frame or failing the entire query once per frame. Null is
+the only honest answer, and a client can tell it apart from a genuine 0.0.
+"""
+type CollageFrame {
+  id: ID!
+
+  "Milliseconds into the scene."
+  timestamp: Int!
+
+  "Position through the scene, 0.0-1.0. Null when the scene's duration is unknown."
+  fraction: Float
+
+  snapshot: Snapshot!
+}
+
+"""
+A generated selection of frames for a scene.
+
+` + "`" + `sourceDuration` + "`" + ` and ` + "`" + `duration` + "`" + ` are both exposed because they differ routinely, and
+a collage generated against a since-corrected duration has its frames bunched at
+the end. Recording both is what makes that diagnosable instead of merely looking
+wrong — and a client that renders "12 frames, 3 at the end" can be told why.
+"""
+type Collage {
+  id: ID!
+
+  "How many frames were selected."
+  frameCount: Int!
+
+  "The duration the sampler believed when it ran, in milliseconds. Null when the scene had no duration recorded."
+  sourceDuration: Int
+
+  "What the scene records now, in milliseconds. Differs from sourceDuration whenever the duration was corrected after generation."
+  duration: Int
+
+  "When the collage was generated."
+  generatedAt: Time!
+
+  "The frames, in ascending timestamp order."
+  frames: [CollageFrame!]!
+
+  "True when sourceDuration and duration disagree, i.e. the scene's duration was corrected after this collage was made and the frames may be bunched."
+  stale: Boolean!
+}
+
+"""
+A scene with fewer snapshots than a collage would need.
+
+This is a quest input rather than a discovery surface: it names scenes that are
+MISSING snapshots, which is a work item, not something to browse.
+"""
+type UnderSnapshottedScene {
+  scene: Scene!
+
+  "Snapshots currently claimed."
+  snapshotCount: Int!
+
+  "The minimum a usable collage needs."
+  minimum: Int!
+}
+
+extend type Query {
+  """
+  The snapshots claimed for a scene, whether or not a collage has been generated.
+
+  Ordered by timestamp, because a snapshot list is a scrub bar and unsorted
+  timestamps make every client re-sort it.
+  """
+  sceneSnapshots(sceneID: ID!): [Snapshot!]!
+    @hasRole(role: READ)
+
+  """
+  The generated collage for a scene, or null when none has been made.
+
+  Null, not an empty collage: "no collage yet" and "a collage with no frames" are
+  different states and only one of them is an invitation to contribute.
+  """
+  sceneCollage(sceneID: ID!): Collage
+    @hasRole(role: READ)
+
+  """
+  Scenes with too few snapshots to build a usable collage from.
+
+  This is the input to §8's curation quests -- "this scene has only 2 snapshots" --
+  rather than a surface to browse: it names scenes that are MISSING work. Ordered
+  least-snapshotted first, so the most starved scenes are the first ones offered.
+  """
+  underSnapshottedScenes(minimum: Int = 10, limit: Int = 50): [UnderSnapshottedScene!]!
+    @hasRole(role: READ)
+}
+
+extend type Mutation {
+  """
+  Claim a timestamped frame for a scene.
+
+  READ, not VOTE: claiming a frame is an observation, not a vote. It does not
+  change any existing claim, and the same timestamp claimed twice is idempotent
+  rather than a conflict.
+  """
+  addSnapshot(sceneID: ID!, timestamp: Int!): Snapshot!
+    @hasRole(role: READ)
+
+  """
+  Generate a collage for a scene from its snapshots.
+
+  frameCount must be 12-24. The default is 16. An earlier draft of this schema
+  defaulted to 10 -- a value the service REJECTS -- so every client calling this
+  without an explicit count failed, with an error naming a range the schema never
+  mentioned. Defaults must be read off the service constants, not guessed.
+
+  Idempotent per (scene, frameCount): regenerating with the same arguments
+  replaces the existing collage rather than accumulating rows, because two
+  collages for one scene with the same shape are the same claim expressed twice.
+  """
+  generateCollage(sceneID: ID!, frameCount: Int = 16): Collage
+    @hasRole(role: READ)
+}`, BuiltIn: false},
 	{Name: "../../graphql/schema/types/completion.graphql", Input: `# Completion scores (SPEC §7.7).
 #
 # One type, five places it appears. A performer, a scene, a studio, a site and a
@@ -10050,6 +10433,40 @@ func (ec *executionContext) childFields_ClusterSceneSubmission(ctx context.Conte
 	return nil, fmt.Errorf("no field named %q was found under type ClusterSceneSubmission", field.Name)
 }
 
+func (ec *executionContext) childFields_Collage(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "id":
+		return ec.fieldContext_Collage_id(ctx, field)
+	case "frameCount":
+		return ec.fieldContext_Collage_frameCount(ctx, field)
+	case "sourceDuration":
+		return ec.fieldContext_Collage_sourceDuration(ctx, field)
+	case "duration":
+		return ec.fieldContext_Collage_duration(ctx, field)
+	case "generatedAt":
+		return ec.fieldContext_Collage_generatedAt(ctx, field)
+	case "frames":
+		return ec.fieldContext_Collage_frames(ctx, field)
+	case "stale":
+		return ec.fieldContext_Collage_stale(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type Collage", field.Name)
+}
+
+func (ec *executionContext) childFields_CollageFrame(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "id":
+		return ec.fieldContext_CollageFrame_id(ctx, field)
+	case "timestamp":
+		return ec.fieldContext_CollageFrame_timestamp(ctx, field)
+	case "fraction":
+		return ec.fieldContext_CollageFrame_fraction(ctx, field)
+	case "snapshot":
+		return ec.fieldContext_CollageFrame_snapshot(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type CollageFrame", field.Name)
+}
+
 func (ec *executionContext) childFields_Completion(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 	switch field.Name {
 	case "entityType":
@@ -10978,6 +11395,18 @@ func (ec *executionContext) childFields_SiteFavicon(ctx context.Context, field g
 	return nil, fmt.Errorf("no field named %q was found under type SiteFavicon", field.Name)
 }
 
+func (ec *executionContext) childFields_Snapshot(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "id":
+		return ec.fieldContext_Snapshot_id(ctx, field)
+	case "timestamp":
+		return ec.fieldContext_Snapshot_timestamp(ctx, field)
+	case "createdAt":
+		return ec.fieldContext_Snapshot_createdAt(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type Snapshot", field.Name)
+}
+
 func (ec *executionContext) childFields_StashBoxConfig(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 	switch field.Name {
 	case "host_url":
@@ -11110,6 +11539,18 @@ func (ec *executionContext) childFields_URL(ctx context.Context, field graphql.C
 		return ec.fieldContext_URL_site(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type URL", field.Name)
+}
+
+func (ec *executionContext) childFields_UnderSnapshottedScene(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "scene":
+		return ec.fieldContext_UnderSnapshottedScene_scene(ctx, field)
+	case "snapshotCount":
+		return ec.fieldContext_UnderSnapshottedScene_snapshotCount(ctx, field)
+	case "minimum":
+		return ec.fieldContext_UnderSnapshottedScene_minimum(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type UnderSnapshottedScene", field.Name)
 }
 
 func (ec *executionContext) childFields_UnorganizedImage(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -11414,6 +11855,28 @@ func (ec *executionContext) field_Mutation_activateNewUser_args(ctx context.Cont
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_addSnapshot_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "sceneID",
+		func(ctx context.Context, v any) (uuid.UUID, error) {
+			return ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["sceneID"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "timestamp",
+		func(ctx context.Context, v any) (int, error) {
+			return ec.unmarshalNInt2int(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["timestamp"] = arg1
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_amendEdit_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -11623,6 +12086,28 @@ func (ec *executionContext) field_Mutation_federation_peer_update_args(ctx conte
 		return nil, err
 	}
 	args["input"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_generateCollage_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "sceneID",
+		func(ctx context.Context, v any) (uuid.UUID, error) {
+			return ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["sceneID"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "frameCount",
+		func(ctx context.Context, v any) (*int, error) {
+			return ec.unmarshalOInt2ᚖint(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["frameCount"] = arg1
 	return args, nil
 }
 
@@ -13310,6 +13795,34 @@ func (ec *executionContext) field_Query_sceneChangelog_args(ctx context.Context,
 	return args, nil
 }
 
+func (ec *executionContext) field_Query_sceneCollage_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "sceneID",
+		func(ctx context.Context, v any) (uuid.UUID, error) {
+			return ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["sceneID"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_sceneSnapshots_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "sceneID",
+		func(ctx context.Context, v any) (uuid.UUID, error) {
+			return ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["sceneID"] = arg0
+	return args, nil
+}
+
 func (ec *executionContext) field_Query_searchPerformer_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -13539,6 +14052,28 @@ func (ec *executionContext) field_Query_tagChangelog_args(ctx context.Context, r
 		return nil, err
 	}
 	args["limit"] = arg2
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_underSnapshottedScenes_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "minimum",
+		func(ctx context.Context, v any) (*int, error) {
+			return ec.unmarshalOInt2ᚖint(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["minimum"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "limit",
+		func(ctx context.Context, v any) (*int, error) {
+			return ec.unmarshalOInt2ᚖint(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["limit"] = arg1
 	return args, nil
 }
 
@@ -14176,6 +14711,277 @@ func (ec *executionContext) fieldContext_ClusterSceneSubmission_linked_fingerpri
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return ec.childFields_ClusterOshash(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Collage_id(ctx context.Context, field graphql.CollectedField, obj *Collage) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Collage_id(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v uuid.UUID) graphql.Marshaler {
+			return ec.marshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Collage_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Collage", field, false, false, errors.New("field of type ID does not have child fields"))
+}
+
+func (ec *executionContext) _Collage_frameCount(ctx context.Context, field graphql.CollectedField, obj *Collage) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Collage_frameCount(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.FrameCount, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Collage_frameCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Collage", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _Collage_sourceDuration(ctx context.Context, field graphql.CollectedField, obj *Collage) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Collage_sourceDuration(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Collage().SourceDuration(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *int) graphql.Marshaler {
+			return ec.marshalOInt2ᚖint(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_Collage_sourceDuration(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Collage", field, true, true, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _Collage_duration(ctx context.Context, field graphql.CollectedField, obj *Collage) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Collage_duration(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Collage().Duration(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *int) graphql.Marshaler {
+			return ec.marshalOInt2ᚖint(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_Collage_duration(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Collage", field, true, true, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _Collage_generatedAt(ctx context.Context, field graphql.CollectedField, obj *Collage) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Collage_generatedAt(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Collage().GeneratedAt(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *time.Time) graphql.Marshaler {
+			return ec.marshalNTime2ᚖtimeᚐTime(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Collage_generatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Collage", field, true, true, errors.New("field of type Time does not have child fields"))
+}
+
+func (ec *executionContext) _Collage_frames(ctx context.Context, field graphql.CollectedField, obj *Collage) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Collage_frames(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Collage().Frames(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []CollageFrame) graphql.Marshaler {
+			return ec.marshalNCollageFrame2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐCollageFrameᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Collage_frames(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Collage",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_CollageFrame(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Collage_stale(ctx context.Context, field graphql.CollectedField, obj *Collage) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Collage_stale(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Collage().Stale(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Collage_stale(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Collage", field, true, true, errors.New("field of type Boolean does not have child fields"))
+}
+
+func (ec *executionContext) _CollageFrame_id(ctx context.Context, field graphql.CollectedField, obj *CollageFrame) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_CollageFrame_id(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v uuid.UUID) graphql.Marshaler {
+			return ec.marshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_CollageFrame_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("CollageFrame", field, false, false, errors.New("field of type ID does not have child fields"))
+}
+
+func (ec *executionContext) _CollageFrame_timestamp(ctx context.Context, field graphql.CollectedField, obj *CollageFrame) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_CollageFrame_timestamp(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.CollageFrame().Timestamp(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_CollageFrame_timestamp(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("CollageFrame", field, true, true, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _CollageFrame_fraction(ctx context.Context, field graphql.CollectedField, obj *CollageFrame) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_CollageFrame_fraction(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.CollageFrame().Fraction(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *float64) graphql.Marshaler {
+			return ec.marshalOFloat2ᚖfloat64(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_CollageFrame_fraction(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("CollageFrame", field, true, true, errors.New("field of type Float does not have child fields"))
+}
+
+func (ec *executionContext) _CollageFrame_snapshot(ctx context.Context, field graphql.CollectedField, obj *CollageFrame) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_CollageFrame_snapshot(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.CollageFrame().Snapshot(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *CollageSnapshot) graphql.Marshaler {
+			return ec.marshalNSnapshot2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐCollageSnapshot(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_CollageFrame_snapshot(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "CollageFrame",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_Snapshot(ctx, field)
 		},
 	}
 	return fc, nil
@@ -23231,6 +24037,130 @@ func (ec *executionContext) fieldContext_Mutation_updateImageTypePreferences(ctx
 	return fc, nil
 }
 
+func (ec *executionContext) _Mutation_addSnapshot(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_addSnapshot(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().AddSnapshot(ctx, fc.Args["sceneID"].(uuid.UUID), fc.Args["timestamp"].(int))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal *CollageSnapshot
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *CollageSnapshot
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *CollageSnapshot) graphql.Marshaler {
+			return ec.marshalNSnapshot2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐCollageSnapshot(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_addSnapshot(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_Snapshot(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_addSnapshot_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_generateCollage(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_generateCollage(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().GenerateCollage(ctx, fc.Args["sceneID"].(uuid.UUID), fc.Args["frameCount"].(*int))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal *Collage
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *Collage
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *Collage) graphql.Marshaler {
+			return ec.marshalOCollage2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐCollage(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_generateCollage(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_Collage(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_generateCollage_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Mutation_voteElo(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -29586,6 +30516,192 @@ func (ec *executionContext) fieldContext_Query_archiveEntityCounts(_ context.Con
 	return fc, nil
 }
 
+func (ec *executionContext) _Query_sceneSnapshots(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_sceneSnapshots(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().SceneSnapshots(ctx, fc.Args["sceneID"].(uuid.UUID))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal []CollageSnapshot
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal []CollageSnapshot
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v []CollageSnapshot) graphql.Marshaler {
+			return ec.marshalNSnapshot2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐCollageSnapshotᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_sceneSnapshots(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_Snapshot(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_sceneSnapshots_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_sceneCollage(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_sceneCollage(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().SceneCollage(ctx, fc.Args["sceneID"].(uuid.UUID))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal *Collage
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *Collage
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *Collage) graphql.Marshaler {
+			return ec.marshalOCollage2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐCollage(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_Query_sceneCollage(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_Collage(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_sceneCollage_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_underSnapshottedScenes(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_underSnapshottedScenes(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().UnderSnapshottedScenes(ctx, fc.Args["minimum"].(*int), fc.Args["limit"].(*int))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal []UnderSnapshottedScene
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal []UnderSnapshottedScene
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v []UnderSnapshottedScene) graphql.Marshaler {
+			return ec.marshalNUnderSnapshottedScene2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐUnderSnapshottedSceneᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_underSnapshottedScenes(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_UnderSnapshottedScene(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_underSnapshottedScenes_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Query_countIncompleteEntities(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -33167,6 +34283,75 @@ func (ec *executionContext) fieldContext_SiteFavicon_image(_ context.Context, fi
 	return graphql.NewScalarFieldContext("SiteFavicon", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
+func (ec *executionContext) _Snapshot_id(ctx context.Context, field graphql.CollectedField, obj *CollageSnapshot) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Snapshot_id(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v uuid.UUID) graphql.Marshaler {
+			return ec.marshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Snapshot_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Snapshot", field, false, false, errors.New("field of type ID does not have child fields"))
+}
+
+func (ec *executionContext) _Snapshot_timestamp(ctx context.Context, field graphql.CollectedField, obj *CollageSnapshot) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Snapshot_timestamp(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Snapshot().Timestamp(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Snapshot_timestamp(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Snapshot", field, true, true, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _Snapshot_createdAt(ctx context.Context, field graphql.CollectedField, obj *CollageSnapshot) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Snapshot_createdAt(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Snapshot().CreatedAt(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *time.Time) graphql.Marshaler {
+			return ec.marshalNTime2ᚖtimeᚐTime(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Snapshot_createdAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Snapshot", field, true, true, errors.New("field of type Time does not have child fields"))
+}
+
 func (ec *executionContext) _StashBoxConfig_host_url(ctx context.Context, field graphql.CollectedField, obj *StashBoxConfig) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -34855,6 +36040,84 @@ func (ec *executionContext) fieldContext_URL_site(_ context.Context, field graph
 		},
 	}
 	return fc, nil
+}
+
+func (ec *executionContext) _UnderSnapshottedScene_scene(ctx context.Context, field graphql.CollectedField, obj *UnderSnapshottedScene) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_UnderSnapshottedScene_scene(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.UnderSnapshottedScene().Scene(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *Scene) graphql.Marshaler {
+			return ec.marshalNScene2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐScene(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_UnderSnapshottedScene_scene(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "UnderSnapshottedScene",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_Scene(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _UnderSnapshottedScene_snapshotCount(ctx context.Context, field graphql.CollectedField, obj *UnderSnapshottedScene) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_UnderSnapshottedScene_snapshotCount(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.SnapshotCount, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_UnderSnapshottedScene_snapshotCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("UnderSnapshottedScene", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _UnderSnapshottedScene_minimum(ctx context.Context, field graphql.CollectedField, obj *UnderSnapshottedScene) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_UnderSnapshottedScene_minimum(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.UnderSnapshottedScene().Minimum(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_UnderSnapshottedScene_minimum(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("UnderSnapshottedScene", field, true, true, errors.New("field of type Int does not have child fields"))
 }
 
 func (ec *executionContext) _UnorganizedImage_image(ctx context.Context, field graphql.CollectedField, obj *UnorganizedImage) (ret graphql.Marshaler) {
@@ -44222,6 +45485,391 @@ func (ec *executionContext) _ClusterSceneSubmission(ctx context.Context, sel ast
 	return out
 }
 
+var collageImplementors = []string{"Collage"}
+
+func (ec *executionContext) _Collage(ctx context.Context, sel ast.SelectionSet, obj *Collage) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, collageImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("Collage")
+		case "id":
+			out.Values[i] = ec._Collage_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "frameCount":
+			out.Values[i] = ec._Collage_frameCount(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "sourceDuration":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Collage_sourceDuration(ctx, field, obj)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "duration":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Collage_duration(ctx, field, obj)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "generatedAt":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Collage_generatedAt(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "frames":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Collage_frames(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "stale":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Collage_stale(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var collageFrameImplementors = []string{"CollageFrame"}
+
+func (ec *executionContext) _CollageFrame(ctx context.Context, sel ast.SelectionSet, obj *CollageFrame) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, collageFrameImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("CollageFrame")
+		case "id":
+			out.Values[i] = ec._CollageFrame_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "timestamp":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._CollageFrame_timestamp(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "fraction":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._CollageFrame_fraction(ctx, field, obj)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "snapshot":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._CollageFrame_snapshot(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
 var commentCommentedEditImplementors = []string{"CommentCommentedEdit", "NotificationData"}
 
 func (ec *executionContext) _CommentCommentedEdit(ctx context.Context, sel ast.SelectionSet, obj *CommentCommentedEdit) graphql.Marshaler {
@@ -48406,6 +50054,20 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "addSnapshot":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_addSnapshot(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "generateCollage":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_generateCollage(ctx, field)
+			})
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "voteElo":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_voteElo(ctx, field)
@@ -51590,6 +53252,72 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 					}
 				}()
 				res = ec._Query_archiveEntityCounts(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "sceneSnapshots":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_sceneSnapshots(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "sceneCollage":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_sceneCollage(ctx, field)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "underSnapshottedScenes":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_underSnapshottedScenes(ctx, field)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -54797,6 +56525,120 @@ func (ec *executionContext) _SiteFavicon(ctx context.Context, sel ast.SelectionS
 	return out
 }
 
+var snapshotImplementors = []string{"Snapshot"}
+
+func (ec *executionContext) _Snapshot(ctx context.Context, sel ast.SelectionSet, obj *CollageSnapshot) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, snapshotImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("Snapshot")
+		case "id":
+			out.Values[i] = ec._Snapshot_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "timestamp":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Snapshot_timestamp(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "createdAt":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Snapshot_createdAt(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
 var stashBoxConfigImplementors = []string{"StashBoxConfig"}
 
 func (ec *executionContext) _StashBoxConfig(ctx context.Context, sel ast.SelectionSet, obj *StashBoxConfig) graphql.Marshaler {
@@ -56162,6 +58004,120 @@ func (ec *executionContext) _URL(ctx context.Context, sel ast.SelectionSet, obj 
 					}
 				}()
 				res = ec._URL_site(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var underSnapshottedSceneImplementors = []string{"UnderSnapshottedScene"}
+
+func (ec *executionContext) _UnderSnapshottedScene(ctx context.Context, sel ast.SelectionSet, obj *UnderSnapshottedScene) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, underSnapshottedSceneImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("UnderSnapshottedScene")
+		case "scene":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._UnderSnapshottedScene_scene(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "snapshotCount":
+			out.Values[i] = ec._UnderSnapshottedScene_snapshotCount(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "minimum":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._UnderSnapshottedScene_minimum(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -57655,6 +59611,26 @@ func (ec *executionContext) marshalNClusterSceneSubmission2ᚕgithubᚗcomᚋsta
 		fc := graphql.GetFieldContext(ctx)
 		fc.Result = &v[i]
 		return ec.marshalNClusterSceneSubmission2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐClusterSceneSubmission(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNCollageFrame2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐCollageFrame(ctx context.Context, sel ast.SelectionSet, v CollageFrame) graphql.Marshaler {
+	return ec._CollageFrame(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNCollageFrame2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐCollageFrameᚄ(ctx context.Context, sel ast.SelectionSet, v []CollageFrame) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNCollageFrame2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐCollageFrame(ctx, sel, v[i])
 	})
 
 	for _, e := range ret {
@@ -59530,6 +61506,36 @@ func (ec *executionContext) unmarshalNSiteUpdateInput2githubᚗcomᚋstashappᚋ
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
+func (ec *executionContext) marshalNSnapshot2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐCollageSnapshot(ctx context.Context, sel ast.SelectionSet, v CollageSnapshot) graphql.Marshaler {
+	return ec._Snapshot(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNSnapshot2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐCollageSnapshotᚄ(ctx context.Context, sel ast.SelectionSet, v []CollageSnapshot) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNSnapshot2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐCollageSnapshot(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNSnapshot2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐCollageSnapshot(ctx context.Context, sel ast.SelectionSet, v *CollageSnapshot) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._Snapshot(ctx, sel, v)
+}
+
 func (ec *executionContext) unmarshalNSortDirectionEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSortDirectionEnum(ctx context.Context, v any) (SortDirectionEnum, error) {
 	var res SortDirectionEnum
 	err := res.UnmarshalGQL(v)
@@ -59861,6 +61867,26 @@ func (ec *executionContext) marshalNURL2ᚕgithubᚗcomᚋstashappᚋstashᚑbox
 func (ec *executionContext) unmarshalNURLInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐURL(ctx context.Context, v any) (URL, error) {
 	res, err := ec.unmarshalInputURLInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNUnderSnapshottedScene2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐUnderSnapshottedScene(ctx context.Context, sel ast.SelectionSet, v UnderSnapshottedScene) graphql.Marshaler {
+	return ec._UnderSnapshottedScene(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNUnderSnapshottedScene2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐUnderSnapshottedSceneᚄ(ctx context.Context, sel ast.SelectionSet, v []UnderSnapshottedScene) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNUnderSnapshottedScene2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐUnderSnapshottedScene(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
 }
 
 func (ec *executionContext) marshalNUnorganizedImage2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐUnorganizedImage(ctx context.Context, sel ast.SelectionSet, v UnorganizedImage) graphql.Marshaler {
@@ -60321,6 +62347,13 @@ func (ec *executionContext) marshalOBreastTypeEnum2ᚖgithubᚗcomᚋstashappᚋ
 		return graphql.Null
 	}
 	return v
+}
+
+func (ec *executionContext) marshalOCollage2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐCollage(ctx context.Context, sel ast.SelectionSet, v *Collage) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._Collage(ctx, sel, v)
 }
 
 func (ec *executionContext) marshalOCompletion2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐCompletion(ctx context.Context, sel ast.SelectionSet, v *Completion) graphql.Marshaler {

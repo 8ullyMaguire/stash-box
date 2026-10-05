@@ -1,0 +1,158 @@
+# Scene collages (SPEC §7.25.1, growth item 12).
+#
+# The service has existed and been tested since it was written — snapshots,
+# generation, frame selection with strategies, and an under-snapshotted query for
+# quests. None of it was reachable: no GraphQL type, so a client could not read a
+# collage or ask for one. That is a whole feature behind a missing schema block.
+#
+# Timestamps are milliseconds, not seconds, and that is not arbitrary: the
+# underlying snapshots are stored in ms and a scene's duration is an integer
+# second count. Converting in the schema would make the client's seek arithmetic
+# lossy for no benefit.
+
+"""
+One timestamped frame claim for a scene.
+Snapshots are the input to a collage and exist independently of one: a scene with
+hand-placed snapshots and no generated collage is the normal state early in a
+scene's life.
+"""
+type Snapshot {
+  id: ID!
+
+  "Milliseconds into the scene. The client seeks the video it already has; nothing is fetched from this server."
+  timestamp: Int!
+
+  "When this snapshot was claimed."
+  createdAt: Time!
+}
+
+"""
+One selected frame of a generated collage.
+
+`fraction` is sent alongside `timestamp` because a client holding a DIFFERENT
+duration for the scene — a corrected one, or its own copy — should scrub by
+fraction and land in the right place regardless. A collage generated against a
+stale duration has its frames bunched at one end, and the fraction is what makes
+that recoverable rather than merely wrong.
+
+`fraction` is NULLABLE, and that is load-bearing. It is null when the scene's
+duration is unknown -- a duration that was never recorded, or one that was
+corrected away after the collage was generated. 0.0 is a REAL position (the very
+start of a scene), so a non-null Float cannot express "unknown" without either
+inventing the opening frame or failing the entire query once per frame. Null is
+the only honest answer, and a client can tell it apart from a genuine 0.0.
+"""
+type CollageFrame {
+  id: ID!
+
+  "Milliseconds into the scene."
+  timestamp: Int!
+
+  "Position through the scene, 0.0-1.0. Null when the scene's duration is unknown."
+  fraction: Float
+
+  snapshot: Snapshot!
+}
+
+"""
+A generated selection of frames for a scene.
+
+`sourceDuration` and `duration` are both exposed because they differ routinely, and
+a collage generated against a since-corrected duration has its frames bunched at
+the end. Recording both is what makes that diagnosable instead of merely looking
+wrong — and a client that renders "12 frames, 3 at the end" can be told why.
+"""
+type Collage {
+  id: ID!
+
+  "How many frames were selected."
+  frameCount: Int!
+
+  "The duration the sampler believed when it ran, in milliseconds. Null when the scene had no duration recorded."
+  sourceDuration: Int
+
+  "What the scene records now, in milliseconds. Differs from sourceDuration whenever the duration was corrected after generation."
+  duration: Int
+
+  "When the collage was generated."
+  generatedAt: Time!
+
+  "The frames, in ascending timestamp order."
+  frames: [CollageFrame!]!
+
+  "True when sourceDuration and duration disagree, i.e. the scene's duration was corrected after this collage was made and the frames may be bunched."
+  stale: Boolean!
+}
+
+"""
+A scene with fewer snapshots than a collage would need.
+
+This is a quest input rather than a discovery surface: it names scenes that are
+MISSING snapshots, which is a work item, not something to browse.
+"""
+type UnderSnapshottedScene {
+  scene: Scene!
+
+  "Snapshots currently claimed."
+  snapshotCount: Int!
+
+  "The minimum a usable collage needs."
+  minimum: Int!
+}
+
+extend type Query {
+  """
+  The snapshots claimed for a scene, whether or not a collage has been generated.
+
+  Ordered by timestamp, because a snapshot list is a scrub bar and unsorted
+  timestamps make every client re-sort it.
+  """
+  sceneSnapshots(sceneID: ID!): [Snapshot!]!
+    @hasRole(role: READ)
+
+  """
+  The generated collage for a scene, or null when none has been made.
+
+  Null, not an empty collage: "no collage yet" and "a collage with no frames" are
+  different states and only one of them is an invitation to contribute.
+  """
+  sceneCollage(sceneID: ID!): Collage
+    @hasRole(role: READ)
+
+  """
+  Scenes with too few snapshots to build a usable collage from.
+
+  This is the input to §8's curation quests -- "this scene has only 2 snapshots" --
+  rather than a surface to browse: it names scenes that are MISSING work. Ordered
+  least-snapshotted first, so the most starved scenes are the first ones offered.
+  """
+  underSnapshottedScenes(minimum: Int = 10, limit: Int = 50): [UnderSnapshottedScene!]!
+    @hasRole(role: READ)
+}
+
+extend type Mutation {
+  """
+  Claim a timestamped frame for a scene.
+
+  READ, not VOTE: claiming a frame is an observation, not a vote. It does not
+  change any existing claim, and the same timestamp claimed twice is idempotent
+  rather than a conflict.
+  """
+  addSnapshot(sceneID: ID!, timestamp: Int!): Snapshot!
+    @hasRole(role: READ)
+
+  """
+  Generate a collage for a scene from its snapshots.
+
+  frameCount must be 12-24. The default is 16. An earlier draft of this schema
+  defaulted to 10 -- a value the service REJECTS -- so every client calling this
+  without an explicit count failed, with an error naming a range the schema never
+  mentioned. Defaults must be read off the service constants, not guessed.
+
+  Idempotent per (scene, frameCount): regenerating with the same arguments
+  replaces the existing collage rather than accumulating rows, because two
+  collages for one scene with the same shape are the same claim expressed twice.
+  """
+  generateCollage(sceneID: ID!, frameCount: Int = 16): Collage
+    @hasRole(role: READ)
+}

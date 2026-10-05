@@ -16,6 +16,37 @@ autobind:
 models:
   ID:
     model: github.com/stashapp/stash-box/internal/models.ID
+  Collage:
+    model: github.com/stashapp/stash-box/internal/models.Collage
+    fields:
+      # `duration`/`stale` are derived in the resolver, not stored: whether a
+      # collage is stale depends on the scene's CURRENT duration, so computing it
+      # once and storing it would go stale itself.
+      duration:
+        resolver: true
+      stale:
+        resolver: true
+      frames:
+        resolver: true
+  CollageFrame:
+    model: github.com/stashapp/stash-box/internal/models.CollageFrame
+    fields:
+      fraction:
+        resolver: true
+      snapshot:
+        resolver: true
+  Snapshot:
+    model: github.com/stashapp/stash-box/internal/models.CollageSnapshot
+    fields:
+      timestamp:
+        resolver: true
+  UnderSnapshottedScene:
+    model: github.com/stashapp/stash-box/internal/models.UnderSnapshottedScene
+    fields:
+      minimum:
+        resolver: true
+      scene:
+        resolver: true
   FingerprintHash:
     model: github.com/stashapp/stash-box/internal/models.FingerprintHash
   Image:
