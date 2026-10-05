@@ -9248,7 +9248,7 @@ extend type Mutation {
   Requires WRITE on the owner. Publishing is NOT reachable here: this is a content edit,
   and ` + "`" + `listPublish` + "`" + ` is the audited one.
   """
-  listUpdate(input: ListUpdateInput!): List! @hasRole(role: WRITE)
+  listUpdate(input: ListUpdateInput!): List! @hasRole(role: MODIFY)
 
   """
   Delete a list, its entries, and its audit trail.
@@ -9256,7 +9256,7 @@ extend type Mutation {
   The audit trail goes with the list, unlike an audit trail tied to a user: the history
   describes this list, and once the list is gone it is describing nothing.
   """
-  listDelete(id: ID!): Boolean! @hasRole(role: WRITE)
+  listDelete(id: ID!): Boolean! @hasRole(role: MODIFY)
 
   """
   Make a list public, recording who and when.
@@ -9265,7 +9265,7 @@ extend type Mutation {
   republishes by mistake should hear about it, not receive the existing row and believe it
   had just published something.
   """
-  listPublish(id: ID!): List! @hasRole(role: WRITE)
+  listPublish(id: ID!): List! @hasRole(role: MODIFY)
 
   """
   Return a list to private.
@@ -9273,7 +9273,7 @@ extend type Mutation {
   The audit trail is KEPT: "this was public and then withdrawn" is the fact worth keeping,
   and it is the one a moderation system needs to see.
   """
-  listUnpublish(id: ID!): List! @hasRole(role: WRITE)
+  listUnpublish(id: ID!): List! @hasRole(role: MODIFY)
 
   """
   Add an entry. Fails if that entity is already in the list.
@@ -9281,10 +9281,10 @@ extend type Mutation {
   Not silently ignored, because a double-submitting client would otherwise see a success
   and a list whose length disagrees with its contents.
   """
-  listAddItem(input: ListItemInput!): ListItem! @hasRole(role: WRITE)
+  listAddItem(input: ListItemInput!): ListItem! @hasRole(role: MODIFY)
 
   "Remove one entry."
-  listRemoveItem(id: ID!): Boolean! @hasRole(role: WRITE)
+  listRemoveItem(id: ID!): Boolean! @hasRole(role: MODIFY)
 
   """
   Move one entry to a new position.
@@ -9292,7 +9292,7 @@ extend type Mutation {
   Owner only, even for a published list. Reordering public content is a content edit, and
   content edits of public artefacts are the same trust-sensitive act as publishing them.
   """
-  listReorderItem(id: ID!, position: Int!): ListItem! @hasRole(role: WRITE)
+  listReorderItem(id: ID!, position: Int!): ListItem! @hasRole(role: MODIFY)
 }`, BuiltIn: false},
 	{Name: "../../graphql/schema/types/misc.graphql", Input: `scalar Date
 scalar DateTime
@@ -27425,7 +27425,7 @@ func (ec *executionContext) _Mutation_listUpdate(ctx context.Context, field grap
 			directive0 := next
 
 			directive1 := func(ctx context.Context) (any, error) {
-				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "WRITE")
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "MODIFY")
 				if err != nil {
 					var zeroVal *List
 					return zeroVal, err
@@ -27487,7 +27487,7 @@ func (ec *executionContext) _Mutation_listDelete(ctx context.Context, field grap
 			directive0 := next
 
 			directive1 := func(ctx context.Context) (any, error) {
-				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "WRITE")
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "MODIFY")
 				if err != nil {
 					var zeroVal bool
 					return zeroVal, err
@@ -27549,7 +27549,7 @@ func (ec *executionContext) _Mutation_listPublish(ctx context.Context, field gra
 			directive0 := next
 
 			directive1 := func(ctx context.Context) (any, error) {
-				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "WRITE")
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "MODIFY")
 				if err != nil {
 					var zeroVal *List
 					return zeroVal, err
@@ -27611,7 +27611,7 @@ func (ec *executionContext) _Mutation_listUnpublish(ctx context.Context, field g
 			directive0 := next
 
 			directive1 := func(ctx context.Context) (any, error) {
-				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "WRITE")
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "MODIFY")
 				if err != nil {
 					var zeroVal *List
 					return zeroVal, err
@@ -27673,7 +27673,7 @@ func (ec *executionContext) _Mutation_listAddItem(ctx context.Context, field gra
 			directive0 := next
 
 			directive1 := func(ctx context.Context) (any, error) {
-				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "WRITE")
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "MODIFY")
 				if err != nil {
 					var zeroVal *ListItem
 					return zeroVal, err
@@ -27735,7 +27735,7 @@ func (ec *executionContext) _Mutation_listRemoveItem(ctx context.Context, field 
 			directive0 := next
 
 			directive1 := func(ctx context.Context) (any, error) {
-				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "WRITE")
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "MODIFY")
 				if err != nil {
 					var zeroVal bool
 					return zeroVal, err
@@ -27797,7 +27797,7 @@ func (ec *executionContext) _Mutation_listReorderItem(ctx context.Context, field
 			directive0 := next
 
 			directive1 := func(ctx context.Context) (any, error) {
-				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "WRITE")
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "MODIFY")
 				if err != nil {
 					var zeroVal *ListItem
 					return zeroVal, err
