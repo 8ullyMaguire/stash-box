@@ -1,5 +1,6 @@
 import { useLazyQuery, useQuery } from "@apollo/client/react";
 import {
+  ArchiveStateDocument,
   CategoriesDocument,
   CategoryDocument,
   type CategoryQueryVariables,
@@ -312,6 +313,15 @@ export const useSite = (variables: SiteQueryVariables, skip = false) =>
   });
 
 export const useSites = () => useQuery(SitesDocument);
+
+/**
+ * State of the Archive. One request carries both halves of every fraction -- the
+ * per-type totals AND the incomplete counts -- because the page renders
+ * percentages from them and two separate reads can straddle an edit.
+ */
+export const useArchiveStateQuery = () => useQuery(ArchiveStateDocument);
+
+export const useStreakQuery = () => useQuery(UserStreakDocument);
 
 export const useSiteCategory = (
   variables: SiteCategoryQueryVariables,

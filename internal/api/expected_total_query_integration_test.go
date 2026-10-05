@@ -224,6 +224,50 @@ func TestGeneratedCreateAndDeleteExpectedTotal(t *testing.T) {
 	assert.Equal(t, 512, int(removed.Total))
 }
 
+// TestArchiveCountsCoverEveryScoredType runs the real generated query against the
+// live schema.
+//
+// It exists because `CountArchiveEntities` originally applied `NOT deleted` to
+// all five branches, and `sites` has no `deleted` column — it is a small fixed
+// table of scrapers, not curated content. The field failed with `column
+// "deleted" does not exist`, which names a COLUMN and sends you looking for a
+// dropped column rather than at the one table that never had one.
+//
+// A test that only checks "no error" would have caught that, but only once
+// someone ran it against a database rather than a mock. Asserting the exact row
+// set also pins the shape: five rows, always, including a type with no entities.
+func TestArchiveCountsCoverEveryScoredType(t *testing.T) {
+	q := queriesFor(t)
+
+	// One studio, so the studio row is definitely non-zero.
+	seedStudioRow(t, "archive-count-studio")
+
+	rows, err := q.CountArchiveEntities(t.Context())
+	require.NoError(t, err,
+		"every branch must reference columns that exist; a table without a "+
+			"soft-delete column makes the whole field fail")
+
+	got := map[string]int64{}
+	for _, r := range rows {
+		got[r.EntityType] = r.Count
+	}
+
+	assert.Len(t, rows, 5,
+		"always five rows: a client given four has to decide what the fifth "+
+			"means, and \"none exist\" and \"could not count them\" produce "+
+			"different pages")
+
+	for _, want := range []string{"performer", "scene", "studio", "site", "tag"} {
+		assert.Contains(t, got, want,
+			"the SQL spells its literals as the GraphQL enum values, so a missing "+
+				"row means the query and the enum have drifted")
+	}
+
+	assert.GreaterOrEqual(t, got["studio"], int64(1),
+		"the seeded studio must appear, so a zero here means the count is not "+
+			"reading the live table")
+}
+
 // assertTotalFor asserts a denominator via raw SQL, which is the constraint-level
 // path; the generated CreateExpectedTotal is covered separately above.
 func assertTotalFor(t *testing.T, studioID string, total int, assertedBy string) {

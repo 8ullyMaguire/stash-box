@@ -107,6 +107,18 @@ type ApproveEditInput struct {
 	ID uuid.UUID `json:"id"`
 }
 
+// One scored entity type's contribution to the archive total.
+type ArchiveEntityCount struct {
+	// The entity type, spelled as the `EntityType` enum.
+	EntityType EntityType `json:"entityType"`
+	// How many live entities of this type exist.
+	//
+	// Soft-deleted entities are excluded, matching the completion queries exactly.
+	// A denominator counting deleted rows against a numerator that excludes them
+	// would report a permanently incomplete archive.
+	Count int `json:"count"`
+}
+
 type BodyModification struct {
 	Location    string  `json:"location"`
 	Description *string `json:"description,omitempty"`

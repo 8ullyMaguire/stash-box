@@ -6,6 +6,10 @@ export const ROUTE_CURATION_MATCHUP = "/curation/matchup";
 // read-only user a surface the schema already permits them. SPEC 7.26's shape.
 export const ROUTE_ELO_LEADERBOARD = "/leaderboard";
 
+// State of the Archive (SPEC 7.7, growth item 9). READ-gated, so the nav entry
+// is ungated too: the archive's health is not an act of curation.
+export const ROUTE_ARCHIVE = "/archive";
+
 // Identification board (SPEC section 5). Mounted at the top level rather than
 // under /curation, because reading the board is allowed at READ while the
 // curation route is gated on VOTE -- nesting it there would hide it from every

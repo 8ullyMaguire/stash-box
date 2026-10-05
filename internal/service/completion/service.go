@@ -228,6 +228,66 @@ func (s *Service) CountIncomplete(ctx context.Context, entityType EntityType, be
 	return int(count), nil
 }
 
+// EntityCount is how many live entities of one scored type exist.
+//
+// It lives here rather than in the API layer because it is the DENOMINATOR for
+// everything CountIncomplete returns: the page that says "142 of 400 performers
+// catalogued" needs both halves, and they must come from the same service so a
+// future caller cannot pair them from different places and quietly disagree.
+type EntityCount struct {
+	EntityType EntityType
+	Count      int
+}
+
+// CountEntities returns one EntityCount per scored entity type, always five rows
+// including types with a count of zero.
+//
+// The zero rows are deliberate. A caller given four rows has to decide what the
+// fifth means, and "no entities exist" and "we could not count them" produce
+// different pages -- one says the work is done, the other says nothing. An
+// explicit 0 is the answer that cannot be misread.
+func (s *Service) CountEntities(ctx context.Context) ([]EntityCount, error) {
+	rows, err := s.queries.CountArchiveEntities(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	counts := make([]EntityCount, 0, len(rows))
+	for _, row := range rows {
+		t := EntityType(row.EntityType)
+		if !isScoredEntityType(t) {
+			// The SQL spells its literals as the GraphQL enum values, so an
+			// unrecognised one means the query and this package have drifted --
+			// which is a bug worth surfacing rather than a row to skip. Skipping
+			// it would make the archive total quietly understate itself and the
+			// page would show a percentage nobody can account for.
+			return nil, fmt.Errorf(
+				"%w: archive count returned unscored entity type %q",
+				ErrUnknownEntityType, row.EntityType)
+		}
+		counts = append(counts, EntityCount{
+			EntityType: t,
+			Count:      int(row.Count),
+		})
+	}
+
+	return counts, nil
+}
+
+// isScoredEntityType reports whether t is one this package scores.
+//
+// Checked against AllEntityTypes rather than by parsing: the set is the single
+// source of truth for "which types have weights", and a parser would be a second
+// list to keep in step with it.
+func isScoredEntityType(t EntityType) bool {
+	for _, known := range AllEntityTypes {
+		if t == known {
+			return true
+		}
+	}
+	return false
+}
+
 // ListIncomplete returns incomplete entity ids for a generated quest, one page at
 // a time.
 //

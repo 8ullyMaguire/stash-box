@@ -1,0 +1,43 @@
+# Archive-wide state (SPEC §7.7, growth item 9).
+#
+# One type, one field. The page it backs ("State of the Archive") asks a single
+# question — how much of this instance is catalogued — and answering it from five
+# `findX { count }` calls would mean five round trips whose totals are computed
+# under their own filters and can disagree with the completion counts shown
+# beside them. One field, one snapshot.
+
+"""
+One scored entity type's contribution to the archive total.
+"""
+type ArchiveEntityCount {
+  """
+  The entity type, spelled as the `EntityType` enum.
+  """
+  entityType: EntityType!
+
+  """
+  How many live entities of this type exist.
+
+  Soft-deleted entities are excluded, matching the completion queries exactly.
+  A denominator counting deleted rows against a numerator that excludes them
+  would report a permanently incomplete archive.
+  """
+  count: Int!
+}
+
+extend type Query {
+  """
+  A count per scored entity type, for the State of the Archive page.
+
+  READ, not VOTE: knowing how much work is left is not an act of curation, and
+  gating the count would hide the archive's own health from the readers who
+  browse it. The entities it links to are themselves role-gated, so this widens
+  what can be SEEN, not what can be done.
+
+  Always five rows, including types with a count of 0. A client that omits the
+  empty types has to decide what "absent" means, and the two plausible answers
+  ("none exist" and "we could not count them") produce different pages.
+  """
+  archiveEntityCounts: [ArchiveEntityCount!]!
+    @hasRole(role: READ)
+}

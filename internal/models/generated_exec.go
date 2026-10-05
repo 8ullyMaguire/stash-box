@@ -84,6 +84,11 @@ type ComplexityRoot struct {
 		Unenforced func(childComplexity int) int
 	}
 
+	ArchiveEntityCount struct {
+		Count      func(childComplexity int) int
+		EntityType func(childComplexity int) int
+	}
+
 	BodyModification struct {
 		Description func(childComplexity int) int
 		Location    func(childComplexity int) int
@@ -655,6 +660,7 @@ type ComplexityRoot struct {
 
 	Query struct {
 		AccessRules                    func(childComplexity int) int
+		ArchiveEntityCounts            func(childComplexity int) int
 		CountIncompleteEntities        func(childComplexity int, entityType EntityType, below int) int
 		EloLeaderboard                 func(childComplexity int, entityType EloEntityType, limit *int) int
 		EloMatchup                     func(childComplexity int, entityType EloEntityType) int
@@ -1299,6 +1305,7 @@ type QueryResolver interface {
 	GetUnreadNotificationCount(ctx context.Context) (*UnreadNotificationCount, error)
 	QueryModAudits(ctx context.Context, input ModAuditQueryInput) (*ModAuditQuery, error)
 	QueryUnorganizedImages(ctx context.Context, input UnorganizedImagesQueryInput) (*UnorganizedImagesQuery, error)
+	ArchiveEntityCounts(ctx context.Context) ([]ArchiveEntityCount, error)
 	CountIncompleteEntities(ctx context.Context, entityType EntityType, below int) (int, error)
 	EloMatchup(ctx context.Context, entityType EloEntityType) (*EloMatchup, error)
 	EloRating(ctx context.Context, entityType EloEntityType, id uuid.UUID) (*EloRating, error)
@@ -1513,6 +1520,19 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.AccessRuleSet.Unenforced(childComplexity), true
+
+	case "ArchiveEntityCount.count":
+		if e.ComplexityRoot.ArchiveEntityCount.Count == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ArchiveEntityCount.Count(childComplexity), true
+	case "ArchiveEntityCount.entityType":
+		if e.ComplexityRoot.ArchiveEntityCount.EntityType == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ArchiveEntityCount.EntityType(childComplexity), true
 
 	case "BodyModification.description":
 		if e.ComplexityRoot.BodyModification.Description == nil {
@@ -4373,6 +4393,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.AccessRules(childComplexity), true
+	case "Query.archiveEntityCounts":
+		if e.ComplexityRoot.Query.ArchiveEntityCounts == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Query.ArchiveEntityCounts(childComplexity), true
 	case "Query.countIncompleteEntities":
 		if e.ComplexityRoot.Query.CountIncompleteEntities == nil {
 			break
@@ -6536,6 +6562,50 @@ func newExecutionContext(
 }
 
 var sources = []*ast.Source{
+	{Name: "../../graphql/schema/types/archive.graphql", Input: `# Archive-wide state (SPEC §7.7, growth item 9).
+#
+# One type, one field. The page it backs ("State of the Archive") asks a single
+# question — how much of this instance is catalogued — and answering it from five
+# ` + "`" + `findX { count }` + "`" + ` calls would mean five round trips whose totals are computed
+# under their own filters and can disagree with the completion counts shown
+# beside them. One field, one snapshot.
+
+"""
+One scored entity type's contribution to the archive total.
+"""
+type ArchiveEntityCount {
+  """
+  The entity type, spelled as the ` + "`" + `EntityType` + "`" + ` enum.
+  """
+  entityType: EntityType!
+
+  """
+  How many live entities of this type exist.
+
+  Soft-deleted entities are excluded, matching the completion queries exactly.
+  A denominator counting deleted rows against a numerator that excludes them
+  would report a permanently incomplete archive.
+  """
+  count: Int!
+}
+
+extend type Query {
+  """
+  A count per scored entity type, for the State of the Archive page.
+
+  READ, not VOTE: knowing how much work is left is not an act of curation, and
+  gating the count would hide the archive's own health from the readers who
+  browse it. The entities it links to are themselves role-gated, so this widens
+  what can be SEEN, not what can be done.
+
+  Always five rows, including types with a count of 0. A client that omits the
+  empty types has to decide what "absent" means, and the two plausible answers
+  ("none exist" and "we could not count them") produce different pages.
+  """
+  archiveEntityCounts: [ArchiveEntityCount!]!
+    @hasRole(role: READ)
+}
+`, BuiltIn: false},
 	{Name: "../../graphql/schema/types/completion.graphql", Input: `# Completion scores (SPEC §7.7).
 #
 # One type, five places it appears. A performer, a scene, a studio, a site and a
@@ -9920,6 +9990,16 @@ func (ec *executionContext) childFields_AccessRuleSet(ctx context.Context, field
 		return ec.fieldContext_AccessRuleSet_unenforced(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type AccessRuleSet", field.Name)
+}
+
+func (ec *executionContext) childFields_ArchiveEntityCount(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "entityType":
+		return ec.fieldContext_ArchiveEntityCount_entityType(ctx, field)
+	case "count":
+		return ec.fieldContext_ArchiveEntityCount_count(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type ArchiveEntityCount", field.Name)
 }
 
 func (ec *executionContext) childFields_BodyModification(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -13741,6 +13821,52 @@ func (ec *executionContext) fieldContext_AccessRuleSet_unenforced(_ context.Cont
 		},
 	}
 	return fc, nil
+}
+
+func (ec *executionContext) _ArchiveEntityCount_entityType(ctx context.Context, field graphql.CollectedField, obj *ArchiveEntityCount) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ArchiveEntityCount_entityType(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.EntityType, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v EntityType) graphql.Marshaler {
+			return ec.marshalNEntityType2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEntityType(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ArchiveEntityCount_entityType(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ArchiveEntityCount", field, false, false, errors.New("field of type EntityType does not have child fields"))
+}
+
+func (ec *executionContext) _ArchiveEntityCount_count(ctx context.Context, field graphql.CollectedField, obj *ArchiveEntityCount) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ArchiveEntityCount_count(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Count, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ArchiveEntityCount_count(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ArchiveEntityCount", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
 func (ec *executionContext) _BodyModification_location(ctx context.Context, field graphql.CollectedField, obj *BodyModification) (ret graphql.Marshaler) {
@@ -29410,6 +29536,56 @@ func (ec *executionContext) fieldContext_Query_queryUnorganizedImages(ctx contex
 	return fc, nil
 }
 
+func (ec *executionContext) _Query_archiveEntityCounts(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_archiveEntityCounts(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Query().ArchiveEntityCounts(ctx)
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal []ArchiveEntityCount
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal []ArchiveEntityCount
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v []ArchiveEntityCount) graphql.Marshaler {
+			return ec.marshalNArchiveEntityCount2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐArchiveEntityCountᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_archiveEntityCounts(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ArchiveEntityCount(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Query_countIncompleteEntities(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -43778,6 +43954,49 @@ func (ec *executionContext) _AccessRuleSet(ctx context.Context, sel ast.Selectio
 	return out
 }
 
+var archiveEntityCountImplementors = []string{"ArchiveEntityCount"}
+
+func (ec *executionContext) _ArchiveEntityCount(ctx context.Context, sel ast.SelectionSet, obj *ArchiveEntityCount) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, archiveEntityCountImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ArchiveEntityCount")
+		case "entityType":
+			out.Values[i] = ec._ArchiveEntityCount_entityType(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "count":
+			out.Values[i] = ec._ArchiveEntityCount_count(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
 var bodyModificationImplementors = []string{"BodyModification"}
 
 func (ec *executionContext) _BodyModification(ctx context.Context, sel ast.SelectionSet, obj *BodyModification) graphql.Marshaler {
@@ -51361,6 +51580,28 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "archiveEntityCounts":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_archiveEntityCounts(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
 		case "countIncompleteEntities":
 			field := field
 
@@ -57297,6 +57538,26 @@ func (ec *executionContext) unmarshalNAmendItemRemoval2githubᚗcomᚋstashapp�
 func (ec *executionContext) unmarshalNApproveEditInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐApproveEditInput(ctx context.Context, v any) (ApproveEditInput, error) {
 	res, err := ec.unmarshalInputApproveEditInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNArchiveEntityCount2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐArchiveEntityCount(ctx context.Context, sel ast.SelectionSet, v ArchiveEntityCount) graphql.Marshaler {
+	return ec._ArchiveEntityCount(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNArchiveEntityCount2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐArchiveEntityCountᚄ(ctx context.Context, sel ast.SelectionSet, v []ArchiveEntityCount) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNArchiveEntityCount2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐArchiveEntityCount(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
 }
 
 func (ec *executionContext) marshalNBodyModification2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐBodyModification(ctx context.Context, sel ast.SelectionSet, v BodyModification) graphql.Marshaler {

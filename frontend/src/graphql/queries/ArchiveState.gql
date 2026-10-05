@@ -1,0 +1,18 @@
+query ArchiveState {
+  archiveEntityCounts {
+    entityType
+    count
+  }
+  # The numerator for the same page. Fetched in ONE request alongside the
+  # denominators rather than in a loop per type: five separate requests can be
+  # served at five different moments, and the page would then show a percentage
+  # that no single read of the database supports.
+  incompletePerformers: countIncompleteEntities(
+    entityType: performer
+    below: 100
+  )
+  incompleteScenes: countIncompleteEntities(entityType: scene, below: 100)
+  incompleteStudios: countIncompleteEntities(entityType: studio, below: 100)
+  incompleteSites: countIncompleteEntities(entityType: site, below: 100)
+  incompleteTags: countIncompleteEntities(entityType: tag, below: 100)
+}

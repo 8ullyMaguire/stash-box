@@ -3,6 +3,7 @@ import { Route, Routes } from "react-router-dom";
 
 import {
   ROUTE_ACTIVATE,
+  ROUTE_ARCHIVE,
   ROUTE_AUDITS,
   ROUTE_CATEGORIES,
   ROUTE_CURATION,
@@ -30,6 +31,7 @@ import {
 } from "src/constants/route";
 import Login from "src/Login";
 import ActivateUser from "src/pages/activateUser";
+import ArchiveStatePage from "src/pages/archive";
 import Audits from "src/pages/audits";
 import Categories from "src/pages/categories";
 import Curation from "src/pages/curation";
@@ -94,6 +96,7 @@ const Pages: FC = () => (
               path={`${ROUTE_ELO_LEADERBOARD}/*`}
               element={<EloLeaderboard />}
             />
+            <Route path={ROUTE_ARCHIVE} element={<ArchiveStatePage />} />
             <Route path={`${ROUTE_CURATION}/*`} element={<Curation />} />
             <Route path={`${ROUTE_DRAFTS}/*`} element={<Drafts />} />
             <Route path={ROUTE_NOTIFICATIONS} element={<Notifications />} />

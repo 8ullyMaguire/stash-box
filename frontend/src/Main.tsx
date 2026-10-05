@@ -7,6 +7,7 @@ import { Icon } from "src/components/fragments";
 import SearchField, { SearchType } from "src/components/searchField";
 import {
   ROUTE_ACTIVATE,
+  ROUTE_ARCHIVE,
   ROUTE_AUDITS,
   ROUTE_CURATION,
   ROUTE_DRAFTS,
@@ -172,6 +173,9 @@ const Main: FC<Props> = ({ children }) => {
               this time shipped inside a "growth" list. */}
           <NavLink to={ROUTE_ELO_LEADERBOARD} className="nav-link">
             Leaderboard
+          </NavLink>
+          <NavLink to={ROUTE_ARCHIVE} className="nav-link">
+            Archive
           </NavLink>
           {/* Curation is gated on canVote because the matchup query requires the
               VOTE role; showing the link to someone without it would land them on
