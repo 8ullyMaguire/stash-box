@@ -29,7 +29,7 @@ instance ever gets a real deployment and SSR becomes worth its cost.
 
 | WS | Items | Status | Gate |
 |---|---|---|---|
-| W1 Identification board UI | 2 | `[ ]` | reachable + votable, mutation-verified |
+| W1 Identification board UI | 2 | `[x]` 01d2c514, dcba9b10 | reachable + votable, mutation-verified |
 | W2 Public Elo | 4, 5 | `[ ]` | READ-only user sees a leaderboard |
 | W3 Completion & coverage | 6, 9, 25, 59 | `[ ]` | derived % correct, no drift |
 | W4 Discovery surfaces | 19, 22, 44, 87 | `[ ]` | 4 routes render content |
@@ -43,7 +43,7 @@ instance ever gets a real deployment and SSR becomes worth its cost.
 | # | Idea | Built? (measured) | WS | Status |
 |---|---|---|---|---|
 | 1 | SEO public pages | **no** — needs a full SSR path | — | `[-]` removed |
-| 2 | Identification board | backend only — 10 query fields, **no frontend page** | W1 | `[ ]` |
+| 2 | Identification board | **DONE** — `/identification` + `/identification/:id`, 17 tests | W1 | `[x]` |
 | 3 | Browser extension | no — and out of scope | — | `[!]` |
 | 4 | Public Elo leaderboards | query yes, **page behind the VOTE gate** — a §7.26-shaped bug | W2 | `[ ]` |
 | 5 | Daily matchup micro-app | no | W2 | `[ ]` |
@@ -127,3 +127,46 @@ type exists in the schema at all**.
 Append one line per workstream completion: what was built, which mutations were
 applied and caught, and what was measured. A workstream with tests but no
 mutation record is not verified, only exercised.
+
+### W1 — Identification board UI — `01d2c514`, `dcba9b10`
+
+Built `/identification` (open queue) and `/identification/:id` (candidates,
+voting). GraphQL documents, three hooks, three mutations, nav entry, route mount.
+
+**17 tests, 13 mutations applied, 13 caught.** Each mutation is named in a
+comment beside the test that catches it:
+
+| Mutation | Caught by |
+|---|---|
+| drop the `canVote` gate on the vote button | role-gating test |
+| ignore `votedByMe` (always actionable Vote) | "Voted as a state" test |
+| delete the candidate note | note-rendering test |
+| render a deleted entity as a live link | null-entity test |
+| blank the description on the list | list-content test |
+| drop the empty state | empty-state test |
+| coercive urgency in the age line | no-coercive-framing test |
+| gate the nav link on `canVote` | nav reachability test |
+| point the nav at `/curation` | nav href test |
+| delete the route mount | route-table test |
+| nest the route inside the curation branch | route-table test |
+| collapse `:id` onto the list path | route-declaration test |
+| drop the id from the question href | **new** link-href test |
+
+**The last one was found by mutation, not by reading.** Replacing
+`replace(":id", query.id)` with `replace(":id", "")` left every other test green —
+the description still rendered, the row still existed, and the user simply
+landed back on the list page. Silent. The test that now guards it did not exist
+when the first mutation pass ran; that is the process working, not a gap in it.
+
+**Two mutations failed to apply on first attempt** because biome had reformatted
+the target text. The lesson recorded: read the committed bytes for a mutation
+target rather than assuming the pre-format string still matches.
+
+**Gate:** `validate` exit 0 · frontend 713/713 across 58 files · `vite build`
+clean · `go build`/`go vet`/`gofmt -l` clean · `go test` clean.
+
+**Not done here (deliberately, both noted in the spec):** `postIdentificationQuery`
+and `resolveIdentificationQuery` have no UI. Posting needs a form to describe a
+half-remembered scene, which is a separate page; resolving needs the full thread
+view. Both are in the schema and neither is reachable — recorded as the next
+piece of W1 rather than stubbed.
