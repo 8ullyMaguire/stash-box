@@ -10,6 +10,14 @@ CREATE TABLE scene_search (
     studio_aliases TEXT[],
     network_aliases TEXT[],
     performer_names TEXT[],
+    -- SPEC 7.26: declared here as well as in migration 103 because sqlc replays
+    -- CREATE TABLE definitions but silently ignores ALTER TABLE against a table
+    -- whose shape came from a later DROP+CREATE. Without this, sqlc believes
+    -- scene_details does not exist and every query selecting it fails to compile.
+    -- Harmless at runtime: IF NOT EXISTS in 103 makes the real ALTER authoritative.
+    scene_details TEXT,
+    scene_director TEXT,
+    tag_names TEXT[],
     scene_code TEXT
 );
 

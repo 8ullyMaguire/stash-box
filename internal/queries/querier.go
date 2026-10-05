@@ -138,6 +138,32 @@ type Querier interface {
 	// GetReviewAverage because the paginated list is capped at 100 by the caller and
 	// a count taken from a capped list is a count of the cap.
 	CountReviewsForEntity(ctx context.Context, arg CountReviewsForEntityParams) (int, error)
+	// SPEC §7.25.2. scene_search is maintained entirely by triggers, and a scene
+	// whose trigger did not fire is invisible to every search permanently -- the
+	// same class of fault as §7.24.1's verified-unknown markers, where absence
+	// could not be distinguished from empty.
+	//
+	// Two numbers and a list, because they answer different questions. The counts
+	// answer "is anything wrong"; the ids answer "what". scene_search has a PRIMARY
+	// KEY on scene_id and one row per scene, so equal counts imply equal sets -- but
+	// returning the ids anyway means a diagnosis does not require a second query
+	// somebody forgets to write when the alarm first goes off.
+	//
+	// NOT EXISTS, and not a LEFT JOIN ... IS NULL, because the join version has to
+	// re-state the join condition and the two can disagree.
+	//
+	// The CAST has to go on the OUTSIDE of COALESCE, and that is the whole trick.
+	// `COALESCE(ARRAY_AGG(S.id)::UUID[], '{}'::UUID[])` still infers text[] inside
+	// COALESCE and emits `MissingIds interface{}`; wrapping the whole expression
+	// `COALESCE(...)::UUID[]` is what resolves it to []uuid.UUID. Measured with a
+	// throwaway probe query rather than assumed -- fingerprint.sql:157 casts its
+	// own aggregate but has no COALESCE, which is why its cast works and this one
+	// needed two attempts.
+	//
+	// The consequence of getting it wrong is a type assertion in whichever caller
+	// reads the row, so it is a runtime failure somewhere else rather than a compile
+	// error here.
+	CountSceneSearchDrift(ctx context.Context) (CountSceneSearchDriftRow, error)
 	CountSceneSnapshots(ctx context.Context, sceneID uuid.UUID) (int64, error)
 	CountScenesByPerformer(ctx context.Context, performerID uuid.UUID) (int64, error)
 	CountScenesByPerformerIds(ctx context.Context, dollar_1 []uuid.UUID) ([]CountScenesByPerformerIdsRow, error)
@@ -741,6 +767,19 @@ type Querier interface {
 	GetSceneFingerprintScenes(ctx context.Context, fingerprintIds []int) ([]GetSceneFingerprintScenesRow, error)
 	GetScenePerformers(ctx context.Context, sceneID uuid.UUID) ([]GetScenePerformersRow, error)
 	GetScenePhashSeeds(ctx context.Context, sceneID uuid.UUID) ([]GetScenePhashSeedsRow, error)
+	// Reads one scene's search row, for the tests that assert what the triggers
+	// wrote and for the §7.25.2 diagnosis path.
+	//
+	// The generated `queries.SceneSearch` struct is NOT this row: it predates
+	// migration 103 and carries nine columns, because no query selects the table
+	// bare, so sqlc keeps emitting a shape from an earlier schema. Selecting the
+	// three recall columns explicitly is what makes a test fail when a trigger stops
+	// writing them — a struct that silently lacked the fields would compile and
+	// assert nothing.
+	//
+	// :one and not :many, so "the trigger did not fire" surfaces as ErrNoRows at the
+	// call site instead of an empty slice somebody has to remember to check.
+	GetSceneSearchRow(ctx context.Context, sceneID uuid.UUID) (GetSceneSearchRowRow, error)
 	GetSceneSnapshot(ctx context.Context, id uuid.UUID) (SceneSnapshot, error)
 	GetSceneTags(ctx context.Context, sceneID uuid.UUID) ([]Tag, error)
 	GetSceneURLs(ctx context.Context, sceneID uuid.UUID) ([]GetSceneURLsRow, error)
@@ -1232,9 +1271,22 @@ type Querier interface {
 	//     a scene matching more of the query always outranks one matching fewer,
 	//     regardless of BM25/IDF weighting (stops a single rare token outscoring
 	//     several common ones).
-	//   * relevance: ordinary BM25 (performer-weighted) breaks ties within a tier.
+	//   * relevance: ordinary BM25 breaks ties within a tier, with the two fields
+	//     that describe WHAT HAPPENED boosted above the fields that describe WHO
+	//     RELEASED IT.
+	//
+	// SPEC §7.25.1. scene_details, scene_director and tag_names were added to
+	// scene_search by migration 103 and are matched here. The coverage array and the
+	// relevance array must list the SAME fields: the coverage tier is what decides
+	// "matches more of the query", so a field present in only one array contributes
+	// to one tier and not the other, and the score stops meaning what its own comment
+	// says it means.
+	//
 	// The 10000 constant must exceed the max achievable BM25 sum; search terms are
-	// short so the relevance total stays well under it.
+	// short so the relevance total stays well under it. Do not raise a field's
+	// relevance weight to change which scenes match -- relevance only orders WITHIN
+	// a coverage tier, so boosting a field can never bring in a scene the coverage
+	// array excluded.
 	SearchScenes(ctx context.Context, arg SearchScenesParams) ([]SearchScenesRow, error)
 	// §10's filters: by label, by payment method, by feature, and free text.
 	//

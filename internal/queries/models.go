@@ -133,6 +133,18 @@ type AuthoredQuestItem struct {
 	CreatedAt  time.Time     `db:"created_at" json:"created_at"`
 }
 
+type BountyPricingAudit struct {
+	ID              uuid.UUID `db:"id" json:"id"`
+	QuestID         uuid.UUID `db:"quest_id" json:"quest_id"`
+	SuggestedPoints int       `db:"suggested_points" json:"suggested_points"`
+	FinalPoints     int       `db:"final_points" json:"final_points"`
+	WasOverridden   bool      `db:"was_overridden" json:"was_overridden"`
+	PriceSource     string    `db:"price_source" json:"price_source"`
+	PricedBy        uuid.UUID `db:"priced_by" json:"priced_by"`
+	Reason          *string   `db:"reason" json:"reason"`
+	PricedAt        time.Time `db:"priced_at" json:"priced_at"`
+}
+
 type Collage struct {
 	ID                uuid.UUID   `db:"id" json:"id"`
 	SceneID           uuid.UUID   `db:"scene_id" json:"scene_id"`
@@ -225,6 +237,18 @@ type EloVote struct {
 	Weight     float64            `db:"weight" json:"weight"`
 }
 
+type ExpectedTotal struct {
+	ID               uuid.UUID `db:"id" json:"id"`
+	EntityType       string    `db:"entity_type" json:"entity_type"`
+	EntityID         uuid.UUID `db:"entity_id" json:"entity_id"`
+	Kind             string    `db:"kind" json:"kind"`
+	Total            int       `db:"total" json:"total"`
+	SourceEntityType string    `db:"source_entity_type" json:"source_entity_type"`
+	SourceUrl        string    `db:"source_url" json:"source_url"`
+	AssertedBy       uuid.UUID `db:"asserted_by" json:"asserted_by"`
+	AssertedAt       time.Time `db:"asserted_at" json:"asserted_at"`
+}
+
 type FederationPeer struct {
 	ID          uuid.UUID          `db:"id" json:"id"`
 	Name        string             `db:"name" json:"name"`
@@ -237,10 +261,36 @@ type FederationPeer struct {
 	UpdatedAt   pgtype.Timestamptz `db:"updated_at" json:"updated_at"`
 }
 
+type FieldVerificationReason struct {
+	Code                string `db:"code" json:"code"`
+	Description         string `db:"description" json:"description"`
+	SuppressesGap       bool   `db:"suppresses_gap" json:"suppresses_gap"`
+	AllowsSelfAffirming bool   `db:"allows_self_affirming" json:"allows_self_affirming"`
+}
+
+type FieldVerificationState struct {
+	ID          uuid.UUID          `db:"id" json:"id"`
+	EntityType  string             `db:"entity_type" json:"entity_type"`
+	EntityID    uuid.UUID          `db:"entity_id" json:"entity_id"`
+	Field       string             `db:"field" json:"field"`
+	ReasonCode  string             `db:"reason_code" json:"reason_code"`
+	AssertedBy  uuid.UUID          `db:"asserted_by" json:"asserted_by"`
+	AssertedAt  pgtype.Timestamptz `db:"asserted_at" json:"asserted_at"`
+	CitationUrl *string            `db:"citation_url" json:"citation_url"`
+	EditID      uuid.NullUUID      `db:"edit_id" json:"edit_id"`
+}
+
 type Fingerprint struct {
 	ID        int    `db:"id" json:"id"`
 	Algorithm string `db:"algorithm" json:"algorithm"`
 	Hash      int64  `db:"hash" json:"hash"`
+}
+
+type FingerprintCorroboration struct {
+	SceneID         uuid.UUID   `db:"scene_id" json:"scene_id"`
+	SubmissionCount int64       `db:"submission_count" json:"submission_count"`
+	AlgorithmCount  int64       `db:"algorithm_count" json:"algorithm_count"`
+	IsCorroborated  pgtype.Bool `db:"is_corroborated" json:"is_corroborated"`
 }
 
 type IdentificationCandidate struct {
@@ -344,6 +394,17 @@ type InviteKey struct {
 	GeneratedAt time.Time  `db:"generated_at" json:"generated_at"`
 	Uses        *int       `db:"uses" json:"uses"`
 	ExpireTime  *time.Time `db:"expire_time" json:"expire_time"`
+}
+
+type LintQuestDefinition struct {
+	ID           uuid.UUID     `db:"id" json:"id"`
+	Slug         string        `db:"slug" json:"slug"`
+	Description  string        `db:"description" json:"description"`
+	Enabled      bool          `db:"enabled" json:"enabled"`
+	BountyPoints int           `db:"bounty_points" json:"bounty_points"`
+	IsBuiltin    bool          `db:"is_builtin" json:"is_builtin"`
+	AuthoredBy   uuid.NullUUID `db:"authored_by" json:"authored_by"`
+	CreatedAt    time.Time     `db:"created_at" json:"created_at"`
 }
 
 type ModAudit struct {
@@ -527,6 +588,9 @@ type SceneSearch struct {
 	StudioAliases  []string  `db:"studio_aliases" json:"studio_aliases"`
 	NetworkAliases []string  `db:"network_aliases" json:"network_aliases"`
 	PerformerNames []string  `db:"performer_names" json:"performer_names"`
+	SceneDetails   *string   `db:"scene_details" json:"scene_details"`
+	SceneDirector  *string   `db:"scene_director" json:"scene_director"`
+	TagNames       []string  `db:"tag_names" json:"tag_names"`
 	SceneCode      *string   `db:"scene_code" json:"scene_code"`
 }
 

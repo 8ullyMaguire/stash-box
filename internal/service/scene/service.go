@@ -282,6 +282,51 @@ func parseParadeDBCount(raw any) int {
 	return int(result.Value)
 }
 
+// SearchDrift is the state of the trigger-maintained search index against the
+// scenes it is supposed to cover.
+//
+// SPEC §7.25.2. scene_search has no way to report a row it missed. A scene
+// whose trigger did not fire is invisible to every search, permanently, and
+// nothing in the product notices -- the same class of fault as §7.24.1's
+// verified-unknown markers, where ABSENCE could not be distinguished from
+// EMPTY. Without this, the correctness of the recall index rests on a trigger
+// nobody can observe failing.
+type SearchDrift struct {
+	// SceneCount is live, non-deleted scenes.
+	SceneCount int64 `json:"scene_count"`
+	// IndexedCount is rows in scene_search.
+	IndexedCount int64 `json:"indexed_count"`
+	// MissingIDs names the scenes with no search row. Empty when nothing drifted.
+	MissingIDs []uuid.UUID `json:"missing_ids"`
+}
+
+// Drifted reports whether the index disagrees with the scenes table.
+//
+// A count comparison and not a length comparison on MissingIDs, so the answer
+// stays correct if the query is ever widened to report rows present in
+// scene_search for scenes that no longer exist.
+func (d SearchDrift) Drifted() bool {
+	return d.SceneCount != d.IndexedCount
+}
+
+// Drift reports scenes that are absent from scene_search.
+//
+// Not a health check that runs automatically. It is the query an operator runs
+// when search looks wrong, or a test asserts against -- the value is in being
+// able to ask the question, and a scheduled check with nobody reading its output
+// is the same silent failure one level up.
+func (s *Scene) Drift(ctx context.Context) (SearchDrift, error) {
+	row, err := s.queries.CountSceneSearchDrift(ctx)
+	if err != nil {
+		return SearchDrift{}, err
+	}
+	return SearchDrift{
+		SceneCount:   row.SceneCount,
+		IndexedCount: row.IndexedCount,
+		MissingIDs:   row.MissingIds,
+	}, nil
+}
+
 func (s *Scene) CountByPerformer(ctx context.Context, performerID uuid.UUID) (int, error) {
 	count, err := s.queries.CountScenesByPerformer(ctx, performerID)
 	if err != nil {

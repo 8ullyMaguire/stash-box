@@ -12,6 +12,58 @@ import (
 	"github.com/gofrs/uuid"
 )
 
+const countSceneSearchDrift = `-- name: CountSceneSearchDrift :one
+SELECT
+    (SELECT COUNT(*) FROM scenes WHERE deleted = false) AS scene_count,
+    (SELECT COUNT(*) FROM scene_search)               AS indexed_count,
+    COALESCE((
+        SELECT ARRAY_AGG(S.id)
+        FROM scenes S
+        WHERE S.deleted = false
+          AND NOT EXISTS (
+              SELECT 1 FROM scene_search SS WHERE SS.scene_id = S.id
+          )
+    ), '{}'::UUID[])::UUID[] AS missing_ids
+`
+
+type CountSceneSearchDriftRow struct {
+	SceneCount   int64       `db:"scene_count" json:"scene_count"`
+	IndexedCount int64       `db:"indexed_count" json:"indexed_count"`
+	MissingIds   []uuid.UUID `db:"missing_ids" json:"missing_ids"`
+}
+
+// SPEC §7.25.2. scene_search is maintained entirely by triggers, and a scene
+// whose trigger did not fire is invisible to every search permanently -- the
+// same class of fault as §7.24.1's verified-unknown markers, where absence
+// could not be distinguished from empty.
+//
+// Two numbers and a list, because they answer different questions. The counts
+// answer "is anything wrong"; the ids answer "what". scene_search has a PRIMARY
+// KEY on scene_id and one row per scene, so equal counts imply equal sets -- but
+// returning the ids anyway means a diagnosis does not require a second query
+// somebody forgets to write when the alarm first goes off.
+//
+// NOT EXISTS, and not a LEFT JOIN ... IS NULL, because the join version has to
+// re-state the join condition and the two can disagree.
+//
+// The CAST has to go on the OUTSIDE of COALESCE, and that is the whole trick.
+// `COALESCE(ARRAY_AGG(S.id)::UUID[], '{}'::UUID[])` still infers text[] inside
+// COALESCE and emits `MissingIds interface{}`; wrapping the whole expression
+// `COALESCE(...)::UUID[]` is what resolves it to []uuid.UUID. Measured with a
+// throwaway probe query rather than assumed -- fingerprint.sql:157 casts its
+// own aggregate but has no COALESCE, which is why its cast works and this one
+// needed two attempts.
+//
+// The consequence of getting it wrong is a type assertion in whichever caller
+// reads the row, so it is a runtime failure somewhere else rather than a compile
+// error here.
+func (q *Queries) CountSceneSearchDrift(ctx context.Context) (CountSceneSearchDriftRow, error) {
+	row := q.db.QueryRow(ctx, countSceneSearchDrift)
+	var i CountSceneSearchDriftRow
+	err := row.Scan(&i.SceneCount, &i.IndexedCount, &i.MissingIds)
+	return i, err
+}
+
 const countScenesByPerformer = `-- name: CountScenesByPerformer :one
 SELECT COUNT(*) FROM scene_performers WHERE performer_id = $1
 `
@@ -546,6 +598,49 @@ func (q *Queries) GetScenePerformers(ctx context.Context, sceneID uuid.UUID) ([]
 	return items, nil
 }
 
+const getSceneSearchRow = `-- name: GetSceneSearchRow :one
+SELECT scene_id,
+       scene_details,
+       scene_director,
+       tag_names,
+       performer_names
+FROM scene_search
+WHERE scene_id = $1
+`
+
+type GetSceneSearchRowRow struct {
+	SceneID        uuid.UUID `db:"scene_id" json:"scene_id"`
+	SceneDetails   *string   `db:"scene_details" json:"scene_details"`
+	SceneDirector  *string   `db:"scene_director" json:"scene_director"`
+	TagNames       []string  `db:"tag_names" json:"tag_names"`
+	PerformerNames []string  `db:"performer_names" json:"performer_names"`
+}
+
+// Reads one scene's search row, for the tests that assert what the triggers
+// wrote and for the §7.25.2 diagnosis path.
+//
+// The generated `queries.SceneSearch` struct is NOT this row: it predates
+// migration 103 and carries nine columns, because no query selects the table
+// bare, so sqlc keeps emitting a shape from an earlier schema. Selecting the
+// three recall columns explicitly is what makes a test fail when a trigger stops
+// writing them — a struct that silently lacked the fields would compile and
+// assert nothing.
+//
+// :one and not :many, so "the trigger did not fire" surfaces as ErrNoRows at the
+// call site instead of an empty slice somebody has to remember to check.
+func (q *Queries) GetSceneSearchRow(ctx context.Context, sceneID uuid.UUID) (GetSceneSearchRowRow, error) {
+	row := q.db.QueryRow(ctx, getSceneSearchRow, sceneID)
+	var i GetSceneSearchRowRow
+	err := row.Scan(
+		&i.SceneID,
+		&i.SceneDetails,
+		&i.SceneDirector,
+		&i.TagNames,
+		&i.PerformerNames,
+	)
+	return i, err
+}
+
 const getSceneURLs = `-- name: GetSceneURLs :many
 SELECT url, site_id FROM scene_urls WHERE scene_id = $1
 `
@@ -676,15 +771,26 @@ WHERE scene_id @@@ paradedb.boolean(should =>
             paradedb.match(field => 'studio_name', value => tok),
             paradedb.match(field => 'studio_aliases', value => tok),
             paradedb.match(field => 'network_name', value => tok),
-            paradedb.match(field => 'network_aliases', value => tok)
+            paradedb.match(field => 'network_aliases', value => tok),
+            paradedb.match(field => 'scene_details', value => tok),
+            paradedb.match(field => 'scene_director', value => tok),
+            paradedb.match(field => 'tag_names', value => tok)
         ]))
         FROM unnest($1::TEXT[]) AS tok
     ) || ARRAY(
         SELECT paradedb.disjunction_max(disjuncts => ARRAY[
             paradedb.boost(factor => 2.0, query => paradedb.match(field => 'performer_names', value => tok)),
+            -- SPEC §7.25.1 R1: tags above studio. For a vague query -- the whole
+            -- point of this feature -- what happened in the scene discriminates
+            -- better than who released it. tag_names is boosted for the same
+            -- reason performer_names already is: it is a keyword list, and a
+            -- scene with one tag should not outrank one with six on field length.
+            paradedb.boost(factor => 1.5, query => paradedb.match(field => 'tag_names', value => tok)),
             paradedb.match(field => 'scene_title', value => tok),
             paradedb.match(field => 'scene_code', value => tok),
             paradedb.match(field => 'scene_date', value => tok),
+            paradedb.match(field => 'scene_details', value => tok),
+            paradedb.match(field => 'scene_director', value => tok),
             paradedb.match(field => 'studio_name', value => tok),
             paradedb.match(field => 'studio_aliases', value => tok),
             paradedb.match(field => 'network_name', value => tok),
@@ -719,10 +825,22 @@ type SearchScenesRow struct {
 //     a scene matching more of the query always outranks one matching fewer,
 //     regardless of BM25/IDF weighting (stops a single rare token outscoring
 //     several common ones).
-//   - relevance: ordinary BM25 (performer-weighted) breaks ties within a tier.
+//   - relevance: ordinary BM25 breaks ties within a tier, with the two fields
+//     that describe WHAT HAPPENED boosted above the fields that describe WHO
+//     RELEASED IT.
+//
+// SPEC §7.25.1. scene_details, scene_director and tag_names were added to
+// scene_search by migration 103 and are matched here. The coverage array and the
+// relevance array must list the SAME fields: the coverage tier is what decides
+// "matches more of the query", so a field present in only one array contributes
+// to one tier and not the other, and the score stops meaning what its own comment
+// says it means.
 //
 // The 10000 constant must exceed the max achievable BM25 sum; search terms are
-// short so the relevance total stays well under it.
+// short so the relevance total stays well under it. Do not raise a field's
+// relevance weight to change which scenes match -- relevance only orders WITHIN
+// a coverage tier, so boosting a field can never bring in a scene the coverage
+// array excluded.
 func (q *Queries) SearchScenes(ctx context.Context, arg SearchScenesParams) ([]SearchScenesRow, error) {
 	rows, err := q.db.Query(ctx, searchScenes, arg.Tokens, arg.Offset, arg.Limit)
 	if err != nil {
