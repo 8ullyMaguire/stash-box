@@ -13,6 +13,7 @@ import {
 import {
   DEFAULT_COMPLETION_THRESHOLD,
   useCurationDashboard,
+  useUserStreak,
 } from "src/graphql";
 import StreakCard from "./StreakCard";
 
@@ -47,6 +48,16 @@ const CurationDashboard: FC = () => {
   const { data, loading, error } = useCurationDashboard(
     DEFAULT_COMPLETION_THRESHOLD,
   );
+
+  // The curation dashboard keeps its own copy of the streak (SPEC
+  // feature-streak-placement). It is a second fetch of the same query the user
+  // profile makes, by design: /curation is role-gated on VOTE, so for a READ-only
+  // user the profile is the only place a streak appears, and deleting this copy
+  // would leave the original bug in place under a new address.
+  //
+  // Two independent copies can disagree in principle, so they read one query
+  // document and one component rather than two implementations.
+  const { data: streakData, loading: streakLoading } = useUserStreak();
 
   if (loading) return <LoadingIndicator message="Loading curation status..." />;
   if (error) return <ErrorMessage error="Failed to load curation status." />;
@@ -87,7 +98,7 @@ const CurationDashboard: FC = () => {
         </Card.Body>
       </Card>
 
-      <StreakCard streak={data.userStreak} />
+      <StreakCard streak={streakData?.userStreak} loading={streakLoading} />
 
       <Card>
         <Card.Header>

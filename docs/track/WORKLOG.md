@@ -5691,3 +5691,43 @@ approximately half the suite.
 predicate about the wrong thing.** It passed, correctly, for the subset it chose
 to look at; the flaw is in the choice, and nothing about the output would have
 revealed it.
+
+## 2026-10-05 — Streak placement + reachability audit (SPEC §7.26)
+
+Owner: *"streaks should be on user dashboard but currently is on the curation route,
+fix that. ensure all functionality is reachable from ui and is where it should be."*
+
+**The reported bug was a role gate, not a placement.** `userStreak` is READ-gated;
+the only route to it was `/curation`, gated on VOTE. A READ-without-VOTE user
+could not see their own streak. Root cause: `userStreak` was selected inside
+`CurationDashboard.gql`, so the streak could only be fetched by a query that also
+fetches five curation counts. Fixed by `UserStreak.gql` + a hand-written
+`useUserStreak(skip)` hook; the profile renders the card, the curation dashboard
+keeps its copy (curation is role-gated, so for READ-only users the profile is the
+only copy).
+
+**Reachability audit — 4 findings, 3 real.** Every ROUTE_* constant, page dir and
+.gql was checked for a consumer. Notification preferences were mounted, working,
+and linked from nowhere. Two route constants referenced nothing and named paths
+that no route served; deleted. `QueryNotifications.gql` was a false positive
+(imported as `useNotifications`) and is recorded as such.
+
+**The verification is the part worth keeping.** Five wiring mutations, all caught.
+The privacy test was WRONG THREE TIMES before it was right:
+1. Removing only the JSX guard — not caught (no data, card invisible either way).
+2. Removing both guards — not caught (test supplied no streak mock).
+3. Data present + both guards removed, page visibly showed another user's streak —
+   test STILL passed. `findByText("alice")` resolves before the card mounts, so the
+   absence assertion raced the render.
+Fixed with settle-then-re-assert. An absence assertion against an async-mounting
+component measures nothing unless it waits for the mount.
+
+Pre-existing, unrelated: `StreakCard.test.tsx` was missing a trailing newline and
+failed `pnpm run validate` at HEAD. Fixed (one byte).
+
+Also fixed here: `ROUTE_USER_NOTIFICATION_SUBSCRIPTIONS` does not exist — the
+constant is `ROUTE_NOTIFICATION_SUBSCRIPTIONS`. tsc caught it; the plan had it
+wrong.
+
+NOT COMMITTED / STILL BLOCKED: the §7.25 recall migration work remains uncommitted
+and blocked on the sqlc `scene_search` ALTER decision (see HANDOFF-scene-recall).

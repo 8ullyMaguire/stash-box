@@ -13,6 +13,7 @@ import { Icon, Tooltip } from "src/components/fragments";
 import Modal from "src/components/modal";
 import { EditStatusTypes, VoteTypes } from "src/constants";
 import {
+  ROUTE_NOTIFICATION_SUBSCRIPTIONS,
   ROUTE_USER_EDIT,
   ROUTE_USER_EDITS,
   ROUTE_USER_IMAGE_PREFERENCES,
@@ -32,10 +33,12 @@ import {
   useRequestChangeEmail,
   useRescindInviteCode,
   useRevokeInvite,
+  useUserStreak,
   VoteStatusEnum,
   VoteTypeEnum,
 } from "src/graphql";
 import { useCurrentUser, useToast } from "src/hooks";
+import StreakCard from "src/pages/curation/StreakCard";
 import { createHref, formatDateTime, isPrivateUser } from "src/utils";
 import { GenerateInviteKeyModal } from "./GenerateInviteKeyModal";
 
@@ -160,6 +163,22 @@ const UserComponent: FC<Props> = ({ user, refetch }) => {
 
   const showPrivate = isPrivateUser(user);
   const isOwner = showPrivate && isSelf(user);
+
+  // The viewer's own activity streak, on the viewer's own profile (SPEC
+  // feature-streak-placement).
+  //
+  // Self only, and that is the schema's rule as much as a UI choice: `userStreak`
+  // takes no id: argument precisely so a streak cannot be read for anyone else,
+  // because "who has been absent" is not a ranking this product should publish.
+  // Rendering the card on another user's profile would therefore show an empty
+  // card, which reads as "they have no streak" — the same misreading the schema
+  // refuses to allow, reached by the front end instead of the API.
+  //
+  // Two guards, both needed. `skip` stops the request; the isSelf check in the
+  // JSX stops the render. Only the first leaves an empty card on screen.
+  const { data: streakData, loading: streakLoading } = useUserStreak(
+    !isSelf(user),
+  );
 
   const endpointURL = configData && `${configData.getConfig.host_url}/graphql`;
 
@@ -320,6 +339,18 @@ const UserComponent: FC<Props> = ({ user, refetch }) => {
                 >
                   <Button variant="secondary">Image Preferences</Button>
                 </Link>
+                {/* Notification preferences had a mounted route and a working page
+                    and no link to it from anywhere: reachable only by typing the
+                    URL. It belongs in this row with its siblings rather than in
+                    the nav, because this row is already "things you configure
+                    about yourself" and a top-level destination for a preferences
+                    form would be the over-correction. */}
+                <Link
+                  to={createHref(ROUTE_NOTIFICATION_SUBSCRIPTIONS, user)}
+                  className="ms-2"
+                >
+                  <Button variant="secondary">Notification Preferences</Button>
+                </Link>
                 <Link to={ROUTE_USER_PASSWORD} className="ms-2">
                   <Button>Change Password</Button>
                 </Link>
@@ -348,6 +379,14 @@ const UserComponent: FC<Props> = ({ user, refetch }) => {
           </div>
         </div>
         <hr />
+        {isSelf(user) && (
+          <div className="mb-3">
+            <StreakCard
+              streak={streakData?.userStreak}
+              loading={streakLoading}
+            />
+          </div>
+        )}
         {showPrivate && (
           <>
             <Row>

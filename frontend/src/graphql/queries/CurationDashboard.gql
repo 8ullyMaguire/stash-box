@@ -7,11 +7,8 @@ query CurationDashboard($threshold: Int!) {
   studiosBelow: countIncompleteEntities(entityType: studio, below: $threshold)
   sitesBelow: countIncompleteEntities(entityType: site, below: $threshold)
   tagsBelow: countIncompleteEntities(entityType: tag, below: $threshold)
-  userStreak {
-    currentStreak
-    longestStreak
-    totalActiveDays
-    activeToday
-    lastActiveDay
-  }
+  # userStreak moved to UserStreak.gql (SPEC feature-streak-placement).
+  # The curation dashboard keeps a copy for the role-gated /curation route, but
+  # selecting it here coupled the streak -- a READ-gated fact about the calling
+  # user -- to five curation counts, which is why it was unreachable without VOTE.
 }

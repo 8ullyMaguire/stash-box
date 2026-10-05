@@ -1,0 +1,9 @@
+query UserStreak {
+  userStreak {
+    currentStreak
+    longestStreak
+    totalActiveDays
+    activeToday
+    lastActiveDay
+  }
+}

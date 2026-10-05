@@ -93,6 +93,7 @@ import {
   UnreadNotificationCountDocument,
   UserDocument,
   type UserQueryVariables,
+  UserStreakDocument,
   UsersDocument,
   type UsersQueryVariables,
   VersionDocument,
@@ -419,6 +420,21 @@ export const DEFAULT_COMPLETION_THRESHOLD = 40;
 export const useCurationDashboard = (
   threshold = DEFAULT_COMPLETION_THRESHOLD,
 ) => useQuery(CurationDashboardDocument, { variables: { threshold } });
+
+// The calling user's own activity streak (SPEC feature-streak-placement).
+//
+// Its own query document rather than a field on CurationDashboard, because that
+// coupling is what made the streak unreachable: userStreak is gated on READ, and
+// selecting it inside the curation document meant reaching it required loading a
+// query whose route is gated on VOTE.
+//
+// `skip` is not optional. userStreak has no id: argument by design — the schema
+// refuses to make anyone's activity streak public — so this cannot be pointed at
+// another user, and a caller passing skip=false for someone else's profile gets
+// an empty card that reads as "they have no streak". Guard the JSX as well as
+// passing skip; skip stops the request, it does not stop the render.
+export const useUserStreak = (skip = false) =>
+  useQuery(UserStreakDocument, { skip });
 
 export const useEloMatchup = (entityType: EloEntityType, skip = false) =>
   useQuery(EloMatchupDocument, {

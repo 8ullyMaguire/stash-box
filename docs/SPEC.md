@@ -1474,6 +1474,99 @@ and 7.24.2 are what everything downstream prices against.
 
 ---
 
+### 7.26 Fifth amendment — a streak is a fact about a user, and reachability is a property to verify (amended 2026-10-05)
+
+Written after the §7.25 streak work shipped, from the owner's report: *"streaks
+should be on user dashboard but currently is on the curation route."* The second
+half of the instruction — *"ensure all functionality is reachable from ui"* — is
+the part that turned out to matter.
+
+**The bug was not placement, it was a role gate.** `userStreak` is `@hasRole(role:
+READ)` and renders only inside `CurationDashboard`, reachable only through the
+Curation nav link, which is gated on `canVote`. So a READ-without-VOTE user could
+not see their own streak anywhere in the product. It was never misplaced; it was
+unreachable for a third of the roles permitted to read it.
+
+**The cause was one `.gql` file.** `userStreak` was selected inside
+`CurationDashboard.gql`, so reaching the streak meant running a query that also
+fetches five `countIncompleteEntities` counts. Moving it to `UserStreak.gql` and
+having each surface ask for it separately is the whole fix. **A feature is
+reachable only as far as the query that carries it is.**
+
+#### 7.26.1 Placement
+
+On the viewer's own profile, below the header. Every other per-user fact is
+already there — edit counts, vote counts, roles — and a streak is the same kind
+of object. Rejected: a nav badge (a per-user fact with no meaning at a glance
+beside "Notifications"), and a dedicated `/streaks` route (four numbers and a
+badge; the curation dashboard already demonstrates that a single fact gets a page
+and then goes unread).
+
+**Self only, and that mirrors the schema rather than a UI preference.**
+`userStreak` takes no `id:` — the schema refuses to make anyone's activity streak
+public, because *"exposing it for arbitrary users turns a progress indicator into
+a public ranking of who has been absent"*, and a test pins the argument's
+absence. The UI must not imply otherwise either: an unguarded card on another
+profile renders empty, which reads as *they have no streak* — the same misreading,
+reached through the front end instead of the API.
+
+**Curation keeps its copy, deliberately.** `/curation` is role-gated and the
+profile is not, so for a READ-only user the profile is the *only* copy; removing
+the curation copy would keep the original bug and relocate it. Two copies can in
+principle disagree, so both read one query document and one component.
+
+#### 7.26.2 Reachability as a verified property
+
+Every `ROUTE_*` constant was checked for a reference outside its own definition,
+every page directory for an import in `pages/index.tsx`, every `.gql` for an
+import. Four findings, of which three are real:
+
+| Finding | Outcome |
+|---|---|
+| Streak unreachable without VOTE | fixed; `UserStreak.gql`, profile card, own hook |
+| `/users/:name/notifications` mounted, working, linked from **nowhere** | fixed; button added to the profile's self-service row |
+| `ROUTE_CONFIRM_EMAIL`, `ROUTE_CHANGE_EMAIL` referenced nowhere, and their values do not name the routes that serve those pages | deleted |
+| `QueryNotifications.gql` appears unused | **false positive** — imported as `useNotifications` |
+
+The false positive is recorded because an audit that reports only real findings
+cannot be audited: a reader must be able to see what was checked and dismissed,
+or the next session re-investigates it.
+
+Note what the notification bug was *not*: a missing page, a broken route, or a
+dead query. Every layer was correct and the feature was still unreachable. **A
+mounted route is not a reachable one.**
+
+#### 7.26.3 The verification, and a test that was wrong three times
+
+Six wiring tests in `frontend/src/pages/users/__tests__/UserReachability.test.tsx`.
+Component tests cannot express this class of bug — they mount the component
+directly, which is the thing production never does — so every test is about a link
+or a gate, and each is paired with the mutation that must turn it red.
+
+All five mutations are caught. Getting there exposed a **broken test, not a
+missing one**, three times over, on the privacy assertion:
+
+1. Removing only the JSX guard (`{isSelf(user) &&` → `{true &&`) — **not caught.**
+   With the query skipped there is no data, `StreakCard` returns `null` on
+   `!streak`, and the card is invisible either way. A green that asserted nothing.
+2. Removing both guards — still **not caught**, because the test supplied no
+   streak mock: absent data, absent card. Green for the third time, same reason.
+3. With the streak data *present* and both guards removed, the page demonstrably
+   rendered the other user's streak — and the test **still passed.** It had a
+   race: `findByText("alice")` resolves when the name paints, and the card mounts
+   a paint later, so the absence assertion ran before the thing it was asserting
+   the absence of could exist.
+
+The fix is a settle-then-re-assert. The generalisable lesson: **an absence
+assertion against a component that mounts asynchronously must wait for the mount,
+or it is measuring nothing** — which is the same family as the count-before-absence
+rule in §7.26.2 and as the `page.locator` / hidden-element trap this project hit
+before. A mutation pass that stops at "the test is green" would have shipped all
+three.
+
+**Commands.** `pnpm run validate` exits 0. `pnpm vitest run`: 696 tests / 56 files.
+`node node_modules/vite/bin/vite.js build` succeeds.
+
 ### 7.25 Fourth intake amendment — recall: finding a scene from broad strokes (amended 2026-10-05)
 
 Two AI-generated lists of 100 ideas each arrived for one problem: **someone
