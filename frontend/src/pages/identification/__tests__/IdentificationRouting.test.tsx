@@ -1,5 +1,16 @@
-import { screen } from "@testing-library/react";
-import { ConfigDocument, MeDocument, RoleEnum } from "src/graphql";
+import type { MockedResponse } from "@apollo/client/testing";
+import { MockedProvider } from "@apollo/client/testing/react";
+import { render, screen } from "@testing-library/react";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
+import AuthContext from "src/context";
+import {
+  ConfigDocument,
+  IdentificationBoardDocument,
+  IdentificationQueryDetailDocument,
+  MeDocument,
+  RoleEnum,
+} from "src/graphql";
+import Identification from "src/pages/identification";
 import { renderForm } from "src/test/renderForm";
 import { describe, expect, it } from "vitest";
 
@@ -77,6 +88,54 @@ const meMock = (roles: string[]) => ({
   maxUsageCount: 5,
 });
 
+const detailMock = {
+  request: {
+    query: IdentificationQueryDetailDocument,
+    variables: { id: "q1" },
+  },
+  result: {
+    data: {
+      identificationQuery: {
+        __typename: "IdentificationQuery",
+        id: "q1",
+        targetType: "scene",
+        targetId: "s1",
+        description: "hotel room, rainy night",
+        status: "open",
+        createdAt: "2026-10-01T12:00:00Z",
+        snapshotId: null,
+        resolvedType: null,
+        resolvedId: null,
+        resolvedAt: null,
+        resolvedBy: null,
+        candidates: [],
+      },
+    },
+  },
+  maxUsageCount: 5,
+};
+
+const boardMockForRoute = {
+  request: { query: IdentificationBoardDocument, variables: { limit: 100 } },
+  result: {
+    data: {
+      listOpenIdentificationQueries: [
+        {
+          __typename: "IdentificationQuery",
+          id: "q1",
+          targetType: "scene",
+          targetId: "s1",
+          description: "hotel room, rainy night, around 2016",
+          status: "open",
+          createdAt: "2026-10-01T12:00:00Z",
+          candidates: [],
+        },
+      ],
+    },
+  },
+  maxUsageCount: 5,
+};
+
 describe("identification board — nav reachability", () => {
   it("is linked from the nav to a READ-only user", async () => {
     // MUTATION: wrap the Identify NavLink in `canVote(user) &&` in src/Main.tsx
@@ -137,6 +196,68 @@ describe("identification board — nav reachability", () => {
     // div.dropdown instead and fail this.
     expect(link.closest("div.navbar-nav")).not.toBeNull();
     expect(link.closest("div.dropdown")).toBeNull();
+  });
+});
+
+describe("identification board — the detail route matches under the real mount", () => {
+  // This is the test whose absence let a real defect ship. The wrapper in
+  // src/pages/identification/index.tsx is the ONLY place the parent mount and the
+  // child routes are joined, and every other test in this file mounts a component
+  // directly -- so the wrapper's path shapes were never exercised together.
+  //
+  // What it guards: a descendant <Routes> matches RELATIVE to the parent's
+  // `/identification/*`. Declaring the child as `/identification/:id` instead of
+  // `:id` matches nothing, the `*` sibling catches the URL, and the board list
+  // renders AT the detail URL. No error, no 404, just the wrong page.
+  //
+  // MUTATION: change path=":id" back to path={ROUTE_IDENTIFICATION_QUERY} -> red.
+
+  const renderAt = (path: string, mocks: unknown[] = [configMock]) =>
+    render(
+      <MemoryRouter initialEntries={[path]}>
+        <Routes>
+          <Route path="/identification/*" element={<Identification />} />
+        </Routes>
+      </MemoryRouter>,
+      {
+        wrapper: ({ children }) => (
+          <MockedProvider mocks={mocks as MockedResponse[]}>
+            <AuthContext.Provider
+              value={{
+                authenticated: true,
+                user: { id: "u1", name: "alice", roles: [RoleEnum.READ] },
+              }}
+            >
+              {children}
+            </AuthContext.Provider>
+          </MockedProvider>
+        ),
+      },
+    );
+
+  it("renders the question page for /identification/q1, not the board list", async () => {
+    renderAt("/identification/q1", [configMock, detailMock]);
+
+    // "the record in question" exists ONLY on the detail page. The description
+    // text exists on BOTH pages (the board row and the detail heading), so
+    // asserting on it cannot tell the two apart -- which is exactly why the
+    // original defect was invisible to every other test.
+    expect(
+      await screen.findByText("the record in question"),
+    ).toBeInTheDocument();
+    // The board's row text, which the detail page does not render.
+    expect(
+      screen.queryByText("hotel room, rainy night, around 2016"),
+    ).toBeNull();
+  });
+
+  it("renders the board list for the bare /identification", async () => {
+    // The board's own row text, which the detail page never renders.
+    renderAt("/identification", [configMock, boardMockForRoute]);
+
+    expect(
+      await screen.findByText(/hotel room, rainy night/),
+    ).toBeInTheDocument();
   });
 });
 

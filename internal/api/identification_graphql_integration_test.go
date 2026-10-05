@@ -420,15 +420,20 @@ func TestIdentificationBoardReturnsEveryNonNullFieldTheUIRenders(t *testing.T) {
 			TargetType  string
 			Description string
 			Status      string
-			CreatedAt   time.Time
-			Candidates  []struct {
+			// string, not time.Time: the `Time` scalar is graphql-go/graphql's
+			// (generated_exec.go calls graphql.UnmarshalTime), which serialises as
+			// an RFC3339 string. Decoding it into time.Time fails with "expected a
+			// map or struct, got string" -- which is a test bug that looks exactly
+			// like a server bug, so it is worth stating.
+			CreatedAt  string
+			Candidates []struct {
 				ID          string
 				EntityType  string
 				EntityID    string
 				VoteCount   int
 				VotedByMe   bool
 				Note        *string
-				CreatedAt   time.Time
+				CreatedAt   string
 				SuggestedBy *struct {
 					ID string
 				}
@@ -458,10 +463,18 @@ func TestIdentificationBoardReturnsEveryNonNullFieldTheUIRenders(t *testing.T) {
 		assert.Equal(t, "scene", q.TargetType)
 		assert.Equal(t, "every non-null field check", q.Description)
 		assert.Equal(t, "open", q.Status)
-		assert.False(t, q.CreatedAt.IsZero(),
-			"createdAt came back as the zero time, which is the exact shape of the "+
-				"bug this test was written for: the value exists in the row and never "+
-				"crossed the resolver")
+		assert.NotEmpty(t, q.CreatedAt,
+			"createdAt came back empty, which is the exact shape of the bug this "+
+				"test was written for: the value exists in the row and never crossed "+
+				"the resolver")
+		// And it must be a real timestamp, not a placeholder that merely satisfies
+		// the non-null contract. A resolver that wrote time.Time{} would serialise
+		// as year 1 and pass an emptiness check.
+		parsed, perr := time.Parse(time.RFC3339, q.CreatedAt)
+		require.NoError(t, perr, "createdAt must be a parseable RFC3339 timestamp")
+		assert.False(t, parsed.IsZero())
+		assert.False(t, parsed.After(time.Now().Add(time.Hour)),
+			"createdAt is in the future, so it is not the row's real timestamp")
 	}
 	assert.True(t, found, "the query just posted must appear in the board list")
 
@@ -469,8 +482,8 @@ func TestIdentificationBoardReturnsEveryNonNullFieldTheUIRenders(t *testing.T) {
 	var one struct {
 		IdentificationQuery *struct {
 			ID           string
-			CreatedAt    time.Time
-			ResolvedAt   *time.Time
+			CreatedAt    string
+			ResolvedAt   *string
 			ResolvedBy   *struct{ ID string }
 			SnapshotID   *string
 			ResolvedID   *string
@@ -485,7 +498,7 @@ func TestIdentificationBoardReturnsEveryNonNullFieldTheUIRenders(t *testing.T) {
 		}
 	`, &one, client.Var("id", queryID)))
 	require.NotNil(t, one.IdentificationQuery)
-	assert.False(t, one.IdentificationQuery.CreatedAt.IsZero())
+	assert.NotEmpty(t, one.IdentificationQuery.CreatedAt)
 	// An open query has no resolution, and resolvedAt is nullable in the schema,
 	// so this must be null rather than the zero time. A zero time here would mean
 	// the old updatedAt-based mapping had been reintroduced.

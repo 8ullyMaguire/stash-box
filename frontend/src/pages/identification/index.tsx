@@ -34,7 +34,7 @@ const QueryRoute: FC = () => {
 
 const IdentificationRoutes: FC = () => (
   <Routes>
-    <Route path={ROUTE_IDENTIFICATION_QUERY} element={<QueryRoute />} />
+    <Route path=":id" element={<QueryRoute />} />
     <Route
       path="*"
       element={

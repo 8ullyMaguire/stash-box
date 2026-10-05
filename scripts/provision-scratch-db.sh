@@ -52,6 +52,14 @@ done < <(ls "$MIGRATIONS" | grep '\.up\.sql$' | sort -V)
 # Force the version to the highest migration actually applied, with dirty=false,
 # so the app starts instead of re-running the chain.
 HIGHEST=$(ls "$MIGRATIONS" | grep '\.up\.sql$' | sort -V | tail -1 | cut -d_ -f1)
+# The table is created BY the first migration, so on a freshly dropped schema it
+# may not exist yet -- CREATE IF NOT EXISTS rather than assuming, or provisioning
+# a brand new database fails at the very last step.
+"${PSQL[@]}" -c "CREATE TABLE IF NOT EXISTS schema_migrations (version bigint not null primary key, dirty boolean not null);" >/dev/null
+# Clear any stale lower versions: golang-migrate reads the HIGHEST row, and a
+# leftover "1, dirty" from an earlier partial run would otherwise be picked up
+# and make the app re-run the whole chain.
+"${PSQL[@]}" -c "DELETE FROM schema_migrations WHERE version < $HIGHEST;" >/dev/null
 "${PSQL[@]}" -c "INSERT INTO schema_migrations (version, dirty) VALUES ($HIGHEST, false)
   ON CONFLICT (version) DO UPDATE SET dirty = false;" >/dev/null
 
