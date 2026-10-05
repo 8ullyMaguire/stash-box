@@ -518,6 +518,21 @@ anything else that wants to recommend performers by affiliation.
 
 ### Standing verification state
 
+**Build the frontend BEFORE the Go binary, or you ship a blank page.**
+`frontend/embed.go` does `//go:embed build`, so the bundle is frozen INTO the binary at
+compile time. Building Go first and the frontend second leaves the binary serving the
+previous bundle: `index.html` then requests a hashed asset name that no longer exists,
+the module 404s, and the SPA renders NOTHING — an empty `#root`, no links, HTTP 200 on
+every route, and not one console error, because a failed module load logs nothing. I read
+it as a broken feature for several turns. Correct order:
+
+    cd frontend && node node_modules/vite/bin/vite.js build
+    cd .. && go build -o /tmp/sbx ./cmd/stash-box
+
+Confirm with `curl -s http://127.0.0.1:9999/ | grep -o 'index-[A-Za-z0-9_-]*\.js'`
+and compare against `ls frontend/build/assets/` — if they differ, the binary is stale.
+Re-running the Go build alone does not help; the embed is what has to be refreshed.
+
 **The integration DSN is `stash-box-test`, and a wrong one fails SILENTLY.**
 `POSTGRES_DB` must be
 `postgres@127.0.0.1:55434/stash-box-test?sslmode=disable&password=smoke_pw`.
