@@ -60,16 +60,16 @@ instance ever gets a real deployment and SSR becomes worth its cost.
 | 16 | Autocomplete | **largely built** — global `SearchField`; gap is alias-awareness | W7 | `[ ]` |
 | 17 | OAuth | no — out of scope, security surface | — | `[!]` |
 | 18 | API rate limiting | no — out of scope, security surface | — | `[!]` |
-| 19 | Random scene | no — `SceneSortEnum` has no RANDOM; needs a real `ORDER BY random()` | W4 | `[ ]` |
-| 20 | Dark mode + mobile | no — real, wanted, **its own workstream** | — | `[!]` |
-| 21 | Performer timeline | no | W5 | `[ ]` |
+| 19 | Random scene | **DONE** (`719714db`) — `RANDOM` needs its own switch case, because every other member lowercases into a real column and would build `scenes.random`. Mutation-proved against a compile-clean fixed order | W4 | `[x]` |
+| 20 | Dark mode + mobile | NOT STARTED. Per SPEC: the app is dark-only with 0 `prefers-color-scheme`/`data-theme`/`@media` anywhere, so this is a foundation workstream (token layer + theme switch + responsive baseline), not a toggle | — | `[!]` |
+| 21 | Performer timeline | **DONE** — year-bucketed appearances. `scenes.date` is **TEXT**, not a date type, and its unknown-value placeholder is `'--'`, not NULL — so the undated count comes from a failed year parse. `sceneCount` is asserted to equal the profile's own `scene_count` | W5 | `[x]` |
 | 22 | Scene of the Week | no — a *weekly window* is new; `trending` is a 7-day count, not a ranked pick | W4 | `[ ]` |
 | 23 | Contributor profiles | partial — user pages exist, no public stats | W6 | `[ ]` |
 | 24 | Tag hierarchy | **DONE** (`a25bef11`, `957050d0`) — `parent_id` + a cycle-guard TRIGGER, `SetTagCategoryParent`, and `children`/`descendants`/`ancestors` carrying depth. Mutation-proved: removing the recursive check lets the write through AND makes the tree walk non-terminating | — | `[x]` |
 | 25 | Studio completeness race | **DONE** (`9727dbf9`) — migration 97's table was read by nothing; real read path added | W3 | `[x]` |
 | 26 | RSS feeds | no | — | `[ ]` |
 | 27 | Similar performers | **DONE** (`0492229a`) — co-occurrence ranking over GraphQL; the score is decomposed into checkable facts, and a bare number is explicitly not for display | W5 | `[x]` |
-| 28 | Shareable lists | no — needs moderation | — | `[!]` |
+| 28 | Shareable lists | no — needs moderation. NOT STARTED (a session summary claimed "tag filtering on performers", which is a different feature and does not exist in the tree) | — | `[!]` |
 | 29 | Structured reviews | **DONE** (`9edcfea1`, live-proved `0c1f485c`) — the tracker was right that nothing existed; a review GraphQL type, write/delete/list resolver and a live assertion script now do | — | `[x]` |
 | 30 | Follow + notify | no | W8 | `[ ]` |
 | 32, 39, 40, 48, 54 | T3–6 strays | — | — | recorded, not adopted |

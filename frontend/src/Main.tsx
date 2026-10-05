@@ -4,6 +4,7 @@ import { type FC, useEffect, useMemo } from "react";
 import { Badge, Button, Nav, Navbar } from "react-bootstrap";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { Icon } from "src/components/fragments";
+import ThemeSwitcher from "src/components/themeSwitcher";
 import SearchField, { SearchType } from "src/components/searchField";
 import {
   ROUTE_ACTIVATE,
@@ -105,6 +106,7 @@ const Main: FC<Props> = ({ children }) => {
     contextValue.authenticated &&
     contextValue.user && (
       <>
+        <ThemeSwitcher />
         <Link to={ROUTE_NOTIFICATIONS}>
           <Button variant="link" className="NotificationBadge">
             <Icon icon={notificationCount ? faBell : faBellOutlined} />

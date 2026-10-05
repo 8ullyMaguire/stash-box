@@ -64,6 +64,40 @@ func (q *Queries) CountPerformerSearchMatches(ctx context.Context, arg CountPerf
 	return total_count, err
 }
 
+const countUndatedScenesByPerformer = `-- name: CountUndatedScenesByPerformer :one
+WITH dated AS (
+  SELECT CASE
+           WHEN substring(S.date from '^([0-9]{4})') IS NULL THEN NULL
+           WHEN substring(S.date from '^([0-9]{4})')::int BETWEEN 1880 AND 2100
+             THEN substring(S.date from '^([0-9]{4})')::int
+           ELSE NULL
+         END::int AS year
+    FROM scene_performers SP
+    JOIN scenes S ON S.id = SP.scene_id
+   WHERE SP.performer_id = $1
+     AND S.deleted = false
+)
+SELECT COUNT(*) FROM dated WHERE year IS NULL
+`
+
+// Appearances whose scene has NO date, so they land in no timeline bucket.
+//
+// Counted separately and on purpose. `scenes.date` is NULLABLE, so an undated appearance
+// cannot appear in any bucket -- and without this number the timeline silently
+// under-reports: a performer with 50 scenes of which 3 are dated renders as "3" and looks
+// like a nearly-unknown performer rather than one whose dates are unrecorded. The two
+// numbers together let a client say which of those it is looking at.
+// Every appearance whose year cannot be determined. NOT merely `date IS NULL`: the
+// column is text, so it is also '--', ”, or anything that fails the year regex. Counting
+// only NULLs would report 0 undated for a performer whose dates are all placeholders --
+// which reads as "every appearance is dated" and is the opposite of the truth.
+func (q *Queries) CountUndatedScenesByPerformer(ctx context.Context, performerID uuid.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countUndatedScenesByPerformer, performerID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createPerformer = `-- name: CreatePerformer :one
 
 INSERT INTO performers (
@@ -656,6 +690,75 @@ func (q *Queries) FindPerformerTattoosByIds(ctx context.Context, performerIds []
 	for rows.Next() {
 		var i PerformerTattoo
 		if err := rows.Scan(&i.PerformerID, &i.Location, &i.Description); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const findPerformerTimeline = `-- name: FindPerformerTimeline :many
+
+WITH dated AS (
+  SELECT CASE
+           WHEN substring(S.date from '^([0-9]{4})') IS NULL THEN NULL
+           WHEN substring(S.date from '^([0-9]{4})')::int BETWEEN 1880 AND 2100
+             THEN substring(S.date from '^([0-9]{4})')::int
+           ELSE NULL
+         END::int AS year
+    FROM scene_performers SP
+    JOIN scenes S ON S.id = SP.scene_id
+   WHERE SP.performer_id = $1
+     AND S.deleted = false
+)
+SELECT year, COUNT(*) AS scene_count
+  FROM dated
+ WHERE year IS NOT NULL
+ GROUP BY year
+ ORDER BY year ASC
+`
+
+type FindPerformerTimelineRow struct {
+	Year       int   `db:"year" json:"year"`
+	SceneCount int64 `db:"scene_count" json:"scene_count"`
+}
+
+// Performer timeline (growth item 21).
+// A performer's appearance history, bucketed by YEAR.
+//
+// Year-bucketed because that is the strongest timeline this schema supports: `scenes.date`
+// is the only date attached to an appearance. `performers` has career_start_year and
+// career_end_year, but those are a declared range on the performer, not per-scene rows --
+// there is no per-appearance credit line to build a finer timeline from.
+//
+// `scenes.date` is TEXT, not a date type. Migration 01 declares it as `date` on a
+// different table; this one is free text, and the live values are 'YYYY-MM-DD', '--'
+// (the placeholder for an unknown date) and ”. So EXTRACT(YEAR ...) does not exist here
+// at all -- it errors with "function pg_catalog.extract(unknown, text) does not exist" --
+// and the year has to be pulled out with a regex.
+//
+// The regex is ANCHORED (`^`) and the year is then range-checked, because a substring
+// match on free text is a guess: '19th century' would yield 19, and an unanchored match
+// would find digits anywhere in the string. Requiring four leading digits AND a year in
+// 1880..2100 turns a nonsense value into NULL -- counted as undated -- rather than a
+// bucket labelled year 19.
+//
+// The same expression appears in the WHERE and the GROUP BY because it cannot be
+// referenced by alias inside GROUP BY, and repeating it lets the planner evaluate it once
+// per row rather than per group.
+func (q *Queries) FindPerformerTimeline(ctx context.Context, performerID uuid.UUID) ([]FindPerformerTimelineRow, error) {
+	rows, err := q.db.Query(ctx, findPerformerTimeline, performerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []FindPerformerTimelineRow{}
+	for rows.Next() {
+		var i FindPerformerTimelineRow
+		if err := rows.Scan(&i.Year, &i.SceneCount); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

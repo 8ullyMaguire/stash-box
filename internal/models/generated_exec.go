@@ -599,6 +599,7 @@ type ComplexityRoot struct {
 		Studios               func(childComplexity int, studioID *uuid.UUID) int
 		Tattoos               func(childComplexity int) int
 		Thumbnail             func(childComplexity int) int
+		Timeline              func(childComplexity int) int
 		Updated               func(childComplexity int) int
 		Urls                  func(childComplexity int) int
 		WaistSize             func(childComplexity int) int
@@ -686,6 +687,17 @@ type ComplexityRoot struct {
 	PerformerStudio struct {
 		SceneCount func(childComplexity int) int
 		Studio     func(childComplexity int) int
+	}
+
+	PerformerTimeline struct {
+		Entries      func(childComplexity int) int
+		SceneCount   func(childComplexity int) int
+		UndatedCount func(childComplexity int) int
+	}
+
+	PerformerTimelineEntry struct {
+		SceneCount func(childComplexity int) int
+		Year       func(childComplexity int) int
 	}
 
 	Query struct {
@@ -1309,6 +1321,8 @@ type NotificationResolver interface {
 	Data(ctx context.Context, obj *Notification) (NotificationData, error)
 }
 type PerformerResolver interface {
+	Timeline(ctx context.Context, obj *Performer) (*PerformerTimeline, error)
+
 	Aliases(ctx context.Context, obj *Performer) ([]string, error)
 
 	Urls(ctx context.Context, obj *Performer) ([]URL, error)
@@ -4253,6 +4267,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Performer.Thumbnail(childComplexity), true
+	case "Performer.timeline":
+		if e.ComplexityRoot.Performer.Timeline == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Performer.Timeline(childComplexity), true
 	case "Performer.updated":
 		if e.ComplexityRoot.Performer.Updated == nil {
 			break
@@ -4673,6 +4693,38 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.PerformerStudio.Studio(childComplexity), true
+
+	case "PerformerTimeline.entries":
+		if e.ComplexityRoot.PerformerTimeline.Entries == nil {
+			break
+		}
+
+		return e.ComplexityRoot.PerformerTimeline.Entries(childComplexity), true
+	case "PerformerTimeline.sceneCount":
+		if e.ComplexityRoot.PerformerTimeline.SceneCount == nil {
+			break
+		}
+
+		return e.ComplexityRoot.PerformerTimeline.SceneCount(childComplexity), true
+	case "PerformerTimeline.undatedCount":
+		if e.ComplexityRoot.PerformerTimeline.UndatedCount == nil {
+			break
+		}
+
+		return e.ComplexityRoot.PerformerTimeline.UndatedCount(childComplexity), true
+
+	case "PerformerTimelineEntry.sceneCount":
+		if e.ComplexityRoot.PerformerTimelineEntry.SceneCount == nil {
+			break
+		}
+
+		return e.ComplexityRoot.PerformerTimelineEntry.SceneCount(childComplexity), true
+	case "PerformerTimelineEntry.year":
+		if e.ComplexityRoot.PerformerTimelineEntry.Year == nil {
+			break
+		}
+
+		return e.ComplexityRoot.PerformerTimelineEntry.Year(childComplexity), true
 
 	case "Query.accessRules":
 		if e.ComplexityRoot.Query.AccessRules == nil {
@@ -8936,9 +8988,54 @@ input BodyModificationInput {
   description: String
 }
 
+"""
+One year on a performer's appearance timeline.
+"""
+type PerformerTimelineEntry {
+  "The calendar year, taken from the scene's date."
+  year: Int!
+  "How many scenes the performer appeared in during this year."
+  sceneCount: Int!
+}
+
+"""
+A performer's appearance history, bucketed by year.
+
+Year granularity because that is the finest timeline the data supports: a scene's date is
+the only date attached to an appearance.
+"""
+type PerformerTimeline {
+  "One entry per year with at least one dated appearance, oldest first."
+  entries: [PerformerTimelineEntry!]!
+
+  """
+  Appearances whose scene has no date, so they belong to no bucket.
+
+  Reported alongside the entries because a dated-only timeline silently under-reports. A
+  performer with 50 scenes of which 3 are dated renders as a 3-scene career here, which
+  reads as "barely worked" rather than "dates unrecorded". ` + "`" + `sceneCount` + "`" + ` is the sum of both.
+  """
+  undatedCount: Int!
+
+  """
+  Total appearances: every bucket plus the undated ones.
+
+  Equal to the performer's scene count. Stated rather than derived by the client because
+  summing ` + "`" + `entries` + "`" + ` and forgetting ` + "`" + `undatedCount` + "`" + ` is easy, and produces a number that
+  silently disagrees with the profile.
+  """
+  sceneCount: Int!
+}
+
 type Performer {
   id: ID!
   name: String!
+
+  """
+  Appearance history by year. Empty for a performer with no dated appearances, which is
+  not an error.
+  """
+  timeline: PerformerTimeline
   disambiguation: String
   aliases: [String!]!
   gender: GenderEnum
@@ -11656,6 +11753,8 @@ func (ec *executionContext) childFields_Performer(ctx context.Context, field gra
 		return ec.fieldContext_Performer_id(ctx, field)
 	case "name":
 		return ec.fieldContext_Performer_name(ctx, field)
+	case "timeline":
+		return ec.fieldContext_Performer_timeline(ctx, field)
 	case "disambiguation":
 		return ec.fieldContext_Performer_disambiguation(ctx, field)
 	case "aliases":
@@ -11784,6 +11883,28 @@ func (ec *executionContext) childFields_PerformerStudio(ctx context.Context, fie
 		return ec.fieldContext_PerformerStudio_scene_count(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type PerformerStudio", field.Name)
+}
+
+func (ec *executionContext) childFields_PerformerTimeline(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "entries":
+		return ec.fieldContext_PerformerTimeline_entries(ctx, field)
+	case "undatedCount":
+		return ec.fieldContext_PerformerTimeline_undatedCount(ctx, field)
+	case "sceneCount":
+		return ec.fieldContext_PerformerTimeline_sceneCount(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type PerformerTimeline", field.Name)
+}
+
+func (ec *executionContext) childFields_PerformerTimelineEntry(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "year":
+		return ec.fieldContext_PerformerTimelineEntry_year(ctx, field)
+	case "sceneCount":
+		return ec.fieldContext_PerformerTimelineEntry_sceneCount(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type PerformerTimelineEntry", field.Name)
 }
 
 func (ec *executionContext) childFields_QueryEditsResultType(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -25950,6 +26071,38 @@ func (ec *executionContext) fieldContext_Performer_name(_ context.Context, field
 	return graphql.NewScalarFieldContext("Performer", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
+func (ec *executionContext) _Performer_timeline(ctx context.Context, field graphql.CollectedField, obj *Performer) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Performer_timeline(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Performer().Timeline(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *PerformerTimeline) graphql.Marshaler {
+			return ec.marshalOPerformerTimeline2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐPerformerTimeline(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_Performer_timeline(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Performer",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_PerformerTimeline(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Performer_disambiguation(ctx context.Context, field graphql.CollectedField, obj *Performer) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -28887,6 +29040,130 @@ func (ec *executionContext) _PerformerStudio_scene_count(ctx context.Context, fi
 }
 func (ec *executionContext) fieldContext_PerformerStudio_scene_count(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("PerformerStudio", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _PerformerTimeline_entries(ctx context.Context, field graphql.CollectedField, obj *PerformerTimeline) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_PerformerTimeline_entries(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Entries, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []PerformerTimelineEntry) graphql.Marshaler {
+			return ec.marshalNPerformerTimelineEntry2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐPerformerTimelineEntryᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_PerformerTimeline_entries(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "PerformerTimeline",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_PerformerTimelineEntry(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _PerformerTimeline_undatedCount(ctx context.Context, field graphql.CollectedField, obj *PerformerTimeline) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_PerformerTimeline_undatedCount(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.UndatedCount, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_PerformerTimeline_undatedCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("PerformerTimeline", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _PerformerTimeline_sceneCount(ctx context.Context, field graphql.CollectedField, obj *PerformerTimeline) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_PerformerTimeline_sceneCount(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.SceneCount, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_PerformerTimeline_sceneCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("PerformerTimeline", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _PerformerTimelineEntry_year(ctx context.Context, field graphql.CollectedField, obj *PerformerTimelineEntry) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_PerformerTimelineEntry_year(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Year, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_PerformerTimelineEntry_year(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("PerformerTimelineEntry", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _PerformerTimelineEntry_sceneCount(ctx context.Context, field graphql.CollectedField, obj *PerformerTimelineEntry) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_PerformerTimelineEntry_sceneCount(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.SceneCount, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_PerformerTimelineEntry_sceneCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("PerformerTimelineEntry", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
 func (ec *executionContext) _Query_findPerformer(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
@@ -52531,6 +52808,44 @@ func (ec *executionContext) _Performer(ctx context.Context, sel ast.SelectionSet
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
+		case "timeline":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Performer_timeline(ctx, field, obj)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "disambiguation":
 			out.Values[i] = ec._Performer_disambiguation(ctx, field, obj)
 			if out.Values[i] == graphql.RequiredNull {
@@ -54459,6 +54774,97 @@ func (ec *executionContext) _PerformerStudio(ctx context.Context, sel ast.Select
 			}
 		case "scene_count":
 			out.Values[i] = ec._PerformerStudio_scene_count(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var performerTimelineImplementors = []string{"PerformerTimeline"}
+
+func (ec *executionContext) _PerformerTimeline(ctx context.Context, sel ast.SelectionSet, obj *PerformerTimeline) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, performerTimelineImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("PerformerTimeline")
+		case "entries":
+			out.Values[i] = ec._PerformerTimeline_entries(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "undatedCount":
+			out.Values[i] = ec._PerformerTimeline_undatedCount(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "sceneCount":
+			out.Values[i] = ec._PerformerTimeline_sceneCount(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var performerTimelineEntryImplementors = []string{"PerformerTimelineEntry"}
+
+func (ec *executionContext) _PerformerTimelineEntry(ctx context.Context, sel ast.SelectionSet, obj *PerformerTimelineEntry) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, performerTimelineEntryImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("PerformerTimelineEntry")
+		case "year":
+			out.Values[i] = ec._PerformerTimelineEntry_year(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "sceneCount":
+			out.Values[i] = ec._PerformerTimelineEntry_sceneCount(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -63863,6 +64269,26 @@ func (ec *executionContext) marshalNPerformerStudio2ᚕgithubᚗcomᚋstashapp�
 	return ret
 }
 
+func (ec *executionContext) marshalNPerformerTimelineEntry2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐPerformerTimelineEntry(ctx context.Context, sel ast.SelectionSet, v PerformerTimelineEntry) graphql.Marshaler {
+	return ec._PerformerTimelineEntry(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNPerformerTimelineEntry2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐPerformerTimelineEntryᚄ(ctx context.Context, sel ast.SelectionSet, v []PerformerTimelineEntry) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNPerformerTimelineEntry2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐPerformerTimelineEntry(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
 func (ec *executionContext) unmarshalNPerformerUpdateInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐPerformerUpdateInput(ctx context.Context, v any) (PerformerUpdateInput, error) {
 	res, err := ec.unmarshalInputPerformerUpdateInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
@@ -66073,6 +66499,13 @@ func (ec *executionContext) unmarshalOPerformerSearchFilter2ᚖgithubᚗcomᚋst
 	}
 	res, err := ec.unmarshalInputPerformerSearchFilter(ctx, v)
 	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOPerformerTimeline2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐPerformerTimeline(ctx context.Context, sel ast.SelectionSet, v *PerformerTimeline) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._PerformerTimeline(ctx, sel, v)
 }
 
 func (ec *executionContext) marshalOReview2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐReview(ctx context.Context, sel ast.SelectionSet, v *Review) graphql.Marshaler {

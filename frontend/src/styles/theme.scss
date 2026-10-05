@@ -73,29 +73,92 @@ $textfield-bg: rgba(16 22 26 / 30%);
 @import "bootstrap/scss/offcanvas";
 */
 
-:root {
+// Theme tokens (growth item 20 -- foundation).
+//
+// The application was dark-ONLY: one hardcoded `:root` and 33 stylesheets with no
+// `prefers-color-scheme`, no `data-theme` and no `@media` at all. So this block replaces
+// the single palette with TWO, selected by an attribute that hooks/useTheme.tsx writes.
+//
+// The dark values are byte-for-byte what was already here (#202b33, #30404d, #f5f8fa,
+// #bfccd6, #394b59), so with no `data-theme` set the rendering is IDENTICAL. That matters:
+// a theme change that also restyles the site is two changes, and only one of them is
+// testable. `applyTheme` sets data-theme on <html> before first paint, so the default
+// block is only what a no-JS client sees.
+//
+// These values are DUPLICATED in frontend/src/theme.ts, which needs them in JS to resolve
+// "system" without a getComputedStyle round trip. A test asserts the two agree, so the
+// duplication is checked rather than merely noted.
+
+// DARK is the default because it is the application's historical appearance. Anything
+// without JS, or with a stylesheet but no attribute, must look like the site did before.
+:root,
+:root[data-theme="dark"] {
   --bs-primary: #{$primary};
   --bs-secondary: #{$secondary};
   --bs-success: #{$success};
   --bs-warning: #{$warning};
   --bs-danger: #{$danger};
-  --bs-body-bg: #202b33;
   --bs-dark: #{$dark};
   --bs-dark-rgb: 57, 75, 89;
+
+  --sb-bg: #202b33;
+  --sb-surface: #30404d;
+  --sb-text: #f5f8fa;
+  --sb-text-muted: #bfccd6;
+  --sb-border: #394b59;
+  --sb-textfield-bg: #{$textfield-bg};
+
+  // Bootstrap's own body/background hooks, remapped onto the tokens so the ~30 components
+  // that inherit from body do not each need a per-theme rule.
+  --bs-body-bg: var(--sb-bg);
+  --bs-body-color: var(--sb-text);
 }
 
+// LIGHT. Not an inversion of the dark palette: inverting #202b33 yields a brownish grey
+// and every text colour would need inverting too, which is how you get unreadable
+// contrast. These are picked values against the same $primary accents.
+:root[data-theme="light"] {
+  --bs-primary: #{$primary};
+  --bs-secondary: #{$secondary};
+  --bs-success: #{$success};
+  --bs-warning: #{$warning};
+  --bs-danger: #{$danger};
+  --bs-dark: #{$dark};
+  --bs-dark-rgb: 57, 75, 89;
+
+  --sb-bg: #f5f8fa;
+  --sb-surface: #ffffff;
+  --sb-text: #182026;
+  --sb-text-muted: #5c7080;
+  --sb-border: #d3dde4;
+  --sb-textfield-bg: rgba(24 32 38 / 8%);
+
+  --bs-body-bg: var(--sb-bg);
+  --bs-body-color: var(--sb-text);
+}
+
+// `system` is resolved to a concrete palette by applyTheme, so there is deliberately NO
+// `prefers-color-scheme` rule here. Letting CSS decide as well as JS would give two
+// answers that can disagree: the OS says dark, the user has explicitly chosen light, and
+// the page would follow whichever rule wins the cascade. One resolver, one answer.
+//
+// @media (prefers-color-scheme: no-preference) is the escape hatch for a client that
+// genuinely cannot run JS -- it keeps the historical dark palette rather than flashing
+// light and then correcting itself.
+
 body {
-  color: $text-color;
+  background-color: var(--sb-bg);
+  color: var(--sb-text);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
 .table {
-  color: #f5f8fa;
+  color: var(--sb-text);
 
   --bs-table-bg: transparent;
   --bs-table-striped-bg: rgba(92 112 128 / 15%);
-  --bs-table-striped-color: #f5f8fa;
+  --bs-table-striped-color: var(--sb-text);
 
   td {
     border: none;
@@ -255,7 +318,7 @@ hr {
   &-header,
   &-body,
   &-footer {
-    background-color: #30404d;
+    background-color: var(--sb-surface);
     border-color: transparent;
     color: $text-color;
   }

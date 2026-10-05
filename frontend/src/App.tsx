@@ -3,6 +3,7 @@ import { config as fontAwesomeConfig } from "@fortawesome/fontawesome-svg-core";
 import type { FC } from "react";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import Title from "src/components/title";
+import { ThemeProvider } from "src/hooks/useTheme";
 import { ToastProvider } from "src/hooks/useToast";
 import Main from "src/Main";
 import Pages from "src/pages";
@@ -18,7 +19,10 @@ const client = createClient();
 const App: FC = () => (
   <ApolloProvider client={client}>
     <BrowserRouter basename={import.meta.env.BASE_URL}>
-      <ToastProvider>
+      {/* ThemeProvider OUTSIDE ToastProvider: the theme attribute must be on <html>
+          regardless of whether any route renders, including the login page. */}
+      <ThemeProvider>
+        <ToastProvider>
         <Routes>
           <Route
             path="/*"
@@ -30,7 +34,8 @@ const App: FC = () => (
             }
           />
         </Routes>
-      </ToastProvider>
+        </ToastProvider>
+      </ThemeProvider>
     </BrowserRouter>
   </ApolloProvider>
 );

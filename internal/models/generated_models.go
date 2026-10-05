@@ -1117,6 +1117,35 @@ type PerformerStudio struct {
 	SceneCount int     `json:"scene_count"`
 }
 
+// A performer's appearance history, bucketed by year.
+//
+// Year granularity because that is the finest timeline the data supports: a scene's date is
+// the only date attached to an appearance.
+type PerformerTimeline struct {
+	// One entry per year with at least one dated appearance, oldest first.
+	Entries []PerformerTimelineEntry `json:"entries"`
+	// Appearances whose scene has no date, so they belong to no bucket.
+	//
+	// Reported alongside the entries because a dated-only timeline silently under-reports. A
+	// performer with 50 scenes of which 3 are dated renders as a 3-scene career here, which
+	// reads as "barely worked" rather than "dates unrecorded". `sceneCount` is the sum of both.
+	UndatedCount int `json:"undatedCount"`
+	// Total appearances: every bucket plus the undated ones.
+	//
+	// Equal to the performer's scene count. Stated rather than derived by the client because
+	// summing `entries` and forgetting `undatedCount` is easy, and produces a number that
+	// silently disagrees with the profile.
+	SceneCount int `json:"sceneCount"`
+}
+
+// One year on a performer's appearance timeline.
+type PerformerTimelineEntry struct {
+	// The calendar year, taken from the scene's date.
+	Year int `json:"year"`
+	// How many scenes the performer appeared in during this year.
+	SceneCount int `json:"sceneCount"`
+}
+
 type PerformerUpdateInput struct {
 	ID              uuid.UUID               `json:"id"`
 	Name            *string                 `json:"name,omitempty"`

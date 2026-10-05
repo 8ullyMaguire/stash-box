@@ -222,6 +222,18 @@ type Querier interface {
 	CountSimilarPerformers(ctx context.Context, arg CountSimilarPerformersParams) (int, error)
 	// For the "N alternatives" badge on a site card.
 	CountSiteAlternatives(ctx context.Context, siteID uuid.UUID) (int, error)
+	// Appearances whose scene has NO date, so they land in no timeline bucket.
+	//
+	// Counted separately and on purpose. `scenes.date` is NULLABLE, so an undated appearance
+	// cannot appear in any bucket -- and without this number the timeline silently
+	// under-reports: a performer with 50 scenes of which 3 are dated renders as "3" and looks
+	// like a nearly-unknown performer rather than one whose dates are unrecorded. The two
+	// numbers together let a client say which of those it is looking at.
+	// Every appearance whose year cannot be determined. NOT merely `date IS NULL`: the
+	// column is text, so it is also '--', '', or anything that fails the year regex. Counting
+	// only NULLs would report 0 undated for a performer whose dates are all placeholders --
+	// which reads as "every appearance is dated" and is the opposite of the truth.
+	CountUndatedScenesByPerformer(ctx context.Context, performerID uuid.UUID) (int64, error)
 	CountUnreadNotificationsByUserGroupedByType(ctx context.Context, userID uuid.UUID) ([]CountUnreadNotificationsByUserGroupedByTypeRow, error)
 	// How many distinct days a user has ever been active. Backs "active N days",
 	// which is a lifetime total and does not decay, unlike the streak.
@@ -634,6 +646,30 @@ type Querier interface {
 	FindPerformerPiercingsByIds(ctx context.Context, performerIds []uuid.UUID) ([]PerformerPiercing, error)
 	// Get tattoos for multiple performers
 	FindPerformerTattoosByIds(ctx context.Context, performerIds []uuid.UUID) ([]PerformerTattoo, error)
+	// Performer timeline (growth item 21).
+	// A performer's appearance history, bucketed by YEAR.
+	//
+	// Year-bucketed because that is the strongest timeline this schema supports: `scenes.date`
+	// is the only date attached to an appearance. `performers` has career_start_year and
+	// career_end_year, but those are a declared range on the performer, not per-scene rows --
+	// there is no per-appearance credit line to build a finer timeline from.
+	//
+	// `scenes.date` is TEXT, not a date type. Migration 01 declares it as `date` on a
+	// different table; this one is free text, and the live values are 'YYYY-MM-DD', '--'
+	// (the placeholder for an unknown date) and ''. So EXTRACT(YEAR ...) does not exist here
+	// at all -- it errors with "function pg_catalog.extract(unknown, text) does not exist" --
+	// and the year has to be pulled out with a regex.
+	//
+	// The regex is ANCHORED (`^`) and the year is then range-checked, because a substring
+	// match on free text is a guess: '19th century' would yield 19, and an unanchored match
+	// would find digits anywhere in the string. Requiring four leading digits AND a year in
+	// 1880..2100 turns a nonsense value into NULL -- counted as undated -- rather than a
+	// bucket labelled year 19.
+	//
+	// The same expression appears in the WHERE and the GROUP BY because it cannot be
+	// referenced by alias inside GROUP BY, and repeating it lets the planner evaluate it once
+	// per row rather than per group.
+	FindPerformerTimeline(ctx context.Context, performerID uuid.UUID) ([]FindPerformerTimelineRow, error)
 	// Get URLs for multiple performers
 	FindPerformerUrlsByIds(ctx context.Context, performerIds []uuid.UUID) ([]PerformerUrl, error)
 	FindPerformerWithRedirect(ctx context.Context, id uuid.UUID) ([]Performer, error)

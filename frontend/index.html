@@ -9,6 +9,38 @@
     <meta name="theme-color" content="#000000" />
     <link rel="manifest" href="%BASE_URL%manifest.json" />
     <title>{{.}}</title>
+
+    <!--
+      Apply the stored theme BEFORE first paint.
+
+      This is inline and blocking on purpose. The React provider sets `data-theme` in an
+      EFFECT, which runs after the first paint -- so without this the page renders with the
+      CSS default (dark) and then flips, which a light-theme user sees as a white flash on
+      every single load. A script in <head> runs before anything is painted, so there is no
+      frame in the wrong palette.
+
+      It duplicates the resolution logic in src/theme.ts because it cannot import from the
+      bundle: the bundle is what this script exists to avoid waiting for. Kept to four
+      lines so the duplication stays auditable, and src/theme.ts is the place to change the
+      rule -- not here.
+    -->
+    <script>
+      (function () {
+        try {
+          var stored = window.localStorage.getItem("stashbox.theme");
+          var dark =
+            stored === "dark" ||
+            (stored !== "light" &&
+              window.matchMedia("(prefers-color-scheme: dark)").matches);
+          var theme = dark ? "dark" : "light";
+          document.documentElement.setAttribute("data-theme", theme);
+          document.documentElement.classList.toggle("dark", dark);
+        } catch (e) {
+          // Storage or matchMedia unavailable: leave the CSS default (dark), which is the
+          // application's historical appearance.
+        }
+      })();
+    </script>
   </head>
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>
