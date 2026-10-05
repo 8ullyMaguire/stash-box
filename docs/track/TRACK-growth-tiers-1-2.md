@@ -30,7 +30,7 @@ instance ever gets a real deployment and SSR becomes worth its cost.
 | WS | Items | Status | Gate |
 |---|---|---|---|
 | W1 Identification board UI | 2 | `[x]` 01d2c514, dcba9b10 | reachable + votable, mutation-verified |
-| W2 Public Elo | 4, 5 | `[ ]` | READ-only user sees a leaderboard |
+| W2 Public Elo | 4, 5 | `[~]` 4 done (682c3071), 5 pending | READ sees a leaderboard — **live-confirmed** |
 | W3 Completion & coverage | 6, 9, 25, 59 | `[ ]` | derived % correct, no drift |
 | W4 Discovery surfaces | 19, 22, 44, 87 | `[ ]` | 4 routes render content |
 | W5 Discovery by relationship | 27, 12, 21, 57 | `[ ]` | collage type exposed |
@@ -45,8 +45,8 @@ instance ever gets a real deployment and SSR becomes worth its cost.
 | 1 | SEO public pages | **no** — needs a full SSR path | — | `[-]` removed |
 | 2 | Identification board | **DONE** — `/identification` + `/identification/:id`, 17 tests | W1 | `[x]` |
 | 3 | Browser extension | no — and out of scope | — | `[!]` |
-| 4 | Public Elo leaderboards | query yes, **page behind the VOTE gate** — a §7.26-shaped bug | W2 | `[ ]` |
-| 5 | Daily matchup micro-app | no | W2 | `[ ]` |
+| 4 | Public Elo leaderboards | **FIXED** — was behind the VOTE gate; now `/leaderboard`, ungated, 7 tests | W2 | `[x]` |
+| 5 | Daily matchup micro-app | no — needs the D3 anonymous-vote decision | W2 | `[ ]` |
 | 6 | Completion % + CTA | **no** — no per-entity % in the schema at all | W3 | `[ ]` |
 | 7 | Reddit bot | no — out of scope, abuse risk | — | `[!]` |
 | 8 | Stash desktop sync | no — out of scope | — | `[!]` |
@@ -220,6 +220,51 @@ fails in company is still a real failure**, and explaining it away as interferen
 would have shipped a board that was broken for every question with a suggestion.
 
 All three are mutation-verified against the exact production error text.
+
+### W2 — Public Elo leaderboards (item 4) — `682c3071`
+
+**This was a bug, not a feature.** The page existed, the query existed, and
+`eloLeaderboard` is `@hasRole(role: READ)` in the schema — only `eloMatchup` is
+`@hasRole(role: VOTE)` (`graphql/schema/types/elo.graphql:122,134`). The page was
+mounted inside the curation tree, whose only nav entry is gated on `canVote`, so a
+read-only user had **no route to a surface the schema already permitted them**.
+
+That is SPEC §7.26's defect again, and it was sitting inside a list scored as
+"already built".
+
+**Live-confirmed before the fix**, with VOTE removed from a real user: the nav
+showed every entry except Curation, and no leaderboard at all. The test encodes
+that observation rather than the plan's intent.
+
+**Fix:** `/leaderboard` as a top-level route with an ungated nav entry. The
+curation route is untouched and still VOTE-gated, because `eloMatchup` genuinely
+requires it — and two tests assert that, so the fix **cannot over-correct** into
+showing a read-only user an unauthorized page.
+
+**7 tests, 4 mutations, all caught:**
+
+| Mutation | Caught by |
+|---|---|
+| re-gate the Leaderboard nav link on `canVote` (the original defect) | nav-for-READ test |
+| delete the top-level route mount | route-table test |
+| over-correct: also drop the `canVote` gate on Curation | curation-still-gated test |
+| break the wrapper's path so the URL is right but the page is wrong | render test |
+
+**Live after the fix** (READ-only user, seeded Elo data): nav shows
+`Leaderboard -> /app/leaderboard`, `Curation` absent; `/leaderboard` renders rank
+1580/60 votes, 1512/57, 1502/3. The vote-count column is the point of the page —
+a rating is a mean over the votes cast, so 3 votes and 60 votes can differ by a
+point while meaning very different things.
+
+### Standing verification state
+
+- frontend **722 tests / 59 files**, `validate` exit 0, vite build clean
+- `go build` / `go vet` / `gofmt -l` clean, full `go test` clean
+- integration suite green against `sbx-scratch`
+- live app on 127.0.0.1:9999, SPA at `/app`, board + leaderboard confirmed in a
+  real browser for both READ and VOTE roles
+- both remotes pushed and verified by SHA (`origin`, `forgejo`) via
+  `scripts/publish.sh`
 
 **Not done here (deliberately, both noted in the spec):** `postIdentificationQuery`
 and `resolveIdentificationQuery` have no UI. Posting needs a form to describe a
