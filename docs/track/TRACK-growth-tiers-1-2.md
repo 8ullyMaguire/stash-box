@@ -65,12 +65,12 @@ instance ever gets a real deployment and SSR becomes worth its cost.
 | 21 | Performer timeline | no | W5 | `[ ]` |
 | 22 | Scene of the Week | no — a *weekly window* is new; `trending` is a 7-day count, not a ranked pick | W4 | `[ ]` |
 | 23 | Contributor profiles | partial — user pages exist, no public stats | W6 | `[ ]` |
-| 24 | Tag hierarchy | no — vocabulary project | — | `[!]` |
+| 24 | Tag hierarchy | **DONE** (`a25bef11`, `957050d0`) — `parent_id` + a cycle-guard TRIGGER, `SetTagCategoryParent`, and `children`/`descendants`/`ancestors` carrying depth. Mutation-proved: removing the recursive check lets the write through AND makes the tree walk non-terminating | — | `[x]` |
 | 25 | Studio completeness race | **DONE** (`9727dbf9`) — migration 97's table was read by nothing; real read path added | W3 | `[x]` |
 | 26 | RSS feeds | no | — | `[ ]` |
 | 27 | Similar performers | **DONE** (`0492229a`) — co-occurrence ranking over GraphQL; the score is decomposed into checkable facts, and a bare number is explicitly not for display | W5 | `[x]` |
 | 28 | Shareable lists | no — needs moderation | — | `[!]` |
-| 29 | Structured reviews | no — and **no review GraphQL type exists at all** | — | `[!]` |
+| 29 | Structured reviews | **DONE** (`9edcfea1`, live-proved `0c1f485c`) — the tracker was right that nothing existed; a review GraphQL type, write/delete/list resolver and a live assertion script now do | — | `[x]` |
 | 30 | Follow + notify | no | W8 | `[ ]` |
 | 32, 39, 40, 48, 54 | T3–6 strays | — | — | recorded, not adopted |
 | 35 | Fingerprint merge candidates | clusters exist (migration 99) | W8 | `[ ]` |

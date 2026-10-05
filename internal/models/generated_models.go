@@ -3807,6 +3807,13 @@ const (
 	SceneSortEnumPopularity SceneSortEnum = "POPULARITY"
 	SceneSortEnumCreatedAt  SceneSortEnum = "CREATED_AT"
 	SceneSortEnumUpdatedAt  SceneSortEnum = "UPDATED_AT"
+	// A random order, re-drawn on every request.
+	//
+	// For picking something to watch, not for paging through results: because the ordering
+	// is redrawn per request, page 2 of a browse is not the continuation of page 1. Pagination
+	// still applies -- it is how the size of the random draw is bounded -- but the pages are
+	// independent samples rather than consecutive windows.
+	SceneSortEnumRandom SceneSortEnum = "RANDOM"
 )
 
 var AllSceneSortEnum = []SceneSortEnum{
@@ -3817,11 +3824,12 @@ var AllSceneSortEnum = []SceneSortEnum{
 	SceneSortEnumPopularity,
 	SceneSortEnumCreatedAt,
 	SceneSortEnumUpdatedAt,
+	SceneSortEnumRandom,
 }
 
 func (e SceneSortEnum) IsValid() bool {
 	switch e {
-	case SceneSortEnumTitle, SceneSortEnumDate, SceneSortEnumDuration, SceneSortEnumTrending, SceneSortEnumPopularity, SceneSortEnumCreatedAt, SceneSortEnumUpdatedAt:
+	case SceneSortEnumTitle, SceneSortEnumDate, SceneSortEnumDuration, SceneSortEnumTrending, SceneSortEnumPopularity, SceneSortEnumCreatedAt, SceneSortEnumUpdatedAt, SceneSortEnumRandom:
 		return true
 	}
 	return false

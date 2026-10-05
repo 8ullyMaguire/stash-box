@@ -234,6 +234,16 @@ enum SceneSortEnum {
   POPULARITY
   CREATED_AT
   UPDATED_AT
+
+  """
+  A random order, re-drawn on every request.
+
+  For picking something to watch, not for paging through results: because the ordering
+  is redrawn per request, page 2 of a browse is not the continuation of page 1. Pagination
+  still applies -- it is how the size of the random draw is bounded -- but the pages are
+  independent samples rather than consecutive windows.
+  """
+  RANDOM
 }
 
 input SceneQueryInput {

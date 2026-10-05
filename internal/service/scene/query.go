@@ -333,6 +333,18 @@ func (s *Scene) buildSceneQuery(psql sq.StatementBuilderType, input models.Scene
 				query = queryhelper.ApplyPagination(query, input.Page, input.PerPage)
 			}
 		}
+	case models.SceneSortEnumRandom:
+		// `scenes.random` is not a column, so RANDOM MUST have its own case: falling
+		// through to the default branch lowercases the enum name and builds
+		// `ORDER BY scenes.random`, which fails at runtime rather than at compile time.
+		// An enum member that is not a column name needs to be handled, not trusted.
+		if !forCount {
+			query = query.OrderBy("RANDOM()")
+			// Pagination still applies. It is not a window into a stable ordering -- it
+			// bounds how many rows the random draw can produce, so LIMIT is doing real
+			// work here even though the ORDER BY is redrawn per request.
+			query = queryhelper.ApplyPagination(query, input.Page, input.PerPage)
+		}
 	default:
 		if !forCount {
 			// Only apply sorting for non-count queries
