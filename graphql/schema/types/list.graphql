@@ -1,0 +1,257 @@
+# Shareable user lists over GraphQL (SPEC §28, growth item 28).
+#
+# THE TYPE THAT HAS NO VISIBILITY ENUM, and that absence is the design.
+#
+# A list is private until its owner publishes it. Not "private by default with a
+# visibility field" -- there is no `visibility` field here to get wrong, and that is the
+# point: every alternative encoding of this rule is a second source of truth that can
+# disagree with the first. The schema exposes `publishedAt`, and `publishedAt` is the
+# whole of it.
+#
+# Concretely, a client cannot ask for private lists through `publishedLists` because the
+# query does not take a visibility argument. There is nothing to forget to pass, and no
+# path from this file that lists another user's drafts.
+
+"""
+A user's named, ordered set of archive entities.
+
+Private until `publishedAt` is set. There is no visibility field to contradict it.
+"""
+type List {
+  id: ID!
+
+  "The list's name. Unique per owner, not globally."
+  name: String!
+
+  "Optional description. Null when none was given, which is distinct from an empty string."
+  description: String
+
+  "Who owns it. Their display name is denormalised onto the list for the browse listing."
+  owner: User!
+
+  """
+  When it was published, or null while it is private.
+
+  This one nullable field IS the privacy model. It is read on every list view and is the
+  only thing standing between a draft and the public, so it is deliberately not derived
+  from anything -- there is no boolean that could disagree with it.
+  """
+  publishedAt: DateTime
+
+  "Who published it. Non-null whenever `publishedAt` is; the schema forbids the rest."
+  publishedBy: User
+
+  "Its contents in display order."
+  items(perPage: Int = 50, page: Int = 1): [ListItem!]! @hasRole(role: READ)
+
+  "How many entries it holds."
+  itemCount: Int! @hasRole(role: READ)
+
+  """
+  Its publication history, newest first.
+
+  Readable by anyone who can see the list, and that includes a draft's owner seeing why
+  it is not public. Empty is normal: a list that has never been published has no history.
+  """
+  auditTrail: [ListAudit!]! @hasRole(role: READ)
+
+  createdAt: DateTime!
+  updatedAt: DateTime!
+}
+
+"""
+One entry in a list.
+
+`position` is client-supplied and ties are common, so the display order is
+`position` then id. A client that reorders should expect gaps and ties to persist.
+"""
+type ListItem {
+  id: ID!
+
+  "The list this belongs to."
+  list: List! @hasRole(role: READ)
+
+  "What kind of entity. A closed set, so a client can resolve it."
+  entityType: ListEntityTypeEnum!
+
+  "The entity's id, within `entityType`."
+  entityId: ID!
+
+  "Display order. Lower sorts first; ties break by id."
+  position: Int!
+
+  createdAt: DateTime!
+}
+
+"""
+One recorded act on a list.
+
+The actor is NULL when the user has since been deleted -- deliberately. Deleting a user
+must not erase what they did, which is the one thing an audit record may not lose, so the
+row survives with a null actor instead of cascading away with the user.
+"""
+type ListAudit {
+  id: ID!
+
+  "Who did it, or null if that account no longer exists."
+  actor: User
+
+  "What they did."
+  action: ListAuditActionEnum!
+
+  createdAt: DateTime!
+}
+
+enum ListEntityTypeEnum {
+  PERFORMER
+  SCENE
+  STUDIO
+  SITE
+}
+
+enum ListAuditActionEnum {
+  "Made the list public."
+  PUBLISH
+  "Returned the list to private."
+  UNPUBLISH
+}
+
+"""
+A page of published lists.
+
+The count is on the object rather than a sibling field so it cannot be requested against a
+different page than the rows it describes -- `publishedLists(page: 2)` and a separately
+queried total is a shape where the two disagree and nothing catches it.
+"""
+type ListBrowseResult {
+  "The published lists on this page, newest publication first."
+  lists: [List!]!
+
+  "Total published lists, across all pages."
+  count: Int!
+}
+
+input ListCreateInput {
+  "1-200 characters once trimmed. A list of only spaces is not a name."
+  name: String!
+
+  "Optional. An empty string is treated as absent."
+  description: String
+}
+
+input ListUpdateInput {
+  "The list to change."
+  id: ID!
+
+  name: String!
+  description: String
+}
+
+input ListItemInput {
+  "The list to add to."
+  listId: ID!
+
+  "What to add."
+  entityType: ListEntityTypeEnum!
+
+  entityId: ID!
+
+  """
+  Where to place it. Omit, or pass 0, to append.
+
+  Negative is rejected rather than sorted to the front: "add" must not silently mean
+  "insert at the beginning".
+  """
+  position: Int
+}
+
+extend type Query {
+  """
+  A published list, or null.
+
+  Returns null for a draft that is not yours, INCLUDING when it does not exist -- the same
+  answer, on purpose. Distinguishing the two would let a caller probe a range of ids to
+  discover which private lists are real.
+  """
+  list(id: ID!): List @hasRole(role: READ)
+
+  """
+  Published lists, newest publication first.
+
+  There is no argument for including drafts, because this query cannot return one. An
+  owner's own drafts are reached through `lists`, which reads them by owner.
+  """
+  publishedLists(perPage: Int = 25, page: Int = 1): ListBrowseResult! @hasRole(role: READ)
+
+  """
+  Every list belonging to a user, drafts included.
+
+  `me` reads your own; naming another user reads theirs, which is why this is a query
+  about the ARCHIVE's users rather than about the session. If that reads wrong to you it
+  should: knowing someone's private list count is not something to hand out by default.
+  """
+  lists(userId: ID, perPage: Int = 50, page: Int = 1): [List!]! @hasRole(role: READ)
+}
+
+extend type Mutation {
+  """
+  Create a list, always private.
+
+  There is no `publish: true` argument and adding one would be the wrong fix. Publishing
+  is a separate audited act (SPEC §28), and a create that could publish would let a client
+  skip the audit trail entirely.
+  """
+  listCreate(input: ListCreateInput!): List! @hasRole(role: READ)
+
+  """
+  Rename or re-describe a list.
+
+  Requires WRITE on the owner. Publishing is NOT reachable here: this is a content edit,
+  and `listPublish` is the audited one.
+  """
+  listUpdate(input: ListUpdateInput!): List! @hasRole(role: WRITE)
+
+  """
+  Delete a list, its entries, and its audit trail.
+
+  The audit trail goes with the list, unlike an audit trail tied to a user: the history
+  describes this list, and once the list is gone it is describing nothing.
+  """
+  listDelete(id: ID!): Boolean! @hasRole(role: WRITE)
+
+  """
+  Make a list public, recording who and when.
+
+  Errors if it is already published rather than succeeding quietly. A client that
+  republishes by mistake should hear about it, not receive the existing row and believe it
+  had just published something.
+  """
+  listPublish(id: ID!): List! @hasRole(role: WRITE)
+
+  """
+  Return a list to private.
+
+  The audit trail is KEPT: "this was public and then withdrawn" is the fact worth keeping,
+  and it is the one a moderation system needs to see.
+  """
+  listUnpublish(id: ID!): List! @hasRole(role: WRITE)
+
+  """
+  Add an entry. Fails if that entity is already in the list.
+
+  Not silently ignored, because a double-submitting client would otherwise see a success
+  and a list whose length disagrees with its contents.
+  """
+  listAddItem(input: ListItemInput!): ListItem! @hasRole(role: WRITE)
+
+  "Remove one entry."
+  listRemoveItem(id: ID!): Boolean! @hasRole(role: WRITE)
+
+  """
+  Move one entry to a new position.
+
+  Owner only, even for a published list. Reordering public content is a content edit, and
+  content edits of public artefacts are the same trust-sensitive act as publishing them.
+  """
+  listReorderItem(id: ID!, position: Int!): ListItem! @hasRole(role: WRITE)
+}

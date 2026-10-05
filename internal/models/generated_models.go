@@ -892,6 +892,108 @@ type IntCriterionInput struct {
 	Modifier CriterionModifier `json:"modifier"`
 }
 
+// A user's named, ordered set of archive entities.
+//
+// Private until `publishedAt` is set. There is no visibility field to contradict it.
+type List struct {
+	ID uuid.UUID `json:"id"`
+	// The list's name. Unique per owner, not globally.
+	Name string `json:"name"`
+	// Optional description. Null when none was given, which is distinct from an empty string.
+	Description *string `json:"description,omitempty"`
+	// Who owns it. Their display name is denormalised onto the list for the browse listing.
+	Owner *User `json:"owner"`
+	// When it was published, or null while it is private.
+	//
+	// This one nullable field IS the privacy model. It is read on every list view and is the
+	// only thing standing between a draft and the public, so it is deliberately not derived
+	// from anything -- there is no boolean that could disagree with it.
+	PublishedAt *string `json:"publishedAt,omitempty"`
+	// Who published it. Non-null whenever `publishedAt` is; the schema forbids the rest.
+	PublishedBy *User `json:"publishedBy,omitempty"`
+	// Its contents in display order.
+	Items []ListItem `json:"items"`
+	// How many entries it holds.
+	ItemCount int `json:"itemCount"`
+	// Its publication history, newest first.
+	//
+	// Readable by anyone who can see the list, and that includes a draft's owner seeing why
+	// it is not public. Empty is normal: a list that has never been published has no history.
+	AuditTrail []ListAudit `json:"auditTrail"`
+	CreatedAt  string      `json:"createdAt"`
+	UpdatedAt  string      `json:"updatedAt"`
+}
+
+// One recorded act on a list.
+//
+// The actor is NULL when the user has since been deleted -- deliberately. Deleting a user
+// must not erase what they did, which is the one thing an audit record may not lose, so the
+// row survives with a null actor instead of cascading away with the user.
+type ListAudit struct {
+	ID uuid.UUID `json:"id"`
+	// Who did it, or null if that account no longer exists.
+	Actor *User `json:"actor,omitempty"`
+	// What they did.
+	Action    ListAuditActionEnum `json:"action"`
+	CreatedAt string              `json:"createdAt"`
+}
+
+// A page of published lists.
+//
+// The count is on the object rather than a sibling field so it cannot be requested against a
+// different page than the rows it describes -- `publishedLists(page: 2)` and a separately
+// queried total is a shape where the two disagree and nothing catches it.
+type ListBrowseResult struct {
+	// The published lists on this page, newest publication first.
+	Lists []List `json:"lists"`
+	// Total published lists, across all pages.
+	Count int `json:"count"`
+}
+
+type ListCreateInput struct {
+	// 1-200 characters once trimmed. A list of only spaces is not a name.
+	Name string `json:"name"`
+	// Optional. An empty string is treated as absent.
+	Description *string `json:"description,omitempty"`
+}
+
+// One entry in a list.
+//
+// `position` is client-supplied and ties are common, so the display order is
+// `position` then id. A client that reorders should expect gaps and ties to persist.
+type ListItem struct {
+	ID uuid.UUID `json:"id"`
+	// The list this belongs to.
+	List *List `json:"list"`
+	// What kind of entity. A closed set, so a client can resolve it.
+	EntityType ListEntityTypeEnum `json:"entityType"`
+	// The entity's id, within `entityType`.
+	EntityID uuid.UUID `json:"entityId"`
+	// Display order. Lower sorts first; ties break by id.
+	Position  int    `json:"position"`
+	CreatedAt string `json:"createdAt"`
+}
+
+type ListItemInput struct {
+	// The list to add to.
+	ListID uuid.UUID `json:"listId"`
+	// What to add.
+	EntityType ListEntityTypeEnum `json:"entityType"`
+	EntityID   uuid.UUID          `json:"entityId"`
+	// Where to place it. Omit, or pass 0, to append.
+	//
+	// Negative is rejected rather than sorted to the front: "add" must not silently mean
+	// "insert at the beginning".
+	Position *int `json:"position,omitempty"`
+}
+
+type ListUpdateInput struct {
+	// The list to change.
+	ID          uuid.UUID `json:"id"`
+	Name        string    `json:"name"`
+	Description *string   `json:"description,omitempty"`
+}
+
 type MarkNotificationReadInput struct {
 	Type NotificationEnum `json:"type"`
 	ID   uuid.UUID        `json:"id"`
@@ -3308,6 +3410,122 @@ func (e *ImageTypeScopeEnum) UnmarshalJSON(b []byte) error {
 }
 
 func (e ImageTypeScopeEnum) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+type ListAuditActionEnum string
+
+const (
+	// Made the list public.
+	ListAuditActionEnumPublish ListAuditActionEnum = "PUBLISH"
+	// Returned the list to private.
+	ListAuditActionEnumUnpublish ListAuditActionEnum = "UNPUBLISH"
+)
+
+var AllListAuditActionEnum = []ListAuditActionEnum{
+	ListAuditActionEnumPublish,
+	ListAuditActionEnumUnpublish,
+}
+
+func (e ListAuditActionEnum) IsValid() bool {
+	switch e {
+	case ListAuditActionEnumPublish, ListAuditActionEnumUnpublish:
+		return true
+	}
+	return false
+}
+
+func (e ListAuditActionEnum) String() string {
+	return string(e)
+}
+
+func (e *ListAuditActionEnum) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = ListAuditActionEnum(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid ListAuditActionEnum", str)
+	}
+	return nil
+}
+
+func (e ListAuditActionEnum) MarshalGQL(w io.Writer) {
+	_, _ = fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *ListAuditActionEnum) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e ListAuditActionEnum) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+type ListEntityTypeEnum string
+
+const (
+	ListEntityTypeEnumPerformer ListEntityTypeEnum = "PERFORMER"
+	ListEntityTypeEnumScene     ListEntityTypeEnum = "SCENE"
+	ListEntityTypeEnumStudio    ListEntityTypeEnum = "STUDIO"
+	ListEntityTypeEnumSite      ListEntityTypeEnum = "SITE"
+)
+
+var AllListEntityTypeEnum = []ListEntityTypeEnum{
+	ListEntityTypeEnumPerformer,
+	ListEntityTypeEnumScene,
+	ListEntityTypeEnumStudio,
+	ListEntityTypeEnumSite,
+}
+
+func (e ListEntityTypeEnum) IsValid() bool {
+	switch e {
+	case ListEntityTypeEnumPerformer, ListEntityTypeEnumScene, ListEntityTypeEnumStudio, ListEntityTypeEnumSite:
+		return true
+	}
+	return false
+}
+
+func (e ListEntityTypeEnum) String() string {
+	return string(e)
+}
+
+func (e *ListEntityTypeEnum) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = ListEntityTypeEnum(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid ListEntityTypeEnum", str)
+	}
+	return nil
+}
+
+func (e ListEntityTypeEnum) MarshalGQL(w io.Writer) {
+	_, _ = fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *ListEntityTypeEnum) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e ListEntityTypeEnum) MarshalJSON() ([]byte, error) {
 	var buf bytes.Buffer
 	e.MarshalGQL(&buf)
 	return buf.Bytes(), nil

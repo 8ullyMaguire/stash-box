@@ -33,6 +33,7 @@ import (
 	"github.com/stashapp/stash-box/internal/service/draft"
 	"github.com/stashapp/stash-box/internal/service/edit"
 	"github.com/stashapp/stash-box/internal/service/elo"
+	listsvc "github.com/stashapp/stash-box/internal/service/list"
 	"github.com/stashapp/stash-box/internal/service/federation"
 	"github.com/stashapp/stash-box/internal/service/fingerprint"
 	"github.com/stashapp/stash-box/internal/service/identification"
@@ -239,6 +240,16 @@ func (f *Factory) Award() *award.Service {
 // Review returns a review service instance.
 func (f *Factory) Review() *review.Service {
 	return review.NewService(queries.New(f.db))
+}
+
+// List returns a shareable-list service.
+//
+// Takes withTxn because publish and unpublish are two writes -- the state change and its
+// audit row -- that must not come apart. Constructing the service per call is what every
+// other accessor here does; the service holds only a *queries.Queries, so there is nothing
+// to cache and nothing to keep in sync.
+func (f *Factory) List() *listsvc.Service {
+	return listsvc.NewService(queries.New(f.db), f.withTxn)
 }
 
 // Streak returns a user's activity streak service.

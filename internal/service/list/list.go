@@ -275,6 +275,115 @@ func (s *Service) ListPublished(ctx context.Context, limit, offset int) ([]queri
 	})
 }
 
+// CountPublished returns how many lists are public, for a browse page's total.
+//
+// A separate query rather than len(ListPublished(...)): the length of one page is not the
+// total, and a client rendering "page 2 of N" needs N.
+func (s *Service) CountPublished(ctx context.Context) (int64, error) {
+	return s.queries.CountPublishedLists(ctx)
+}
+
+// ListPublishedByOwner returns an owner's PUBLIC lists only.
+//
+// The counterpart to ListByOwner, and the reason the resolver needs both. Reading your own
+// drafts is legitimate; reading someone else's is not, and returning their drafts here
+// would be a leak through the most obviously innocent query in the API.
+//
+// Paged, because this is the one listing a STRANGER can ask about and therefore the one
+// where an unbounded result is reachable by anyone.
+func (s *Service) ListPublishedByOwner(ctx context.Context, ownerID uuid.UUID, limit, offset int) ([]queries.List, error) {
+	const maxPage = 100
+	if limit <= 0 || limit > maxPage {
+		limit = maxPage
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	all, err := s.queries.FindListsByOwner(ctx, ownerID)
+	if err != nil {
+		return nil, err
+	}
+
+	// FindListsByOwner orders by name and does not filter, so the published subset is taken
+	// and paged here. That is O(one owner's lists) per request, which is fine because the
+	// set is bounded by what one person created -- unlike the instance-wide listing, which
+	// needs the partial index and cannot afford this. If an owner's list count ever becomes
+	// large enough to matter, the honest fix is a published-only query rather than this loop.
+	published := make([]queries.List, 0, len(all))
+	for i := range all {
+		if all[i].PublishedAt.Valid {
+			published = append(published, all[i])
+		}
+	}
+	if offset >= len(published) {
+		return []queries.List{}, nil
+	}
+	end := offset + limit
+	if end > len(published) {
+		end = len(published)
+	}
+	return published[offset:end], nil
+}
+
+// Item returns one entry, enforcing the same visibility rule as Items.
+//
+// Exists so a caller that has just written an item can read it back through one policy.
+func (s *Service) Item(ctx context.Context, itemID, viewerID uuid.UUID) (*queries.ListItem, error) {
+	item, err := s.queries.GetListItem(ctx, itemID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	if _, err := s.Get(ctx, item.ListID, viewerID); err != nil {
+		return nil, err
+	}
+	return &item, nil
+}
+
+// CountItems returns how many entries a list holds.
+func (s *Service) CountItems(ctx context.Context, listID uuid.UUID) (int64, error) {
+	return s.queries.CountListItems(ctx, listID)
+}
+
+// OwnerOf returns the owner id of a list.
+//
+// Applies NO visibility rule, deliberately: it exists to fill the `owner` field of a list
+// that has ALREADY passed the service's Get, and re-checking here would be a second
+// implementation of the rule. Nothing calls it with an unverified list id.
+func (s *Service) OwnerOf(ctx context.Context, listID uuid.UUID) (uuid.UUID, error) {
+	row, err := s.queries.FindList(ctx, listID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return uuid.Nil, ErrNotFound
+		}
+		return uuid.Nil, err
+	}
+	return row.OwnerID, nil
+}
+
+// PublisherID returns who published a list, or nil when it is private.
+//
+// Nil rather than uuid.Nil for "nobody" so the caller can tell an unpublished list from a
+// published one with a deleted publisher -- a state that exists and is real, and which the
+// audit trail still records.
+func (s *Service) PublisherID(ctx context.Context, listID uuid.UUID) (*uuid.UUID, error) {
+	row, err := s.queries.FindList(ctx, listID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	if !row.PublishedBy.Valid {
+		return nil, nil
+	}
+	id := row.PublishedBy.UUID
+	return &id, nil
+}
+
 // ListByOwner returns every list belonging to an owner, drafts included.
 //
 // Reads an owner's lists, so it needs the caller's identity to be checked by the caller;

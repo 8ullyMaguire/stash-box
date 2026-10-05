@@ -439,6 +439,41 @@ type ComplexityRoot struct {
 		Uses    func(childComplexity int) int
 	}
 
+	List struct {
+		AuditTrail  func(childComplexity int) int
+		CreatedAt   func(childComplexity int) int
+		Description func(childComplexity int) int
+		ID          func(childComplexity int) int
+		ItemCount   func(childComplexity int) int
+		Items       func(childComplexity int, perPage *int, page *int) int
+		Name        func(childComplexity int) int
+		Owner       func(childComplexity int) int
+		PublishedAt func(childComplexity int) int
+		PublishedBy func(childComplexity int) int
+		UpdatedAt   func(childComplexity int) int
+	}
+
+	ListAudit struct {
+		Action    func(childComplexity int) int
+		Actor     func(childComplexity int) int
+		CreatedAt func(childComplexity int) int
+		ID        func(childComplexity int) int
+	}
+
+	ListBrowseResult struct {
+		Count func(childComplexity int) int
+		Lists func(childComplexity int) int
+	}
+
+	ListItem struct {
+		CreatedAt  func(childComplexity int) int
+		EntityID   func(childComplexity int) int
+		EntityType func(childComplexity int) int
+		ID         func(childComplexity int) int
+		List       func(childComplexity int) int
+		Position   func(childComplexity int) int
+	}
+
 	Measurements struct {
 		BandSize func(childComplexity int) int
 		CupSize  func(childComplexity int) int
@@ -488,6 +523,14 @@ type ComplexityRoot struct {
 		ImageTypeOrderUpdate              func(childComplexity int, input ImageTypeOrderInput) int
 		ImageTypeSetEnabled               func(childComplexity int, input ImageTypeEnabledInput) int
 		ImageUpdate                       func(childComplexity int, input ImageUpdateInput) int
+		ListAddItem                       func(childComplexity int, input ListItemInput) int
+		ListCreate                        func(childComplexity int, input ListCreateInput) int
+		ListDelete                        func(childComplexity int, id uuid.UUID) int
+		ListPublish                       func(childComplexity int, id uuid.UUID) int
+		ListRemoveItem                    func(childComplexity int, id uuid.UUID) int
+		ListReorderItem                   func(childComplexity int, id uuid.UUID, position int) int
+		ListUnpublish                     func(childComplexity int, id uuid.UUID) int
+		ListUpdate                        func(childComplexity int, input ListUpdateInput) int
 		MarkNotificationsRead             func(childComplexity int, notification *MarkNotificationReadInput) int
 		NewUser                           func(childComplexity int, input NewUserInput) int
 		PerformerCreate                   func(childComplexity int, input PerformerCreateInput) int
@@ -732,10 +775,13 @@ type ComplexityRoot struct {
 		GetUnreadNotificationCount     func(childComplexity int) int
 		IdentificationQuery            func(childComplexity int, id uuid.UUID) int
 		ImageTypeGroups                func(childComplexity int, target *ImageTypeScopeEnum, includeDisabled *bool) int
+		List                           func(childComplexity int, id uuid.UUID) int
 		ListOpenIdentificationQueries  func(childComplexity int, limit *int) int
+		Lists                          func(childComplexity int, userID *uuid.UUID, perPage *int, page *int) int
 		Me                             func(childComplexity int) int
 		MyIdentificationDetectiveScore func(childComplexity int) int
 		PerformerChangelog             func(childComplexity int, since time.Time, afterID *uuid.UUID, limit *int) int
+		PublishedLists                 func(childComplexity int, perPage *int, page *int) int
 		QueryEdits                     func(childComplexity int, input EditQueryInput) int
 		QueryExistingPerformer         func(childComplexity int, input QueryExistingPerformerInput) int
 		QueryExistingScene             func(childComplexity int, input QueryExistingSceneInput) int
@@ -1311,6 +1357,14 @@ type MutationResolver interface {
 	UnvoteIdentificationCandidate(ctx context.Context, candidateID uuid.UUID) (*IdentificationCandidate, error)
 	ResolveIdentificationQuery(ctx context.Context, input IdentificationResolveInput) (*IdentificationQuery, error)
 	AbandonIdentificationQuery(ctx context.Context, id uuid.UUID) (*IdentificationQuery, error)
+	ListCreate(ctx context.Context, input ListCreateInput) (*List, error)
+	ListUpdate(ctx context.Context, input ListUpdateInput) (*List, error)
+	ListDelete(ctx context.Context, id uuid.UUID) (bool, error)
+	ListPublish(ctx context.Context, id uuid.UUID) (*List, error)
+	ListUnpublish(ctx context.Context, id uuid.UUID) (*List, error)
+	ListAddItem(ctx context.Context, input ListItemInput) (*ListItem, error)
+	ListRemoveItem(ctx context.Context, id uuid.UUID) (bool, error)
+	ListReorderItem(ctx context.Context, id uuid.UUID, position int) (*ListItem, error)
 	ReviewSubmit(ctx context.Context, input ReviewSubmitInput) (*Review, error)
 	ReviewDelete(ctx context.Context, id uuid.UUID) (bool, error)
 }
@@ -1439,6 +1493,9 @@ type QueryResolver interface {
 	IdentificationQuery(ctx context.Context, id uuid.UUID) (*IdentificationQuery, error)
 	ResolvedIdentificationQueries(ctx context.Context, entityType IdentificationTargetType, entityID uuid.UUID, limit *int) ([]IdentificationQuery, error)
 	MyIdentificationDetectiveScore(ctx context.Context) (*IdentificationDetective, error)
+	List(ctx context.Context, id uuid.UUID) (*List, error)
+	PublishedLists(ctx context.Context, perPage *int, page *int) (*ListBrowseResult, error)
+	Lists(ctx context.Context, userID *uuid.UUID, perPage *int, page *int) ([]List, error)
 	Review(ctx context.Context, id uuid.UUID) (*Review, error)
 	UserStreak(ctx context.Context) (*Streak, error)
 }
@@ -2916,6 +2973,153 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.InviteKey.Uses(childComplexity), true
 
+	case "List.auditTrail":
+		if e.ComplexityRoot.List.AuditTrail == nil {
+			break
+		}
+
+		return e.ComplexityRoot.List.AuditTrail(childComplexity), true
+	case "List.createdAt":
+		if e.ComplexityRoot.List.CreatedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.List.CreatedAt(childComplexity), true
+	case "List.description":
+		if e.ComplexityRoot.List.Description == nil {
+			break
+		}
+
+		return e.ComplexityRoot.List.Description(childComplexity), true
+	case "List.id":
+		if e.ComplexityRoot.List.ID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.List.ID(childComplexity), true
+	case "List.itemCount":
+		if e.ComplexityRoot.List.ItemCount == nil {
+			break
+		}
+
+		return e.ComplexityRoot.List.ItemCount(childComplexity), true
+	case "List.items":
+		if e.ComplexityRoot.List.Items == nil {
+			break
+		}
+
+		args, err := ec.field_List_items_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.List.Items(childComplexity, args["perPage"].(*int), args["page"].(*int)), true
+	case "List.name":
+		if e.ComplexityRoot.List.Name == nil {
+			break
+		}
+
+		return e.ComplexityRoot.List.Name(childComplexity), true
+	case "List.owner":
+		if e.ComplexityRoot.List.Owner == nil {
+			break
+		}
+
+		return e.ComplexityRoot.List.Owner(childComplexity), true
+	case "List.publishedAt":
+		if e.ComplexityRoot.List.PublishedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.List.PublishedAt(childComplexity), true
+	case "List.publishedBy":
+		if e.ComplexityRoot.List.PublishedBy == nil {
+			break
+		}
+
+		return e.ComplexityRoot.List.PublishedBy(childComplexity), true
+	case "List.updatedAt":
+		if e.ComplexityRoot.List.UpdatedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.List.UpdatedAt(childComplexity), true
+
+	case "ListAudit.action":
+		if e.ComplexityRoot.ListAudit.Action == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ListAudit.Action(childComplexity), true
+	case "ListAudit.actor":
+		if e.ComplexityRoot.ListAudit.Actor == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ListAudit.Actor(childComplexity), true
+	case "ListAudit.createdAt":
+		if e.ComplexityRoot.ListAudit.CreatedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ListAudit.CreatedAt(childComplexity), true
+	case "ListAudit.id":
+		if e.ComplexityRoot.ListAudit.ID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ListAudit.ID(childComplexity), true
+
+	case "ListBrowseResult.count":
+		if e.ComplexityRoot.ListBrowseResult.Count == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ListBrowseResult.Count(childComplexity), true
+	case "ListBrowseResult.lists":
+		if e.ComplexityRoot.ListBrowseResult.Lists == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ListBrowseResult.Lists(childComplexity), true
+
+	case "ListItem.createdAt":
+		if e.ComplexityRoot.ListItem.CreatedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ListItem.CreatedAt(childComplexity), true
+	case "ListItem.entityId":
+		if e.ComplexityRoot.ListItem.EntityID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ListItem.EntityID(childComplexity), true
+	case "ListItem.entityType":
+		if e.ComplexityRoot.ListItem.EntityType == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ListItem.EntityType(childComplexity), true
+	case "ListItem.id":
+		if e.ComplexityRoot.ListItem.ID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ListItem.ID(childComplexity), true
+	case "ListItem.list":
+		if e.ComplexityRoot.ListItem.List == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ListItem.List(childComplexity), true
+	case "ListItem.position":
+		if e.ComplexityRoot.ListItem.Position == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ListItem.Position(childComplexity), true
+
 	case "Measurements.band_size":
 		if e.ComplexityRoot.Measurements.BandSize == nil {
 			break
@@ -3315,6 +3519,94 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.ImageUpdate(childComplexity, args["input"].(ImageUpdateInput)), true
+	case "Mutation.listAddItem":
+		if e.ComplexityRoot.Mutation.ListAddItem == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_listAddItem_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.ListAddItem(childComplexity, args["input"].(ListItemInput)), true
+	case "Mutation.listCreate":
+		if e.ComplexityRoot.Mutation.ListCreate == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_listCreate_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.ListCreate(childComplexity, args["input"].(ListCreateInput)), true
+	case "Mutation.listDelete":
+		if e.ComplexityRoot.Mutation.ListDelete == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_listDelete_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.ListDelete(childComplexity, args["id"].(uuid.UUID)), true
+	case "Mutation.listPublish":
+		if e.ComplexityRoot.Mutation.ListPublish == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_listPublish_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.ListPublish(childComplexity, args["id"].(uuid.UUID)), true
+	case "Mutation.listRemoveItem":
+		if e.ComplexityRoot.Mutation.ListRemoveItem == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_listRemoveItem_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.ListRemoveItem(childComplexity, args["id"].(uuid.UUID)), true
+	case "Mutation.listReorderItem":
+		if e.ComplexityRoot.Mutation.ListReorderItem == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_listReorderItem_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.ListReorderItem(childComplexity, args["id"].(uuid.UUID), args["position"].(int)), true
+	case "Mutation.listUnpublish":
+		if e.ComplexityRoot.Mutation.ListUnpublish == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_listUnpublish_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.ListUnpublish(childComplexity, args["id"].(uuid.UUID)), true
+	case "Mutation.listUpdate":
+		if e.ComplexityRoot.Mutation.ListUpdate == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_listUpdate_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.ListUpdate(childComplexity, args["input"].(ListUpdateInput)), true
 	case "Mutation.markNotificationsRead":
 		if e.ComplexityRoot.Mutation.MarkNotificationsRead == nil {
 			break
@@ -5038,6 +5330,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.Query.ImageTypeGroups(childComplexity, args["target"].(*ImageTypeScopeEnum), args["include_disabled"].(*bool)), true
 
+	case "Query.list":
+		if e.ComplexityRoot.Query.List == nil {
+			break
+		}
+
+		args, err := ec.field_Query_list_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.List(childComplexity, args["id"].(uuid.UUID)), true
 	case "Query.listOpenIdentificationQueries":
 		if e.ComplexityRoot.Query.ListOpenIdentificationQueries == nil {
 			break
@@ -5049,6 +5352,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.ListOpenIdentificationQueries(childComplexity, args["limit"].(*int)), true
+	case "Query.lists":
+		if e.ComplexityRoot.Query.Lists == nil {
+			break
+		}
+
+		args, err := ec.field_Query_lists_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.Lists(childComplexity, args["userId"].(*uuid.UUID), args["perPage"].(*int), args["page"].(*int)), true
 	case "Query.me":
 		if e.ComplexityRoot.Query.Me == nil {
 			break
@@ -5072,6 +5386,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.PerformerChangelog(childComplexity, args["since"].(time.Time), args["after_id"].(*uuid.UUID), args["limit"].(*int)), true
+	case "Query.publishedLists":
+		if e.ComplexityRoot.Query.PublishedLists == nil {
+			break
+		}
+
+		args, err := ec.field_Query_publishedLists_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.PublishedLists(childComplexity, args["perPage"].(*int), args["page"].(*int)), true
 	case "Query.queryEdits":
 		if e.ComplexityRoot.Query.QueryEdits == nil {
 			break
@@ -7012,6 +7337,9 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputImageTypePreferencesInput,
 		ec.unmarshalInputImageUpdateInput,
 		ec.unmarshalInputIntCriterionInput,
+		ec.unmarshalInputListCreateInput,
+		ec.unmarshalInputListItemInput,
+		ec.unmarshalInputListUpdateInput,
 		ec.unmarshalInputMarkNotificationReadInput,
 		ec.unmarshalInputModAuditQueryInput,
 		ec.unmarshalInputMoveFingerprintSubmissionsInput,
@@ -8709,6 +9037,263 @@ input ImageTypeEnabledInput {
   disabled_types: [ImageTypeEnum!]! = []
 }
 `, BuiltIn: false},
+	{Name: "../../graphql/schema/types/list.graphql", Input: `# Shareable user lists over GraphQL (SPEC §28, growth item 28).
+#
+# THE TYPE THAT HAS NO VISIBILITY ENUM, and that absence is the design.
+#
+# A list is private until its owner publishes it. Not "private by default with a
+# visibility field" -- there is no ` + "`" + `visibility` + "`" + ` field here to get wrong, and that is the
+# point: every alternative encoding of this rule is a second source of truth that can
+# disagree with the first. The schema exposes ` + "`" + `publishedAt` + "`" + `, and ` + "`" + `publishedAt` + "`" + ` is the
+# whole of it.
+#
+# Concretely, a client cannot ask for private lists through ` + "`" + `publishedLists` + "`" + ` because the
+# query does not take a visibility argument. There is nothing to forget to pass, and no
+# path from this file that lists another user's drafts.
+
+"""
+A user's named, ordered set of archive entities.
+
+Private until ` + "`" + `publishedAt` + "`" + ` is set. There is no visibility field to contradict it.
+"""
+type List {
+  id: ID!
+
+  "The list's name. Unique per owner, not globally."
+  name: String!
+
+  "Optional description. Null when none was given, which is distinct from an empty string."
+  description: String
+
+  "Who owns it. Their display name is denormalised onto the list for the browse listing."
+  owner: User!
+
+  """
+  When it was published, or null while it is private.
+
+  This one nullable field IS the privacy model. It is read on every list view and is the
+  only thing standing between a draft and the public, so it is deliberately not derived
+  from anything -- there is no boolean that could disagree with it.
+  """
+  publishedAt: DateTime
+
+  "Who published it. Non-null whenever ` + "`" + `publishedAt` + "`" + ` is; the schema forbids the rest."
+  publishedBy: User
+
+  "Its contents in display order."
+  items(perPage: Int = 50, page: Int = 1): [ListItem!]! @hasRole(role: READ)
+
+  "How many entries it holds."
+  itemCount: Int! @hasRole(role: READ)
+
+  """
+  Its publication history, newest first.
+
+  Readable by anyone who can see the list, and that includes a draft's owner seeing why
+  it is not public. Empty is normal: a list that has never been published has no history.
+  """
+  auditTrail: [ListAudit!]! @hasRole(role: READ)
+
+  createdAt: DateTime!
+  updatedAt: DateTime!
+}
+
+"""
+One entry in a list.
+
+` + "`" + `position` + "`" + ` is client-supplied and ties are common, so the display order is
+` + "`" + `position` + "`" + ` then id. A client that reorders should expect gaps and ties to persist.
+"""
+type ListItem {
+  id: ID!
+
+  "The list this belongs to."
+  list: List! @hasRole(role: READ)
+
+  "What kind of entity. A closed set, so a client can resolve it."
+  entityType: ListEntityTypeEnum!
+
+  "The entity's id, within ` + "`" + `entityType` + "`" + `."
+  entityId: ID!
+
+  "Display order. Lower sorts first; ties break by id."
+  position: Int!
+
+  createdAt: DateTime!
+}
+
+"""
+One recorded act on a list.
+
+The actor is NULL when the user has since been deleted -- deliberately. Deleting a user
+must not erase what they did, which is the one thing an audit record may not lose, so the
+row survives with a null actor instead of cascading away with the user.
+"""
+type ListAudit {
+  id: ID!
+
+  "Who did it, or null if that account no longer exists."
+  actor: User
+
+  "What they did."
+  action: ListAuditActionEnum!
+
+  createdAt: DateTime!
+}
+
+enum ListEntityTypeEnum {
+  PERFORMER
+  SCENE
+  STUDIO
+  SITE
+}
+
+enum ListAuditActionEnum {
+  "Made the list public."
+  PUBLISH
+  "Returned the list to private."
+  UNPUBLISH
+}
+
+"""
+A page of published lists.
+
+The count is on the object rather than a sibling field so it cannot be requested against a
+different page than the rows it describes -- ` + "`" + `publishedLists(page: 2)` + "`" + ` and a separately
+queried total is a shape where the two disagree and nothing catches it.
+"""
+type ListBrowseResult {
+  "The published lists on this page, newest publication first."
+  lists: [List!]!
+
+  "Total published lists, across all pages."
+  count: Int!
+}
+
+input ListCreateInput {
+  "1-200 characters once trimmed. A list of only spaces is not a name."
+  name: String!
+
+  "Optional. An empty string is treated as absent."
+  description: String
+}
+
+input ListUpdateInput {
+  "The list to change."
+  id: ID!
+
+  name: String!
+  description: String
+}
+
+input ListItemInput {
+  "The list to add to."
+  listId: ID!
+
+  "What to add."
+  entityType: ListEntityTypeEnum!
+
+  entityId: ID!
+
+  """
+  Where to place it. Omit, or pass 0, to append.
+
+  Negative is rejected rather than sorted to the front: "add" must not silently mean
+  "insert at the beginning".
+  """
+  position: Int
+}
+
+extend type Query {
+  """
+  A published list, or null.
+
+  Returns null for a draft that is not yours, INCLUDING when it does not exist -- the same
+  answer, on purpose. Distinguishing the two would let a caller probe a range of ids to
+  discover which private lists are real.
+  """
+  list(id: ID!): List @hasRole(role: READ)
+
+  """
+  Published lists, newest publication first.
+
+  There is no argument for including drafts, because this query cannot return one. An
+  owner's own drafts are reached through ` + "`" + `lists` + "`" + `, which reads them by owner.
+  """
+  publishedLists(perPage: Int = 25, page: Int = 1): ListBrowseResult! @hasRole(role: READ)
+
+  """
+  Every list belonging to a user, drafts included.
+
+  ` + "`" + `me` + "`" + ` reads your own; naming another user reads theirs, which is why this is a query
+  about the ARCHIVE's users rather than about the session. If that reads wrong to you it
+  should: knowing someone's private list count is not something to hand out by default.
+  """
+  lists(userId: ID, perPage: Int = 50, page: Int = 1): [List!]! @hasRole(role: READ)
+}
+
+extend type Mutation {
+  """
+  Create a list, always private.
+
+  There is no ` + "`" + `publish: true` + "`" + ` argument and adding one would be the wrong fix. Publishing
+  is a separate audited act (SPEC §28), and a create that could publish would let a client
+  skip the audit trail entirely.
+  """
+  listCreate(input: ListCreateInput!): List! @hasRole(role: READ)
+
+  """
+  Rename or re-describe a list.
+
+  Requires WRITE on the owner. Publishing is NOT reachable here: this is a content edit,
+  and ` + "`" + `listPublish` + "`" + ` is the audited one.
+  """
+  listUpdate(input: ListUpdateInput!): List! @hasRole(role: WRITE)
+
+  """
+  Delete a list, its entries, and its audit trail.
+
+  The audit trail goes with the list, unlike an audit trail tied to a user: the history
+  describes this list, and once the list is gone it is describing nothing.
+  """
+  listDelete(id: ID!): Boolean! @hasRole(role: WRITE)
+
+  """
+  Make a list public, recording who and when.
+
+  Errors if it is already published rather than succeeding quietly. A client that
+  republishes by mistake should hear about it, not receive the existing row and believe it
+  had just published something.
+  """
+  listPublish(id: ID!): List! @hasRole(role: WRITE)
+
+  """
+  Return a list to private.
+
+  The audit trail is KEPT: "this was public and then withdrawn" is the fact worth keeping,
+  and it is the one a moderation system needs to see.
+  """
+  listUnpublish(id: ID!): List! @hasRole(role: WRITE)
+
+  """
+  Add an entry. Fails if that entity is already in the list.
+
+  Not silently ignored, because a double-submitting client would otherwise see a success
+  and a list whose length disagrees with its contents.
+  """
+  listAddItem(input: ListItemInput!): ListItem! @hasRole(role: WRITE)
+
+  "Remove one entry."
+  listRemoveItem(id: ID!): Boolean! @hasRole(role: WRITE)
+
+  """
+  Move one entry to a new position.
+
+  Owner only, even for a published list. Reordering public content is a content edit, and
+  content edits of public artefacts are the same trust-sensitive act as publishing them.
+  """
+  listReorderItem(id: ID!, position: Int!): ListItem! @hasRole(role: WRITE)
+}`, BuiltIn: false},
 	{Name: "../../graphql/schema/types/misc.graphql", Input: `scalar Date
 scalar DateTime
 scalar Time
@@ -11697,6 +12282,76 @@ func (ec *executionContext) childFields_InviteKey(ctx context.Context, field gra
 	return nil, fmt.Errorf("no field named %q was found under type InviteKey", field.Name)
 }
 
+func (ec *executionContext) childFields_List(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "id":
+		return ec.fieldContext_List_id(ctx, field)
+	case "name":
+		return ec.fieldContext_List_name(ctx, field)
+	case "description":
+		return ec.fieldContext_List_description(ctx, field)
+	case "owner":
+		return ec.fieldContext_List_owner(ctx, field)
+	case "publishedAt":
+		return ec.fieldContext_List_publishedAt(ctx, field)
+	case "publishedBy":
+		return ec.fieldContext_List_publishedBy(ctx, field)
+	case "items":
+		return ec.fieldContext_List_items(ctx, field)
+	case "itemCount":
+		return ec.fieldContext_List_itemCount(ctx, field)
+	case "auditTrail":
+		return ec.fieldContext_List_auditTrail(ctx, field)
+	case "createdAt":
+		return ec.fieldContext_List_createdAt(ctx, field)
+	case "updatedAt":
+		return ec.fieldContext_List_updatedAt(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type List", field.Name)
+}
+
+func (ec *executionContext) childFields_ListAudit(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "id":
+		return ec.fieldContext_ListAudit_id(ctx, field)
+	case "actor":
+		return ec.fieldContext_ListAudit_actor(ctx, field)
+	case "action":
+		return ec.fieldContext_ListAudit_action(ctx, field)
+	case "createdAt":
+		return ec.fieldContext_ListAudit_createdAt(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type ListAudit", field.Name)
+}
+
+func (ec *executionContext) childFields_ListBrowseResult(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "lists":
+		return ec.fieldContext_ListBrowseResult_lists(ctx, field)
+	case "count":
+		return ec.fieldContext_ListBrowseResult_count(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type ListBrowseResult", field.Name)
+}
+
+func (ec *executionContext) childFields_ListItem(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "id":
+		return ec.fieldContext_ListItem_id(ctx, field)
+	case "list":
+		return ec.fieldContext_ListItem_list(ctx, field)
+	case "entityType":
+		return ec.fieldContext_ListItem_entityType(ctx, field)
+	case "entityId":
+		return ec.fieldContext_ListItem_entityId(ctx, field)
+	case "position":
+		return ec.fieldContext_ListItem_position(ctx, field)
+	case "createdAt":
+		return ec.fieldContext_ListItem_createdAt(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type ListItem", field.Name)
+}
+
 func (ec *executionContext) childFields_Measurements(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 	switch field.Name {
 	case "cup_size":
@@ -12657,6 +13312,28 @@ func (ec *executionContext) dir_hasRole_args(ctx context.Context, rawArgs map[st
 	return args, nil
 }
 
+func (ec *executionContext) field_List_items_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "perPage",
+		func(ctx context.Context, v any) (*int, error) {
+			return ec.unmarshalOInt2ᚖint(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["perPage"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "page",
+		func(ctx context.Context, v any) (*int, error) {
+			return ec.unmarshalOInt2ᚖint(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["page"] = arg1
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_abandonIdentificationQuery_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -13087,6 +13764,126 @@ func (ec *executionContext) field_Mutation_imageUpdate_args(ctx context.Context,
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
 		func(ctx context.Context, v any) (ImageUpdateInput, error) {
 			return ec.unmarshalNImageUpdateInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐImageUpdateInput(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_listAddItem_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
+		func(ctx context.Context, v any) (ListItemInput, error) {
+			return ec.unmarshalNListItemInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐListItemInput(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_listCreate_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
+		func(ctx context.Context, v any) (ListCreateInput, error) {
+			return ec.unmarshalNListCreateInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐListCreateInput(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_listDelete_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (uuid.UUID, error) {
+			return ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_listPublish_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (uuid.UUID, error) {
+			return ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_listRemoveItem_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (uuid.UUID, error) {
+			return ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_listReorderItem_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (uuid.UUID, error) {
+			return ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "position",
+		func(ctx context.Context, v any) (int, error) {
+			return ec.unmarshalNInt2int(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["position"] = arg1
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_listUnpublish_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (uuid.UUID, error) {
+			return ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_listUpdate_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
+		func(ctx context.Context, v any) (ListUpdateInput, error) {
+			return ec.unmarshalNListUpdateInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐListUpdateInput(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -14481,6 +15278,50 @@ func (ec *executionContext) field_Query_listOpenIdentificationQueries_args(ctx c
 	return args, nil
 }
 
+func (ec *executionContext) field_Query_list_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (uuid.UUID, error) {
+			return ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_lists_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "userId",
+		func(ctx context.Context, v any) (*uuid.UUID, error) {
+			return ec.unmarshalOID2ᚖgithubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["userId"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "perPage",
+		func(ctx context.Context, v any) (*int, error) {
+			return ec.unmarshalOInt2ᚖint(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["perPage"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "page",
+		func(ctx context.Context, v any) (*int, error) {
+			return ec.unmarshalOInt2ᚖint(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["page"] = arg2
+	return args, nil
+}
+
 func (ec *executionContext) field_Query_performerChangelog_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -14508,6 +15349,28 @@ func (ec *executionContext) field_Query_performerChangelog_args(ctx context.Cont
 		return nil, err
 	}
 	args["limit"] = arg2
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_publishedLists_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "perPage",
+		func(ctx context.Context, v any) (*int, error) {
+			return ec.unmarshalOInt2ᚖint(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["perPage"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "page",
+		func(ctx context.Context, v any) (*int, error) {
+			return ec.unmarshalOInt2ᚖint(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["page"] = arg1
 	return args, nil
 }
 
@@ -20334,6 +21197,681 @@ func (ec *executionContext) fieldContext_InviteKey_expires(_ context.Context, fi
 	return graphql.NewScalarFieldContext("InviteKey", field, false, false, errors.New("field of type Time does not have child fields"))
 }
 
+func (ec *executionContext) _List_id(ctx context.Context, field graphql.CollectedField, obj *List) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_List_id(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v uuid.UUID) graphql.Marshaler {
+			return ec.marshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_List_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("List", field, false, false, errors.New("field of type ID does not have child fields"))
+}
+
+func (ec *executionContext) _List_name(ctx context.Context, field graphql.CollectedField, obj *List) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_List_name(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Name, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_List_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("List", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _List_description(ctx context.Context, field graphql.CollectedField, obj *List) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_List_description(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Description, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
+			return ec.marshalOString2ᚖstring(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_List_description(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("List", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _List_owner(ctx context.Context, field graphql.CollectedField, obj *List) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_List_owner(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Owner, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *User) graphql.Marshaler {
+			return ec.marshalNUser2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐUser(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_List_owner(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "List",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_User(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _List_publishedAt(ctx context.Context, field graphql.CollectedField, obj *List) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_List_publishedAt(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.PublishedAt, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
+			return ec.marshalODateTime2ᚖstring(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_List_publishedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("List", field, false, false, errors.New("field of type DateTime does not have child fields"))
+}
+
+func (ec *executionContext) _List_publishedBy(ctx context.Context, field graphql.CollectedField, obj *List) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_List_publishedBy(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.PublishedBy, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *User) graphql.Marshaler {
+			return ec.marshalOUser2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐUser(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_List_publishedBy(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "List",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_User(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _List_items(ctx context.Context, field graphql.CollectedField, obj *List) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_List_items(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Items, nil
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal []ListItem
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal []ListItem
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, obj, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v []ListItem) graphql.Marshaler {
+			return ec.marshalNListItem2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐListItemᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_List_items(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "List",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ListItem(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_List_items_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _List_itemCount(ctx context.Context, field graphql.CollectedField, obj *List) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_List_itemCount(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ItemCount, nil
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal int
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal int
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, obj, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_List_itemCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("List", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _List_auditTrail(ctx context.Context, field graphql.CollectedField, obj *List) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_List_auditTrail(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.AuditTrail, nil
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal []ListAudit
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal []ListAudit
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, obj, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v []ListAudit) graphql.Marshaler {
+			return ec.marshalNListAudit2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐListAuditᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_List_auditTrail(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "List",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ListAudit(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _List_createdAt(ctx context.Context, field graphql.CollectedField, obj *List) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_List_createdAt(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.CreatedAt, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNDateTime2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_List_createdAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("List", field, false, false, errors.New("field of type DateTime does not have child fields"))
+}
+
+func (ec *executionContext) _List_updatedAt(ctx context.Context, field graphql.CollectedField, obj *List) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_List_updatedAt(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.UpdatedAt, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNDateTime2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_List_updatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("List", field, false, false, errors.New("field of type DateTime does not have child fields"))
+}
+
+func (ec *executionContext) _ListAudit_id(ctx context.Context, field graphql.CollectedField, obj *ListAudit) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ListAudit_id(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v uuid.UUID) graphql.Marshaler {
+			return ec.marshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ListAudit_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ListAudit", field, false, false, errors.New("field of type ID does not have child fields"))
+}
+
+func (ec *executionContext) _ListAudit_actor(ctx context.Context, field graphql.CollectedField, obj *ListAudit) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ListAudit_actor(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Actor, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *User) graphql.Marshaler {
+			return ec.marshalOUser2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐUser(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_ListAudit_actor(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ListAudit",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_User(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ListAudit_action(ctx context.Context, field graphql.CollectedField, obj *ListAudit) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ListAudit_action(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Action, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v ListAuditActionEnum) graphql.Marshaler {
+			return ec.marshalNListAuditActionEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐListAuditActionEnum(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ListAudit_action(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ListAudit", field, false, false, errors.New("field of type ListAuditActionEnum does not have child fields"))
+}
+
+func (ec *executionContext) _ListAudit_createdAt(ctx context.Context, field graphql.CollectedField, obj *ListAudit) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ListAudit_createdAt(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.CreatedAt, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNDateTime2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ListAudit_createdAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ListAudit", field, false, false, errors.New("field of type DateTime does not have child fields"))
+}
+
+func (ec *executionContext) _ListBrowseResult_lists(ctx context.Context, field graphql.CollectedField, obj *ListBrowseResult) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ListBrowseResult_lists(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Lists, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []List) graphql.Marshaler {
+			return ec.marshalNList2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐListᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ListBrowseResult_lists(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ListBrowseResult",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_List(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ListBrowseResult_count(ctx context.Context, field graphql.CollectedField, obj *ListBrowseResult) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ListBrowseResult_count(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Count, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ListBrowseResult_count(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ListBrowseResult", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _ListItem_id(ctx context.Context, field graphql.CollectedField, obj *ListItem) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ListItem_id(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v uuid.UUID) graphql.Marshaler {
+			return ec.marshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ListItem_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ListItem", field, false, false, errors.New("field of type ID does not have child fields"))
+}
+
+func (ec *executionContext) _ListItem_list(ctx context.Context, field graphql.CollectedField, obj *ListItem) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ListItem_list(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.List, nil
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal *List
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *List
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, obj, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *List) graphql.Marshaler {
+			return ec.marshalNList2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐList(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ListItem_list(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ListItem",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_List(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ListItem_entityType(ctx context.Context, field graphql.CollectedField, obj *ListItem) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ListItem_entityType(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.EntityType, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v ListEntityTypeEnum) graphql.Marshaler {
+			return ec.marshalNListEntityTypeEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐListEntityTypeEnum(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ListItem_entityType(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ListItem", field, false, false, errors.New("field of type ListEntityTypeEnum does not have child fields"))
+}
+
+func (ec *executionContext) _ListItem_entityId(ctx context.Context, field graphql.CollectedField, obj *ListItem) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ListItem_entityId(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.EntityID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v uuid.UUID) graphql.Marshaler {
+			return ec.marshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ListItem_entityId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ListItem", field, false, false, errors.New("field of type ID does not have child fields"))
+}
+
+func (ec *executionContext) _ListItem_position(ctx context.Context, field graphql.CollectedField, obj *ListItem) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ListItem_position(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Position, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ListItem_position(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ListItem", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _ListItem_createdAt(ctx context.Context, field graphql.CollectedField, obj *ListItem) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ListItem_createdAt(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.CreatedAt, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNDateTime2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ListItem_createdAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ListItem", field, false, false, errors.New("field of type DateTime does not have child fields"))
+}
+
 func (ec *executionContext) _Measurements_cup_size(ctx context.Context, field graphql.CollectedField, obj *Measurements) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -25803,6 +27341,502 @@ func (ec *executionContext) fieldContext_Mutation_abandonIdentificationQuery(ctx
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Mutation_abandonIdentificationQuery_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_listCreate(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_listCreate(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().ListCreate(ctx, fc.Args["input"].(ListCreateInput))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal *List
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *List
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *List) graphql.Marshaler {
+			return ec.marshalNList2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐList(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_listCreate(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_List(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_listCreate_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_listUpdate(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_listUpdate(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().ListUpdate(ctx, fc.Args["input"].(ListUpdateInput))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "WRITE")
+				if err != nil {
+					var zeroVal *List
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *List
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *List) graphql.Marshaler {
+			return ec.marshalNList2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐList(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_listUpdate(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_List(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_listUpdate_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_listDelete(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_listDelete(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().ListDelete(ctx, fc.Args["id"].(uuid.UUID))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "WRITE")
+				if err != nil {
+					var zeroVal bool
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal bool
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_listDelete(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_listDelete_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_listPublish(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_listPublish(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().ListPublish(ctx, fc.Args["id"].(uuid.UUID))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "WRITE")
+				if err != nil {
+					var zeroVal *List
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *List
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *List) graphql.Marshaler {
+			return ec.marshalNList2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐList(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_listPublish(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_List(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_listPublish_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_listUnpublish(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_listUnpublish(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().ListUnpublish(ctx, fc.Args["id"].(uuid.UUID))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "WRITE")
+				if err != nil {
+					var zeroVal *List
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *List
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *List) graphql.Marshaler {
+			return ec.marshalNList2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐList(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_listUnpublish(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_List(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_listUnpublish_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_listAddItem(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_listAddItem(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().ListAddItem(ctx, fc.Args["input"].(ListItemInput))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "WRITE")
+				if err != nil {
+					var zeroVal *ListItem
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *ListItem
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *ListItem) graphql.Marshaler {
+			return ec.marshalNListItem2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐListItem(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_listAddItem(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ListItem(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_listAddItem_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_listRemoveItem(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_listRemoveItem(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().ListRemoveItem(ctx, fc.Args["id"].(uuid.UUID))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "WRITE")
+				if err != nil {
+					var zeroVal bool
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal bool
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_listRemoveItem(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_listRemoveItem_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_listReorderItem(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_listReorderItem(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().ListReorderItem(ctx, fc.Args["id"].(uuid.UUID), fc.Args["position"].(int))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "WRITE")
+				if err != nil {
+					var zeroVal *ListItem
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *ListItem
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *ListItem) graphql.Marshaler {
+			return ec.marshalNListItem2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐListItem(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_listReorderItem(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ListItem(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_listReorderItem_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -32888,6 +34922,192 @@ func (ec *executionContext) fieldContext_Query_myIdentificationDetectiveScore(_ 
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return ec.childFields_IdentificationDetective(ctx, field)
 		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_list(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_list(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().List(ctx, fc.Args["id"].(uuid.UUID))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal *List
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *List
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *List) graphql.Marshaler {
+			return ec.marshalOList2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐList(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_Query_list(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_List(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_list_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_publishedLists(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_publishedLists(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().PublishedLists(ctx, fc.Args["perPage"].(*int), fc.Args["page"].(*int))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal *ListBrowseResult
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *ListBrowseResult
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *ListBrowseResult) graphql.Marshaler {
+			return ec.marshalNListBrowseResult2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐListBrowseResult(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_publishedLists(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ListBrowseResult(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_publishedLists_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_lists(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_lists(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().Lists(ctx, fc.Args["userId"].(*uuid.UUID), fc.Args["perPage"].(*int), fc.Args["page"].(*int))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal []List
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal []List
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v []List) graphql.Marshaler {
+			return ec.marshalNList2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐListᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_lists(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_List(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_lists_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
 	}
 	return fc, nil
 }
@@ -43023,6 +45243,138 @@ func (ec *executionContext) unmarshalInputIntCriterionInput(ctx context.Context,
 	return it, nil
 }
 
+func (ec *executionContext) unmarshalInputListCreateInput(ctx context.Context, obj any) (ListCreateInput, error) {
+	var it ListCreateInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"name", "description"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "name":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("name"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Name = data
+		case "description":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("description"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Description = data
+		}
+	}
+	return it, nil
+}
+
+func (ec *executionContext) unmarshalInputListItemInput(ctx context.Context, obj any) (ListItemInput, error) {
+	var it ListItemInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"listId", "entityType", "entityId", "position"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "listId":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("listId"))
+			data, err := ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ListID = data
+		case "entityType":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("entityType"))
+			data, err := ec.unmarshalNListEntityTypeEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐListEntityTypeEnum(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.EntityType = data
+		case "entityId":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("entityId"))
+			data, err := ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.EntityID = data
+		case "position":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("position"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Position = data
+		}
+	}
+	return it, nil
+}
+
+func (ec *executionContext) unmarshalInputListUpdateInput(ctx context.Context, obj any) (ListUpdateInput, error) {
+	var it ListUpdateInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"id", "name", "description"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "id":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("id"))
+			data, err := ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ID = data
+		case "name":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("name"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Name = data
+		case "description":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("description"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Description = data
+		}
+	}
+	return it, nil
+}
+
 func (ec *executionContext) unmarshalInputMarkNotificationReadInput(ctx context.Context, obj any) (MarkNotificationReadInput, error) {
 	var it MarkNotificationReadInput
 	if obj == nil {
@@ -51745,6 +54097,253 @@ func (ec *executionContext) _InviteKey(ctx context.Context, sel ast.SelectionSet
 	return out
 }
 
+var listImplementors = []string{"List"}
+
+func (ec *executionContext) _List(ctx context.Context, sel ast.SelectionSet, obj *List) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, listImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("List")
+		case "id":
+			out.Values[i] = ec._List_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "name":
+			out.Values[i] = ec._List_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "description":
+			out.Values[i] = ec._List_description(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		case "owner":
+			out.Values[i] = ec._List_owner(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "publishedAt":
+			out.Values[i] = ec._List_publishedAt(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		case "publishedBy":
+			out.Values[i] = ec._List_publishedBy(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		case "items":
+			out.Values[i] = ec._List_items(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "itemCount":
+			out.Values[i] = ec._List_itemCount(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "auditTrail":
+			out.Values[i] = ec._List_auditTrail(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "createdAt":
+			out.Values[i] = ec._List_createdAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "updatedAt":
+			out.Values[i] = ec._List_updatedAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var listAuditImplementors = []string{"ListAudit"}
+
+func (ec *executionContext) _ListAudit(ctx context.Context, sel ast.SelectionSet, obj *ListAudit) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, listAuditImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ListAudit")
+		case "id":
+			out.Values[i] = ec._ListAudit_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "actor":
+			out.Values[i] = ec._ListAudit_actor(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		case "action":
+			out.Values[i] = ec._ListAudit_action(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "createdAt":
+			out.Values[i] = ec._ListAudit_createdAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var listBrowseResultImplementors = []string{"ListBrowseResult"}
+
+func (ec *executionContext) _ListBrowseResult(ctx context.Context, sel ast.SelectionSet, obj *ListBrowseResult) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, listBrowseResultImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ListBrowseResult")
+		case "lists":
+			out.Values[i] = ec._ListBrowseResult_lists(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "count":
+			out.Values[i] = ec._ListBrowseResult_count(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var listItemImplementors = []string{"ListItem"}
+
+func (ec *executionContext) _ListItem(ctx context.Context, sel ast.SelectionSet, obj *ListItem) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, listItemImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ListItem")
+		case "id":
+			out.Values[i] = ec._ListItem_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "list":
+			out.Values[i] = ec._ListItem_list(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "entityType":
+			out.Values[i] = ec._ListItem_entityType(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "entityId":
+			out.Values[i] = ec._ListItem_entityId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "position":
+			out.Values[i] = ec._ListItem_position(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "createdAt":
+			out.Values[i] = ec._ListItem_createdAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
 var measurementsImplementors = []string{"Measurements"}
 
 func (ec *executionContext) _Measurements(ctx context.Context, sel ast.SelectionSet, obj *Measurements) graphql.Marshaler {
@@ -52562,6 +55161,62 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 		case "abandonIdentificationQuery":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_abandonIdentificationQuery(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "listCreate":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_listCreate(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "listUpdate":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_listUpdate(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "listDelete":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_listDelete(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "listPublish":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_listPublish(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "listUnpublish":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_listUnpublish(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "listAddItem":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_listAddItem(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "listRemoveItem":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_listRemoveItem(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "listReorderItem":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_listReorderItem(ctx, field)
 			})
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
@@ -56284,6 +58939,72 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 				}()
 				res = ec._Query_myIdentificationDetectiveScore(ctx, field)
 				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "list":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_list(ctx, field)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "publishedLists":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_publishedLists(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "lists":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_lists(ctx, field)
+				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
 				return res
@@ -62913,6 +65634,22 @@ func (ec *executionContext) marshalNDateAccuracyEnum2githubᚗcomᚋstashappᚋs
 	return v
 }
 
+func (ec *executionContext) unmarshalNDateTime2string(ctx context.Context, v any) (string, error) {
+	res, err := graphql.UnmarshalString(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNDateTime2string(ctx context.Context, sel ast.SelectionSet, v string) graphql.Marshaler {
+	_ = sel
+	res := graphql.MarshalString(v)
+	if res == graphql.Null {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+	}
+	return res
+}
+
 func (ec *executionContext) unmarshalNDeleteEditInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐDeleteEditInput(ctx context.Context, v any) (DeleteEditInput, error) {
 	res, err := ec.unmarshalInputDeleteEditInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
@@ -64002,6 +66739,131 @@ func (ec *executionContext) marshalNInt2ᚕintᚄ(ctx context.Context, sel ast.S
 
 func (ec *executionContext) marshalNInviteKey2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐInviteKey(ctx context.Context, sel ast.SelectionSet, v InviteKey) graphql.Marshaler {
 	return ec._InviteKey(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNList2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐList(ctx context.Context, sel ast.SelectionSet, v List) graphql.Marshaler {
+	return ec._List(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNList2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐListᚄ(ctx context.Context, sel ast.SelectionSet, v []List) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNList2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐList(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNList2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐList(ctx context.Context, sel ast.SelectionSet, v *List) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._List(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNListAudit2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐListAudit(ctx context.Context, sel ast.SelectionSet, v ListAudit) graphql.Marshaler {
+	return ec._ListAudit(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNListAudit2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐListAuditᚄ(ctx context.Context, sel ast.SelectionSet, v []ListAudit) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNListAudit2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐListAudit(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) unmarshalNListAuditActionEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐListAuditActionEnum(ctx context.Context, v any) (ListAuditActionEnum, error) {
+	var res ListAuditActionEnum
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNListAuditActionEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐListAuditActionEnum(ctx context.Context, sel ast.SelectionSet, v ListAuditActionEnum) graphql.Marshaler {
+	return v
+}
+
+func (ec *executionContext) marshalNListBrowseResult2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐListBrowseResult(ctx context.Context, sel ast.SelectionSet, v *ListBrowseResult) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._ListBrowseResult(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalNListCreateInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐListCreateInput(ctx context.Context, v any) (ListCreateInput, error) {
+	res, err := ec.unmarshalInputListCreateInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) unmarshalNListEntityTypeEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐListEntityTypeEnum(ctx context.Context, v any) (ListEntityTypeEnum, error) {
+	var res ListEntityTypeEnum
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNListEntityTypeEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐListEntityTypeEnum(ctx context.Context, sel ast.SelectionSet, v ListEntityTypeEnum) graphql.Marshaler {
+	return v
+}
+
+func (ec *executionContext) marshalNListItem2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐListItem(ctx context.Context, sel ast.SelectionSet, v ListItem) graphql.Marshaler {
+	return ec._ListItem(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNListItem2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐListItemᚄ(ctx context.Context, sel ast.SelectionSet, v []ListItem) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNListItem2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐListItem(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNListItem2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐListItem(ctx context.Context, sel ast.SelectionSet, v *ListItem) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._ListItem(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalNListItemInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐListItemInput(ctx context.Context, v any) (ListItemInput, error) {
+	res, err := ec.unmarshalInputListItemInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) unmarshalNListUpdateInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐListUpdateInput(ctx context.Context, v any) (ListUpdateInput, error) {
+	res, err := ec.unmarshalInputListUpdateInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
 }
 
 func (ec *executionContext) marshalNMeasurements2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐMeasurements(ctx context.Context, sel ast.SelectionSet, v *Measurements) graphql.Marshaler {
@@ -66338,6 +69200,13 @@ func (ec *executionContext) marshalOInviteKey2ᚕgithubᚗcomᚋstashappᚋstash
 	}
 
 	return ret
+}
+
+func (ec *executionContext) marshalOList2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐList(ctx context.Context, sel ast.SelectionSet, v *List) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._List(ctx, sel, v)
 }
 
 func (ec *executionContext) unmarshalOMarkNotificationReadInput2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐMarkNotificationReadInput(ctx context.Context, v any) (*MarkNotificationReadInput, error) {
