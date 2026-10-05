@@ -723,6 +723,8 @@ type TagCategory struct {
 	Description *string   `db:"description" json:"description"`
 	CreatedAt   time.Time `db:"created_at" json:"created_at"`
 	UpdatedAt   time.Time `db:"updated_at" json:"updated_at"`
+	// Parent category, for nesting. NULL means top level. Deleting a parent sets its children's parent to NULL (promotes them) rather than cascading, so reorganising vocabulary cannot silently destroy it.
+	ParentID uuid.NullUUID `db:"parent_id" json:"parent_id"`
 }
 
 type TagEdit struct {

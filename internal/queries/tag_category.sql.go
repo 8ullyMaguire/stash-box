@@ -7,6 +7,7 @@ package queries
 
 import (
 	"context"
+	"time"
 
 	"github.com/gofrs/uuid"
 )
@@ -15,7 +16,7 @@ const createTagCategory = `-- name: CreateTagCategory :one
 
 INSERT INTO tag_categories (id, "group", name, description, created_at, updated_at)
 VALUES ($1, $2, $3, $4, now(), now())
-RETURNING id, "group", name, description, created_at, updated_at
+RETURNING id, "group", name, description, created_at, updated_at, parent_id
 `
 
 type CreateTagCategoryParams struct {
@@ -41,6 +42,7 @@ func (q *Queries) CreateTagCategory(ctx context.Context, arg CreateTagCategoryPa
 		&i.Description,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ParentID,
 	)
 	return i, err
 }
@@ -55,7 +57,7 @@ func (q *Queries) DeleteTagCategory(ctx context.Context, id uuid.UUID) error {
 }
 
 const findTagCategory = `-- name: FindTagCategory :one
-SELECT id, "group", name, description, created_at, updated_at FROM tag_categories WHERE id = $1
+SELECT id, "group", name, description, created_at, updated_at, parent_id FROM tag_categories WHERE id = $1
 `
 
 func (q *Queries) FindTagCategory(ctx context.Context, id uuid.UUID) (TagCategory, error) {
@@ -68,12 +70,226 @@ func (q *Queries) FindTagCategory(ctx context.Context, id uuid.UUID) (TagCategor
 		&i.Description,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ParentID,
 	)
 	return i, err
 }
 
+const findTagCategoryAncestors = `-- name: FindTagCategoryAncestors :many
+WITH RECURSIVE chain AS (
+    SELECT tc.id, tc."group", tc.name, tc.description, tc.created_at, tc.updated_at, tc.parent_id, 0 AS depth
+      FROM tag_categories tc
+     WHERE tc.parent_id = $1
+    UNION ALL
+    SELECT tc.id, tc."group", tc.name, tc.description, tc.created_at, tc.updated_at, tc.parent_id, c.depth + 1
+      FROM tag_categories tc
+      JOIN chain c ON tc.id = c.parent_id
+)
+SELECT id, "group", name, description, created_at, updated_at, parent_id, depth FROM chain ORDER BY depth ASC, name ASC
+`
+
+type FindTagCategoryAncestorsRow struct {
+	ID          uuid.UUID     `db:"id" json:"id"`
+	Group       string        `db:"group" json:"group"`
+	Name        string        `db:"name" json:"name"`
+	Description *string       `db:"description" json:"description"`
+	CreatedAt   time.Time     `db:"created_at" json:"created_at"`
+	UpdatedAt   time.Time     `db:"updated_at" json:"updated_at"`
+	ParentID    uuid.NullUUID `db:"parent_id" json:"parent_id"`
+	Depth       int32         `db:"depth" json:"depth"`
+}
+
+// Everything ABOVE a category: parents, grandparents, to the root.
+//
+// Ordered root-first, which is the order a breadcrumb needs. Depth 0 is the immediate
+// parent and the LAST row is the root, so a client renders breadcrumbs by reading this
+// list backwards.
+func (q *Queries) FindTagCategoryAncestors(ctx context.Context, parentID uuid.NullUUID) ([]FindTagCategoryAncestorsRow, error) {
+	rows, err := q.db.Query(ctx, findTagCategoryAncestors, parentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []FindTagCategoryAncestorsRow{}
+	for rows.Next() {
+		var i FindTagCategoryAncestorsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Group,
+			&i.Name,
+			&i.Description,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.ParentID,
+			&i.Depth,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const findTagCategoryChildren = `-- name: FindTagCategoryChildren :many
+
+SELECT tc.id, tc."group", tc.name, tc.description, tc.created_at, tc.updated_at, tc.parent_id, 0 AS depth
+FROM tag_categories tc
+WHERE tc.parent_id = $1
+ORDER BY tc.name ASC
+`
+
+type FindTagCategoryChildrenRow struct {
+	ID          uuid.UUID     `db:"id" json:"id"`
+	Group       string        `db:"group" json:"group"`
+	Name        string        `db:"name" json:"name"`
+	Description *string       `db:"description" json:"description"`
+	CreatedAt   time.Time     `db:"created_at" json:"created_at"`
+	UpdatedAt   time.Time     `db:"updated_at" json:"updated_at"`
+	ParentID    uuid.NullUUID `db:"parent_id" json:"parent_id"`
+	Depth       int32         `db:"depth" json:"depth"`
+}
+
+// Nesting queries (growth item 24). Migration 106 added parent_id; these read it.
+//
+// EVERY TREE QUERY CARRIES A DEPTH COLUMN, and that is not decoration. A flat list of
+// names cannot draw a hierarchy -- the client cannot tell a child from a grandchild
+// without the distance. Carrying depth also means the client does not have to
+// reconstruct the tree by repeated round trips.
+//
+// `depth` starts at 0 for DIRECT children of the requested category. The requested
+// category itself is not included in its own descendants, so a client asking "what is
+// under this?" gets exactly that and no self-reference.
+// Direct children only. One level, for a tree that loads lazily as the user expands.
+func (q *Queries) FindTagCategoryChildren(ctx context.Context, parentID uuid.NullUUID) ([]FindTagCategoryChildrenRow, error) {
+	rows, err := q.db.Query(ctx, findTagCategoryChildren, parentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []FindTagCategoryChildrenRow{}
+	for rows.Next() {
+		var i FindTagCategoryChildrenRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Group,
+			&i.Name,
+			&i.Description,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.ParentID,
+			&i.Depth,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const findTagCategoryDescendants = `-- name: FindTagCategoryDescendants :many
+WITH RECURSIVE tree AS (
+    SELECT tc.id, tc."group", tc.name, tc.description, tc.created_at, tc.updated_at, tc.parent_id, 0 AS depth
+      FROM tag_categories tc
+     WHERE tc.parent_id = $1
+    UNION ALL
+    SELECT tc.id, tc."group", tc.name, tc.description, tc.created_at, tc.updated_at, tc.parent_id, t.depth + 1
+      FROM tag_categories tc
+      JOIN tree t ON tc.parent_id = t.id
+)
+SELECT id, "group", name, description, created_at, updated_at, parent_id, depth FROM tree ORDER BY depth ASC, name ASC
+`
+
+type FindTagCategoryDescendantsRow struct {
+	ID          uuid.UUID     `db:"id" json:"id"`
+	Group       string        `db:"group" json:"group"`
+	Name        string        `db:"name" json:"name"`
+	Description *string       `db:"description" json:"description"`
+	CreatedAt   time.Time     `db:"created_at" json:"created_at"`
+	UpdatedAt   time.Time     `db:"updated_at" json:"updated_at"`
+	ParentID    uuid.NullUUID `db:"parent_id" json:"parent_id"`
+	Depth       int32         `db:"depth" json:"depth"`
+}
+
+// Everything below a category, at any depth.
+//
+// The cycle guard in migration 106 is what makes this terminate. Without it a cycle
+// makes this CTE recurse until the database runs out of stack, and there is no cycle
+// here to detect at read time because the data would already be corrupt.
+func (q *Queries) FindTagCategoryDescendants(ctx context.Context, parentID uuid.NullUUID) ([]FindTagCategoryDescendantsRow, error) {
+	rows, err := q.db.Query(ctx, findTagCategoryDescendants, parentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []FindTagCategoryDescendantsRow{}
+	for rows.Next() {
+		var i FindTagCategoryDescendantsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Group,
+			&i.Name,
+			&i.Description,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.ParentID,
+			&i.Depth,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const findTagCategoryRoots = `-- name: FindTagCategoryRoots :many
+SELECT id, "group", name, description, created_at, updated_at, parent_id FROM tag_categories
+WHERE parent_id IS NULL
+ORDER BY name ASC
+`
+
+// Top-level categories. The entry point for browsing.
+//
+// `OR parent_id IS NULL` rather than a NOT EXISTS: a category whose parent row was
+// deleted has parent_id set to NULL by ON DELETE SET NULL, so it is a root either way.
+func (q *Queries) FindTagCategoryRoots(ctx context.Context) ([]TagCategory, error) {
+	rows, err := q.db.Query(ctx, findTagCategoryRoots)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []TagCategory{}
+	for rows.Next() {
+		var i TagCategory
+		if err := rows.Scan(
+			&i.ID,
+			&i.Group,
+			&i.Name,
+			&i.Description,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.ParentID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getAllTagCategories = `-- name: GetAllTagCategories :many
-SELECT id, "group", name, description, created_at, updated_at FROM tag_categories ORDER BY name ASC
+SELECT id, "group", name, description, created_at, updated_at, parent_id FROM tag_categories ORDER BY name ASC
 `
 
 func (q *Queries) GetAllTagCategories(ctx context.Context) ([]TagCategory, error) {
@@ -92,6 +308,7 @@ func (q *Queries) GetAllTagCategories(ctx context.Context) ([]TagCategory, error
 			&i.Description,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.ParentID,
 		); err != nil {
 			return nil, err
 		}
@@ -104,7 +321,7 @@ func (q *Queries) GetAllTagCategories(ctx context.Context) ([]TagCategory, error
 }
 
 const getTagCategoriesByIds = `-- name: GetTagCategoriesByIds :many
-SELECT id, "group", name, description, created_at, updated_at FROM tag_categories WHERE id = ANY($1::UUID[])
+SELECT id, "group", name, description, created_at, updated_at, parent_id FROM tag_categories WHERE id = ANY($1::UUID[])
 `
 
 func (q *Queries) GetTagCategoriesByIds(ctx context.Context, dollar_1 []uuid.UUID) ([]TagCategory, error) {
@@ -123,6 +340,7 @@ func (q *Queries) GetTagCategoriesByIds(ctx context.Context, dollar_1 []uuid.UUI
 			&i.Description,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.ParentID,
 		); err != nil {
 			return nil, err
 		}
@@ -138,7 +356,7 @@ const updateTagCategory = `-- name: UpdateTagCategory :one
 UPDATE tag_categories 
 SET "group" = $2, name = $3, description = $4, updated_at = now()
 WHERE id = $1
-RETURNING id, "group", name, description, created_at, updated_at
+RETURNING id, "group", name, description, created_at, updated_at, parent_id
 `
 
 type UpdateTagCategoryParams struct {
@@ -163,6 +381,7 @@ func (q *Queries) UpdateTagCategory(ctx context.Context, arg UpdateTagCategoryPa
 		&i.Description,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ParentID,
 	)
 	return i, err
 }

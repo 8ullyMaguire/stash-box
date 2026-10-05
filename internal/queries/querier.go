@@ -729,6 +729,35 @@ type Querier interface {
 	FindTagByName(ctx context.Context, upper interface{}) (Tag, error)
 	FindTagByNameOrAlias(ctx context.Context, lower string) (Tag, error)
 	FindTagCategory(ctx context.Context, id uuid.UUID) (TagCategory, error)
+	// Everything ABOVE a category: parents, grandparents, to the root.
+	//
+	// Ordered root-first, which is the order a breadcrumb needs. Depth 0 is the immediate
+	// parent and the LAST row is the root, so a client renders breadcrumbs by reading this
+	// list backwards.
+	FindTagCategoryAncestors(ctx context.Context, parentID uuid.NullUUID) ([]FindTagCategoryAncestorsRow, error)
+	// Nesting queries (growth item 24). Migration 106 added parent_id; these read it.
+	//
+	// EVERY TREE QUERY CARRIES A DEPTH COLUMN, and that is not decoration. A flat list of
+	// names cannot draw a hierarchy -- the client cannot tell a child from a grandchild
+	// without the distance. Carrying depth also means the client does not have to
+	// reconstruct the tree by repeated round trips.
+	//
+	// `depth` starts at 0 for DIRECT children of the requested category. The requested
+	// category itself is not included in its own descendants, so a client asking "what is
+	// under this?" gets exactly that and no self-reference.
+	// Direct children only. One level, for a tree that loads lazily as the user expands.
+	FindTagCategoryChildren(ctx context.Context, parentID uuid.NullUUID) ([]FindTagCategoryChildrenRow, error)
+	// Everything below a category, at any depth.
+	//
+	// The cycle guard in migration 106 is what makes this terminate. Without it a cycle
+	// makes this CTE recurse until the database runs out of stack, and there is no cycle
+	// here to detect at read time because the data would already be corrupt.
+	FindTagCategoryDescendants(ctx context.Context, parentID uuid.NullUUID) ([]FindTagCategoryDescendantsRow, error)
+	// Top-level categories. The entry point for browsing.
+	//
+	// `OR parent_id IS NULL` rather than a NOT EXISTS: a category whose parent row was
+	// deleted has parent_id set to NULL by ON DELETE SET NULL, so it is a root either way.
+	FindTagCategoryRoots(ctx context.Context) ([]TagCategory, error)
 	// Bulk query to find tag IDs for multiple scene IDs
 	FindTagIdsBySceneIds(ctx context.Context, sceneIds []uuid.UUID) ([]SceneTag, error)
 	FindTagWithRedirect(ctx context.Context, id uuid.UUID) ([]Tag, error)
