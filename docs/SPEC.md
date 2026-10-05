@@ -1474,6 +1474,190 @@ and 7.24.2 are what everything downstream prices against.
 
 ---
 
+### 7.25 Fourth intake amendment — recall: finding a scene from broad strokes (amended 2026-10-05)
+
+Two AI-generated lists of 100 ideas each arrived for one problem: **someone
+remembers a scene they saw a long time ago in broad strokes — an era, a vibe,
+half a performer name, a setting — and a "tip of my tongue" community could not
+find it.** Verbatim sources and the merged index are in
+`docs/ideas/scene-recall/`; this section is what was adopted, and
+`docs/plan/feature-scene-recall-index.md` is the plan.
+
+**The premise, and the two failures hiding inside it.** Tip-of-tongue
+communities fail structurally — prose threads, no structured data to search.
+But "could not find it" has two very different causes, and this section treats
+them as separate problems because they need opposite responses:
+
+- **A vocabulary failure.** The user cannot *name* what they remember. The
+  answer is structured clues and a vocabulary learned from solved queries
+  (7.25.3).
+- **A coverage failure.** The scene was never catalogued at all. The answer is
+  ingestion, not search, and the honest surface for it is `expected_totals`
+  (7.25.5) — "this studio claims 400 scenes, we have 120".
+
+Nothing in this section can tell the two apart on its own, and that is a
+limitation of the design rather than a gap to be closed later: **an absent scene
+is indistinguishable from an undescribed one.** 7.25.5 is the only thing in the
+set that makes the difference visible to a user, and it is deliberately early
+in the order of work for exactly that reason.
+
+**What was verified before anything was adopted, and it changed the plan.**
+`scene_search` is a denormalized table maintained by triggers, with a ParadeDB
+BM25 index. Measured on a freshly migrated database, its columns are
+`scene_id, scene_title, scene_date, studio_name, network_name, studio_aliases,
+network_aliases, performer_names, scene_code`. **`details`, `director` and tags
+are absent** — migrations 35, 56 and 61 each rebuilt the table and none added
+them. Separately, and worse than the missing columns: **`scene_tags` carries no
+trigger at all.** `tags` fires `trg_tag_search_on_tag` into `upsert_tag_search`,
+`scenes` fires `trg_scene_search_on_scene` into `upsert_scene_search`, and the
+`scene_performers` row triggers exist for insert and delete — so the performer
+path is maintained and the tag path has no maintenance mechanism whatsoever. A
+tag column added to `scene_search` without a trigger on `scene_tags` would be
+an index that silently reports whatever the last unrelated scene write happened
+to recompute. That is the single most important finding in this amendment and
+it is not visible from either source list.
+
+#### 7.25.1 The recall index — `details`, `director`, and tags become searchable
+
+The three fields the vision's §7.4 "discovery is the default experience" assumes
+are searchable, and which are not. `scenes.details` is free text and is where
+broad strokes live by definition ("hotel room, rainy night"); `scenes.director`
+is a half-remembered-name cue; tags are the most common broad stroke of all.
+
+Adopted as **one migration and one query change**, because they are the same
+change: three columns on `scene_search`, the same denormalizing `INSERT` that
+already builds `performer_names`, the matching fields in the BM25 index, and
+three new `paradedb.match` disjuncts in `SearchScenes`.
+
+**Two decisions, and what each rules out.**
+
+**R1 — tags are weighted above studio in `disjunction_max`.** For a vague query,
+what happened in the scene matters more than who released it. The ranker
+already carries per-field boosts (`performer_names` at 2.0), so this is a
+weighting change and not a new mechanism. It rules out treating the tag field as
+just another equal disjunct.
+
+**R2 — a `scene_tags` statement-level trigger, not a row trigger.** The
+performer path's insert/delete triggers use `REFERENCING NEW TABLE` and are
+therefore one statement each regardless of batch size. A row-level trigger on
+`scene_tags` would fire `upsert_scene_search` once per tag per scene, which on a
+bulk tag import is the difference between one rewrite and thousands. The
+statement-level shape is the one already proven in this schema, so it is the one
+reused.
+
+#### 7.25.2 A drift check, because a trigger-maintained index fails silently
+
+`scene_search` has no way to report a row it missed. A scene whose trigger did
+not fire is invisible to every search, forever, and nothing in the product
+notices — the same class of fault as §7.24.1's verified-unknown markers, where
+*absence* could not be distinguished from *empty*. Without this, 7.25.1's
+correctness rests on a trigger nobody can observe failing.
+
+Adopted as a **query, not a watch**: `count(*)` of live non-deleted scenes
+against `count(*)` of `scene_search` rows, plus the scene-ids in the first set
+and not the second. A count difference is the alarm; the id set is the
+diagnosis. It ships in the same migration as 7.25.1 because a drift check added
+later is a drift check nobody adds.
+
+#### 7.25.3 The board is the fallback, so it needs to be findable and structured
+
+The identification board already exists (§7.5, migration 79, and it is complete
+— §7.16's table saying otherwise is stale). It is deliberately conservative: a
+vote is evidence, never authority, and nothing in it can create metadata.
+
+What it is *not* is searchable or structured. `IdentificationPostInput` is
+`{targetType, targetId, description, snapshotId}` and **`description` is the
+only queryable clue**; `collage_id` exists in the table and in the Go struct and
+is absent from the GraphQL type; `IdentificationCandidate.note` has a doc
+comment saying verbatim that it is not exposed as a mutation input because no
+caller supplies one. The board's own archive — every solved question — is
+unsearchable, so the answer to a new question cannot be found by asking the
+archive.
+
+Adopted here, and each is small:
+
+- **A BM25 index on `identification_queries.description`.** The cheapest item in
+  the set and the one that makes every solved query reusable.
+- **Structured clue fields on the post input** — era band, approximate duration,
+  performer count, setting. Free text stays, and stays required; a user with a
+  half-formed memory must still be able to post it (the board's own migration
+  comment insists on this).
+- **`note` exposed on the candidate mutation.** "The studio watermark is visible
+  in frame 3" is the difference between a suggestion and a guess, and the field
+  already exists.
+- **`collage_id` exposed on the query type.** The column and the Go struct are
+  both already there; only the schema omits it.
+- **Solved queries linked back from the resolved scene's page.** One index and
+  one join, already possible through the
+  `identification_queries_resolved_idx` partial index.
+
+**Not adopted here: auto-resolving anything.** Structured fields may
+*pre-populate a candidate list for a human to confirm*; they may never settle a
+query. The board's rule is not a default this section is permitted to relax.
+
+#### 7.25.4 Filters the schema cannot express, which are the most-remembered clues
+
+`SceneQueryInput` has no duration, no date *range*, and no performer count.
+`DateCriterionInput` is one `Date!` plus a comparison modifier, so a range is
+expressible only by passing one bound at a time. Meanwhile "it was around 2016",
+"it was short" and "it was one of those two-person scenes" are three of the
+commonest broad strokes there are.
+
+Adopted: **date range, duration band, performer count** as first-class inputs,
+each composing into the existing `queryScenes` surface rather than adding a
+parallel one.
+
+**One thing already exists and is mistaken for missing.** `CriterionModifier`
+includes `EXCLUDES` and `internal/service/scene/query.go` honours it for `id`,
+`studios` and `tags`. Negative filters are a **UI and vocabulary** problem, not
+a missing operator, and no backend work is needed for them.
+
+#### 7.25.5 Coverage failure has to be visible, or the whole premise is unfalsifiable
+
+`expected_totals` (migration 97) records a sourced claim about how many scenes
+a studio has. Nothing surfaces it. So a user searching for a scene that was never
+catalogued gets an empty page and concludes their memory is at fault.
+
+Adopted: **surface the ratio at the studio level**, as a plain count comparison
+in the directory. "This studio claims 400 scenes, we have 120" is the honest
+answer to a failed recall, and it points the effort at ingestion instead of
+search. It is the only item in this amendment that can distinguish the two
+failures in §7.25's premise, which is why it is not deferred.
+
+#### 7.25.6 Order of work
+
+By dependency, and the first item is not a feature:
+
+1. **The evaluation set** — 150–200 remembered descriptions with known answers,
+   drawn from the board's solved queries. Every claim in this amendment is
+   unfalsifiable without it, including the ones in the two source lists that
+   were ranked first. A one-migration change that "obviously helps" is exactly
+   the kind of claim that needs a measurement rather than an assurance.
+2. **7.25.1 + 7.25.2** — the index fields and the drift check, together.
+3. **7.25.3** — the board's findability and structure.
+4. **7.25.4 + 7.25.5** — the missing filters, and the coverage surface.
+
+#### 7.25.7 Explicitly not shipping, and why
+
+- **CLIP / face / appearance matching**, and every idea depending on image hashes
+  (frame-upload matching, reverse-collage search, duplicate-collage detection,
+  colour-palette fingerprints). There is no ML stack in this repository, no
+  image hash on any table, and §7.19 refuses the content plane outright. The
+  strongest *technical* answer to "I remember the picture, not the words" is the
+  worst *fit* for this codebase, and it stays out until the text is searchable.
+- **Scene vector embeddings and ANN search.** Same reason, one phase later.
+- **Auto-creating or auto-updating metadata from a query, a clue, or a vote.**
+  Barred by §7.5's own doctrine, restated in 7.25.3.
+- **Federated recall broadcast.** The machinery is real (§7.17, F1–F6, and D2 is
+  complete), but a new *question kind* across the mesh is a Phase 4 item and this
+  amendment is a Phase 1/2 item. It is listed in
+  `docs/ideas/scene-recall/` and deliberately not adopted here.
+- **A "similar to" block on every scene page**, despite §7.4 promising it. It is
+  adjacent, it is not on the recall path, and adding an unrequested discovery
+  surface is how a focused amendment becomes an unbounded one.
+
+---
+
 ### 7.16 What the vision needs from the existing codebase
 
 The three capabilities the fork must *build* rather than extend, because nothing
