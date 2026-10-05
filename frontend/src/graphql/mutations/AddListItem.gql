@@ -1,0 +1,8 @@
+mutation AddListItem($input: ListItemInput!) {
+  listAddItem(input: $input) {
+    id
+    entityType
+    entityId
+    position
+  }
+}

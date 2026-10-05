@@ -1,0 +1,7 @@
+mutation PublishList($id: ID!) {
+  listPublish(id: $id) {
+    id
+    name
+    publishedAt
+  }
+}

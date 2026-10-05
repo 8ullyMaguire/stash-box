@@ -1,0 +1,7 @@
+mutation UnpublishList($id: ID!) {
+  listUnpublish(id: $id) {
+    id
+    name
+    publishedAt
+  }
+}

@@ -1,0 +1,16 @@
+query PublishedLists($perPage: Int, $page: Int) {
+  publishedLists(perPage: $perPage, page: $page) {
+    count
+    lists {
+      id
+      name
+      description
+      publishedAt
+      itemCount
+      owner {
+        id
+        name
+      }
+    }
+  }
+}

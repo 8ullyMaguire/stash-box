@@ -58,6 +58,16 @@ export const ROUTE_EDITS = "/edits";
 export const ROUTE_EDIT = "/edits/:id";
 export const ROUTE_EDIT_UPDATE = "/edits/:id/update";
 export const ROUTE_EDIT_AMEND = "/edits/:id/amend";
+
+// Shareable lists. The browse listing and "mine" are separate routes rather than one
+// listing with a toggle: `publishedLists` cannot return a draft at all, so a combined
+// route would have to merge two queries whose visibility rules differ, and the merge is
+// where a draft would leak.
+export const ROUTE_LISTS = "/lists";
+export const ROUTE_LIST = "/lists/:id";
+export const ROUTE_LIST_ADD = "/lists/add";
+export const ROUTE_LIST_EDIT = "/lists/:id/edit";
+export const ROUTE_LIST_PUBLISHED = "/lists/published";
 export const ROUTE_REGISTER = "/register";
 export const ROUTE_ACTIVATE = "/activate";
 export const ROUTE_FORGOT_PASSWORD = "/forgot-password";

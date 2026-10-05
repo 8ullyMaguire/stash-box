@@ -71,6 +71,11 @@ import {
   type SearchScenesQueryVariables,
   SearchTagsDocument,
   type SearchTagsQueryVariables,
+  ListDocument,
+  type ListQueryVariables,
+  MyListsDocument,
+  PublishedListsDocument,
+  type PublishedListsQueryVariables,
   SiteCategoriesDocument,
   SiteCategoryDocument,
   type SiteCategoryQueryVariables,
@@ -111,6 +116,32 @@ export const useCategory = (variables: CategoryQueryVariables, skip = false) =>
   });
 
 export const useCategories = () => useQuery(CategoriesDocument);
+
+// useList's `skip` is not decoration. The route is reachable from any list id, including
+// one the viewer cannot see -- the backend answers null for both a hidden draft and a list
+// that does not exist -- so a component that fetches unconditionally on mount will issue a
+// query whose answer is always null. Skipping until an id exists avoids the request, and
+// matches what useCategory already does.
+export const useList = (variables: ListQueryVariables, skip = false) =>
+  useQuery(ListDocument, {
+    variables,
+    skip: skip || !variables.id,
+  });
+
+// The owner's own lists, drafts included. The backend defaults an omitted userId to the
+// caller, so this asks for "mine" by saying nothing.
+export const useMyLists = () => useQuery(MyListsDocument);
+
+// Published lists only. There is no argument for including drafts -- the backend has no
+// such query -- which is the property this surface relies on.
+export const usePublishedLists = (
+  variables: PublishedListsQueryVariables,
+  skip = false,
+) =>
+  useQuery(PublishedListsDocument, {
+    variables,
+    skip,
+  });
 
 export const useImageTypeGroups = (variables: ImageTypeGroupsQueryVariables) =>
   useQuery(ImageTypeGroupsDocument, { variables });

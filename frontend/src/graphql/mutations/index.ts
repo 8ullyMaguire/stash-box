@@ -15,6 +15,30 @@ import {
   AddSiteCategoryDocument,
   type AddSiteCategoryMutation,
   type AddSiteCategoryMutationVariables,
+  AddListItemDocument,
+  type AddListItemMutation,
+  type AddListItemMutationVariables,
+  CreateListDocument,
+  type CreateListMutation,
+  type CreateListMutationVariables,
+  DeleteListDocument,
+  type DeleteListMutation,
+  type DeleteListMutationVariables,
+  PublishListDocument,
+  type PublishListMutation,
+  type PublishListMutationVariables,
+  ReorderListItemDocument,
+  type ReorderListItemMutation,
+  type ReorderListItemMutationVariables,
+  RemoveListItemDocument,
+  type RemoveListItemMutation,
+  type RemoveListItemMutationVariables,
+  UnpublishListDocument,
+  type UnpublishListMutation,
+  type UnpublishListMutationVariables,
+  UpdateListDocument,
+  type UpdateListMutation,
+  type UpdateListMutationVariables,
   AddSiteDocument,
   type AddSiteMutation,
   type AddSiteMutationVariables,
@@ -205,6 +229,43 @@ export const useActivateUser = (
     ActivateNewUserMutationVariables
   >,
 ) => useMutation(ActivateNewUserDocument, options);
+
+// The list mutations. `onCompleted` is left to the caller rather than wrapped here, because
+// the cache update differs per surface: the owner's list view must re-read the listing, the
+// browse page must NOT see a list it is not allowed to show, and a single view must reflect
+// the publish state without a round trip. Wrapping them centrally would force the browse
+// page's rule onto every caller.
+export const useCreateList = (
+  options?: useMutation.Options<CreateListMutation, CreateListMutationVariables>,
+) => useMutation(CreateListDocument, options);
+
+export const useUpdateList = (
+  options?: useMutation.Options<UpdateListMutation, UpdateListMutationVariables>,
+) => useMutation(UpdateListDocument, options);
+
+export const usePublishList = (
+  options?: useMutation.Options<PublishListMutation, PublishListMutationVariables>,
+) => useMutation(PublishListDocument, options);
+
+export const useUnpublishList = (
+  options?: useMutation.Options<UnpublishListMutation, UnpublishListMutationVariables>,
+) => useMutation(UnpublishListDocument, options);
+
+export const useDeleteList = (
+  options?: useMutation.Options<DeleteListMutation, DeleteListMutationVariables>,
+) => useMutation(DeleteListDocument, options);
+
+export const useAddListItem = (
+  options?: useMutation.Options<AddListItemMutation, AddListItemMutationVariables>,
+) => useMutation(AddListItemDocument, options);
+
+export const useRemoveListItem = (
+  options?: useMutation.Options<RemoveListItemMutation, RemoveListItemMutationVariables>,
+) => useMutation(RemoveListItemDocument, options);
+
+export const useReorderListItem = (
+  options?: useMutation.Options<ReorderListItemMutation, ReorderListItemMutationVariables>,
+) => useMutation(ReorderListItemDocument, options);
 
 export const useAddUser = (
   options?: useMutation.Options<AddUserMutation, AddUserMutationVariables>,

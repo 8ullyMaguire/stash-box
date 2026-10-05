@@ -15,6 +15,7 @@ import {
   ROUTE_IDENTIFICATION,
   ROUTE_IMAGE_REVIEW,
   ROUTE_IMAGE_TYPES,
+  ROUTE_LISTS,
   ROUTE_LOGIN,
   ROUTE_NOTIFICATIONS,
   ROUTE_PERFORMERS,
@@ -49,6 +50,7 @@ import RegisterUser from "src/pages/registerUser";
 import ResetPassword from "src/pages/resetPassword";
 import Scenes from "src/pages/scenes";
 import Search from "src/pages/search";
+import Lists from "src/pages/lists";
 import SiteCategories from "src/pages/siteCategories";
 import Sites from "src/pages/sites";
 import Studios from "src/pages/studios";
@@ -70,6 +72,7 @@ const Pages: FC = () => (
             <Route path={`${ROUTE_SCENES}/*`} element={<Scenes />} />
             <Route path={`${ROUTE_STUDIOS}/*`} element={<Studios />} />
             <Route path={`${ROUTE_TAGS}/*`} element={<Tags />} />
+            <Route path={`${ROUTE_LISTS}/*`} element={<Lists />} />
             <Route path={`${ROUTE_EDITS}/*`} element={<Edits />} />
             <Route path={`${ROUTE_CATEGORIES}/*`} element={<Categories />} />
             <Route path={ROUTE_REGISTER} element={<RegisterUser />} />

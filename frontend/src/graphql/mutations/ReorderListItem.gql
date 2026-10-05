@@ -1,0 +1,6 @@
+mutation ReorderListItem($id: ID!, $position: Int!) {
+  listReorderItem(id: $id, position: $position) {
+    id
+    position
+  }
+}

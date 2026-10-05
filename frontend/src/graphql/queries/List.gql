@@ -1,0 +1,30 @@
+query List($id: ID!) {
+  list(id: $id) {
+    id
+    name
+    description
+    publishedAt
+    itemCount
+    createdAt
+    updatedAt
+    owner {
+      id
+      name
+    }
+    items {
+      id
+      entityType
+      entityId
+      position
+    }
+    auditTrail {
+      id
+      action
+      createdAt
+      actor {
+        id
+        name
+      }
+    }
+  }
+}

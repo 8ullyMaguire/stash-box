@@ -1,0 +1,9 @@
+mutation UpdateList($input: ListUpdateInput!) {
+  listUpdate(input: $input) {
+    id
+    name
+    description
+    publishedAt
+    itemCount
+  }
+}

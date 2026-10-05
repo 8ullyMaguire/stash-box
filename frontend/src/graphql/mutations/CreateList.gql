@@ -1,0 +1,9 @@
+mutation CreateList($input: ListCreateInput!) {
+  listCreate(input: $input) {
+    id
+    name
+    description
+    publishedAt
+    itemCount
+  }
+}

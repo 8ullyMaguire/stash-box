@@ -1,0 +1,3 @@
+mutation RemoveListItem($id: ID!) {
+  listRemoveItem(id: $id)
+}
