@@ -530,6 +530,7 @@ type ComplexityRoot struct {
 		SuggestIdentificationCandidate    func(childComplexity int, input IdentificationSuggestInput) int
 		TagCategoryCreate                 func(childComplexity int, input TagCategoryCreateInput) int
 		TagCategoryDestroy                func(childComplexity int, input TagCategoryDestroyInput) int
+		TagCategorySetParent              func(childComplexity int, input TagCategoryParentInput) int
 		TagCategoryUpdate                 func(childComplexity int, input TagCategoryUpdateInput) int
 		TagCreate                         func(childComplexity int, input TagCreateInput) int
 		TagDestroy                        func(childComplexity int, input TagDestroyInput) int
@@ -1022,10 +1023,19 @@ type ComplexityRoot struct {
 	}
 
 	TagCategory struct {
+		Ancestors   func(childComplexity int) int
+		Children    func(childComplexity int) int
+		Descendants func(childComplexity int) int
 		Description func(childComplexity int) int
 		Group       func(childComplexity int) int
 		ID          func(childComplexity int) int
 		Name        func(childComplexity int) int
+		Parent      func(childComplexity int) int
+	}
+
+	TagCategoryTreeNode struct {
+		Category func(childComplexity int) int
+		Depth    func(childComplexity int) int
 	}
 
 	TagEdit struct {
@@ -1232,6 +1242,7 @@ type MutationResolver interface {
 	GrantInvite(ctx context.Context, input GrantInviteInput) (int, error)
 	RevokeInvite(ctx context.Context, input RevokeInviteInput) (int, error)
 	TagCategoryCreate(ctx context.Context, input TagCategoryCreateInput) (*TagCategory, error)
+	TagCategorySetParent(ctx context.Context, input TagCategoryParentInput) (*TagCategory, error)
 	TagCategoryUpdate(ctx context.Context, input TagCategoryUpdateInput) (*TagCategory, error)
 	TagCategoryDestroy(ctx context.Context, input TagCategoryDestroyInput) (bool, error)
 	SiteCreate(ctx context.Context, input SiteCreateInput) (*Site, error)
@@ -1535,6 +1546,11 @@ type TagResolver interface {
 }
 type TagCategoryResolver interface {
 	Group(ctx context.Context, obj *TagCategory) (TagGroupEnum, error)
+
+	Parent(ctx context.Context, obj *TagCategory) (*TagCategory, error)
+	Children(ctx context.Context, obj *TagCategory) ([]TagCategory, error)
+	Descendants(ctx context.Context, obj *TagCategory) ([]TagCategoryTreeNode, error)
+	Ancestors(ctx context.Context, obj *TagCategory) ([]TagCategoryTreeNode, error)
 }
 type TagEditResolver interface {
 	Category(ctx context.Context, obj *TagEdit) (*TagCategory, error)
@@ -3742,6 +3758,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.TagCategoryDestroy(childComplexity, args["input"].(TagCategoryDestroyInput)), true
+	case "Mutation.tagCategorySetParent":
+		if e.ComplexityRoot.Mutation.TagCategorySetParent == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_tagCategorySetParent_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.TagCategorySetParent(childComplexity, args["input"].(TagCategoryParentInput)), true
 	case "Mutation.tagCategoryUpdate":
 		if e.ComplexityRoot.Mutation.TagCategoryUpdate == nil {
 			break
@@ -6422,6 +6449,24 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.Tag.Updated(childComplexity), true
 
+	case "TagCategory.ancestors":
+		if e.ComplexityRoot.TagCategory.Ancestors == nil {
+			break
+		}
+
+		return e.ComplexityRoot.TagCategory.Ancestors(childComplexity), true
+	case "TagCategory.children":
+		if e.ComplexityRoot.TagCategory.Children == nil {
+			break
+		}
+
+		return e.ComplexityRoot.TagCategory.Children(childComplexity), true
+	case "TagCategory.descendants":
+		if e.ComplexityRoot.TagCategory.Descendants == nil {
+			break
+		}
+
+		return e.ComplexityRoot.TagCategory.Descendants(childComplexity), true
 	case "TagCategory.description":
 		if e.ComplexityRoot.TagCategory.Description == nil {
 			break
@@ -6446,6 +6491,25 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.TagCategory.Name(childComplexity), true
+	case "TagCategory.parent":
+		if e.ComplexityRoot.TagCategory.Parent == nil {
+			break
+		}
+
+		return e.ComplexityRoot.TagCategory.Parent(childComplexity), true
+
+	case "TagCategoryTreeNode.category":
+		if e.ComplexityRoot.TagCategoryTreeNode.Category == nil {
+			break
+		}
+
+		return e.ComplexityRoot.TagCategoryTreeNode.Category(childComplexity), true
+	case "TagCategoryTreeNode.depth":
+		if e.ComplexityRoot.TagCategoryTreeNode.Depth == nil {
+			break
+		}
+
+		return e.ComplexityRoot.TagCategoryTreeNode.Depth(childComplexity), true
 
 	case "TagEdit.added_aliases":
 		if e.ComplexityRoot.TagEdit.AddedAliases == nil {
@@ -6942,6 +7006,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputStudioUpdateInput,
 		ec.unmarshalInputTagCategoryCreateInput,
 		ec.unmarshalInputTagCategoryDestroyInput,
+		ec.unmarshalInputTagCategoryParentInput,
 		ec.unmarshalInputTagCategoryUpdateInput,
 		ec.unmarshalInputTagCreateInput,
 		ec.unmarshalInputTagDestroyInput,
@@ -10184,6 +10249,53 @@ type TagCategory {
   name: String!
   group:  TagGroupEnum!
   description: String
+
+  """
+  The parent category, or null for a top-level one.
+
+  Nullable because it is null for a top-level category AND for a category whose parent
+  was deleted -- deleting a parent promotes its children rather than cascading, precisely
+  so reorganising vocabulary cannot destroy it.
+  """
+  parent: TagCategory
+
+  "Direct children only. One level, for a tree that loads as the user expands it."
+  children: [TagCategory!]!
+
+  """
+  Everything below this category, at any depth.
+
+  Prefer this over walking ` + "`" + `children` + "`" + ` client-side when you already know the whole subtree:
+  it is one round trip instead of one per level.
+  """
+  descendants: [TagCategoryTreeNode!]!
+
+  """
+  Parents, grandparents, and so on to the root.
+
+  Ordered NEAREST PARENT FIRST, so a breadcrumb renders by reading this in reverse.
+  """
+  ancestors: [TagCategoryTreeNode!]!
+}
+
+"""
+A category in a tree walk, with how far from the category that was asked about.
+
+` + "`" + `depth` + "`" + ` is what makes a flat list usable: without it a client cannot tell a direct child
+from a great-grandchild without reconstructing the tree itself. 0 means an immediate
+child (or the immediate parent, in ` + "`" + `ancestors` + "`" + `).
+"""
+type TagCategoryTreeNode {
+  category: TagCategory!
+
+  "0 for an immediate neighbour; 1 for the next level out; and so on."
+  depth: Int!
+}
+
+input TagCategoryParentInput {
+  id: ID!
+  "The new parent. Null promotes this category to top level."
+  parentId: ID
 }
 
 input TagCategoryCreateInput {
@@ -10722,6 +10834,16 @@ type Mutation {
   revokeInvite(input: RevokeInviteInput!): Int!
 
   tagCategoryCreate(input: TagCategoryCreateInput!): TagCategory @hasRole(role: ADMIN)
+
+  """
+  Move a category under a parent, or promote it to top level by passing null.
+
+  Refuses a move that would create a cycle, and refuses a category being made its own
+  parent. The check is a database TRIGGER rather than only a check here, because the
+  constraint has to hold for anything that writes the table -- not just for callers going
+  through GraphQL. A cycle that only GraphQL prevents is a cycle one SQL script away.
+  """
+  tagCategorySetParent(input: TagCategoryParentInput!): TagCategory @hasRole(role: MODERATE)
   tagCategoryUpdate(input: TagCategoryUpdateInput!): TagCategory @hasRole(role: ADMIN)
   tagCategoryDestroy(input: TagCategoryDestroyInput!): Boolean! @hasRole(role: ADMIN)
 
@@ -12084,8 +12206,26 @@ func (ec *executionContext) childFields_TagCategory(ctx context.Context, field g
 		return ec.fieldContext_TagCategory_group(ctx, field)
 	case "description":
 		return ec.fieldContext_TagCategory_description(ctx, field)
+	case "parent":
+		return ec.fieldContext_TagCategory_parent(ctx, field)
+	case "children":
+		return ec.fieldContext_TagCategory_children(ctx, field)
+	case "descendants":
+		return ec.fieldContext_TagCategory_descendants(ctx, field)
+	case "ancestors":
+		return ec.fieldContext_TagCategory_ancestors(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type TagCategory", field.Name)
+}
+
+func (ec *executionContext) childFields_TagCategoryTreeNode(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "category":
+		return ec.fieldContext_TagCategoryTreeNode_category(ctx, field)
+	case "depth":
+		return ec.fieldContext_TagCategoryTreeNode_depth(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type TagCategoryTreeNode", field.Name)
 }
 
 func (ec *executionContext) childFields_URL(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -13414,6 +13554,20 @@ func (ec *executionContext) field_Mutation_tagCategoryDestroy_args(ctx context.C
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
 		func(ctx context.Context, v any) (TagCategoryDestroyInput, error) {
 			return ec.unmarshalNTagCategoryDestroyInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTagCategoryDestroyInput(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_tagCategorySetParent_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
+		func(ctx context.Context, v any) (TagCategoryParentInput, error) {
+			return ec.unmarshalNTagCategoryParentInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTagCategoryParentInput(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -22059,6 +22213,68 @@ func (ec *executionContext) fieldContext_Mutation_tagCategoryCreate(ctx context.
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Mutation_tagCategoryCreate_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_tagCategorySetParent(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_tagCategorySetParent(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().TagCategorySetParent(ctx, fc.Args["input"].(TagCategoryParentInput))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "MODERATE")
+				if err != nil {
+					var zeroVal *TagCategory
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *TagCategory
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *TagCategory) graphql.Marshaler {
+			return ec.marshalOTagCategory2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTagCategory(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_tagCategorySetParent(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_TagCategory(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_tagCategorySetParent_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -37464,6 +37680,189 @@ func (ec *executionContext) fieldContext_TagCategory_description(_ context.Conte
 	return graphql.NewScalarFieldContext("TagCategory", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
+func (ec *executionContext) _TagCategory_parent(ctx context.Context, field graphql.CollectedField, obj *TagCategory) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_TagCategory_parent(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.TagCategory().Parent(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *TagCategory) graphql.Marshaler {
+			return ec.marshalOTagCategory2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTagCategory(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_TagCategory_parent(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "TagCategory",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_TagCategory(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _TagCategory_children(ctx context.Context, field graphql.CollectedField, obj *TagCategory) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_TagCategory_children(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.TagCategory().Children(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []TagCategory) graphql.Marshaler {
+			return ec.marshalNTagCategory2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTagCategoryᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_TagCategory_children(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "TagCategory",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_TagCategory(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _TagCategory_descendants(ctx context.Context, field graphql.CollectedField, obj *TagCategory) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_TagCategory_descendants(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.TagCategory().Descendants(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []TagCategoryTreeNode) graphql.Marshaler {
+			return ec.marshalNTagCategoryTreeNode2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTagCategoryTreeNodeᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_TagCategory_descendants(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "TagCategory",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_TagCategoryTreeNode(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _TagCategory_ancestors(ctx context.Context, field graphql.CollectedField, obj *TagCategory) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_TagCategory_ancestors(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.TagCategory().Ancestors(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []TagCategoryTreeNode) graphql.Marshaler {
+			return ec.marshalNTagCategoryTreeNode2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTagCategoryTreeNodeᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_TagCategory_ancestors(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "TagCategory",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_TagCategoryTreeNode(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _TagCategoryTreeNode_category(ctx context.Context, field graphql.CollectedField, obj *TagCategoryTreeNode) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_TagCategoryTreeNode_category(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Category, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *TagCategory) graphql.Marshaler {
+			return ec.marshalNTagCategory2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTagCategory(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_TagCategoryTreeNode_category(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "TagCategoryTreeNode",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_TagCategory(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _TagCategoryTreeNode_depth(ctx context.Context, field graphql.CollectedField, obj *TagCategoryTreeNode) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_TagCategoryTreeNode_depth(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Depth, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_TagCategoryTreeNode_depth(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("TagCategoryTreeNode", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
 func (ec *executionContext) _TagEdit_name(ctx context.Context, field graphql.CollectedField, obj *TagEdit) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -45670,6 +46069,43 @@ func (ec *executionContext) unmarshalInputTagCategoryDestroyInput(ctx context.Co
 	return it, nil
 }
 
+func (ec *executionContext) unmarshalInputTagCategoryParentInput(ctx context.Context, obj any) (TagCategoryParentInput, error) {
+	var it TagCategoryParentInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"id", "parentId"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "id":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("id"))
+			data, err := ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ID = data
+		case "parentId":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("parentId"))
+			data, err := ec.unmarshalOID2ᚖgithubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ParentID = data
+		}
+	}
+	return it, nil
+}
+
 func (ec *executionContext) unmarshalInputTagCategoryUpdateInput(ctx context.Context, obj any) (TagCategoryUpdateInput, error) {
 	var it TagCategoryUpdateInput
 	if obj == nil {
@@ -51440,6 +51876,13 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 		case "tagCategoryCreate":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_tagCategoryCreate(ctx, field)
+			})
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		case "tagCategorySetParent":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_tagCategorySetParent(ctx, field)
 			})
 			if out.Values[i] == graphql.RequiredNull {
 				out.Invalids++
@@ -59940,6 +60383,201 @@ func (ec *executionContext) _TagCategory(ctx context.Context, sel ast.SelectionS
 			if out.Values[i] == graphql.RequiredNull {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
+		case "parent":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._TagCategory_parent(ctx, field, obj)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "children":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._TagCategory_children(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "descendants":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._TagCategory_descendants(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "ancestors":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._TagCategory_ancestors(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var tagCategoryTreeNodeImplementors = []string{"TagCategoryTreeNode"}
+
+func (ec *executionContext) _TagCategoryTreeNode(ctx context.Context, sel ast.SelectionSet, obj *TagCategoryTreeNode) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, tagCategoryTreeNodeImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("TagCategoryTreeNode")
+		case "category":
+			out.Values[i] = ec._TagCategoryTreeNode_category(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "depth":
+			out.Values[i] = ec._TagCategoryTreeNode_depth(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -63972,6 +64610,16 @@ func (ec *executionContext) marshalNTagCategory2ᚕgithubᚗcomᚋstashappᚋsta
 	return ret
 }
 
+func (ec *executionContext) marshalNTagCategory2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTagCategory(ctx context.Context, sel ast.SelectionSet, v *TagCategory) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._TagCategory(ctx, sel, v)
+}
+
 func (ec *executionContext) unmarshalNTagCategoryCreateInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTagCategoryCreateInput(ctx context.Context, v any) (TagCategoryCreateInput, error) {
 	res, err := ec.unmarshalInputTagCategoryCreateInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
@@ -63980,6 +64628,31 @@ func (ec *executionContext) unmarshalNTagCategoryCreateInput2githubᚗcomᚋstas
 func (ec *executionContext) unmarshalNTagCategoryDestroyInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTagCategoryDestroyInput(ctx context.Context, v any) (TagCategoryDestroyInput, error) {
 	res, err := ec.unmarshalInputTagCategoryDestroyInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) unmarshalNTagCategoryParentInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTagCategoryParentInput(ctx context.Context, v any) (TagCategoryParentInput, error) {
+	res, err := ec.unmarshalInputTagCategoryParentInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNTagCategoryTreeNode2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTagCategoryTreeNode(ctx context.Context, sel ast.SelectionSet, v TagCategoryTreeNode) graphql.Marshaler {
+	return ec._TagCategoryTreeNode(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNTagCategoryTreeNode2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTagCategoryTreeNodeᚄ(ctx context.Context, sel ast.SelectionSet, v []TagCategoryTreeNode) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNTagCategoryTreeNode2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTagCategoryTreeNode(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
 }
 
 func (ec *executionContext) unmarshalNTagCategoryUpdateInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTagCategoryUpdateInput(ctx context.Context, v any) (TagCategoryUpdateInput, error) {

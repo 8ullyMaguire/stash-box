@@ -1587,6 +1587,23 @@ type TagCategoryDestroyInput struct {
 	ID uuid.UUID `json:"id"`
 }
 
+type TagCategoryParentInput struct {
+	ID uuid.UUID `json:"id"`
+	// The new parent. Null promotes this category to top level.
+	ParentID *uuid.UUID `json:"parentId,omitempty"`
+}
+
+// A category in a tree walk, with how far from the category that was asked about.
+//
+// `depth` is what makes a flat list usable: without it a client cannot tell a direct child
+// from a great-grandchild without reconstructing the tree itself. 0 means an immediate
+// child (or the immediate parent, in `ancestors`).
+type TagCategoryTreeNode struct {
+	Category *TagCategory `json:"category"`
+	// 0 for an immediate neighbour; 1 for the next level out; and so on.
+	Depth int `json:"depth"`
+}
+
 type TagCategoryUpdateInput struct {
 	ID          uuid.UUID     `json:"id"`
 	Name        *string       `json:"name,omitempty"`

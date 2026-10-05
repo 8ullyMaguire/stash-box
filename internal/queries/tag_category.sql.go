@@ -79,7 +79,7 @@ const findTagCategoryAncestors = `-- name: FindTagCategoryAncestors :many
 WITH RECURSIVE chain AS (
     SELECT tc.id, tc."group", tc.name, tc.description, tc.created_at, tc.updated_at, tc.parent_id, 0 AS depth
       FROM tag_categories tc
-     WHERE tc.parent_id = $1
+     WHERE tc.id = (SELECT p.parent_id FROM tag_categories p WHERE p.id = $1::uuid)
     UNION ALL
     SELECT tc.id, tc."group", tc.name, tc.description, tc.created_at, tc.updated_at, tc.parent_id, c.depth + 1
       FROM tag_categories tc
@@ -101,11 +101,24 @@ type FindTagCategoryAncestorsRow struct {
 
 // Everything ABOVE a category: parents, grandparents, to the root.
 //
-// Ordered root-first, which is the order a breadcrumb needs. Depth 0 is the immediate
-// parent and the LAST row is the root, so a client renders breadcrumbs by reading this
-// list backwards.
-func (q *Queries) FindTagCategoryAncestors(ctx context.Context, parentID uuid.NullUUID) ([]FindTagCategoryAncestorsRow, error) {
-	rows, err := q.db.Query(ctx, findTagCategoryAncestors, parentID)
+// The seed is the subject's PARENT -- resolved by a SCALAR SUBQUERY, not by seeding on
+// $1 and filtering afterwards. Both reasons matter:
+//
+//  1. Correctness. `WHERE tc.parent_id = $1` selects the rows whose parent IS the subject,
+//     i.e. the subject's CHILDREN. For a leaf that is the empty set and the whole walk
+//     returns nothing. That is the version I wrote first, and it fails silently rather
+//     than loudly -- every ancestor list just came back empty.
+//
+//  2. sqlc. Excluding the subject afterwards needs `WHERE id <> $1` on a WITH
+//     RECURSIVE reference, which sqlc reports as an ambiguous column and accepts no
+//     alias for -- bare, CTE-named or otherwise. A scalar subquery has no outer column
+//     reference, so it parses, and a top-level category returns no rows for free: its
+//     parent_id is NULL, the subquery yields NULL, and NULL matches nothing.
+//
+// Ordered nearest-parent FIRST (depth 0 is the immediate parent, the last row is the
+// root), so a client renders breadcrumbs by reading this list in reverse.
+func (q *Queries) FindTagCategoryAncestors(ctx context.Context, id uuid.UUID) ([]FindTagCategoryAncestorsRow, error) {
+	rows, err := q.db.Query(ctx, findTagCategoryAncestors, id)
 	if err != nil {
 		return nil, err
 	}
@@ -350,6 +363,41 @@ func (q *Queries) GetTagCategoriesByIds(ctx context.Context, dollar_1 []uuid.UUI
 		return nil, err
 	}
 	return items, nil
+}
+
+const setTagCategoryParent = `-- name: SetTagCategoryParent :one
+UPDATE tag_categories SET parent_id = $2, updated_at = now()
+WHERE id = $1
+RETURNING id, "group", name, description, created_at, updated_at, parent_id
+`
+
+type SetTagCategoryParentParams struct {
+	ID       uuid.UUID     `db:"id" json:"id"`
+	ParentID uuid.NullUUID `db:"parent_id" json:"parent_id"`
+}
+
+// Move a category under a parent, or promote it to top level with a NULL parent.
+//
+// A DEDICATED QUERY rather than an extra field on UpdateTagCategory: re-parenting is a
+// different act from renaming, and folding it into the general update would let every
+// caller that can rename silently restructure the hierarchy.
+//
+// A CYCLE IS NOT CHECKED HERE. It is a trigger (migration 106) so the constraint holds for
+// every writer, not only this path -- a check that can be bypassed by any other writer is
+// not a check.
+func (q *Queries) SetTagCategoryParent(ctx context.Context, arg SetTagCategoryParentParams) (TagCategory, error) {
+	row := q.db.QueryRow(ctx, setTagCategoryParent, arg.ID, arg.ParentID)
+	var i TagCategory
+	err := row.Scan(
+		&i.ID,
+		&i.Group,
+		&i.Name,
+		&i.Description,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ParentID,
+	)
+	return i, err
 }
 
 const updateTagCategory = `-- name: UpdateTagCategory :one

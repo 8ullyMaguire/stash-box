@@ -95,6 +95,53 @@ type TagCategory {
   name: String!
   group:  TagGroupEnum!
   description: String
+
+  """
+  The parent category, or null for a top-level one.
+
+  Nullable because it is null for a top-level category AND for a category whose parent
+  was deleted -- deleting a parent promotes its children rather than cascading, precisely
+  so reorganising vocabulary cannot destroy it.
+  """
+  parent: TagCategory
+
+  "Direct children only. One level, for a tree that loads as the user expands it."
+  children: [TagCategory!]!
+
+  """
+  Everything below this category, at any depth.
+
+  Prefer this over walking `children` client-side when you already know the whole subtree:
+  it is one round trip instead of one per level.
+  """
+  descendants: [TagCategoryTreeNode!]!
+
+  """
+  Parents, grandparents, and so on to the root.
+
+  Ordered NEAREST PARENT FIRST, so a breadcrumb renders by reading this in reverse.
+  """
+  ancestors: [TagCategoryTreeNode!]!
+}
+
+"""
+A category in a tree walk, with how far from the category that was asked about.
+
+`depth` is what makes a flat list usable: without it a client cannot tell a direct child
+from a great-grandchild without reconstructing the tree itself. 0 means an immediate
+child (or the immediate parent, in `ancestors`).
+"""
+type TagCategoryTreeNode {
+  category: TagCategory!
+
+  "0 for an immediate neighbour; 1 for the next level out; and so on."
+  depth: Int!
+}
+
+input TagCategoryParentInput {
+  id: ID!
+  "The new parent. Null promotes this category to top level."
+  parentId: ID
 }
 
 input TagCategoryCreateInput {

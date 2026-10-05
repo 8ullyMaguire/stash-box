@@ -849,6 +849,7 @@ func (c *ModelConverterImpl) ConvertTagCategory(source queries.TagCategory) mode
 	}
 	modelsTagCategory.CreatedAt = ConvertTime(source.CreatedAt)
 	modelsTagCategory.UpdatedAt = ConvertTime(source.UpdatedAt)
+	modelsTagCategory.ParentID = c.uuidNullUUIDToUuidNullUUID2(source.ParentID)
 	return modelsTagCategory
 }
 func (c *ModelConverterImpl) ConvertTags(source []queries.Tag) []models.Tag {

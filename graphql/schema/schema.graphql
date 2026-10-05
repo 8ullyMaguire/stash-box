@@ -222,6 +222,16 @@ type Mutation {
   revokeInvite(input: RevokeInviteInput!): Int!
 
   tagCategoryCreate(input: TagCategoryCreateInput!): TagCategory @hasRole(role: ADMIN)
+
+  """
+  Move a category under a parent, or promote it to top level by passing null.
+
+  Refuses a move that would create a cycle, and refuses a category being made its own
+  parent. The check is a database TRIGGER rather than only a check here, because the
+  constraint has to hold for anything that writes the table -- not just for callers going
+  through GraphQL. A cycle that only GraphQL prevents is a cycle one SQL script away.
+  """
+  tagCategorySetParent(input: TagCategoryParentInput!): TagCategory @hasRole(role: MODERATE)
   tagCategoryUpdate(input: TagCategoryUpdateInput!): TagCategory @hasRole(role: ADMIN)
   tagCategoryDestroy(input: TagCategoryDestroyInput!): Boolean! @hasRole(role: ADMIN)
 

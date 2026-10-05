@@ -14,6 +14,20 @@ RETURNING *;
 -- name: DeleteTagCategory :exec
 DELETE FROM tag_categories WHERE id = $1;
 
+-- name: SetTagCategoryParent :one
+-- Move a category under a parent, or promote it to top level with a NULL parent.
+--
+-- A DEDICATED QUERY rather than an extra field on UpdateTagCategory: re-parenting is a
+-- different act from renaming, and folding it into the general update would let every
+-- caller that can rename silently restructure the hierarchy.
+--
+-- A CYCLE IS NOT CHECKED HERE. It is a trigger (migration 106) so the constraint holds for
+-- every writer, not only this path -- a check that can be bypassed by any other writer is
+-- not a check.
+UPDATE tag_categories SET parent_id = $2, updated_at = now()
+WHERE id = $1
+RETURNING *;
+
 -- name: FindTagCategory :one
 SELECT * FROM tag_categories WHERE id = $1;
 
@@ -61,19 +75,26 @@ SELECT * FROM tree ORDER BY depth ASC, name ASC;
 -- name: FindTagCategoryAncestors :many
 -- Everything ABOVE a category: parents, grandparents, to the root.
 --
--- Built from the subject's PARENT and walking upward, not from the subject and walking
--- up. That shape is deliberate: an earlier version started at the subject and filtered
--- `WHERE id <> $1` on the CTE reference, which is exactly the form sqlc cannot parse --
--- it reports `id` as ambiguous and accepts no alias, bare or CTE-named. Starting from the
--- parent sidesteps the self-reference entirely, and it is also marginally cheaper: the
--- subject's own row is never materialised only to be discarded.
+-- The seed is the subject's PARENT -- resolved by a SCALAR SUBQUERY, not by seeding on
+-- $1 and filtering afterwards. Both reasons matter:
+--
+--  1. Correctness. `WHERE tc.parent_id = $1` selects the rows whose parent IS the subject,
+--     i.e. the subject's CHILDREN. For a leaf that is the empty set and the whole walk
+--     returns nothing. That is the version I wrote first, and it fails silently rather
+--     than loudly -- every ancestor list just came back empty.
+--
+--  2. sqlc. Excluding the subject afterwards needs `WHERE id <> $1` on a WITH
+--     RECURSIVE reference, which sqlc reports as an ambiguous column and accepts no
+--     alias for -- bare, CTE-named or otherwise. A scalar subquery has no outer column
+--     reference, so it parses, and a top-level category returns no rows for free: its
+--     parent_id is NULL, the subquery yields NULL, and NULL matches nothing.
 --
 -- Ordered nearest-parent FIRST (depth 0 is the immediate parent, the last row is the
 -- root), so a client renders breadcrumbs by reading this list in reverse.
 WITH RECURSIVE chain AS (
     SELECT tc.*, 0 AS depth
       FROM tag_categories tc
-     WHERE tc.parent_id = $1
+     WHERE tc.id = (SELECT p.parent_id FROM tag_categories p WHERE p.id = sqlc.arg('id')::uuid)
     UNION ALL
     SELECT tc.*, c.depth + 1
       FROM tag_categories tc
