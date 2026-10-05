@@ -31,7 +31,7 @@ instance ever gets a real deployment and SSR becomes worth its cost.
 |---|---|---|---|
 | W1 Identification board UI | 2 | `[x]` 01d2c514, dcba9b10 | reachable + votable, mutation-verified |
 | W2 Public Elo | 4, 5 | `[~]` 4 done (682c3071), 5 pending | READ sees a leaderboard — **live-confirmed** |
-| W3 Completion & coverage | 6, 9, 25, 59 | `[~]` 6 done (faf5d556), 9/25/59 pending | live bar names what is missing |
+| W3 Completion & coverage | 6, 9, 25, 59 | `[~]` 6, 25, 59 done; **9 pending** | live bar names what is missing |
 | W4 Discovery surfaces | 19, 22, 44, 87 | `[ ]` | 4 routes render content |
 | W5 Discovery by relationship | 27, 12, 21, 57 | `[ ]` | collage type exposed |
 | W6 Spotlight & social proof | 11, 23, 46, 84 | `[ ]` | no coercive framing |
@@ -66,7 +66,7 @@ instance ever gets a real deployment and SSR becomes worth its cost.
 | 22 | Scene of the Week | no | W4 | `[ ]` |
 | 23 | Contributor profiles | partial — user pages exist, no public stats | W6 | `[ ]` |
 | 24 | Tag hierarchy | no — vocabulary project | — | `[!]` |
-| 25 | Studio completeness race | table exists (migration 97), **not exposed in GraphQL** | W3 | `[ ]` |
+| 25 | Studio completeness race | **DONE** (`9727dbf9`) — migration 97's table was read by nothing; real read path added | W3 | `[x]` |
 | 26 | RSS feeds | no | — | `[ ]` |
 | 27 | Similar performers | no — cheapest recommendation available | W5 | `[ ]` |
 | 28 | Shareable lists | no — needs moderation | — | `[!]` |
@@ -79,7 +79,7 @@ instance ever gets a real deployment and SSR becomes worth its cost.
 | 47 | OpenGraph | no — same SSR dependency | — | `[-]` removed |
 | 50 | Community recruitment | not a build | — | `[!]` |
 | 57 | Debut tracking | no — `min(date)` | W5 | `[ ]` |
-| 59 | "What's missing" per studio | table exists, not exposed | W3 | `[ ]` |
+| 59 | "What's missing" per studio | **DONE** (`9727dbf9`) — same read path; uncounted studios get their own list | W3 | `[x]` |
 | 69 | Tag synonyms | no alias table for tags | W7 | `[ ]` |
 | 84 | Preservation hero | no | W6 | `[ ]` |
 | 87 | "Most wanted" | no | W4 | `[ ]` |
@@ -292,11 +292,69 @@ named in human labels, CTA a real anchor to `/performers/<id>/edit`.
 
 **15 tests, 6 mutations, all caught.**
 
+### W3 — expected-total denominators (items 25, 59) — `9727dbf9`
+
+**The tracker was half right, and the half that was wrong mattered.** It said
+"migration 97's table exists but is not exposed in GraphQL". True, and misleading:
+`expected_totals` was read by **nothing at all** — not even the sqlc model struct
+got used. So this was a read path to build, not a resolver to expose. Worth
+flagging, because that tracker entry is exactly the shape that sends you to write
+GraphQL plumbing while the missing piece is 120 lines of SQL.
+
+**My first draft's relationships were wrong and the database said so:**
+
+- there is no `performer_studio` table — performers reach a studio only through
+  `scene_performers`, so the count is derived and only as good as the scene links
+- images link via `studio_images`, not `images.studio_id`
+
+Both are now verified against the live schema and documented in the query file.
+
+**Three decisions, each with a test:**
+
+- Rank by **absolute gap**, not ratio: 2-of-400 (398 missing) outranks 40-of-60
+  (20 missing). A ratio-ordered board promotes the smaller opportunity, and a
+  board with no clear leader is not a race.
+- **Inner JOIN**, so an uncounted studio stays off the board. A LEFT JOIN puts it
+  there with a NULL score, where it looks like a participant rather than an
+  absence. Those studios get their own list — each is one sourced claim from the
+  board.
+- An absent denominator yields an **absent score** — never 100, never 0. That is
+  exactly the failure §7.24.2's table exists to prevent.
+
+**The bug this shipped, then fixed:** `studios.deleted` is
+`BOOLEAN NOT NULL DEFAULT FALSE` (migration 06), so `WHERE deleted IS NULL`
+matches **nothing**. Both list queries returned zero rows forever while every
+"no error" test stayed green. Found by a probe that printed the inserted total and
+then a join count of 0 — the signature of this class is **a successful write and a
+silently empty read**.
+
+**Two test lessons, recorded in the code:**
+
+- The zero-denominator test was passing for the **wrong reason**: its INSERT
+  omitted `asserted_at` (NOT NULL, no default), so `require.Error` was satisfied by
+  23502 rather than `CHECK (total > 0)`. Both constraint tests now assert the
+  constraint **name**. `require.Error` alone is satisfied by any failure at all.
+- `assert.Equal(ids[0], bigGap)` depends on every other row in the database — it
+  passed alone and failed in company. Now asserts the *relative* order of the two
+  studios the test created, which is what the query promises.
+
+**8 integration tests, 5 mutations, 5 caught.** The tests call `queries.New(...)`
+rather than embedding the SQL, because a test that re-types the query under test
+has tested the typing — the `deleted IS NULL` mutation left every SQL-embedding
+test green.
+
 ### Standing verification state
 
-- frontend **722 tests / 59 files**, `validate` exit 0, vite build clean
+**Integration tests need `-p 1`.** Packages share one database and each calls
+`pgDropAll` on entry, so parallel packages drop each other's tables mid-migration
+(`relation "performers" does not exist`). Six packages fail that way and it looks
+like a regression in whatever you just changed. The Makefile already passes `-p 1`;
+running `go test ./...` by hand does not.
+
+- integration suite green: `go test -tags=integration -count=1 -p 1 ./...`
+
+- frontend **737 tests / 60 files**, `validate` exit 0, vite build clean
 - `go build` / `go vet` / `gofmt -l` clean, full `go test` clean
-- integration suite green against `sbx-scratch`
 - live app on 127.0.0.1:9999, SPA at `/app`, board + leaderboard confirmed in a
   real browser for both READ and VOTE roles
 - both remotes pushed and verified by SHA (`origin`, `forgejo`) via
