@@ -23,6 +23,19 @@ type fakeChecker struct{ err error }
 
 func (f fakeChecker) Check(context.Context, string) error { return f.err }
 
+// recordingChecker answers like fakeChecker and remembers WHICH urls it was asked about, because the
+// sweep's job is a decision about a row: "three sources were checked" is not the assertion worth
+// making, "these three and not those two" is.
+type recordingChecker struct {
+	err     error
+	checked []string
+}
+
+func (c *recordingChecker) Check(_ context.Context, url string) error {
+	c.checked = append(c.checked, url)
+	return c.err
+}
+
 // The status machine at the documented thresholds, driven through the real write statement.
 //
 // What this asserts that the unit table cannot: that the ROW ends up with the status the rule chose,
@@ -105,4 +118,117 @@ func TestCheckSourceMovesTheStatusAtTheDocumentedThresholds(t *testing.T) {
 	source, err = svc.CheckSource(ctx, id, now.Add(10*24*time.Hour), fakeChecker{})
 	require.NoError(t, err)
 	assert.Equal(t, content.StatusDMCA, source.Status, "a takedown is not resurrected by a 200")
+}
+
+// The sweep's selection and its cadence (slice 9b).
+//
+// What this asserts that a unit test cannot: that the query, the ordering and the due-check agree
+// with each other. A sweep that fetched the right rows and then checked all of them would pass a
+// "were any sources checked" test and hammer a site it was told to leave alone, so the assertion is
+// the SET of urls checked, not the count alone.
+func TestSweepChecksTheDueSourcesAndOnlyThose(t *testing.T) {
+	db := dbtest.DB()
+	svc := content.NewService(queries.New(db), nil)
+	ctx := context.Background()
+	now := time.Now()
+
+	seed := func(url, status string, failures int, lastChecked *time.Time) uuid.UUID {
+		var id uuid.UUID
+		require.NoError(t, db.QueryRow(ctx, `
+			INSERT INTO content_sources (entity_type, entity_id, url, status, check_failures, last_checked)
+			VALUES ('scene', $1, $2, $3, $4, $5) RETURNING id`,
+			uuid.Must(uuid.NewV4()), url, status, failures, lastChecked).Scan(&id))
+		t.Cleanup(func() {
+			_, err := db.Exec(ctx, `DELETE FROM content_sources WHERE id = $1`, id)
+			require.NoError(t, err)
+		})
+		return id
+	}
+
+	prefix := "https://sweep-test.invalid/" + uuid.Must(uuid.NewV4()).String()
+	at := func(d time.Duration) *time.Time { t := now.Add(-d); return &t }
+
+	// Never checked: the NULLS FIRST case, and the only rows a fresh instance has.
+	never := prefix + "/never"
+	seed(never, content.StatusUnknown, 0, nil)
+	// Two failures and last checked five days ago: interval is four days, so it is overdue.
+	overdue := prefix + "/overdue"
+	seed(overdue, content.StatusIntermittent, 2, at(5*24*time.Hour))
+	// Reliable and checked thirty hours ago: interval is one day, so it is due by six hours.
+	due := prefix + "/due"
+	seed(due, content.StatusLive, 0, at(30*time.Hour))
+	// Checked an hour ago: NOT due, and with a limit of three it is not even a candidate.
+	recent := prefix + "/recent"
+	seed(recent, content.StatusLive, 0, at(time.Hour))
+	// DEAD is the resurrection queue's work, not the sweep's: it must not be touched here even
+	// though its last_checked is null and it would otherwise look maximally overdue.
+	dead := prefix + "/dead"
+	seed(dead, content.StatusDead, 40, nil)
+
+	checker := &recordingChecker{}
+	checked, err := svc.Sweep(ctx, now, 3, checker)
+	require.NoError(t, err)
+
+	assert.Equal(t, 3, checked)
+	assert.ElementsMatch(t, []string{never, overdue, due}, checker.checked,
+		"the sweep must check the due sources and leave the recent one and the dead one alone")
+	assert.NotContains(t, checker.checked, dead, "a dead source is the resurrection queue's, not the sweep's")
+	assert.NotContains(t, checker.checked, recent, "a source checked an hour ago is not due")
+}
+
+// The bound is honoured, and the bound is what keeps one tick from holding the process while making
+// third-party requests. Asserted by asking for fewer candidates than are due.
+func TestSweepHonoursItsBatchLimit(t *testing.T) {
+	db := dbtest.DB()
+	svc := content.NewService(queries.New(db), nil)
+	ctx := context.Background()
+	now := time.Now()
+
+	prefix := "https://sweep-limit-test.invalid/" + uuid.Must(uuid.NewV4()).String()
+	for i := 0; i < 4; i++ {
+		var id uuid.UUID
+		require.NoError(t, db.QueryRow(ctx, `
+			INSERT INTO content_sources (entity_type, entity_id, url, status, check_failures, last_checked)
+			VALUES ('scene', $1, $2, 'live', 0, $3) RETURNING id`,
+			uuid.Must(uuid.NewV4()), prefix+"/"+string(rune('a'+i)), now.Add(-48*time.Hour)).Scan(&id))
+		t.Cleanup(func() {
+			_, err := db.Exec(ctx, `DELETE FROM content_sources WHERE id = $1`, id)
+			require.NoError(t, err)
+		})
+	}
+
+	checker := &recordingChecker{}
+	checked, err := svc.Sweep(ctx, now, 2, checker)
+	require.NoError(t, err)
+	assert.Equal(t, 2, checked, "one tick considers at most the batch it was given")
+	assert.Len(t, checker.checked, 2)
+}
+
+// A candidate whose interval has NOT elapsed is fetched and skipped. This is the case the due-check
+// exists for, and it is asserted on its own because the previous test reaches it only through the
+// ordering: with nothing else due, a single recent source must be looked at and left alone.
+func TestSweepLeavesARecentlyCheckedSourceAlone(t *testing.T) {
+	db := dbtest.DB()
+	svc := content.NewService(queries.New(db), nil)
+	ctx := context.Background()
+	now := time.Now()
+
+	url := "https://sweep-skip-test.invalid/" + uuid.Must(uuid.NewV4()).String()
+	var id uuid.UUID
+	require.NoError(t, db.QueryRow(ctx, `
+		INSERT INTO content_sources (entity_type, entity_id, url, status, check_failures, last_checked)
+		VALUES ('scene', $1, $2, 'live', 0, $3) RETURNING id`,
+		uuid.Must(uuid.NewV4()), url, now.Add(-time.Hour)).Scan(&id))
+	t.Cleanup(func() {
+		_, err := db.Exec(ctx, `DELETE FROM content_sources WHERE id = $1`, id)
+		require.NoError(t, err)
+	})
+
+	checker := &recordingChecker{err: errors.New("this checker must never be called")}
+	checked, err := svc.Sweep(ctx, now, 10, checker)
+	require.NoError(t, err)
+	assert.Equal(t, 0, checked)
+	assert.Empty(t, checker.checked,
+		"a source checked an hour ago is inside its interval, and calling the site anyway is the bug "+
+			"the cadence exists to prevent")
 }

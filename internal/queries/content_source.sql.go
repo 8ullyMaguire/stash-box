@@ -301,6 +301,88 @@ func (q *Queries) FindContentSourcesByURL(ctx context.Context, url string) ([]Co
 	return items, nil
 }
 
+const findContentSourcesDueForCheck = `-- name: FindContentSourcesDueForCheck :many
+SELECT cs.id, cs.entity_type, cs.entity_id, cs.url, cs.site_id, cs.platform, cs.status, cs.canonical, cs.first_seen, cs.last_checked, cs.last_ok, cs.check_failures, cs.archived_url, cs.archived_at, cs.created_by, cs.url_normalized, (
+    SELECT count(*) FROM scene_urls su WHERE su.url = cs.url
+)::int AS claimant_count
+FROM content_sources cs
+WHERE cs.status IN ('unknown', 'live', 'intermittent')
+ORDER BY cs.last_checked ASC NULLS FIRST, cs.first_seen ASC
+LIMIT $1
+`
+
+type FindContentSourcesDueForCheckRow struct {
+	ID            uuid.UUID          `db:"id" json:"id"`
+	EntityType    string             `db:"entity_type" json:"entity_type"`
+	EntityID      uuid.UUID          `db:"entity_id" json:"entity_id"`
+	Url           string             `db:"url" json:"url"`
+	SiteID        uuid.NullUUID      `db:"site_id" json:"site_id"`
+	Platform      *string            `db:"platform" json:"platform"`
+	Status        string             `db:"status" json:"status"`
+	Canonical     bool               `db:"canonical" json:"canonical"`
+	FirstSeen     pgtype.Timestamptz `db:"first_seen" json:"first_seen"`
+	LastChecked   pgtype.Timestamptz `db:"last_checked" json:"last_checked"`
+	LastOk        pgtype.Timestamptz `db:"last_ok" json:"last_ok"`
+	CheckFailures int                `db:"check_failures" json:"check_failures"`
+	ArchivedUrl   *string            `db:"archived_url" json:"archived_url"`
+	ArchivedAt    pgtype.Timestamptz `db:"archived_at" json:"archived_at"`
+	CreatedBy     uuid.NullUUID      `db:"created_by" json:"created_by"`
+	UrlNormalized *string            `db:"url_normalized" json:"url_normalized"`
+	ClaimantCount int                `db:"claimant_count" json:"claimant_count"`
+}
+
+// The health sweep's candidate list (slice 9b).
+//
+// Whether a candidate is DUE is a function of the row -- reliability lengthens the interval,
+// popularity shortens it -- and that rule lives in Go (`content.CheckInterval`) where it is a
+// tested function rather than an expression in SQL. So this query answers the narrower question
+// "which rows are worth looking at", most overdue first, and the caller skips the ones whose
+// interval has not elapsed.
+//
+// SKIPPING CANNOT STARVE ANYTHING, and that is why the ordering is what it is: rows come back
+// oldest-checked first, so a row that is not due yet is only reached after every row that is.
+//
+// DEAD is absent on purpose: resurrecting a dead source is the resurrection queue's job (slice
+// 9c), on a cadence of its own, and `content_sources_sweep_idx` (migration 108) is a partial index
+// over exactly the three statuses below -- the query and the index are the same list.
+func (q *Queries) FindContentSourcesDueForCheck(ctx context.Context, lim int32) ([]FindContentSourcesDueForCheckRow, error) {
+	rows, err := q.db.Query(ctx, findContentSourcesDueForCheck, lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []FindContentSourcesDueForCheckRow{}
+	for rows.Next() {
+		var i FindContentSourcesDueForCheckRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.EntityType,
+			&i.EntityID,
+			&i.Url,
+			&i.SiteID,
+			&i.Platform,
+			&i.Status,
+			&i.Canonical,
+			&i.FirstSeen,
+			&i.LastChecked,
+			&i.LastOk,
+			&i.CheckFailures,
+			&i.ArchivedUrl,
+			&i.ArchivedAt,
+			&i.CreatedBy,
+			&i.UrlNormalized,
+			&i.ClaimantCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const findContentSourcesForEntity = `-- name: FindContentSourcesForEntity :many
 SELECT id, entity_type, entity_id, url, site_id, platform, status, canonical, first_seen, last_checked, last_ok, check_failures, archived_url, archived_at, created_by, url_normalized FROM content_sources
 WHERE entity_type = $1 AND entity_id = $2

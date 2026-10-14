@@ -1409,17 +1409,34 @@ and the test that notices is the point.
 * Probes: the terminal guard removed (a dmca source resurrected), the dead threshold off by an hour, the
   failure counter reset on failure instead of on success.
 
-### Slice 9b — the sweep, and its cadence
+### Slice 9b — the sweep, and its cadence — DONE
 
-**The selection is what "frequency by popularity × reliability" means in code**, and it needs no new
-column: popularity is the entity's source count and its entity's activity, reliability is
-`check_failures`. The sweep selects rows whose computed next check is due, worst first, in a bounded
-batch (`content_sources_sweep_idx` is the partial index migration 108 built for exactly this query:
-`WHERE status IN ('unknown','live','intermittent')`), and runs from `internal/cron` with its own
-semaphore, following `processEdits`.
+**The cadence is a pure function** (`content.CheckInterval(failures, claimants)`): reliability LENGTHENS
+the interval (doubling per consecutive failure, capped at four doublings = sixteen days) and popularity
+SHORTENS it (halving per extra claimant, floored at three hours). Both halves are policy, so the whole
+rule is a table test, and the cap is asserted as a claim about the worst case: a source nobody looks at
+cannot come back, which is the failure mode this phase exists to prevent.
 
-**Verification:** a seeded, aged set of sources comes back in the order the cadence promises; a batch
-limit is honoured; a run with the semaphore held is a no-op.
+**The SELECTION and the CADENCE are deliberately in different places.** The query
+(`FindContentSourcesDueForCheck`) answers "which rows are worth considering", most overdue first, with
+each URL's claimant count; the caller skips a candidate whose interval has not elapsed. Due-ness cannot
+be expressed in the WHERE clause without moving the policy into SQL, and putting it in Go is what makes
+it testable -- but the two must agree, so the ORDERING is what makes skipping safe: oldest-checked
+first means a candidate that is not due is only reached after every candidate that is, and skipping
+cannot starve anything.
+
+DEAD is excluded by the query on purpose (it is slice 9c's queue), and `content_sources_sweep_idx` is a
+partial index over exactly the three statuses the query names -- the query and the index are the same
+list. The job runs from `internal/cron` with its OWN semaphore (a slow site must not delay the edit
+closer), bounded by `content.SweepBatch`, on `content_sweep_interval` (default 1h), registered
+unconditionally like the ingest drain so that stopping edit processing does not stop the sweep.
+
+**Verification (DONE):** the `CheckInterval` table (base, each doubling, the cap, the halvings, the
+floor, and a claimants=0 row that is not special-cased); three integration tests -- the SET of urls
+checked (three due sources, the recent one and the dead one untouched), the batch bound, and a single
+recent source fetched and skipped -- each with a recording checker, because "three sources were checked"
+is not the assertion worth making and "these three and not those two" is. Four probes, all killed with
+their own messages: the due-check removed, DEAD swept, the bound ignored, the ordering reversed.
 
 ### Slice 9c — the resurrection queue
 

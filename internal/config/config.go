@@ -81,6 +81,10 @@ type config struct {
 	MinDestructiveVotingPeriod int `mapstructure:"min_destructive_voting_period"`
 	// Interval between checks for completed voting periods
 	VoteCronInterval string `mapstructure:"vote_cron_interval"`
+	// ContentSweepInterval is how often the health sweep looks at content sources. A knob because
+	// every tick makes third-party HTTP requests, so the cost is proportional to how many sources
+	// this instance tracks.
+	ContentSweepInterval string `mapstructure:"content_sweep_interval"`
 	// How often subscribed saved searches are run and their owners notified. One query per
 	// subscribed search per tick, so the cost is proportional to how many exist.
 	SavedSearchNotifyInterval string `mapstructure:"saved_search_notify_interval"`
@@ -212,6 +216,7 @@ var C = &config{
 	VoteApplicationThreshold:  3,
 	VotePromotionThreshold:    10,
 	VoteCronInterval:          "5m",
+	ContentSweepInterval:      "1h",
 	SavedSearchNotifyInterval: "15m",
 	// No embedding model produces vectors on this instance, so the default store holds
 	// nothing and the re-ranker provably does nothing -- rather than a half-wired store
@@ -604,6 +609,12 @@ func GetMinDestructiveVotingPeriod() int {
 
 func GetVoteCronInterval() string {
 	return C.VoteCronInterval
+}
+
+// GetContentSweepInterval is how often the health sweep runs (docs/spec/feature-content-aggregator.md,
+// plan phase 9 slice 9b).
+func GetContentSweepInterval() string {
+	return C.ContentSweepInterval
 }
 
 // GetSavedSearchNotifyInterval returns the interval between saved-search notification runs,

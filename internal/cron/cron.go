@@ -2,6 +2,7 @@ package cron
 
 import (
 	"context"
+	"time"
 
 	"github.com/robfig/cron/v3"
 	"go.opentelemetry.io/otel"
@@ -10,6 +11,7 @@ import (
 	"github.com/stashapp/stash-box/internal/autocert"
 	"github.com/stashapp/stash-box/internal/config"
 	"github.com/stashapp/stash-box/internal/service"
+	"github.com/stashapp/stash-box/internal/service/content"
 	"github.com/stashapp/stash-box/internal/tracing"
 	"github.com/stashapp/stash-box/pkg/logger"
 )
@@ -22,6 +24,11 @@ var sem = semaphore.NewWeighted(1)
 // requests with a 20-second timeout each, and sharing one semaphore with the edit closer
 // would let one slow host delay edit processing by that much -- a coupling neither job
 // wants and neither would ever attribute to the other.
+// sweepSem is separate from the others for the same reason ingestSem is separate from sem: the
+// health sweep makes its own third-party HTTP requests, and sharing a semaphore would let a slow
+// site delay edit processing by however long it takes to answer.
+var sweepSem = semaphore.NewWeighted(1)
+
 var ingestSem = semaphore.NewWeighted(1)
 
 type Cron struct {
@@ -204,6 +211,39 @@ func (c Cron) cleanModAudits() {
 	}
 }
 
+// sweepContentSources runs the aggregator's health sweep (docs/spec/feature-content-aggregator.md,
+// plan phase 9 slice 9b): find the sources whose cadence says they are due, and check them.
+//
+// BOUNDED, and the bound is the point: every candidate costs a request to somebody else's site, and
+// this shares the process with the edit closer and the ingest drain. A tick that considered an
+// unbounded backlog would hold its worker for as long as the backlog took.
+//
+// The cadence is in `content.CheckInterval` -- reliability lengthens the interval, popularity
+// shortens it -- and the query only decides which rows are worth considering at all.
+func (c Cron) sweepContentSources() {
+	if !sweepSem.TryAcquire(1) {
+		logger.Debug("Content sweep cronjob failed to start, already running.")
+		return
+	}
+	defer sweepSem.Release(1)
+
+	ctx, span := otel.Tracer(tracerName).Start(context.Background(), "cron.sweepContentSources")
+	defer span.End()
+
+	checked, err := c.fac.Content().Sweep(ctx, time.Now(), content.SweepBatch, content.NewHTTPChecker())
+	tracing.RecordError(span, err)
+	if err != nil {
+		// Logged WITH the count: a run that checked nine sources and then failed is a different
+		// situation from one that failed before it started, and only the count tells them apart.
+		logger.Errorf("Error sweeping content sources after checking %d: %s", checked, err)
+		return
+	}
+
+	if checked > 0 {
+		logger.Debugf("Content sweep checked %d source(s)", checked)
+	}
+}
+
 func Init(fac service.Factory) {
 	c := cron.New()
 	cronJobs := Cron{fac}
@@ -278,6 +318,14 @@ func Init(fac service.Factory) {
 	// got a new answer" is not a latency-sensitive event -- an hour-old match is still news. The
 	// interval is a knob because the cost is proportional to how many searches are subscribed.
 	_, err = c.AddFunc("@every "+config.GetSavedSearchNotifyInterval(), cronJobs.notifySavedSearches)
+	if err != nil {
+		panic(err.Error())
+	}
+
+	// The health sweep. Registered unconditionally, like the ingest drain, and for the reason the
+	// comment below the vote block gives: an operator who sets vote_cron_interval to "" to stop edit
+	// processing must not silently stop the sweep as well.
+	_, err = c.AddFunc("@every "+config.GetContentSweepInterval(), cronJobs.sweepContentSources)
 	if err != nil {
 		panic(err.Error())
 	}

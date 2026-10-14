@@ -187,3 +187,26 @@ UPDATE content_sources SET canonical = false WHERE entity_type = $1 AND entity_i
 -- sweep acts on the health record, and a URL a scene has stopped claiming still has one -- a row the
 -- view deliberately hides. Checking it here is what keeps health history independent of membership.
 SELECT * FROM "content_sources" WHERE "id" = @id;
+
+-- name: FindContentSourcesDueForCheck :many
+-- The health sweep's candidate list (slice 9b).
+--
+-- Whether a candidate is DUE is a function of the row -- reliability lengthens the interval,
+-- popularity shortens it -- and that rule lives in Go (`content.CheckInterval`) where it is a
+-- tested function rather than an expression in SQL. So this query answers the narrower question
+-- "which rows are worth looking at", most overdue first, and the caller skips the ones whose
+-- interval has not elapsed.
+--
+-- SKIPPING CANNOT STARVE ANYTHING, and that is why the ordering is what it is: rows come back
+-- oldest-checked first, so a row that is not due yet is only reached after every row that is.
+--
+-- DEAD is absent on purpose: resurrecting a dead source is the resurrection queue's job (slice
+-- 9c), on a cadence of its own, and `content_sources_sweep_idx` (migration 108) is a partial index
+-- over exactly the three statuses below -- the query and the index are the same list.
+SELECT cs.*, (
+    SELECT count(*) FROM scene_urls su WHERE su.url = cs.url
+)::int AS claimant_count
+FROM content_sources cs
+WHERE cs.status IN ('unknown', 'live', 'intermittent')
+ORDER BY cs.last_checked ASC NULLS FIRST, cs.first_seen ASC
+LIMIT @lim;
