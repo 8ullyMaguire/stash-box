@@ -1154,6 +1154,61 @@ reads as a working public field), and the public field accidentally gated by
 `@isUserOwner` -- that last one run through `gqlgen generate`, because a directive
 lives in the generated code and the harness alone would leave it inert.
 
+### Slice 6b-1 — decay with grace and recovery (BUILT)
+
+**The three parts, because each answers a different fear.**
+
+- **GRACE** — an event that would drop a member below their level does not drop them
+  yet. Trust earned over months should not vanish over one bad afternoon, and a
+  member being brigaded must not be demotable on demand.
+- **DEMOTION** — once the deadline passes with the shortfall still standing, the
+  level falls to what the totals actually justify. A grace period that never expires
+  is a level that means nothing.
+- **RECOVERY** — after a demotion the level is HELD DOWN for a window even if the
+  totals climb back inside it. Without that half, a demoted member who immediately
+  re-earns the points is back the same hour, and a level that flips twice a day
+  teaches everyone it is noise. "Regains it in 14 days" is the RECOVERY window it
+  describes, **not an automatic restore**: trust is never handed back on a timer. At
+  the end of the window the level follows the totals again — a regain if the points
+  are back, and if they are not, they are not. A PROMOTION takes no notice of any of
+  it: there is no such thing as a bad moment on the way up.
+
+**Pure, with the clock as a parameter.** `trust.Decide(TrustState, Totals, now)`
+returns the next state and a `Decision` naming what happened and *when it takes
+effect*. The clock is a parameter rather than a call to `time.Now`, so every case is
+a timeline in a test instead of a wait — and a `Decision` is a value rather than an
+inference from two states, because "nothing changed" and "the grace clock started and
+the level happens to be the same" are different events: the second has a deadline,
+and a caller that must tell a member when a demotion lands cannot recover it from two
+equal levels. It is **idempotent at an instant**, which is what makes it safe on a
+schedule that can overlap itself; the grace clock starts only when no shortfall is on
+record, not whenever one is seen.
+
+Persisting the state and running it on a schedule is slice 6b-2, which is why
+nothing here reads a database.
+
+**Verification (DONE).** The phase's sentence, as a timeline: two flags, the level
+held through the grace, the fall at the deadline, the totals earned back inside the
+window with the level STILL held at day 13, and the regain at day 14 — plus the
+negative control that the same window ending with nothing earned back lands the member
+where the totals are, not where they were. Also: a shortfall that clears never
+demotes (and a later one starts a FRESH grace rather than resuming an abandoned one),
+a promotion is immediate, an unchanged member starts no clock, and deciding twice at
+one instant does nothing the second time.
+
+The fixture guard paid for itself immediately: the first version set the member's
+level to `LevelRegistered + 1`, which is TL2 — the same level the flagged totals
+justified — so every "still TL3" assertion would have been a tautology about a level
+that never existed. It now names the curve's own constants and asserts that the two
+totals straddle the boundary.
+
+Five probes, all killed, each naming the case it should: no grace; no recovery
+window; a grace clock that restarts whenever it is looked at; a recovery window that
+closes when it opens; and a grace period applied on the way up. Every case derives
+its instants FROM the policy's constants, so a constant that changed to zero would
+move the timeline with it — which is why the periods are also asserted **by value**,
+in the one test where the numbers themselves are the claim.
+
 ## Phase 7 — discovery
 
 **Goal:** NexusXXX §8. **Spec:** `docs/spec/feature-discovery.md` (the eight modes, the language
