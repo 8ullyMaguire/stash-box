@@ -422,7 +422,7 @@ part of the commit message.
    `exclude_tags` criterion, disabling the duration branch, dropping the redirect fallback
    (the name-only lookup that FAILED the first time the merge test ran), and disabling the
    `noMatch` short-circuit each reddened exactly one test and restored green.
-2b. **Saved searches and their notifications. DONE** (commit `pending`).
+2b. **Saved searches and their notifications. DONE** (commit `af0669eb`).
    Migration **113** (`saved_searches`: `UNIQUE (user_id, name)`, `last_notified_at` cursor, a
    partial `WHERE notify` index, the `SAVED_SEARCH_MATCH` enum value), its sqlc queries,
    `internal/service/savedsearch` (CRUD scoped by owner, plus `NotifyMatches`),
