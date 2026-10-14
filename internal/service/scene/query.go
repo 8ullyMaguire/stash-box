@@ -349,6 +349,36 @@ func (s *Scene) buildSceneQuery(ctx context.Context, psql sq.StatementBuilderTyp
 
 	// Apply sort and pagination
 	switch input.Sort {
+	case models.SceneSortEnumFresh, models.SceneSortEnumRising:
+		// The freshness materialized view (migration 114). Like POPULARITY above, the LEFT JOIN
+		// is what makes a scene with no signals still a row in the result: a scene nobody has
+		// engaged with yet belongs at the END of a freshness feed, not missing from it.
+		//
+		// Read from the VIEW and never from scene_fingerprints/list_items/reviews directly: the
+		// view is where the decay was evaluated, at the refresh's clock. Deciding the score in
+		// the query instead would give two pages of one feed two different rankings.
+		query = query.LeftJoin("scene_freshness ON scenes.id = scene_freshness.scene_id")
+
+		if !forCount {
+			sortDir := "DESC"
+			if input.Direction != "" {
+				sortDir = strings.ToUpper(input.Direction.String())
+			}
+
+			if input.Sort == models.SceneSortEnumRising {
+				// Rising is a COMPARISON of two windows, not a bigger score: activity in the last
+				// 24 hours minus the activity in the 24 before it. A scene with one signal today
+				// and none yesterday outranks a scene with ten signals two days ago, which is the
+				// entire difference between this sort and FRESH.
+				query = query.OrderBy(fmt.Sprintf(
+					"COALESCE(scene_freshness.recent_score, 0) - COALESCE(scene_freshness.earlier_score, 0) %s, scenes.id %s",
+					sortDir, sortDir))
+			} else {
+				query = query.OrderBy(fmt.Sprintf("COALESCE(scene_freshness.score, 0) %s, scenes.id %s", sortDir, sortDir))
+			}
+
+			query = queryhelper.ApplyPagination(query, input.Page, input.PerPage)
+		}
 	case models.SceneSortEnumPopularity:
 		query = query.LeftJoin("scene_popularity_all_time ON scenes.id = scene_popularity_all_time.scene_id")
 

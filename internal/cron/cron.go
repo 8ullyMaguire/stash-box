@@ -143,6 +143,21 @@ func (c Cron) refreshPopularityTrending() {
 	}
 }
 
+// refreshSceneFreshness recomputes the freshness scores for the `FRESH` and `RISING` sorts.
+//
+// On the same hourly cadence as the popularity refresh it sits beside, and for the same reason:
+// both are decayed sums over recent activity, so a feed that is a few minutes stale is the
+// design. Slower would make "Rising" lag the activity it is supposed to show.
+func (c Cron) refreshSceneFreshness() {
+	ctx, span := otel.Tracer(tracerName).Start(context.Background(), "cron.refreshSceneFreshness")
+	defer span.End()
+
+	if err := c.fac.Scene().RefreshFreshness(ctx); err != nil {
+		tracing.RecordError(span, err)
+		logger.Errorf("Error refreshing scene freshness: %s", err)
+	}
+}
+
 func (c Cron) refreshPopularityAllTime() {
 	ctx, span := otel.Tracer(tracerName).Start(context.Background(), "cron.refreshPopularityAllTime")
 	defer span.End()
@@ -224,6 +239,11 @@ func Init(fac service.Factory) {
 	}
 
 	_, err = c.AddFunc("@every 1h", cronJobs.refreshPopularityTrending)
+	if err != nil {
+		panic(err.Error())
+	}
+
+	_, err = c.AddFunc("@every 1h", cronJobs.refreshSceneFreshness)
 	if err != nil {
 		panic(err.Error())
 	}

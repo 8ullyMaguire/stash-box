@@ -329,7 +329,7 @@ deferred rather than half-built: their counts are questions about other join tab
 generic facet mechanism would be a query builder over builders. The tag facet is where the
 hierarchy makes the number non-obvious, which is why it went first.
 
-## 7. Trending and freshness (slice 4)
+## 7. Trending and freshness (slice 4, DONE)
 
 §8.4's score, with the signals §2 measured:
 
@@ -340,17 +340,55 @@ decay(age) = 1 / (1 + age_hours / 48) ^ 1.5
 
 | Signal | Weight | Source |
 |---|---|---|
-| fingerprint submitted (`vote = +1`) | 3 | `scene_fingerprints` |
-| fingerprint withdrawn (`vote = -1`) | -3 | `scene_fingerprints` |
-| added to a list | 3 | `list_items` |
-| review written | 2 × (rating − 3)/2 | `reviews` |
+| fingerprint vote | 3 × `vote` (`+1` submitted, `−1` withdrawn) | `scene_fingerprints.vote` |
+| added to a list | 3 | `list_items`, `entity_type = 'scene'` |
+| review written | rating − 3 (the draft's `2 × (rating − 3)/2`) | `reviews`, `entity_type = 'scene'` |
 | view completion | not implemented — no producer until phase 10 | — |
+| `votes_up − votes_down` | **absent** — there is no scene vote table | — |
 
-Materialized as `scene_freshness (scene_id, score, computed_at)` refreshed by the same cron
-that refreshes popularity, with `SceneSortEnumFresh` for the "Trending Now" feed and separate
-windows for "Rising" (score over the last 24h vs the preceding 24h) and "Best of" (a period
-parameter). The draft's `votes_up - votes_down` term is absent because **there is no scene
-vote table**; when one exists the weight is a constant here, not a migration.
+### 7.1 It is a materialized view, refreshed by the cron
+
+`scene_freshness (scene_id, score, recent_score, earlier_score, computed_at)` — a MATERIALIZED
+VIEW, not a table with a cron writer, and the same shape as `scene_popularity_trending`: the score
+is a pure function of the signal rows and the current time, so a stored copy would be a second
+answer that can drift from them. `REFRESH MATERIALIZED VIEW CONCURRENTLY` on the same `@every 1h`
+cadence as the popularity refresh (a unique index on `scene_id` is what CONCURRENTLY requires).
+
+**The refresh is where the decay is evaluated**, so a score is as old as the last run and the
+sorts read a stable snapshot. The sorts therefore read the VIEW and never the signal tables
+themselves: deciding the score in the query would give two pages of one feed two different
+rankings.
+
+**The window is 90 days**, stated as arithmetic rather than as a preference: at 2160 hours a
+signal contributes `1/(1+45)^1.5 = 0.0033` of its weight, under a third of one percent, below the
+resolution of a ranking whose top rows differ by whole signals — and the window is what keeps the
+refresh a bounded scan of recent rows instead of the whole signal history.
+
+### 7.2 The withdrawal is a NEGATIVE signal, and the score can go below zero
+
+`scene_fingerprints.vote` is `SMALLINT NOT NULL CHECK (vote = -1 OR vote = 1)` (migration 40), and
+a client withdraws a fingerprint by submitting it with `vote: REMOVE`, which the upsert stores as
+−1 rather than deleting the row. So the draft's −3 is a signal with a timestamp, not an absence,
+and `3 × vote` is both terms in one expression. A scene whose only fingerprint was voted down
+therefore scores −3 and ranks BELOW a scene nobody has touched: a disputed claim does not promote.
+A withdrawal keeps the original submission's `created_at` (the upsert rewrites duration and vote
+only), so it retracts an old signal rather than burying a scene.
+
+An unrated review is not a signal at all. `rating` is nullable because a review of a studio's
+ethics or a performer's aliases is not a 1-to-5 quantity, and averaging one in as a 3 would invent
+a signal — `rating IS NULL` contributes nothing.
+
+### 7.3 The sorts
+
+- **`FRESH`** ("Trending Now"): `ORDER BY score DESC`, a LEFT JOIN so a scene nobody has engaged
+  with yet is last rather than missing.
+- **`RISING`**: `ORDER BY recent_score − earlier_score DESC` — the last 24 hours against the 24
+  before them. It is a COMPARISON, not a bigger score: a scene with two signals today and three
+  yesterday is worth more on `FRESH` and less on `RISING` than a scene with one signal today and
+  nothing yesterday, and that disagreement is the entire feature.
+- **"Best of a period"** needs no new mechanism, and deliberately gets none: it is the existing
+  `Date` criterion plus `FRESH`. A period parameter on the SORT would be a field that silently does
+  nothing when paired with another sort, which is the class of input this spec keeps removing.
 
 ## 8. Content DNA and similarity (slice 5)
 
@@ -386,7 +424,7 @@ fills and a weight nobody can explain.
 
 ## 10. Social discovery (slice 7)
 
-Migration **114 `user_follows`** `(follower_id, followed_id, created_at, activity_visibility
+Migration **115 `user_follows`** `(follower_id, followed_id, created_at, activity_visibility
 enum('private','followers','public'))`. The activity feed is chronological by contract (the
 draft: *"no algorithmic reordering"*), assembled from `favorites`-equivalent rows, list
 additions and reviews by followed users, with the visibility default **private** for anything
@@ -394,7 +432,7 @@ new — the safer default is the one that cannot leak.
 
 ## 11. "Where I left off" (slice 7)
 
-Migration **115 `session_states`** `(user_id, kind, key, cursor jsonb, storage
+Migration **116 `session_states`** `(user_id, kind, key, cursor jsonb, storage
 enum('local','synced'), updated_at)`, `UNIQUE (user_id, kind, key)`. **Local-first**: the
 browser keeps the state and the server copy is opt-in per user, which is the draft's own
 `storage: enum [local, synced]`. The server surface is only there so a second device can
@@ -448,9 +486,25 @@ continue; nothing reads it unless the user turned it on.
   carries. Four mutations (the recursive arm of the closure removed, the applied-tag exclusion
   removed, strength reported as a raw count, and `limit`/`min_count` never reaching the
   statement) each redden exactly the test that names that behaviour and restore green.
-- **Slice 4** — the freshness score against hand-computed values for a fixture with known
-  ages; and the ordering test, that a scene with older but more numerous signals sorts below a
-  newer one.
+- **Slice 4** — `scripts/mutate-scene-freshness.py` plus
+  `internal/api/scene_freshness_integration_test.go`, on fixtures whose SIGNAL AGES the test
+  controls (the API never lets a caller choose when a signal happened, so the rows are written and
+  then aged in SQL, and the scene fixture's own submission is deleted first — it is a real +3 that
+  would otherwise sit inside every expectation):
+  the decay against numbers computed from the spec's formula BY HAND (`1.060660` at 48 hours,
+  `0.314270` at a week, `0.010828` at 83 days) rather than against the SQL, so a wrong constant
+  cannot pass; the three signals summing (`3 + 1.060660 + 0.707107`); a review with no rating
+  contributing NOTHING and not a −3; a withdrawal scoring −3 and ranking BELOW an untouched scene;
+  the 90-day window as a boundary (83 days counts, 125 days leaves no row at all); ten signals ten
+  days old ranking below one signal now; `FRESH` and `RISING` disagreeing on one fixture in the
+  direction the spec names (a scene with two signals today and three yesterday leads on `FRESH`
+  and loses on `RISING` to a scene with one signal today and nothing before it); and a new signal
+  changing NOTHING until the refresh runs, which is what makes "materialized, refreshed hourly"
+  observable. Five mutations — the decay half-life, the review weight, `3 * vote` reduced to `3`,
+  the window widened to 180 days, and `RISING` totalling the two days instead of comparing them —
+  each redden exactly the test that names that behaviour and restore green. Four of the five mutate
+  the MIGRATION, because the score is computed in the database and a Go-side mutation would prove
+  nothing about it.
 - **Slice 5** — `Noop` returns nothing and does not panic; `InMemory` ranks a constructed
   pair above a constructed non-pair; and every explanation names a reason that is checkable
   against the fixture (a shared tag that is really shared).
@@ -499,3 +553,22 @@ continue; nothing reads it unless the user turned it on.
     alias, a studio parent); one generic mechanism would be a query builder over builders, and the
     tag facet is the one where the hierarchy makes the number non-obvious — which is why it is
     the one that shipped.
+13. **Freshness is a materialized view over the signal rows, not a table a job writes** (§7.1).
+    The score is a pure function of those rows and `now()`, so a stored copy would be a second
+    answer able to drift from them; the popularity views already establish the shape, and the
+    hourly `REFRESH ... CONCURRENTLY` is where the decay is evaluated. The corollary is a
+    contract the sorts depend on: they read the VIEW, because a feed paged over two queries that
+    each recomputed the decay would be two rankings.
+14. **A withdrawal is a −3 signal, not a deletion** (§7.2). The earlier draft of this document
+    said the term was unimplementable because a withdrawal deletes the row — that was WRONG:
+    `scene_fingerprints.vote` has existed since migration 40 as `CHECK (vote = -1 OR vote = 1)`,
+    and the upsert records a withdrawal as −1. `3 * vote` is therefore both of the draft's
+    fingerprint terms in one expression, and the score can go below zero, which puts a scene whose
+    only claim was retracted below scenes nobody has touched.
+15. **"Best of a period" is not a new sort** (§7.3). It is the existing `Date` criterion plus
+    `FRESH`. A period parameter attached to a SORT would be an input that silently does nothing
+    when the caller sorts any other way, and this phase has already removed two of those.
+16. **Migration 114 is `scene_freshness`; social discovery moves to 115 and 116** (§10, §11).
+    Both this section's earlier text and §10 claimed 114. The earlier slice wins the number
+    because a migration that has been applied cannot be renumbered, and a plan's slice order is
+    the order they are written in.

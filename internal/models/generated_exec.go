@@ -11324,6 +11324,14 @@ enum SceneSortEnum {
   DATE
   DURATION
   TRENDING
+  """
+  Decayed engagement over the last 90 days (migration 114, spec section 7).
+  """
+  FRESH
+  """
+  Engaged THIS day more than the one before: the last 24 hours compared with the 24 before that.
+  """
+  RISING
   POPULARITY
   CREATED_AT
   UPDATED_AT

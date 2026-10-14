@@ -478,10 +478,32 @@ part of the commit message.
    was wrong; `IncludesAll` is the modifier that means "this tag among these results", and the
    spec records why the distinction is part of the contract rather than an implementation
    detail.
-4. **Trending and freshness.** Migration **114** (`scene_freshness`), the refresh in
-   `internal/cron`, `SceneSortEnumFresh`, the Rising and Best-of windows.
-   **Verification:** hand-computed scores for a fixture with known ages; an older-but-bigger
-   scene sorts below a newer one.
+4. **Trending and freshness. DONE.**
+   Migration **114** (`scene_freshness`: a materialized view — `score`, `recent_score`,
+   `earlier_score`, `computed_at` — with the unique index CONCURRENTLY needs, the two supporting
+   indexes, and the decayed sum over the three signals), `Scene.RefreshFreshness`,
+   `cron.refreshSceneFreshness` on the popularity refresh's hourly cadence,
+   `SceneSortEnumFresh` and `SceneSortEnumRising` with their branches in
+   `internal/service/scene/query.go`, and `internal/api/scene_freshness_integration_test.go`.
+   **Verification:** `POSTGRES_DB=... go test -tags integration -count=1 -p 1 -run 'Freshness|Rising|OlderButBusier|SceneWithNoSignals|Withdrawn' ./internal/api/` → ok, on fixtures whose
+   signal ages the test controls: the decay against hand-computed values (`1.060660` at 48h,
+   `0.314270` at a week, `0.010828` at 83 days), the three signals summing, an unrated review
+   contributing nothing, a withdrawal worth −3 and ranking below an untouched scene, the 90-day
+   window as a boundary, ten old signals ranking below one fresh one, `FRESH` and `RISING`
+   disagreeing on one fixture, and a signal staying invisible until the refresh runs.
+   **Mutation-checked** by `scripts/mutate-scene-freshness.py` — 5/5 caught and restored, four of
+   them mutating the MIGRATION because the score is computed in the database: the decay half-life,
+   the review weight, `3 * vote` reduced to `3`, the window widened to 180 days, and `RISING`
+   summing the two days instead of comparing them.
+   **One correction the implementation forced, and it was mine:** this plan and the spec both said
+   the draft's fingerprint-withdrawal term (−3) was unimplementable because a withdrawal deletes
+   the row. `scene_fingerprints.vote` has existed since migration 40 (`CHECK (vote = -1 OR vote =
+   1)`), the upsert stores a withdrawal as −1, and the GraphQL input takes `vote: REMOVE`. So the
+   term is there as `3 * vote`, and the spec's §14 decision 14 records the reversal.
+   **Also corrected:** `fingerprints.hash` is a BIGINT (migration 52 — a phash is a 64-bit number,
+   which is what its bktree index needs), so a fixture hash is an integer; and the package's scene
+   fixture submits a fingerprint as part of creating a scene, so every score it makes carries a real
+   +3 that the test must remove before it can assert a known number.
 5. **Similarity and its explanation.** `internal/service/similar/` with the `VectorStore`
    interface, `Noop` and `InMemory`, and the explanation built from shared tags, performer,
    studio and duration — explanation first, vector second (§8 of the spec).

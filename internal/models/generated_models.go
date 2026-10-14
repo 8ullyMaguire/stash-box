@@ -4172,10 +4172,14 @@ func (e RoleEnum) MarshalJSON() ([]byte, error) {
 type SceneSortEnum string
 
 const (
-	SceneSortEnumTitle      SceneSortEnum = "TITLE"
-	SceneSortEnumDate       SceneSortEnum = "DATE"
-	SceneSortEnumDuration   SceneSortEnum = "DURATION"
-	SceneSortEnumTrending   SceneSortEnum = "TRENDING"
+	SceneSortEnumTitle    SceneSortEnum = "TITLE"
+	SceneSortEnumDate     SceneSortEnum = "DATE"
+	SceneSortEnumDuration SceneSortEnum = "DURATION"
+	SceneSortEnumTrending SceneSortEnum = "TRENDING"
+	// Decayed engagement over the last 90 days (migration 114, spec section 7).
+	SceneSortEnumFresh SceneSortEnum = "FRESH"
+	// Engaged THIS day more than the one before: the last 24 hours compared with the 24 before that.
+	SceneSortEnumRising     SceneSortEnum = "RISING"
 	SceneSortEnumPopularity SceneSortEnum = "POPULARITY"
 	SceneSortEnumCreatedAt  SceneSortEnum = "CREATED_AT"
 	SceneSortEnumUpdatedAt  SceneSortEnum = "UPDATED_AT"
@@ -4193,6 +4197,8 @@ var AllSceneSortEnum = []SceneSortEnum{
 	SceneSortEnumDate,
 	SceneSortEnumDuration,
 	SceneSortEnumTrending,
+	SceneSortEnumFresh,
+	SceneSortEnumRising,
 	SceneSortEnumPopularity,
 	SceneSortEnumCreatedAt,
 	SceneSortEnumUpdatedAt,
@@ -4201,7 +4207,7 @@ var AllSceneSortEnum = []SceneSortEnum{
 
 func (e SceneSortEnum) IsValid() bool {
 	switch e {
-	case SceneSortEnumTitle, SceneSortEnumDate, SceneSortEnumDuration, SceneSortEnumTrending, SceneSortEnumPopularity, SceneSortEnumCreatedAt, SceneSortEnumUpdatedAt, SceneSortEnumRandom:
+	case SceneSortEnumTitle, SceneSortEnumDate, SceneSortEnumDuration, SceneSortEnumTrending, SceneSortEnumFresh, SceneSortEnumRising, SceneSortEnumPopularity, SceneSortEnumCreatedAt, SceneSortEnumUpdatedAt, SceneSortEnumRandom:
 		return true
 	}
 	return false

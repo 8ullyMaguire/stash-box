@@ -96,6 +96,17 @@ func (s *Scene) RefreshPopularityTrending(ctx context.Context) error {
 	return err
 }
 
+// RefreshFreshness recomputes the freshness scores behind `FRESH` and `RISING` (migration 114).
+//
+// The refresh is WHERE the decay is evaluated: the view's `now()` is the refresh's clock, so a
+// score is as old as the last run and the sorts read a stable snapshot rather than a number that
+// changes between two pages of the same result set. That is also why the sorts must not fall
+// back to the raw signal tables -- a feed paged over two queries would otherwise be two rankings.
+func (s *Scene) RefreshFreshness(ctx context.Context) error {
+	_, err := s.queries.DB().Exec(ctx, "REFRESH MATERIALIZED VIEW CONCURRENTLY scene_freshness")
+	return err
+}
+
 // Queries
 
 func (s *Scene) FindByID(ctx context.Context, id uuid.UUID) (*models.Scene, error) {
