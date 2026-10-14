@@ -39,6 +39,8 @@ import (
 	"github.com/stashapp/stash-box/internal/service/identification"
 	"github.com/stashapp/stash-box/internal/service/image"
 	"github.com/stashapp/stash-box/internal/service/imagetype"
+	"github.com/stashapp/stash-box/internal/service/ingest"
+	"github.com/stashapp/stash-box/internal/service/ingest/extract"
 	"github.com/stashapp/stash-box/internal/service/invite"
 	listsvc "github.com/stashapp/stash-box/internal/service/list"
 	"github.com/stashapp/stash-box/internal/service/mod_audit"
@@ -210,6 +212,17 @@ func (f *Factory) Site() *site.Site {
 // agree with the row they are reading; the read paths here do not use it yet.
 func (f *Factory) Content() *content.Service {
 	return content.NewService(queries.New(f.db), f.withTxn)
+}
+
+// Ingest returns the aggregation pipeline (docs/spec/feature-ingestion.md, plan phase 2).
+//
+// The extractor is built here rather than injected, because the HTTP extractor is what
+// production uses and a factory method that required one would make every caller decide.
+// Tests that need a deterministic fetch construct ingest.NewService directly with
+// extract.Fake -- which is exactly why the extractor is an interface and why there is no
+// second factory method whose only purpose would be to serve a test.
+func (f *Factory) Ingest() *ingest.Service {
+	return ingest.NewService(queries.New(f.db), extract.NewHTTPExtractor())
 }
 
 // Edit returns an EditService instance

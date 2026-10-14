@@ -18,6 +18,12 @@ const tracerName = "github.com/stashapp/stash-box/internal/cron"
 
 var sem = semaphore.NewWeighted(1)
 
+// ingestSem is separate from sem on purpose: the ingest drain makes third-party HTTP
+// requests with a 20-second timeout each, and sharing one semaphore with the edit closer
+// would let one slow host delay edit processing by that much -- a coupling neither job
+// wants and neither would ever attribute to the other.
+var ingestSem = semaphore.NewWeighted(1)
+
 type Cron struct {
 	fac service.Factory
 }
@@ -45,6 +51,43 @@ func (c Cron) processEdits() {
 		c.fac.Notification().OnApplyEdit(ctx, edit)
 	}
 }
+
+// processIngestQueue drains the aggregation intake queue (docs/spec/feature-ingestion.md,
+// plan phase 2): claim a bounded batch of submitted URLs, fetch each, and either record a
+// source or record why not.
+//
+// BOUNDED, and the bound is the point: this shares the process with the edit closer and
+// the cleanups, so a tick that drained an unbounded backlog would hold its own worker for
+// as long as the backlog took -- while making third-party HTTP requests.
+//
+// Its OWN semaphore, not the shared `sem`: the ingest drain makes network calls with
+// 20-second timeouts, and letting it exclude the edit closer would mean a slow host
+// delaying edit processing by up to that long for no reason either of them cares about.
+func (c Cron) processIngestQueue() {
+	if !ingestSem.TryAcquire(1) {
+		logger.Debug("Ingest cronjob failed to start, already running.")
+		return
+	}
+	defer ingestSem.Release(1)
+
+	ctx, span := otel.Tracer(tracerName).Start(context.Background(), "cron.processIngestQueue")
+	defer span.End()
+
+	processed, err := c.fac.Ingest().Drain(ctx, ingestDrainLimit)
+	tracing.RecordError(span, err)
+	if err != nil {
+		logger.Errorf("Error draining the ingest queue: %s", err)
+		return
+	}
+	if processed > 0 {
+		logger.Infof("Ingest queue: processed %d job(s)", processed)
+	}
+}
+
+// ingestDrainLimit is how many submitted URLs one tick handles. Twenty is a minute's work
+// across a few hosts; it is a constant so the bound is visible in one place rather than as
+// a literal at the call site.
+const ingestDrainLimit = 20
 
 func (c Cron) cleanDrafts() {
 	ctx, span := otel.Tracer(tracerName).Start(context.Background(), "cron.cleanDrafts")
@@ -197,6 +240,19 @@ func Init(fac service.Factory) {
 		}
 	}
 
+	// The aggregation intake queue's drain (docs/spec/feature-ingestion.md, plan phase 2).
+	//
+	// Bounded per tick, because a tick that drained an unbounded backlog would hold this
+	// process's single cron slot for as long as the backlog took -- and every other job in
+	// this file would wait behind it while fetching third-party pages.
+	//
+	// Errors are logged and swallowed, like every other job here: a failed drain is one
+	// minute of no progress, and the rows stay 'pending' (or back off) for the next tick.
+	_, err = c.AddFunc("@every 1m", cronJobs.processIngestQueue)
+	if err != nil {
+		panic(err.Error())
+	}
+
 	interval := config.GetVoteCronInterval()
 	if interval != "" {
 		_, err := c.AddFunc("@every "+config.GetVoteCronInterval(), cronJobs.processEdits)
@@ -204,7 +260,16 @@ func Init(fac service.Factory) {
 			panic(err.Error())
 		}
 
-		c.Start()
 		logger.Debugf("Edit cronjob initialized to run every %s", interval)
 	}
+
+	// Started unconditionally, and NOT inside the interval block above.
+	//
+	// It used to live inside it, which coupled every job in this function -- nine of them,
+	// including the edit closer -- to a value about voting intervals. With the default
+	// (5m) that coupling is invisible; an operator who sets vote_cron_interval to empty
+	// string to stop edit processing also silently stopped the invite cleanup, the
+	// notification cleanup, the popularity refreshes and now the ingest drain. The jobs
+	// are registered above and unconditional, so the scheduler that runs them is too.
+	c.Start()
 }

@@ -33,6 +33,14 @@ func TestDecide(t *testing.T) {
 			DecisionMerge,
 		},
 		{
+			// A person typed "this URL is a source for scene A". A machine thinks the same
+			// content looks like scene B. The person wins, and merging into B would overrule
+			// them silently -- which is why this rule sits above the fingerprint match.
+			"a named target beats a fingerprint match",
+			Known{EntityID: &sceneA, FingerprintMatch: &sceneB},
+			DecisionAttach,
+		},
+		{
 			// The precedence that matters. Both are known, and an existing claim is the
 			// answer: a fingerprint lookup could only move the source to a second entity,
 			// which is a second decision about a question that is already settled.

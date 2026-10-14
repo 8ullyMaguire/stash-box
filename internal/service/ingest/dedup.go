@@ -60,8 +60,14 @@ type Known struct {
 //  2. An EXISTING CLAIM beats a fingerprint match. If some entity already records this
 //     URL, the answer is that URL's, and looking up a fingerprint could only move the
 //     source to a different entity -- a second decision about a question already decided.
-//  3. A fingerprint match merges. The content is here twice under two URLs.
-//  4. Otherwise, create.
+//  3. A NAMED TARGET beats a fingerprint match. When a submitter said "this URL is a
+//     source for scene X", that instruction outranks a machine's inference that the
+//     content also resembles scene Y: the fork's rule is that a guess is evidence and not
+//     authority, and merging into Y would silently overrule the person who typed the URL.
+//     (It does not beat rule 2 -- attaching a source to the named scene is precisely what
+//     happens when the URL is already claimed elsewhere, see Target.)
+//  4. A fingerprint match merges. The content is here twice under two URLs.
+//  5. Otherwise, create.
 //
 // The reversed order is a plausible-looking bug with a real cost: with attach and merge
 // swapped, a URL already on scene A whose fingerprint matches scene B would silently move
@@ -72,6 +78,9 @@ func Decide(k Known) Decision {
 		return DecisionReject
 	}
 	if len(k.EntityIDs) > 0 {
+		return DecisionAttach
+	}
+	if k.EntityID != nil {
 		return DecisionAttach
 	}
 	if k.FingerprintMatch != nil {

@@ -116,11 +116,10 @@ func NormalizeURL(raw string) (string, error) {
 		return "", fmt.Errorf("%w (got %q)", ErrUnsupportedScheme, parsed.Scheme)
 	}
 
-	host := strings.ToLower(parsed.Hostname())
+	host := SiteHost(trimmed)
 	if host == "" {
 		return "", fmt.Errorf("%w: %q", ErrNoHost, raw)
 	}
-	host = strings.TrimPrefix(host, "www.")
 
 	if p := parsed.Port(); p != "" && p != defaultPort(scheme) {
 		host = host + ":" + p
@@ -144,6 +143,33 @@ func NormalizeURL(raw string) (string, error) {
 		out += "?" + query
 	}
 	return out, nil
+}
+
+// SiteHost returns the host a URL belongs to, in the form the directory names sites by:
+// lowercased, a leading `www.` removed, and NO PORT.
+//
+// Exported, and used by the normaliser above as well as by the pipeline's site resolution.
+// That is the whole reason it exists separately: the `www.` equivalence is a claim made in
+// one place, and a second implementation that thought `www.example.com` was a different
+// host from `example.com` would create a second directory entry for a site the directory
+// already has -- while the dedup key, which uses this same function, insisted they were the
+// same page.
+//
+// The port is dropped here but KEPT in the dedup key, and the asymmetry is deliberate: two
+// ports on one host are one site (the site is the host), while two ports on one host are
+// two different origins and must not be one queue row. The practical case that pins the
+// choice is a test server on a random port: as a site it must not create a directory entry
+// per run, and as a queue key it must not collide with the next run's server.
+func SiteHost(raw string) string {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return ""
+	}
+	host := strings.ToLower(parsed.Hostname())
+	if host == "" {
+		return ""
+	}
+	return strings.TrimPrefix(host, "www.")
 }
 
 func defaultPort(scheme string) string {
