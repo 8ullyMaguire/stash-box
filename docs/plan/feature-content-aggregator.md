@@ -1558,7 +1558,41 @@ page staying ordinary; the gap flooring at zero on over-count). Four probes, all
 mutation script asserting each cut landed (a silent no-op replace reports a false SURVIVED, which cost a
 probe in 9e).
 
-#### 9f-2 — the cap and the quest (DECIDED, still not built)
+#### 9f-2 — the verdict: the cap, BUILT; the quest still to come
+
+**A different score from the completion scorer's, and the difference is the point.** `completion.Score`
+answers "how much of the work is done" over weighted fields, and its `percent` ROUNDS
+(`(n*100 + total/2) / total`). This answers "how much of what the source claims do we hold" over
+counts, and it FLOORS. Deliberate, and argued in the code: where a job essentially finished can round to
+100, a completeness figure that reaches 100 while the claim is UNMET is the same lie as 100% for a claim
+nobody checked, one step smaller. Only `observed == expected` reports 100 -- and then the cap decides
+whether it may be said at all.
+
+**Three decisions, each made against the tempting alternative:**
+1. **The cap is a CEILING (`min`), not a subtraction.** Subtracting would put a studio at 25% down to
+   15% for a page dying: less completeness than the archive verifiably holds, a worse lie than the one
+   the cap prevents. It exists for one case -- the claim FULLY held (100%) whose source is gone, where
+   100 is a defensible statement about the archive and an indefensible one about the record.
+2. **Once per entity, not once per total.** Two dead-source claims are not twice as bad as one: what is
+   compromised is the record's provenance, not each number.
+3. **A claim of NOTHING is 0%, not 100%.** `completion.Score` answers 100 for an entity type with no
+   scored fields, because there the question is "is there work left" and the answer is no. Here an
+   entity nobody has claimed anything about has no ratio at all, and a dashboard averaging 100% for
+   every unclaimed entity would read the archive as more complete the LESS is known about it -- the one
+   direction a completeness figure must never move. `HasClaim()` is how a caller tells the two apart.
+
+**Built:** `Verdict` (`Percent`, `Unverifiable`, `LostSource` naming the URL to act on, `Score`) plus
+`StudioVerdict`. `LostSource` exists because "unverifiable" without "which claim" is not actionable.
+
+**Verification (9f-2, DONE):** five test functions, including the mixed case (one live claim, one
+archived: the entity is compromised, not just that number), the ceiling case (50% stays 50%), the
+per-entity case (two dead claims still 90), and the rounding table. Five probes, all killed with their
+own messages: the cap subtracting instead of ceilinging; `Percent` rounding up instead of flooring;
+`HasClaim` always true; the penalty applied per total; `Unverifiable` requiring EVERY total to be lost.
+
+**Still to come (9f-3, decided):** the quest (`GenerateUnverifiedSource` on the existing `Wording`
+machinery -- the acceptance criterion's "raises a quest" half) and the API exposure, so a reader sees
+the verdict rather than only the service's callers.
 
 Migration 97's totals carry `(source_entity_type, source_url)` and its own comment says a total is "a
 claim about the world" whose source must be real. Migration 108 then made `content_sources` the health
