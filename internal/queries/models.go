@@ -1049,6 +1049,7 @@ type UserTrust struct {
 	ShortSince             pgtype.Timestamptz `db:"short_since" json:"short_since"`
 	DemotedAt              pgtype.Timestamptz `db:"demoted_at" json:"demoted_at"`
 	DemotedFromLevel       *int               `db:"demoted_from_level" json:"demoted_from_level"`
+	LeaderboardListed      bool               `db:"leaderboard_listed" json:"leaderboard_listed"`
 }
 
 type WebhookDelivery struct {

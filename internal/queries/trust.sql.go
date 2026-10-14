@@ -49,7 +49,7 @@ ON CONFLICT (user_id) DO UPDATE SET
     replicas_hosted = user_trust.replicas_hosted + EXCLUDED.replicas_hosted,
     bonus_points = user_trust.bonus_points + EXCLUDED.bonus_points,
     updated_at = NOW()
-RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at, short_since, demoted_at, demoted_from_level
+RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at, short_since, demoted_at, demoted_from_level, leaderboard_listed
 `
 
 type ApplyTrustEventParams struct {
@@ -98,6 +98,7 @@ func (q *Queries) ApplyTrustEvent(ctx context.Context, arg ApplyTrustEventParams
 		&i.ShortSince,
 		&i.DemotedAt,
 		&i.DemotedFromLevel,
+		&i.LeaderboardListed,
 	)
 	return i, err
 }
@@ -163,7 +164,7 @@ func (q *Queries) DeniedSceneIDs(ctx context.Context, sceneIds []uuid.UUID) ([]u
 }
 
 const getAllUserTrust = `-- name: GetAllUserTrust :many
-SELECT user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at, short_since, demoted_at, demoted_from_level FROM user_trust
+SELECT user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at, short_since, demoted_at, demoted_from_level, leaderboard_listed FROM user_trust
 `
 
 // Every rollup row. Used when a threshold changes and every level must be
@@ -195,6 +196,7 @@ func (q *Queries) GetAllUserTrust(ctx context.Context) ([]UserTrust, error) {
 			&i.ShortSince,
 			&i.DemotedAt,
 			&i.DemotedFromLevel,
+			&i.LeaderboardListed,
 		); err != nil {
 			return nil, err
 		}
@@ -208,7 +210,7 @@ func (q *Queries) GetAllUserTrust(ctx context.Context) ([]UserTrust, error) {
 
 const getUserTrust = `-- name: GetUserTrust :one
 
-SELECT user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at, short_since, demoted_at, demoted_from_level FROM user_trust WHERE user_id = $1
+SELECT user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at, short_since, demoted_at, demoted_from_level, leaderboard_listed FROM user_trust WHERE user_id = $1
 `
 
 // Trust level queries (SPEC §6, migration 76).
@@ -238,12 +240,13 @@ func (q *Queries) GetUserTrust(ctx context.Context, userID uuid.UUID) (UserTrust
 		&i.ShortSince,
 		&i.DemotedAt,
 		&i.DemotedFromLevel,
+		&i.LeaderboardListed,
 	)
 	return i, err
 }
 
 const getUserTrustByUserIDs = `-- name: GetUserTrustByUserIDs :many
-SELECT user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at, short_since, demoted_at, demoted_from_level FROM user_trust WHERE user_id = ANY($1::UUID[])
+SELECT user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at, short_since, demoted_at, demoted_from_level, leaderboard_listed FROM user_trust WHERE user_id = ANY($1::UUID[])
 `
 
 func (q *Queries) GetUserTrustByUserIDs(ctx context.Context, dollar_1 []uuid.UUID) ([]UserTrust, error) {
@@ -273,6 +276,7 @@ func (q *Queries) GetUserTrustByUserIDs(ctx context.Context, dollar_1 []uuid.UUI
 			&i.ShortSince,
 			&i.DemotedAt,
 			&i.DemotedFromLevel,
+			&i.LeaderboardListed,
 		); err != nil {
 			return nil, err
 		}
@@ -284,8 +288,81 @@ func (q *Queries) GetUserTrustByUserIDs(ctx context.Context, dollar_1 []uuid.UUI
 	return items, nil
 }
 
+const listLeaderboard = `-- name: ListLeaderboard :many
+SELECT a.user_id, a.score, COALESCE(ut.level, 0) AS level
+FROM (
+    SELECT te.user_id, count(*) AS score
+    FROM trust_events te
+    WHERE date_trunc('day', te.created_at)::timestamp >= date_trunc('day', $1::timestamptz)::timestamp
+    GROUP BY te.user_id
+) a
+LEFT JOIN user_trust ut ON ut.user_id = a.user_id
+WHERE COALESCE(ut.leaderboard_listed, true)
+ORDER BY a.score DESC, a.user_id
+LIMIT $2
+`
+
+type ListLeaderboardParams struct {
+	Since      pgtype.Timestamptz `db:"since" json:"since"`
+	LimitCount int32              `db:"limit_count" json:"limit_count"`
+}
+
+type ListLeaderboardRow struct {
+	UserID uuid.UUID `db:"user_id" json:"user_id"`
+	Score  int64     `db:"score" json:"score"`
+	Level  int       `db:"level" json:"level"`
+}
+
+// The leaderboard: members ranked by how many trust events they recorded since a cutoff
+// (plan phase 6 slice 6f).
+//
+// THE COUNT IS OF EVENTS AND NOT OF DELTAS, exactly as the heatmap's is, and for the same
+// reason: a rejected edit is a day of work by somebody who showed up, and a board that
+// counted only approvals would rank members by an outcome they do not entirely control.
+// One row per MEMBER, not per member-day: the score is the total over the window.
+//
+// THE WINDOW IS TRUNCATED IN THE DATABASE'S ZONE, on both sides, so a board that says
+// "the last thirty days" cannot include a day the rest of the instance calls yesterday.
+//
+// OPT-OUT IS A JOIN ON THE MEMBER'S OWN CHOICE, and it is a LEFT JOIN with a COALESCE
+// because a member with no user_trust row has never contributed and cannot have opted out:
+// an INNER JOIN would silently read "no consent recorded" as "declined", which is the one
+// mistake that would make a fresh member's absence mean something it does not.
+//
+// THE LEVEL IS READ, NOT RECOMPUTED, AND THE FIRST VERSION OF THIS QUERY GOT THAT WRONG.
+// It carried the counters back so Go could run the level curve over them, and the test that
+// asserts "the board's level is the trust service's level" failed on the first run: a
+// member inside a recovery window has a level the POLICY is holding down, which is
+// deliberately NOT what their totals justify (slice 6b-1). Recomputing is a second
+// implementation of a number that is not a pure function of the totals in time, so the
+// board now reads the stored level -- the same number the badge shows -- and answers 0,
+// which is LevelPublic, for a member with no rollup row.
+//
+// No level filter here: the caller narrows an already-ordered ranking, which keeps the
+// POSITIONS honest -- position 7 of a level-scoped board is the member's real standing
+// rather than their rank among the members who happen to share their level.
+func (q *Queries) ListLeaderboard(ctx context.Context, arg ListLeaderboardParams) ([]ListLeaderboardRow, error) {
+	rows, err := q.db.Query(ctx, listLeaderboard, arg.Since, arg.LimitCount)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListLeaderboardRow{}
+	for rows.Next() {
+		var i ListLeaderboardRow
+		if err := rows.Scan(&i.UserID, &i.Score, &i.Level); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listUserTrustDecayPending = `-- name: ListUserTrustDecayPending :many
-SELECT user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at, short_since, demoted_at, demoted_from_level FROM user_trust
+SELECT user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at, short_since, demoted_at, demoted_from_level, leaderboard_listed FROM user_trust
 WHERE short_since IS NOT NULL OR demoted_at IS NOT NULL
 ORDER BY user_id
 `
@@ -328,6 +405,7 @@ func (q *Queries) ListUserTrustDecayPending(ctx context.Context) ([]UserTrust, e
 			&i.ShortSince,
 			&i.DemotedAt,
 			&i.DemotedFromLevel,
+			&i.LeaderboardListed,
 		); err != nil {
 			return nil, err
 		}
@@ -396,7 +474,7 @@ ON CONFLICT (user_id) DO UPDATE SET
     replicas_hosted = EXCLUDED.replicas_hosted,
     bonus_points = EXCLUDED.bonus_points,
     updated_at = NOW()
-RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at, short_since, demoted_at, demoted_from_level
+RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at, short_since, demoted_at, demoted_from_level, leaderboard_listed
 `
 
 // Rebuilds the totals from the event log.
@@ -431,6 +509,7 @@ func (q *Queries) RecomputeUserTrustTotals(ctx context.Context, userID uuid.UUID
 		&i.ShortSince,
 		&i.DemotedAt,
 		&i.DemotedFromLevel,
+		&i.LeaderboardListed,
 	)
 	return i, err
 }
@@ -561,7 +640,7 @@ const setContentViewingOptIn = `-- name: SetContentViewingOptIn :one
 UPDATE user_trust
 SET content_viewing_opt_in = $2, updated_at = NOW()
 WHERE user_id = $1
-RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at, short_since, demoted_at, demoted_from_level
+RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at, short_since, demoted_at, demoted_from_level, leaderboard_listed
 `
 
 type SetContentViewingOptInParams struct {
@@ -597,6 +676,55 @@ func (q *Queries) SetContentViewingOptIn(ctx context.Context, arg SetContentView
 		&i.ShortSince,
 		&i.DemotedAt,
 		&i.DemotedFromLevel,
+		&i.LeaderboardListed,
+	)
+	return i, err
+}
+
+const setLeaderboardListed = `-- name: SetLeaderboardListed :one
+UPDATE user_trust
+SET leaderboard_listed = $2, updated_at = now()
+WHERE user_id = $1
+RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at, short_since, demoted_at, demoted_from_level, leaderboard_listed
+`
+
+type SetLeaderboardListedParams struct {
+	UserID            uuid.UUID `db:"user_id" json:"user_id"`
+	LeaderboardListed bool      `db:"leaderboard_listed" json:"leaderboard_listed"`
+}
+
+// Records the member's own choice about appearing on the leaderboard.
+//
+// Same shape as SetContentViewingOptIn, and for the same reason: this is a preference
+// rather than a contribution, so it must not touch the totals, the level, or the counters.
+//
+// IT UPSERTS, because the first version did not and a brand-new member toggling the setting
+// got an error: there is no user_trust row until a member has contributed, and "I would
+// rather not be on the board" is a sentence a member with nothing to show should be able to
+// say. The row it creates is the zeroed rollup the read path already reports for a member
+// with none -- level 0, every counter zero, which is what they have.
+func (q *Queries) SetLeaderboardListed(ctx context.Context, arg SetLeaderboardListedParams) (UserTrust, error) {
+	row := q.db.QueryRow(ctx, setLeaderboardListed, arg.UserID, arg.LeaderboardListed)
+	var i UserTrust
+	err := row.Scan(
+		&i.UserID,
+		&i.Level,
+		&i.ApprovedEdits,
+		&i.RejectedEdits,
+		&i.IdentificationSolves,
+		&i.QuestsCompleted,
+		&i.ReplicasHosted,
+		&i.ContentViewingOptIn,
+		&i.UpdatedAt,
+		&i.BonusPoints,
+		&i.IsVanguard,
+		&i.VisibleTiers,
+		&i.T3ConsentedAt,
+		&i.ContentTermsAcceptedAt,
+		&i.ShortSince,
+		&i.DemotedAt,
+		&i.DemotedFromLevel,
+		&i.LeaderboardListed,
 	)
 	return i, err
 }
@@ -641,7 +769,7 @@ SET level = $2,
     demoted_from_level = $5,
     updated_at = NOW()
 WHERE user_id = $1
-RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at, short_since, demoted_at, demoted_from_level
+RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at, short_since, demoted_at, demoted_from_level, leaderboard_listed
 `
 
 type SetUserTrustStateParams struct {
@@ -690,6 +818,7 @@ func (q *Queries) SetUserTrustState(ctx context.Context, arg SetUserTrustStatePa
 		&i.ShortSince,
 		&i.DemotedAt,
 		&i.DemotedFromLevel,
+		&i.LeaderboardListed,
 	)
 	return i, err
 }
@@ -704,7 +833,7 @@ SET "visible_tiers" = $1,
     END,
     "updated_at" = NOW()
 WHERE "user_id" = $2
-RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at, short_since, demoted_at, demoted_from_level
+RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at, short_since, demoted_at, demoted_from_level, leaderboard_listed
 `
 
 type SetVisibleTiersParams struct {
@@ -740,6 +869,49 @@ func (q *Queries) SetVisibleTiers(ctx context.Context, arg SetVisibleTiersParams
 		&i.ShortSince,
 		&i.DemotedAt,
 		&i.DemotedFromLevel,
+		&i.LeaderboardListed,
+	)
+	return i, err
+}
+
+const upsertLeaderboardListed = `-- name: UpsertLeaderboardListed :one
+INSERT INTO user_trust (user_id, leaderboard_listed, updated_at)
+VALUES ($1, $2, now())
+ON CONFLICT (user_id) DO UPDATE
+SET leaderboard_listed = EXCLUDED.leaderboard_listed, updated_at = now()
+RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at, short_since, demoted_at, demoted_from_level, leaderboard_listed
+`
+
+type UpsertLeaderboardListedParams struct {
+	UserID            uuid.UUID `db:"user_id" json:"user_id"`
+	LeaderboardListed bool      `db:"leaderboard_listed" json:"leaderboard_listed"`
+}
+
+// The same write for a member who has no rollup row yet: it creates the zeroed row and sets
+// the preference on it in one statement, so there is no window in which a member exists with
+// a preference and no counters, or the other way round.
+func (q *Queries) UpsertLeaderboardListed(ctx context.Context, arg UpsertLeaderboardListedParams) (UserTrust, error) {
+	row := q.db.QueryRow(ctx, upsertLeaderboardListed, arg.UserID, arg.LeaderboardListed)
+	var i UserTrust
+	err := row.Scan(
+		&i.UserID,
+		&i.Level,
+		&i.ApprovedEdits,
+		&i.RejectedEdits,
+		&i.IdentificationSolves,
+		&i.QuestsCompleted,
+		&i.ReplicasHosted,
+		&i.ContentViewingOptIn,
+		&i.UpdatedAt,
+		&i.BonusPoints,
+		&i.IsVanguard,
+		&i.VisibleTiers,
+		&i.T3ConsentedAt,
+		&i.ContentTermsAcceptedAt,
+		&i.ShortSince,
+		&i.DemotedAt,
+		&i.DemotedFromLevel,
+		&i.LeaderboardListed,
 	)
 	return i, err
 }

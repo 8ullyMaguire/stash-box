@@ -25,6 +25,12 @@ models:
   # A vouch's giver is a User the database row does not carry -- the row holds an id --
   # so the field is resolved externally rather than bound to a struct field that
   # would have to be filled in by hand at every construction site.
+  # A board row carries a member id, not a member, so the user is resolved externally --
+  # one lookup per row, bounded by the board's limit.
+  LeaderboardEntry:
+    fields:
+      user:
+        resolver: true
   Vouch:
     fields:
       voucher:

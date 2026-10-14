@@ -3,6 +3,8 @@ package api
 import (
 	"context"
 
+	"github.com/gofrs/uuid"
+
 	"github.com/stashapp/stash-box/internal/auth"
 	"github.com/stashapp/stash-box/internal/converter"
 	"github.com/stashapp/stash-box/internal/dataloader"
@@ -124,22 +126,37 @@ func (r *userResolver) TrustLevel(ctx context.Context, obj *models.User) (int, e
 // is the authorization, and duplicating it in Go would give two places to keep
 // in sync for one rule.
 func (r *userResolver) Trust(ctx context.Context, obj *models.User) (*models.UserTrust, error) {
-	trustSvc := r.services.Trust()
-
 	// A user with no rollup row has contributed nothing, which is level 0 with
 	// zero totals -- not an error, and not a null field. Returning a zeroed
 	// standing means a client never has to handle a missing trust object for a
 	// perfectly normal new account.
-	rollup, err := trustSvc.TotalsFor(ctx, obj.ID)
+	return r.userTrustModel(ctx, obj.ID)
+}
+
+// userTrustModel builds the standing the schema describes for one member.
+//
+// One implementation, because there are now three callers that must agree: the owner-gated
+// `User.trust` field, the leaderboard-participation mutation, and setContentViewingOptIn's
+// own copy (which predates this helper and is left as it is -- the counters it maps are the
+// same, and rewriting a working path to save a line is not this slice's business).
+//
+// THE DEFAULTS ARE PART OF THE CONTRACT. A member with no rollup row is a new account, so
+// the standing is zeroed rather than null, and `LeaderboardListed` answers with the
+// COLUMN's default (true) rather than Go's zero value (false) -- otherwise every member who
+// has never touched the setting would read as having opted out of the board.
+func (r *Resolver) userTrustModel(ctx context.Context, userID uuid.UUID) (*models.UserTrust, error) {
+	trustSvc := r.services.Trust()
+
+	rollup, err := trustSvc.TotalsFor(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
-	level, err := trustSvc.Level(ctx, obj.ID)
+	level, err := trustSvc.Level(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
 
-	canView, err := trustSvc.CanViewContent(ctx, obj.ID)
+	canView, err := trustSvc.CanViewContent(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -149,8 +166,15 @@ func (r *userResolver) Trust(ctx context.Context, obj *models.User) (*models.Use
 	// there is no rollup row, which is correct: no row means no recorded
 	// preference.
 	optIn := false
-	if stored, err := trustSvc.Rollup(ctx, obj.ID); err == nil && stored != nil {
+	// Listed defaults to TRUE, and the default is the trap this line exists to avoid: the
+	// column is NOT NULL DEFAULT true, but a Go bool left unset is false, so a member who
+	// has done nothing wrong would read as having opted out of the leaderboard. Read the
+	// column when there is a row, and answer with the column's own default when there is
+	// not.
+	listed := true
+	if stored, err := trustSvc.Rollup(ctx, userID); err == nil && stored != nil {
 		optIn = stored.ContentViewingOptIn
+		listed = stored.LeaderboardListed
 	} else if err != nil {
 		return nil, err
 	}
@@ -163,6 +187,7 @@ func (r *userResolver) Trust(ctx context.Context, obj *models.User) (*models.Use
 		QuestsCompleted:      rollup.QuestsCompleted,
 		ReplicasHosted:       rollup.ReplicasHosted,
 		ContentViewingOptIn:  optIn,
+		LeaderboardListed:    listed,
 		CanViewContent:       canView,
 	}, nil
 }

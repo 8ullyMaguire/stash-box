@@ -297,3 +297,70 @@ INSERT INTO "user_trust" ("user_id", "content_terms_accepted_at")
 VALUES (@user_id, now())
 ON CONFLICT ("user_id") DO UPDATE
     SET "content_terms_accepted_at" = COALESCE("user_trust"."content_terms_accepted_at", now());
+
+-- name: SetLeaderboardListed :one
+-- Records the member's own choice about appearing on the leaderboard.
+--
+-- Same shape as SetContentViewingOptIn, and for the same reason: this is a preference
+-- rather than a contribution, so it must not touch the totals, the level, or the counters.
+--
+-- IT UPSERTS, because the first version did not and a brand-new member toggling the setting
+-- got an error: there is no user_trust row until a member has contributed, and "I would
+-- rather not be on the board" is a sentence a member with nothing to show should be able to
+-- say. The row it creates is the zeroed rollup the read path already reports for a member
+-- with none -- level 0, every counter zero, which is what they have.
+UPDATE user_trust
+SET leaderboard_listed = $2, updated_at = now()
+WHERE user_id = $1
+RETURNING *;
+
+-- name: UpsertLeaderboardListed :one
+-- The same write for a member who has no rollup row yet: it creates the zeroed row and sets
+-- the preference on it in one statement, so there is no window in which a member exists with
+-- a preference and no counters, or the other way round.
+INSERT INTO user_trust (user_id, leaderboard_listed, updated_at)
+VALUES ($1, $2, now())
+ON CONFLICT (user_id) DO UPDATE
+SET leaderboard_listed = EXCLUDED.leaderboard_listed, updated_at = now()
+RETURNING *;
+
+-- name: ListLeaderboard :many
+-- The leaderboard: members ranked by how many trust events they recorded since a cutoff
+-- (plan phase 6 slice 6f).
+--
+-- THE COUNT IS OF EVENTS AND NOT OF DELTAS, exactly as the heatmap's is, and for the same
+-- reason: a rejected edit is a day of work by somebody who showed up, and a board that
+-- counted only approvals would rank members by an outcome they do not entirely control.
+-- One row per MEMBER, not per member-day: the score is the total over the window.
+--
+-- THE WINDOW IS TRUNCATED IN THE DATABASE'S ZONE, on both sides, so a board that says
+-- "the last thirty days" cannot include a day the rest of the instance calls yesterday.
+--
+-- OPT-OUT IS A JOIN ON THE MEMBER'S OWN CHOICE, and it is a LEFT JOIN with a COALESCE
+-- because a member with no user_trust row has never contributed and cannot have opted out:
+-- an INNER JOIN would silently read "no consent recorded" as "declined", which is the one
+-- mistake that would make a fresh member's absence mean something it does not.
+--
+-- THE LEVEL IS READ, NOT RECOMPUTED, AND THE FIRST VERSION OF THIS QUERY GOT THAT WRONG.
+-- It carried the counters back so Go could run the level curve over them, and the test that
+-- asserts "the board's level is the trust service's level" failed on the first run: a
+-- member inside a recovery window has a level the POLICY is holding down, which is
+-- deliberately NOT what their totals justify (slice 6b-1). Recomputing is a second
+-- implementation of a number that is not a pure function of the totals in time, so the
+-- board now reads the stored level -- the same number the badge shows -- and answers 0,
+-- which is LevelPublic, for a member with no rollup row.
+--
+-- No level filter here: the caller narrows an already-ordered ranking, which keeps the
+-- POSITIONS honest -- position 7 of a level-scoped board is the member's real standing
+-- rather than their rank among the members who happen to share their level.
+SELECT a.user_id, a.score, COALESCE(ut.level, 0) AS level
+FROM (
+    SELECT te.user_id, count(*) AS score
+    FROM trust_events te
+    WHERE date_trunc('day', te.created_at)::timestamp >= date_trunc('day', sqlc.arg(since)::timestamptz)::timestamp
+    GROUP BY te.user_id
+) a
+LEFT JOIN user_trust ut ON ut.user_id = a.user_id
+WHERE COALESCE(ut.leaderboard_listed, true)
+ORDER BY a.score DESC, a.user_id
+LIMIT sqlc.arg(limit_count);

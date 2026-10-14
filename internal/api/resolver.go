@@ -87,6 +87,11 @@ func (r *Resolver) ContentSource() models.ContentSourceResolver {
 	return &contentSourceResolver{r}
 }
 
+// LeaderboardEntry returns the resolver for a board row's own fields.
+func (r *Resolver) LeaderboardEntry() models.LeaderboardEntryResolver {
+	return &leaderboardEntryResolver{r}
+}
+
 // Vouch returns the resolver for a vouch's own fields.
 func (r *Resolver) Vouch() models.VouchResolver {
 	return &vouchResolver{r}

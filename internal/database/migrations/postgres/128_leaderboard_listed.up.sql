@@ -1,0 +1,21 @@
+-- Leaderboard participation (SPEC §20.2, plan phase 6 slice 6f).
+--
+-- A leaderboard PUBLISHES numbers that are otherwise private: a member's contribution
+-- count over a window, in rank order, beside their name. The visibility rule settled in
+-- slice 6a says the level is public and the counters are not, and this is the one
+-- surface where a member can choose to publish more -- so the choice has a column.
+--
+-- THE COLUMN IS POSITIVE AND DEFAULT-TRUE, and both halves are deliberate. Positive
+-- because "leaderboard_listed" reads as what it is, where a `leaderboard_opt_out`
+-- defaulting to false makes every reader untangle a double negative to find out whether
+-- they are on a list. Default-true because the design decision for this surface is
+-- OPT-OUT, the plan's word: a member appears until they say otherwise, and leaving costs
+-- them nothing else. That is defensible here and not in general because what is
+-- published is a count of POSITIVE contributions, not the approved/rejected RATIO that
+-- 6a keeps private -- a ratio is a performance review, and a count of work is a remark
+-- made in public.
+--
+-- WHAT OPTING OUT IS NOT: a penalty, a demotion, or the loss of any capability. The
+-- phase's own verification is that a member who opts out keeps every capability, and
+-- there is no code anywhere that reads this column except the leaderboard query.
+ALTER TABLE "user_trust" ADD COLUMN "leaderboard_listed" BOOLEAN NOT NULL DEFAULT true;

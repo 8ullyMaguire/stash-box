@@ -1210,6 +1210,94 @@ Six probes, all killed: the runs ignoring the covered days; a covered day counti
 activity; an empty cover window; a single active day earning a freeze; today being
 coverable; and the allowance not being checked before a spend.
 
+### Slice 6f — the leaderboard, with opt-out (BUILT)
+
+**THE ONE SURFACE THAT PUBLISHES NUMBERS THAT ARE OTHERWISE PRIVATE.** Slice 6a settled
+that a member's level is public and their counters are not, because the counters carry the
+approved/rejected **ratio** and a ratio is a performance review. A board is a page of
+counts in rank order, which is defensible here and only here for two reasons:
+
+- **What is published is a count of POSITIVE contributions over a window**, not the ratio.
+  A member's rejected edits still count as *score* — rejected work is work somebody did —
+  but they are summed into the LEVEL by the policy and never shown as a column.
+- **Every member can leave, and leaving costs nothing else.** Participation is opt-out —
+  the plan's word — and no level, badge or capability reads the flag. That is the phase's
+  own verification, asserted at both the service and the wire.
+
+**Absence is ambiguous, which is the point.** A member who opted out and a member who has
+contributed nothing this month both have no row, so the board cannot be read as a list of
+who declined — only of who is showing.
+
+**The column is positive** (`leaderboard_listed`, NOT NULL DEFAULT true) because
+`leaderboard_opt_out DEFAULT false` makes every reader untangle a double negative to find
+out whether they are on a list.
+
+**The score counts events, not deltas**, the same rule as the heatmap's: a board that
+counted only approvals would rank members by an outcome they do not entirely control.
+
+**THE LEVEL IS READ, NOT RECOMPUTED, AND THE TEST FOUND THAT ON ITS FIRST RUN.** The first
+version of the query carried the counters back so Go could run the level curve over them,
+and the assertion *"the board's level is the trust service's level"* failed immediately: a
+member inside a **recovery window** has a level the policy HOLDS DOWN, deliberately not
+what their totals justify — that is the whole point of 6b-1. Recomputing was therefore a
+second implementation of a number that is **not a pure function of the totals in time**,
+and the board could disagree with the badge beside it in exactly the case the policy exists
+for. The board now reads the stored level, and a member with no rollup answers 0
+(`LevelPublic`) rather than a hole.
+
+**No level filter in SQL, and the limit is applied to the RANKING first.** The board is
+ordered by activity, and a level-scoped board is *the top of that ranking, narrowed to one
+level* — so its positions are the members' real standing with gaps (3, 7, 12) rather than a
+renumbered 1..n, and it can return fewer rows than the limit, which is the truth about a
+filter rather than a bug in it.
+
+**Opting out must be possible for a member with nothing to show.** The write was an
+`UPDATE` first, which matched no rows for a member who had never contributed and returned
+an error — a member with nothing to show being told they cannot decline to be shown. It is
+an upsert, and the row it creates is the same zeroed standing the read path already reports
+for a member who has none.
+
+**A NOT NULL DEFAULT TRUE column read into a Go bool is the trap.** A field left unset is
+`false`, so the first mapper would have reported **every member in the instance** as having
+opted out; the mapper answers with the column's own default when there is no row, and a wire
+test asserts the default **positively** for a member who never touched the setting.
+
+**Verification (DONE).** Pure: both clamps (an omitted window is a month, an omitted limit
+is a page, and neither is refused) and the window's inclusivity across a month boundary.
+
+Against a database: members ranked by contribution with positions consecutive; **the
+board's level equals the trust service's level for every member, including one whose
+approvals and rejections straddle a threshold**; opting out removes the member from the
+board while their level, counters and heatmap stay exactly as they were; an opted-out
+member is indistinguishable from an idle one in the response; the window excludes a
+400-day-old contribution; a level filter returns the **same rows with the same positions**
+as the full board rather than renumbering; a member with no `user_trust` row is still
+ranked and can still decline; the page size is honoured; and a removed member is gone —
+**which takes no code**, because this schema has no soft-delete on users (the first version
+of that test set a flag that does not exist and failed the whole file with a SQL error):
+deletion is a `DELETE` and `trust_events` cascades.
+
+Through the real handler: the default reads as listed; the mutation returns the choice it
+recorded **with the level and counters unmoved**; and the member is off the board and back
+on it as they toggle.
+
+Nine probes, all killed: the opt-out filter; an unrecorded preference read as declined; the
+score summing deltas; a constant level; the window ignored; the ranking unordered; the
+limit unapplied; **the mapper's default flipped to false**; and the preference reported but
+never written.
+
+**AND ONE OF THEM SURVIVED FIRST, WHICH IS THE POINT OF RUNNING THEM.** Flipping the
+mapper's default reddened nothing, because the test asserted the default for a member whose
+flag is read from the COLUMN -- where the default is never reached. The trap is only
+reachable where there is no row to read, so the test was rewritten to assert it for a member
+who has never contributed, and the probe then killed it. Same lesson as 6d's: a probe with
+nothing to kill it is a missing test, and the probe list is a test plan. It is recorded in the
+mutation-gate skill, which now carries it for the second slice that has paid for it.
+
+**A fixture lesson this slice paid for:** the board is INSTANCE-WIDE and the package's tests
+share one database, so assertions must name the members they mean rather than counting
+rows. The first version asserted "three members with contributions" and saw six.
+
 ### Slice 6e — the contribution heatmap (BUILT)
 
 **It lives in the streak service because the streak already owns the one derivation

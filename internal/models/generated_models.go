@@ -1288,6 +1288,41 @@ type IntCriterionInput struct {
 	Modifier CriterionModifier `json:"modifier"`
 }
 
+type LeaderboardEntry struct {
+	// The member's rank in the WHOLE ranking, before any level filter, so a level-scoped board
+	// shows 3, 7, 12 rather than renaming the handful of members who share a level. A board
+	// with gaps is a board that is telling you where you stand.
+	Position int `json:"position"`
+	// The ranked member. One lookup per row, bounded by the board's limit -- which is why the
+	// limit is clamped rather than acceptably large.
+	User *User `json:"user"`
+	// The same member's id, so a client that only needs to point at them -- or to key a list --
+	// does not have to resolve a user to find out who it already knew.
+	UserID uuid.UUID `json:"userId"`
+	// Contributions recorded in the window.
+	//
+	// Contributions, not points: a rejected edit is work by somebody who showed up, and it is
+	// counted. This is not the member's level and not their score on the curve -- the level is
+	// a separate field, and the two disagree on purpose.
+	Score int `json:"score"`
+	// The member's public level, derived from the same curve the badge uses.
+	Level int `json:"level"`
+}
+
+// A board's request. Every field is optional: an absent input asks for the default board.
+type LeaderboardInput struct {
+	// The window in days. Defaults to a month and is CLAMPED to a year and a day rather than
+	// refused, the same way the contribution heatmap's is.
+	Days *int `json:"days,omitempty"`
+	// Narrows the board to one level. Applied AFTER the ranking, so positions keep their real
+	// meaning and a filtered board can return fewer rows than the limit -- which is the truth
+	// about a filter, not a bug in it.
+	Level *int `json:"level,omitempty"`
+	// How many rows. Defaults to 25 and is clamped to 100: a leaderboard is a page, not an
+	// export.
+	Limit *int `json:"limit,omitempty"`
+}
+
 // A user's named, ordered set of archive entities.
 //
 // Private until `publishedAt` is set. There is no visibility field to contradict it.
@@ -2514,6 +2549,16 @@ type UserTrust struct {
 	// Derived at read time rather than stored, because eligibility changes when a
 	// threshold changes and a stored copy would go stale silently.
 	CanViewContent bool `json:"can_view_content"`
+	// Whether this member appears on the leaderboard.
+	//
+	// Defaults to TRUE -- the design decision for this surface is opt-out, the plan's word.
+	// It reads positively on purpose: a `leaderboard_opt_out` defaulting to false would make
+	// every reader untangle a double negative to find out whether they are on a list.
+	//
+	// THIS FLAG AFFECTS NOTHING BUT THE BOARD. No level, no badge and no capability reads it,
+	// and a test asserts exactly that, because "opting out costs you nothing" is the promise
+	// the feature is sold on.
+	LeaderboardListed bool `json:"leaderboard_listed"`
 }
 
 type UserUpdateInput struct {

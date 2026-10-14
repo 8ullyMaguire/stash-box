@@ -41,6 +41,7 @@ type ResolverRoot interface {
 	IdentificationQuery() IdentificationQueryResolver
 	Image() ImageResolver
 	ImageType() ImageTypeResolver
+	LeaderboardEntry() LeaderboardEntryResolver
 	ModAudit() ModAuditResolver
 	Mutation() MutationResolver
 	Notification() NotificationResolver
@@ -594,6 +595,14 @@ type ComplexityRoot struct {
 		Uses    func(childComplexity int) int
 	}
 
+	LeaderboardEntry struct {
+		Level    func(childComplexity int) int
+		Position func(childComplexity int) int
+		Score    func(childComplexity int) int
+		User     func(childComplexity int) int
+		UserID   func(childComplexity int) int
+	}
+
 	List struct {
 		AuditTrail  func(childComplexity int) int
 		CreatedAt   func(childComplexity int) int
@@ -718,6 +727,7 @@ type ComplexityRoot struct {
 		SceneUpdate                       func(childComplexity int, input SceneUpdateInput) int
 		SetActivityVisibility             func(childComplexity int, input ActivityVisibilityInput) int
 		SetContentViewingOptIn            func(childComplexity int, enabled bool) int
+		SetLeaderboardListed              func(childComplexity int, listed bool) int
 		SiteCategoryCreate                func(childComplexity int, input SiteCategoryCreateInput) int
 		SiteCategoryDestroy               func(childComplexity int, input SiteCategoryDestroyInput) int
 		SiteCategoryUpdate                func(childComplexity int, input SiteCategoryUpdateInput) int
@@ -963,6 +973,7 @@ type ComplexityRoot struct {
 		IdentificationQuery            func(childComplexity int, id uuid.UUID) int
 		IdentificationSources          func(childComplexity int) int
 		ImageTypeGroups                func(childComplexity int, target *ImageTypeScopeEnum, includeDisabled *bool) int
+		Leaderboard                    func(childComplexity int, input *LeaderboardInput) int
 		List                           func(childComplexity int, id uuid.UUID) int
 		ListOpenIdentificationQueries  func(childComplexity int, limit *int) int
 		Lists                          func(childComplexity int, userID *uuid.UUID, perPage *int, page *int) int
@@ -1465,6 +1476,7 @@ type ComplexityRoot struct {
 		CanViewContent       func(childComplexity int) int
 		ContentViewingOptIn  func(childComplexity int) int
 		IdentificationSolves func(childComplexity int) int
+		LeaderboardListed    func(childComplexity int) int
 		Level                func(childComplexity int) int
 		QuestsCompleted      func(childComplexity int) int
 		RejectedEdits        func(childComplexity int) int
@@ -1582,6 +1594,9 @@ type ImageResolver interface {
 type ImageTypeResolver interface {
 	CropTemplate(ctx context.Context, obj *ImageType) (*CropTemplate, error)
 }
+type LeaderboardEntryResolver interface {
+	User(ctx context.Context, obj *LeaderboardEntry) (*User, error)
+}
 type ModAuditResolver interface {
 	Action(ctx context.Context, obj *ModAudit) (ModAuditActionEnum, error)
 	User(ctx context.Context, obj *ModAudit) (*User, error)
@@ -1686,6 +1701,7 @@ type MutationResolver interface {
 	UnvoteIdentificationCandidate(ctx context.Context, candidateID uuid.UUID) (*IdentificationCandidate, error)
 	ResolveIdentificationQuery(ctx context.Context, input IdentificationResolveInput) (*IdentificationQuery, error)
 	AbandonIdentificationQuery(ctx context.Context, id uuid.UUID) (*IdentificationQuery, error)
+	SetLeaderboardListed(ctx context.Context, listed bool) (*UserTrust, error)
 	ListCreate(ctx context.Context, input ListCreateInput) (*List, error)
 	ListUpdate(ctx context.Context, input ListUpdateInput) (*List, error)
 	ListDelete(ctx context.Context, id uuid.UUID) (bool, error)
@@ -1845,6 +1861,7 @@ type QueryResolver interface {
 	ResolvedIdentificationQueries(ctx context.Context, entityType IdentificationTargetType, entityID uuid.UUID, limit *int) ([]IdentificationQuery, error)
 	MyIdentificationDetectiveScore(ctx context.Context) (*IdentificationDetective, error)
 	IdentificationSources(ctx context.Context) ([]IdentificationSource, error)
+	Leaderboard(ctx context.Context, input *LeaderboardInput) ([]LeaderboardEntry, error)
 	List(ctx context.Context, id uuid.UUID) (*List, error)
 	PublishedLists(ctx context.Context, perPage *int, page *int) (*ListBrowseResult, error)
 	Lists(ctx context.Context, userID *uuid.UUID, perPage *int, page *int) ([]List, error)
@@ -3926,6 +3943,37 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.InviteKey.Uses(childComplexity), true
 
+	case "LeaderboardEntry.level":
+		if e.ComplexityRoot.LeaderboardEntry.Level == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LeaderboardEntry.Level(childComplexity), true
+	case "LeaderboardEntry.position":
+		if e.ComplexityRoot.LeaderboardEntry.Position == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LeaderboardEntry.Position(childComplexity), true
+	case "LeaderboardEntry.score":
+		if e.ComplexityRoot.LeaderboardEntry.Score == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LeaderboardEntry.Score(childComplexity), true
+	case "LeaderboardEntry.user":
+		if e.ComplexityRoot.LeaderboardEntry.User == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LeaderboardEntry.User(childComplexity), true
+	case "LeaderboardEntry.userId":
+		if e.ComplexityRoot.LeaderboardEntry.UserID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LeaderboardEntry.UserID(childComplexity), true
+
 	case "List.auditTrail":
 		if e.ComplexityRoot.List.AuditTrail == nil {
 			break
@@ -4907,6 +4955,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.SetContentViewingOptIn(childComplexity, args["enabled"].(bool)), true
+	case "Mutation.setLeaderboardListed":
+		if e.ComplexityRoot.Mutation.SetLeaderboardListed == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_setLeaderboardListed_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.SetLeaderboardListed(childComplexity, args["listed"].(bool)), true
 	case "Mutation.siteCategoryCreate":
 		if e.ComplexityRoot.Mutation.SiteCategoryCreate == nil {
 			break
@@ -6564,6 +6623,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.Query.ImageTypeGroups(childComplexity, args["target"].(*ImageTypeScopeEnum), args["include_disabled"].(*bool)), true
 
+	case "Query.leaderboard":
+		if e.ComplexityRoot.Query.Leaderboard == nil {
+			break
+		}
+
+		args, err := ec.field_Query_leaderboard_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.Leaderboard(childComplexity, args["input"].(*LeaderboardInput)), true
 	case "Query.list":
 		if e.ComplexityRoot.Query.List == nil {
 			break
@@ -8924,6 +8994,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.UserTrust.IdentificationSolves(childComplexity), true
+	case "UserTrust.leaderboard_listed":
+		if e.ComplexityRoot.UserTrust.LeaderboardListed == nil {
+			break
+		}
+
+		return e.ComplexityRoot.UserTrust.LeaderboardListed(childComplexity), true
 	case "UserTrust.level":
 		if e.ComplexityRoot.UserTrust.Level == nil {
 			break
@@ -9103,6 +9179,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputImageTypePreferencesInput,
 		ec.unmarshalInputImageUpdateInput,
 		ec.unmarshalInputIntCriterionInput,
+		ec.unmarshalInputLeaderboardInput,
 		ec.unmarshalInputListCreateInput,
 		ec.unmarshalInputListItemInput,
 		ec.unmarshalInputListUpdateInput,
@@ -11647,6 +11724,119 @@ input ImageTypeEnabledInput {
   disabled_groups: [ImageTypeGroupEnum!]! = []
   """Types to switch off individually, whatever their group's state."""
   disabled_types: [ImageTypeEnum!]! = []
+}
+`, BuiltIn: false},
+	{Name: "../../graphql/schema/types/leaderboard.graphql", Input: `# The contribution leaderboard (plan phase 6 slice 6f).
+#
+# THE ONE SURFACE THAT PUBLISHES NUMBERS THAT ARE OTHERWISE PRIVATE. Slice 6a settled that
+# a member's LEVEL is public and their counters are not, because the counters carry the
+# approved/rejected RATIO and a ratio is a performance review. A board is a page of counts
+# in rank order, which is defensible here and only here for two reasons:
+#
+#   - What is published is a count of POSITIVE contributions over a window, not the ratio.
+#     A member's rejected edits go into their LEVEL (derived by the same curve the badge
+#     uses) and are never a column.
+#   - Every member can leave. Participation is OPT-OUT, and opting out costs nothing else:
+#     no level, no badge, no capability. That is the phase's own verification.
+#
+# ABSENCE IS AMBIGUOUS, WHICH IS THE POINT: a member who opted out and a member who has
+# contributed nothing this month both have no row, so the board cannot be read as a list of
+# who declined -- only of who is showing.
+
+type LeaderboardEntry {
+  """
+  The member's rank in the WHOLE ranking, before any level filter, so a level-scoped board
+  shows 3, 7, 12 rather than renaming the handful of members who share a level. A board
+  with gaps is a board that is telling you where you stand.
+  """
+  position: Int!
+
+  """
+  The ranked member. One lookup per row, bounded by the board's limit -- which is why the
+  limit is clamped rather than acceptably large.
+  """
+  user: User!
+
+  """
+  The same member's id, so a client that only needs to point at them -- or to key a list --
+  does not have to resolve a user to find out who it already knew.
+  """
+  userId: ID!
+
+  """
+  Contributions recorded in the window.
+
+  Contributions, not points: a rejected edit is work by somebody who showed up, and it is
+  counted. This is not the member's level and not their score on the curve -- the level is
+  a separate field, and the two disagree on purpose.
+  """
+  score: Int!
+
+  """
+  The member's public level, derived from the same curve the badge uses.
+  """
+  level: Int!
+}
+
+"""
+A board's request. Every field is optional: an absent input asks for the default board.
+"""
+input LeaderboardInput {
+  """
+  The window in days. Defaults to a month and is CLAMPED to a year and a day rather than
+  refused, the same way the contribution heatmap's is.
+  """
+  days: Int
+
+  """
+  Narrows the board to one level. Applied AFTER the ranking, so positions keep their real
+  meaning and a filtered board can return fewer rows than the limit -- which is the truth
+  about a filter, not a bug in it.
+  """
+  level: Int
+
+  """
+  How many rows. Defaults to 25 and is clamped to 100: a leaderboard is a page, not an
+  export.
+  """
+  limit: Int
+}
+
+extend type Query {
+  """
+  Members ranked by contribution over a window.
+
+  Signed-in members only, matching findUser: a ranked list of members is a page of the
+  community, not a public index, and the role requirement is what keeps an anonymous
+  crawler from walking it.
+  """
+  leaderboard(input: LeaderboardInput): [LeaderboardEntry!]! @hasRole(role: READ)
+}
+
+extend type UserTrust {
+  """
+  Whether this member appears on the leaderboard.
+
+  Defaults to TRUE -- the design decision for this surface is opt-out, the plan's word.
+  It reads positively on purpose: a ` + "`" + `leaderboard_opt_out` + "`" + ` defaulting to false would make
+  every reader untangle a double negative to find out whether they are on a list.
+
+  THIS FLAG AFFECTS NOTHING BUT THE BOARD. No level, no badge and no capability reads it,
+  and a test asserts exactly that, because "opting out costs you nothing" is the promise
+  the feature is sold on.
+  """
+  leaderboard_listed: Boolean!
+}
+
+extend type Mutation {
+  """
+  Records the caller's own choice about appearing on the leaderboard.
+
+  Returns the resulting standing rather than a confirmation, following
+  setContentViewingOptIn: the client should not need a second round trip to find out
+  whether the flag took.
+  """
+  setLeaderboardListed(listed: Boolean!): UserTrust!
 }
 `, BuiltIn: false},
 	{Name: "../../graphql/schema/types/list.graphql", Input: `# Shareable user lists over GraphQL (SPEC §28, growth item 28).
@@ -16076,6 +16266,22 @@ func (ec *executionContext) childFields_InviteKey(ctx context.Context, field gra
 	return nil, fmt.Errorf("no field named %q was found under type InviteKey", field.Name)
 }
 
+func (ec *executionContext) childFields_LeaderboardEntry(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "position":
+		return ec.fieldContext_LeaderboardEntry_position(ctx, field)
+	case "user":
+		return ec.fieldContext_LeaderboardEntry_user(ctx, field)
+	case "userId":
+		return ec.fieldContext_LeaderboardEntry_userId(ctx, field)
+	case "score":
+		return ec.fieldContext_LeaderboardEntry_score(ctx, field)
+	case "level":
+		return ec.fieldContext_LeaderboardEntry_level(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type LeaderboardEntry", field.Name)
+}
+
 func (ec *executionContext) childFields_List(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 	switch field.Name {
 	case "id":
@@ -17134,6 +17340,8 @@ func (ec *executionContext) childFields_UserTrust(ctx context.Context, field gra
 		return ec.fieldContext_UserTrust_content_viewing_opt_in(ctx, field)
 	case "can_view_content":
 		return ec.fieldContext_UserTrust_can_view_content(ctx, field)
+	case "leaderboard_listed":
+		return ec.fieldContext_UserTrust_leaderboard_listed(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type UserTrust", field.Name)
 }
@@ -18368,6 +18576,20 @@ func (ec *executionContext) field_Mutation_setContentViewingOptIn_args(ctx conte
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_setLeaderboardListed_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "listed",
+		func(ctx context.Context, v any) (bool, error) {
+			return ec.unmarshalNBoolean2bool(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["listed"] = arg0
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_siteCategoryCreate_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -19597,6 +19819,20 @@ func (ec *executionContext) field_Query_imageTypeGroups_args(ctx context.Context
 		return nil, err
 	}
 	args["include_disabled"] = arg1
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_leaderboard_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
+		func(ctx context.Context, v any) (*LeaderboardInput, error) {
+			return ec.unmarshalOLeaderboardInput2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐLeaderboardInput(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
 	return args, nil
 }
 
@@ -27948,6 +28184,130 @@ func (ec *executionContext) fieldContext_InviteKey_expires(_ context.Context, fi
 	return graphql.NewScalarFieldContext("InviteKey", field, false, false, errors.New("field of type Time does not have child fields"))
 }
 
+func (ec *executionContext) _LeaderboardEntry_position(ctx context.Context, field graphql.CollectedField, obj *LeaderboardEntry) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_LeaderboardEntry_position(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Position, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_LeaderboardEntry_position(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("LeaderboardEntry", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _LeaderboardEntry_user(ctx context.Context, field graphql.CollectedField, obj *LeaderboardEntry) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_LeaderboardEntry_user(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.LeaderboardEntry().User(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *User) graphql.Marshaler {
+			return ec.marshalNUser2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐUser(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_LeaderboardEntry_user(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "LeaderboardEntry",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_User(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _LeaderboardEntry_userId(ctx context.Context, field graphql.CollectedField, obj *LeaderboardEntry) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_LeaderboardEntry_userId(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.UserID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v uuid.UUID) graphql.Marshaler {
+			return ec.marshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_LeaderboardEntry_userId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("LeaderboardEntry", field, false, false, errors.New("field of type ID does not have child fields"))
+}
+
+func (ec *executionContext) _LeaderboardEntry_score(ctx context.Context, field graphql.CollectedField, obj *LeaderboardEntry) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_LeaderboardEntry_score(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Score, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_LeaderboardEntry_score(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("LeaderboardEntry", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _LeaderboardEntry_level(ctx context.Context, field graphql.CollectedField, obj *LeaderboardEntry) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_LeaderboardEntry_level(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Level, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_LeaderboardEntry_level(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("LeaderboardEntry", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
 func (ec *executionContext) _List_id(ctx context.Context, field graphql.CollectedField, obj *List) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -34806,6 +35166,50 @@ func (ec *executionContext) fieldContext_Mutation_abandonIdentificationQuery(ctx
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Mutation_abandonIdentificationQuery_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_setLeaderboardListed(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_setLeaderboardListed(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().SetLeaderboardListed(ctx, fc.Args["listed"].(bool))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *UserTrust) graphql.Marshaler {
+			return ec.marshalNUserTrust2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐUserTrust(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_setLeaderboardListed(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_UserTrust(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_setLeaderboardListed_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -43539,6 +43943,68 @@ func (ec *executionContext) fieldContext_Query_identificationSources(_ context.C
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return ec.childFields_IdentificationSource(ctx, field)
 		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_leaderboard(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_leaderboard(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().Leaderboard(ctx, fc.Args["input"].(*LeaderboardInput))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal []LeaderboardEntry
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal []LeaderboardEntry
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v []LeaderboardEntry) graphql.Marshaler {
+			return ec.marshalNLeaderboardEntry2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐLeaderboardEntryᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_leaderboard(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_LeaderboardEntry(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_leaderboard_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
 	}
 	return fc, nil
 }
@@ -52423,6 +52889,29 @@ func (ec *executionContext) fieldContext_UserTrust_can_view_content(_ context.Co
 	return graphql.NewScalarFieldContext("UserTrust", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
+func (ec *executionContext) _UserTrust_leaderboard_listed(ctx context.Context, field graphql.CollectedField, obj *UserTrust) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_UserTrust_leaderboard_listed(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.LeaderboardListed, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_UserTrust_leaderboard_listed(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("UserTrust", field, false, false, errors.New("field of type Boolean does not have child fields"))
+}
+
 func (ec *executionContext) _UserVoteCount_abstain(ctx context.Context, field graphql.CollectedField, obj *UserVoteCount) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -56209,6 +56698,50 @@ func (ec *executionContext) unmarshalInputIntCriterionInput(ctx context.Context,
 				return it, err
 			}
 			it.Modifier = data
+		}
+	}
+	return it, nil
+}
+
+func (ec *executionContext) unmarshalInputLeaderboardInput(ctx context.Context, obj any) (LeaderboardInput, error) {
+	var it LeaderboardInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"days", "level", "limit"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "days":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("days"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Days = data
+		case "level":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("level"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Level = data
+		case "limit":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("limit"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Limit = data
 		}
 	}
 	return it, nil
@@ -66681,6 +67214,97 @@ func (ec *executionContext) _InviteKey(ctx context.Context, sel ast.SelectionSet
 	return out
 }
 
+var leaderboardEntryImplementors = []string{"LeaderboardEntry"}
+
+func (ec *executionContext) _LeaderboardEntry(ctx context.Context, sel ast.SelectionSet, obj *LeaderboardEntry) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, leaderboardEntryImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("LeaderboardEntry")
+		case "position":
+			out.Values[i] = ec._LeaderboardEntry_position(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "user":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._LeaderboardEntry_user(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "userId":
+			out.Values[i] = ec._LeaderboardEntry_userId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "score":
+			out.Values[i] = ec._LeaderboardEntry_score(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "level":
+			out.Values[i] = ec._LeaderboardEntry_level(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
 var listImplementors = []string{"List"}
 
 func (ec *executionContext) _List(ctx context.Context, sel ast.SelectionSet, obj *List) graphql.Marshaler {
@@ -67829,6 +68453,13 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 		case "abandonIdentificationQuery":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_abandonIdentificationQuery(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "setLeaderboardListed":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_setLeaderboardListed(ctx, field)
 			})
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
@@ -72057,6 +72688,28 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 					}
 				}()
 				res = ec._Query_identificationSources(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "leaderboard":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_leaderboard(ctx, field)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -79272,6 +79925,11 @@ func (ec *executionContext) _UserTrust(ctx context.Context, sel ast.SelectionSet
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "leaderboard_listed":
+			out.Values[i] = ec._UserTrust_leaderboard_listed(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -81649,6 +82307,26 @@ func (ec *executionContext) marshalNInt2ᚕintᚄ(ctx context.Context, sel ast.S
 
 func (ec *executionContext) marshalNInviteKey2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐInviteKey(ctx context.Context, sel ast.SelectionSet, v InviteKey) graphql.Marshaler {
 	return ec._InviteKey(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNLeaderboardEntry2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐLeaderboardEntry(ctx context.Context, sel ast.SelectionSet, v LeaderboardEntry) graphql.Marshaler {
+	return ec._LeaderboardEntry(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNLeaderboardEntry2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐLeaderboardEntryᚄ(ctx context.Context, sel ast.SelectionSet, v []LeaderboardEntry) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNLeaderboardEntry2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐLeaderboardEntry(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
 }
 
 func (ec *executionContext) marshalNList2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐList(ctx context.Context, sel ast.SelectionSet, v List) graphql.Marshaler {
@@ -84520,6 +85198,14 @@ func (ec *executionContext) marshalOInviteKey2ᚕgithubᚗcomᚋstashappᚋstash
 	}
 
 	return ret
+}
+
+func (ec *executionContext) unmarshalOLeaderboardInput2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐLeaderboardInput(ctx context.Context, v any) (*LeaderboardInput, error) {
+	if v == nil {
+		return nil, nil
+	}
+	res, err := ec.unmarshalInputLeaderboardInput(ctx, v)
+	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
 func (ec *executionContext) marshalOList2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐList(ctx context.Context, sel ast.SelectionSet, v *List) graphql.Marshaler {

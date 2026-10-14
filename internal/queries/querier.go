@@ -1838,6 +1838,35 @@ type Querier interface {
 	// would order the scenes and leave the performers in whatever order the planner
 	// produced, interleaving the two.
 	ListIncompleteEntities(ctx context.Context, arg ListIncompleteEntitiesParams) ([]uuid.UUID, error)
+	// The leaderboard: members ranked by how many trust events they recorded since a cutoff
+	// (plan phase 6 slice 6f).
+	//
+	// THE COUNT IS OF EVENTS AND NOT OF DELTAS, exactly as the heatmap's is, and for the same
+	// reason: a rejected edit is a day of work by somebody who showed up, and a board that
+	// counted only approvals would rank members by an outcome they do not entirely control.
+	// One row per MEMBER, not per member-day: the score is the total over the window.
+	//
+	// THE WINDOW IS TRUNCATED IN THE DATABASE'S ZONE, on both sides, so a board that says
+	// "the last thirty days" cannot include a day the rest of the instance calls yesterday.
+	//
+	// OPT-OUT IS A JOIN ON THE MEMBER'S OWN CHOICE, and it is a LEFT JOIN with a COALESCE
+	// because a member with no user_trust row has never contributed and cannot have opted out:
+	// an INNER JOIN would silently read "no consent recorded" as "declined", which is the one
+	// mistake that would make a fresh member's absence mean something it does not.
+	//
+	// THE LEVEL IS READ, NOT RECOMPUTED, AND THE FIRST VERSION OF THIS QUERY GOT THAT WRONG.
+	// It carried the counters back so Go could run the level curve over them, and the test that
+	// asserts "the board's level is the trust service's level" failed on the first run: a
+	// member inside a recovery window has a level the POLICY is holding down, which is
+	// deliberately NOT what their totals justify (slice 6b-1). Recomputing is a second
+	// implementation of a number that is not a pure function of the totals in time, so the
+	// board now reads the stored level -- the same number the badge shows -- and answers 0,
+	// which is LevelPublic, for a member with no rollup row.
+	//
+	// No level filter here: the caller narrows an already-ordered ranking, which keeps the
+	// POSITIONS honest -- position 7 of a level-scoped board is the member's real standing
+	// rather than their rank among the members who happen to share their level.
+	ListLeaderboard(ctx context.Context, arg ListLeaderboardParams) ([]ListLeaderboardRow, error)
 	// The history, newest first, WITHOUT the snapshots: a list is not the place to ship every
 	// version's whole document, and the caller that wants one asks for it by number.
 	ListOntologyVersions(ctx context.Context, limit int32) ([]ListOntologyVersionsRow, error)
@@ -2409,6 +2438,17 @@ type Querier interface {
 	// every row rather than enabling them: NOT (key = ANY(NULL)) is NULL, not true
 	SetImageTypeGroupsEnabled(ctx context.Context, disabled []string) error
 	SetImageTypesEnabled(ctx context.Context, disabled []string) error
+	// Records the member's own choice about appearing on the leaderboard.
+	//
+	// Same shape as SetContentViewingOptIn, and for the same reason: this is a preference
+	// rather than a contribution, so it must not touch the totals, the level, or the counters.
+	//
+	// IT UPSERTS, because the first version did not and a brand-new member toggling the setting
+	// got an error: there is no user_trust row until a member has contributed, and "I would
+	// rather not be on the board" is a sentence a member with nothing to show should be able to
+	// say. The row it creates is the zeroed rollup the read path already reports for a member
+	// with none -- level 0, every counter zero, which is what they have.
+	SetLeaderboardListed(ctx context.Context, arg SetLeaderboardListedParams) (UserTrust, error)
 	// Moderation. Not restricted to flagged->published: a review can be flagged
 	// directly by a moderator, and a status transition table in SQL would need a
 	// trigger to enforce and a migration every time a state is added.
@@ -2589,6 +2629,10 @@ type Querier interface {
 	// second one whose activity a reader would see twice. It does NOT touch the visibility, which is
 	// the FOLLOWED user's grant: re-following must not reset someone else's choice.
 	UpsertFollow(ctx context.Context, arg UpsertFollowParams) (int64, error)
+	// The same write for a member who has no rollup row yet: it creates the zeroed row and sets
+	// the preference on it in one statement, so there is no window in which a member exists with
+	// a preference and no counters, or the other way round.
+	UpsertLeaderboardListed(ctx context.Context, arg UpsertLeaderboardListedParams) (UserTrust, error)
 	// Session state: "where I left off" (discovery SPEC section 11, aggregator phase 7 slice 7).
 	//
 	// THE SERVER HOLDS A CURSOR ONLY WHEN THE USER OPTED IN. The rule lives in the table's CHECK

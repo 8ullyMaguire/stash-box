@@ -49,6 +49,7 @@ import (
 	"github.com/stashapp/stash-box/internal/service/ingest"
 	"github.com/stashapp/stash-box/internal/service/ingest/extract"
 	"github.com/stashapp/stash-box/internal/service/invite"
+	"github.com/stashapp/stash-box/internal/service/leaderboard"
 	listsvc "github.com/stashapp/stash-box/internal/service/list"
 	"github.com/stashapp/stash-box/internal/service/mod_audit"
 	"github.com/stashapp/stash-box/internal/service/notification"
@@ -386,6 +387,11 @@ func (f *Factory) List() *listsvc.Service {
 // Streak returns a user's activity streak service.
 func (f *Factory) Streak() *streak.Service {
 	return streak.NewService(queries.New(f.db))
+}
+
+// Leaderboard returns the contribution leaderboard service.
+func (f *Factory) Leaderboard() *leaderboard.Service {
+	return leaderboard.NewService(queries.New(f.db))
 }
 
 // Vouches returns the member-vouch service.
