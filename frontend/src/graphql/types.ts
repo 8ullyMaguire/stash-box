@@ -382,6 +382,51 @@ export type Completion = {
 };
 
 /**
+ * A content item: one of the five content kinds that are not video (aggregator phase 3).
+ *
+ * Video is still a `Scene`, here and everywhere else: the split is by what the content
+ * IS, not by when it arrived, because every existing client, every fingerprint and the
+ * whole collage machinery are scene-shaped, and the programme's no-loss rule is binding.
+ */
+export type ContentItem = {
+  __typename: 'ContentItem';
+  /**
+   * How complete this item is.
+   *
+   * Reads the database on demand rather than being stored, so it is correct the moment
+   * an edit lands rather than whenever something remembered to refresh it. The weights
+   * are the content item's own (see internal/service/completion/score.go): tags and
+   * media dominate, because an item nobody can find and nothing can fetch is the failure
+   * the discovery surfaces exist to prevent.
+   */
+  completion?: Maybe<Completion>;
+  createdAt: Scalars['Time']['output'];
+  /** Free text about the item. */
+  details?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  kind: ContentItemKind;
+  /** When it was released, if that is known. Nullable: undated items are normal here. */
+  releaseDate?: Maybe<Scalars['Date']['output']>;
+  /** What the item is called. Non-blank by the table's own CHECK. */
+  title: Scalars['String']['output'];
+};
+
+/**
+ * Which of the six kinds an item is.
+ *
+ * Closed, and enforced by the table's CHECK as well: an unknown kind would be a row
+ * nothing can render, nothing can filter on, and nothing counts.
+ */
+export enum ContentItemKind {
+  ANIMATION = 'animation',
+  AUDIO = 'audio',
+  COMIC = 'comic',
+  GALLERY = 'gallery',
+  IMAGE = 'image',
+  TEXT = 'text'
+}
+
+/**
  * Where an aggregated piece of content lives, and whether it is still alive.
  *
  * This is the aggregator programme's read surface (`docs/spec/feature-content-aggregator.md`,
@@ -846,6 +891,8 @@ export type EntityChange = {
  * a client cannot ask for a score of a kind that does not exist.
  */
 export enum EntityType {
+  /** The five non-video content kinds (aggregator phase 3). One member, not six. */
+  CONTENT_ITEM = 'content_item',
   PERFORMER = 'performer',
   SCENE = 'scene',
   SITE = 'site',
@@ -3427,6 +3474,13 @@ export type Query = {
    */
   archiveEntityCounts: Array<ArchiveEntityCount>;
   /**
+   * Read one content item.
+   *
+   * Null for a missing or soft-deleted item rather than an error: following a stale link
+   * is a normal outcome, and every client already renders an empty state for a null.
+   */
+  contentItem?: Maybe<ContentItem>;
+  /**
    * How many entities of a type are below a completion threshold.
    *
    * This is the number a generated quest is sized from, and it is why the score is
@@ -3617,6 +3671,17 @@ export type Query = {
    * owner's own drafts are reached through `lists`, which reads them by owner.
    */
   publishedLists: ListBrowseResult;
+  /**
+   * The newest content items, optionally of one kind.
+   *
+   * Ordered by creation, not by release date. A bounded pool ordered by a NULLABLE field
+   * silently omits every row that lacks it -- the defect phase 7 slice 6 recorded -- and
+   * undated items are normal here.
+   *
+   * A limit above 100 is refused rather than clamped, so a caller never receives a
+   * truncated list that looks complete.
+   */
+  queryContentItems: Array<ContentItem>;
   queryEdits: QueryEditsResultType;
   queryExistingPerformer: QueryExistingPerformerResult;
   queryExistingScene: QueryExistingSceneResult;
@@ -3710,6 +3775,12 @@ export type Query = {
 /** The query root for this schema */
 export type QueryActivityFeedArgs = {
   input?: InputMaybe<ActivityFeedInput>;
+};
+
+
+/** The query root for this schema */
+export type QueryContentItemArgs = {
+  id: Scalars['ID']['input'];
 };
 
 
@@ -3926,6 +3997,13 @@ export type QueryPerformerChangelogArgs = {
 export type QueryPublishedListsArgs = {
   page?: InputMaybe<Scalars['Int']['input']>;
   perPage?: InputMaybe<Scalars['Int']['input']>;
+};
+
+
+/** The query root for this schema */
+export type QueryQueryContentItemsArgs = {
+  kind?: InputMaybe<ContentItemKind>;
+  limit?: InputMaybe<Scalars['Int']['input']>;
 };
 
 
