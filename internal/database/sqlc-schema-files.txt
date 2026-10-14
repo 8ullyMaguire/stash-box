@@ -111,3 +111,4 @@ internal/database/migrations/postgres/113_saved_searches.up.sql
 internal/database/migrations/postgres/114_scene_freshness.up.sql
 internal/database/migrations/postgres/115_user_follows.up.sql
 internal/database/migrations/postgres/116_session_states.up.sql
+internal/database/migrations/postgres/117_content_items.up.sql

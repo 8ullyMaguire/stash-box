@@ -176,6 +176,44 @@ type ContentDenylistTag struct {
 	CreatedAt pgtype.Timestamptz `db:"created_at" json:"created_at"`
 }
 
+type ContentItem struct {
+	ID          uuid.UUID   `db:"id" json:"id"`
+	Kind        string      `db:"kind" json:"kind"`
+	Title       string      `db:"title" json:"title"`
+	Details     *string     `db:"details" json:"details"`
+	ReleaseDate pgtype.Date `db:"release_date" json:"release_date"`
+	Deleted     bool        `db:"deleted" json:"deleted"`
+	CreatedAt   time.Time   `db:"created_at" json:"created_at"`
+	UpdatedAt   time.Time   `db:"updated_at" json:"updated_at"`
+}
+
+type ContentItemChapter struct {
+	ID              uuid.UUID `db:"id" json:"id"`
+	ContentItemID   uuid.UUID `db:"content_item_id" json:"content_item_id"`
+	Number          int       `db:"number" json:"number"`
+	Title           *string   `db:"title" json:"title"`
+	PageCount       *int      `db:"page_count" json:"page_count"`
+	DurationSeconds *int      `db:"duration_seconds" json:"duration_seconds"`
+	CreatedAt       time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt       time.Time `db:"updated_at" json:"updated_at"`
+}
+
+type ContentItemMedium struct {
+	ID              uuid.UUID `db:"id" json:"id"`
+	ContentItemID   uuid.UUID `db:"content_item_id" json:"content_item_id"`
+	Url             string    `db:"url" json:"url"`
+	Kind            string    `db:"kind" json:"kind"`
+	Width           *int      `db:"width" json:"width"`
+	Height          *int      `db:"height" json:"height"`
+	DurationSeconds *int      `db:"duration_seconds" json:"duration_seconds"`
+	CreatedAt       time.Time `db:"created_at" json:"created_at"`
+}
+
+type ContentItemTag struct {
+	ContentItemID uuid.UUID `db:"content_item_id" json:"content_item_id"`
+	TagID         uuid.UUID `db:"tag_id" json:"tag_id"`
+}
+
 type ContentSource struct {
 	ID            uuid.UUID          `db:"id" json:"id"`
 	EntityType    string             `db:"entity_type" json:"entity_type"`

@@ -340,6 +340,15 @@ type Querier interface {
 	// believed; the scene's current duration is read by the caller and stored
 	// alongside it so a stale collage is diagnosable rather than merely wrong-looking.
 	CreateCollage(ctx context.Context, arg CreateCollageParams) (Collage, error)
+	// Content items (aggregator phase 3). The data layer for the five non-video kinds.
+	//
+	// Every read here filters `deleted = false` rather than leaving it to the caller. A soft delete
+	// that one query forgets is a row that appears on one page and not another, and the omission is
+	// invisible in review -- the same reason migration 117 put the column in the table now instead of
+	// adding it later.
+	CreateContentItem(ctx context.Context, arg CreateContentItemParams) (ContentItem, error)
+	CreateContentItemChapter(ctx context.Context, arg CreateContentItemChapterParams) (ContentItemChapter, error)
+	CreateContentItemMedia(ctx context.Context, arg CreateContentItemMediaParams) (ContentItemMedium, error)
 	// Draft queries
 	CreateDraft(ctx context.Context, arg CreateDraftParams) (Draft, error)
 	// Edit queries
@@ -1344,6 +1353,10 @@ type Querier interface {
 	GetAllUserTrust(ctx context.Context) ([]UserTrust, error)
 	GetChildStudios(ctx context.Context, parentStudioID uuid.NullUUID) ([]Studio, error)
 	GetCollageForScene(ctx context.Context, sceneID uuid.UUID) (Collage, error)
+	GetContentItem(ctx context.Context, id uuid.UUID) (ContentItem, error)
+	// For moderation and for the audit surfaces: "this item was removed" is information a reader of
+	// the audit log needs, and the filtered read above cannot answer it.
+	GetContentItemIncludingDeleted(ctx context.Context, id uuid.UUID) (ContentItem, error)
 	GetEditComments(ctx context.Context, editID uuid.UUID) ([]EditComment, error)
 	GetEditCommentsByIds(ctx context.Context, dollar_1 []uuid.UUID) ([]EditComment, error)
 	GetEditPerformerAliases(ctx context.Context, id uuid.UUID) ([]string, error)
@@ -1617,12 +1630,22 @@ type Querier interface {
 	InsertContentSource(ctx context.Context, arg InsertContentSourceParams) (ContentSource, error)
 	InviteKeyUsed(ctx context.Context, id uuid.UUID) (*int, error)
 	IsImageUnused(ctx context.Context, id uuid.UUID) (bool, error)
+	LinkContentItemTag(ctx context.Context, arg LinkContentItemTagParams) error
 	// The frames of a collage, in playback order.
 	//
 	// The read path for rendering, covered by a partial index on
 	// (collage_id, timestamp_ms) so this is an index scan and not a sort of the
 	// scene's entire snapshot set.
 	ListCollageSnapshots(ctx context.Context, sceneID uuid.UUID) ([]SceneSnapshot, error)
+	ListContentItemChapters(ctx context.Context, contentItemID uuid.UUID) ([]ContentItemChapter, error)
+	ListContentItemMedia(ctx context.Context, contentItemID uuid.UUID) ([]ContentItemMedium, error)
+	ListContentItemTags(ctx context.Context, contentItemID uuid.UUID) ([]Tag, error)
+	// Newest first, and `created_at` rather than `release_date` for the reason phase 7 slice 6
+	// recorded: a pool ordered by a nullable field never contains the rows that lack it.
+	ListContentItems(ctx context.Context, arg ListContentItemsParams) ([]ContentItem, error)
+	// The tag page's direction: items carrying one tag, newest first. Both directions of the link
+	// matter and only one of them is covered by the unique index.
+	ListContentItemsForTag(ctx context.Context, arg ListContentItemsForTagParams) ([]ContentItem, error)
 	ListDeniedPerformerIDs(ctx context.Context) ([]uuid.UUID, error)
 	ListDeniedStudioIDs(ctx context.Context) ([]uuid.UUID, error)
 	// The tag half of the content denylist, for the access rule that IS enforced.
@@ -2223,6 +2246,7 @@ type Querier interface {
 	SetUserTrustLevel(ctx context.Context, arg SetUserTrustLevelParams) (UserTrust, error)
 	SetWebhookEndpointDisabled(ctx context.Context, arg SetWebhookEndpointDisabledParams) (WebhookEndpoint, error)
 	SiteCompletionInputs(ctx context.Context, id uuid.UUID) (SiteCompletionInputsRow, error)
+	SoftDeleteContentItem(ctx context.Context, id uuid.UUID) error
 	SoftDeletePerformer(ctx context.Context, id uuid.UUID) (Performer, error)
 	SoftDeleteScene(ctx context.Context, id uuid.UUID) (Scene, error)
 	SoftDeleteStudio(ctx context.Context, id uuid.UUID) (Studio, error)
@@ -2266,6 +2290,7 @@ type Querier interface {
 	TriggerSceneEditNotifications(ctx context.Context, id uuid.UUID) error
 	TriggerStudioEditNotifications(ctx context.Context, id uuid.UUID) error
 	TriggerUpdatedEditNotifications(ctx context.Context, id uuid.UUID) error
+	UnlinkContentItemTag(ctx context.Context, arg UnlinkContentItemTagParams) error
 	// Return to private. The `published_at IS NOT NULL` guard means unpublishing something
 	// already private is a no-op returning no rows, so a caller cannot fabricate an
 	// unpublish event for a list that was never published.
