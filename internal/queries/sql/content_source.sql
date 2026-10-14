@@ -271,3 +271,26 @@ WHERE cs.status IN ('dead', 'intermittent')
   AND cs.archived_url IS NULL
 ORDER BY cs.last_checked ASC NULLS FIRST, cs.first_seen ASC
 LIMIT @lim;
+
+-- name: FindContentSourcesForURL :many
+-- Every health record for this URL, WHATEVER entity it is filed under (slice 9f).
+--
+-- The entity filter is deliberately absent, unlike FindContentSourcesByNormalizedURL: the question
+-- this answers is a property of the PAGE ("is the source of this claim still there?"), not of the
+-- entity that happens to claim it. A studio's denominator is asserted from a page about the studio,
+-- and that page is tracked -- if at all -- as a URL of some entity this instance aggregates, never
+-- as a studio row: content_sources' CHECK allows 'scene' and 'content_item' only.
+--
+-- Ordered so the first row is the best answer: an alive page outranks a dead one, and among equals
+-- the exact `url_normalized` match outranks the case-insensitive fallback.
+SELECT * FROM content_sources
+WHERE (url_normalized = @url_normalized OR LOWER(url) = LOWER(@url_normalized))
+ORDER BY
+    CASE "status"
+        WHEN 'live' THEN 0
+        WHEN 'unknown' THEN 1
+        WHEN 'intermittent' THEN 2
+        ELSE 3
+    END,
+    (url_normalized = @url_normalized) DESC NULLS LAST,
+    first_seen;

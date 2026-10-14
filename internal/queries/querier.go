@@ -883,6 +883,17 @@ type Querier interface {
 	// content_items use this; scenes use FindSceneSources above, because only scenes have
 	// a membership table to join.
 	FindContentSourcesForEntity(ctx context.Context, arg FindContentSourcesForEntityParams) ([]ContentSource, error)
+	// Every health record for this URL, WHATEVER entity it is filed under (slice 9f).
+	//
+	// The entity filter is deliberately absent, unlike FindContentSourcesByNormalizedURL: the question
+	// this answers is a property of the PAGE ("is the source of this claim still there?"), not of the
+	// entity that happens to claim it. A studio's denominator is asserted from a page about the studio,
+	// and that page is tracked -- if at all -- as a URL of some entity this instance aggregates, never
+	// as a studio row: content_sources' CHECK allows 'scene' and 'content_item' only.
+	//
+	// Ordered so the first row is the best answer: an alive page outranks a dead one, and among equals
+	// the exact `url_normalized` match outranks the case-insensitive fallback.
+	FindContentSourcesForURL(ctx context.Context, urlNormalized *string) ([]ContentSource, error)
 	FindDraft(ctx context.Context, id uuid.UUID) (Draft, error)
 	FindDraftsByUser(ctx context.Context, userID uuid.UUID) ([]Draft, error)
 	FindEdit(ctx context.Context, id uuid.UUID) (Edit, error)

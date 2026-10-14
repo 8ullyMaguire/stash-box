@@ -1524,7 +1524,41 @@ refusal reported while the batch continues). Four probes, all killed -- one of t
 mutation script was fixed: `str.replace` with a needle that does not match is a silent no-op, so a
 probe can report SURVIVED for a cut that was never made. The script now asserts the text changed.
 
-### Slice 9f — `expected_totals` integration (DECIDED, not yet built)
+### Slice 9f — `expected_totals` integration (PARTLY BUILT: the read path)
+
+#### 9f-1 — the read path, built
+
+**What was actually missing was bigger than the slice assumed, and smaller than it feared.** Phase 3a
+built `expected_totals`, its constraints and the queries (`GetExpectedTotals`, `GetObservedCount`,
+`ListStudioCompleteness`), and NOTHING read them: the only Go references were the sqlc struct and two
+schema tests. So `internal/service/completeness` is new, and its first method (`StudioTotals`) is the
+read path the earlier phase left open: each denominator with what the instance holds against it
+(`Expected`/`Observed`/`Missing`, floored at zero because over-count is real and intended), the claim's
+own `source_url` as the curator wrote it, and the health record for that page.
+
+**TWO DISCOVERIES, both now encoded:**
+
+1. **`content_sources` cannot hold a studio's page.** Its `entity_type` CHECK allows `'scene'` and
+   `'content_item'` and nothing else, so a lookup filtered to the total's own entity type could NEVER
+   match -- the first version of this code would have returned "no record" for every studio total on the
+   instance, forever, while looking correct. The lookup is therefore per PAGE and ACROSS entity types
+   (`FindContentSourcesForURL`), and ranks an alive page above a dead one, because a page one scene has
+   given up on is still a page another is serving. What this means in practice: the field fires when the
+   claim's source page is a URL the instance aggregates (a scene or content-item page), and stays
+   honestly absent otherwise.
+2. **"No record" is the ORDINARY case, not a lost source.** Most denominators come from pages nothing
+   aggregates, so `Unverifiable()` is true only for `dead`, `dmca` and `archived` -- statuses the
+   instance actually observed. An absent record and an `unknown` one are both "no evidence either way",
+   and flagging them would cry wolf about every total on the instance.
+
+**Verification (9f-1, DONE):** a unit table over all seven statuses plus the nil record; three
+integration tests (a canonicalised resolution with BOTH columns asserted and the numbers UNCHANGED
+after the page dies -- the assertion that proves dropping the denominator would be wrong; an untracked
+page staying ordinary; the gap flooring at zero on over-count). Four probes, all killed, with the
+mutation script asserting each cut landed (a silent no-op replace reports a false SURVIVED, which cost a
+probe in 9e).
+
+#### 9f-2 — the cap and the quest (DECIDED, still not built)
 
 Migration 97's totals carry `(source_entity_type, source_url)` and its own comment says a total is "a
 claim about the world" whose source must be real. Migration 108 then made `content_sources` the health
@@ -1553,7 +1587,12 @@ unverifiable total is not a missing field, so it gets its own entry point (`Gene
 built from the same `Wording` machinery, so the wording convention stays in one place. The quest names
 the URL: "the page this total came from is gone".
 
-**Verification:**
+**Still to build, and why it is separate:** the cap needs a completion score that consults totals at
+all, and today's `completion.Service` computes its fields without ever reading `expected_totals` -- the
+score/totals link is itself phase 3's leftover, not this slice's. `Unverifiable()` is the input that
+cap needs, and it now exists and is tested, so the remaining work is composition rather than discovery.
+
+**Verification (9f-2, to build):**
 * A studio whose total's source is live: the score is unchanged and `source.status` is `LIVE`.
 * The same row after the source is marked dead: the score drops by the penalty, the quest exists and
   NAMES the URL, and the denominator still counts -- asserted directly, because "the score dropped" and

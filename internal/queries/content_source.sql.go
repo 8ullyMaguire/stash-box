@@ -511,6 +511,67 @@ func (q *Queries) FindContentSourcesForEntity(ctx context.Context, arg FindConte
 	return items, nil
 }
 
+const findContentSourcesForURL = `-- name: FindContentSourcesForURL :many
+SELECT id, entity_type, entity_id, url, site_id, platform, status, canonical, first_seen, last_checked, last_ok, check_failures, archived_url, archived_at, created_by, url_normalized FROM content_sources
+WHERE (url_normalized = $1 OR LOWER(url) = LOWER($1))
+ORDER BY
+    CASE "status"
+        WHEN 'live' THEN 0
+        WHEN 'unknown' THEN 1
+        WHEN 'intermittent' THEN 2
+        ELSE 3
+    END,
+    (url_normalized = $1) DESC NULLS LAST,
+    first_seen
+`
+
+// Every health record for this URL, WHATEVER entity it is filed under (slice 9f).
+//
+// The entity filter is deliberately absent, unlike FindContentSourcesByNormalizedURL: the question
+// this answers is a property of the PAGE ("is the source of this claim still there?"), not of the
+// entity that happens to claim it. A studio's denominator is asserted from a page about the studio,
+// and that page is tracked -- if at all -- as a URL of some entity this instance aggregates, never
+// as a studio row: content_sources' CHECK allows 'scene' and 'content_item' only.
+//
+// Ordered so the first row is the best answer: an alive page outranks a dead one, and among equals
+// the exact `url_normalized` match outranks the case-insensitive fallback.
+func (q *Queries) FindContentSourcesForURL(ctx context.Context, urlNormalized *string) ([]ContentSource, error) {
+	rows, err := q.db.Query(ctx, findContentSourcesForURL, urlNormalized)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ContentSource{}
+	for rows.Next() {
+		var i ContentSource
+		if err := rows.Scan(
+			&i.ID,
+			&i.EntityType,
+			&i.EntityID,
+			&i.Url,
+			&i.SiteID,
+			&i.Platform,
+			&i.Status,
+			&i.Canonical,
+			&i.FirstSeen,
+			&i.LastChecked,
+			&i.LastOk,
+			&i.CheckFailures,
+			&i.ArchivedUrl,
+			&i.ArchivedAt,
+			&i.CreatedBy,
+			&i.UrlNormalized,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const findLiveSourcesBySceneIDs = `-- name: FindLiveSourcesBySceneIDs :many
 SELECT cs.id, cs.entity_type, cs.entity_id, cs.url, cs.site_id, cs.platform, cs.status, cs.canonical, cs.first_seen, cs.last_checked, cs.last_ok, cs.check_failures, cs.archived_url, cs.archived_at, cs.created_by, cs.url_normalized
 FROM content_sources cs

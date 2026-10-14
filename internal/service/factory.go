@@ -33,6 +33,7 @@ import (
 	"github.com/stashapp/stash-box/internal/service/award"
 	"github.com/stashapp/stash-box/internal/service/badge"
 	"github.com/stashapp/stash-box/internal/service/collage"
+	"github.com/stashapp/stash-box/internal/service/completeness"
 	"github.com/stashapp/stash-box/internal/service/completion"
 	"github.com/stashapp/stash-box/internal/service/content"
 	"github.com/stashapp/stash-box/internal/service/contentitem"
@@ -304,6 +305,15 @@ func (f *Factory) Site() *site.Site {
 // agree with the row they are reading; the read paths here do not use it yet.
 func (f *Factory) Content() *content.Service {
 	return content.NewService(queries.New(f.db), f.withTxn)
+}
+
+// Completeness returns the expected-total read service: what a source claims a studio lists,
+// what the instance actually holds, and whether the page the claim came from is still alive
+// (docs/spec/feature-content-aggregator.md, phase 9 slice 9f).
+//
+// No transaction helper: this is a read path, and every statement in it is a plain query.
+func (f *Factory) Completeness() *completeness.Service {
+	return completeness.NewService(queries.New(f.db))
 }
 
 // Ingest returns the aggregation pipeline (docs/spec/feature-ingestion.md, plan phase 2).
