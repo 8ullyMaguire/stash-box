@@ -971,6 +971,33 @@ search assertion and the recommendation assertion, since they share the predicat
 visible), the feed's `dropDenied` call unwired, and the similarity candidate's tag arm removed in the
 generated statement.
 
+### Slice 5g — the denylist on DIRECT access — DESIGNED, not built
+
+Slice 5f gates the four ENUMERATING paths. Direct access still serves a denylisted scene, and that is a
+gap with a different character from the tier gap: a tier removes a thing from a VIEW (and `findScene(id)`
+was left ungated deliberately), while migration 87's own words for this denylist are "entities whose
+CONTENT ACCESS is denied" — access, not visibility.
+
+**The paths to gate, measured rather than guessed:** `FindByID` (resolver_query_scene.go), the
+`SceneByID` dataloader that `FindScenes(ids)` and every entity embedding a scene go through,
+`FindScenesBySceneFingerprints`, and the changelog. One predicate, and the honest way to apply it is at
+the loader — gating only `FindByID` leaves `findScenes(ids: [...])` as a bypass.
+
+**The decision to make first: a denylisted scene reads as NOT FOUND.** Not an error, and not a
+distinguishable "denied": to a reader, "this instance refuses to serve it" and "there is no such scene"
+must be the same answer, or the response itself tells them the content exists. That is also why the
+tier decision does not carry over — a tier is a preference of the viewer, the denylist is a decision of
+the instance.
+
+**Not gated: the operator surface and the edit paths.** `AccessRules` must still see the entries (an
+operator audits their own denylist), and edits/moderation of a denylisted scene must still work —
+otherwise the only way to un-denylist something is to bypass the API.
+
+**Until this is built, `AccessRuleSet`'s `per_entity_denylist: Enforced: true, EnforcedBy:
+internal/service/trust` is true of enumeration and not of direct access.** The field's contract says a
+reason is empty exactly when `Enforced` is true, so the honest options are to build 5g or to narrow the
+claim — not to leave a half-true sentence in an operator-facing report.
+
 ## Phase 6 — trust, sub-scores, gamification
 
 **Goal:** NexusXXX §5.2–§5.4, §6.1–§6.5. **Verified:** `trust` is derived by a curve
