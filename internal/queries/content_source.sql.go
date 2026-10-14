@@ -238,6 +238,52 @@ func (q *Queries) FindSceneSources(ctx context.Context, sceneID uuid.UUID) ([]Sc
 	return items, nil
 }
 
+const findSceneSourcesByIds = `-- name: FindSceneSourcesByIds :many
+SELECT scene_id, url, site_id, status, canonical, platform, first_seen, last_checked, last_ok, check_failures, archived_url, source_id FROM scene_sources
+WHERE scene_id = ANY($1::UUID[])
+ORDER BY scene_id, canonical DESC, first_seen DESC NULLS LAST, url
+`
+
+// The batched form, for the dataloader that serves Scene.sources when a page lists
+// many scenes. Same view as FindSceneSources: one query for the whole page rather
+// than one per scene.
+//
+// Ordered by scene_id first so the grouping the dataloader does preserves the
+// display order WITHIN each scene (canonical first), and is deterministic rather
+// than whatever the planner returns.
+func (q *Queries) FindSceneSourcesByIds(ctx context.Context, sceneIds []uuid.UUID) ([]SceneSource, error) {
+	rows, err := q.db.Query(ctx, findSceneSourcesByIds, sceneIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SceneSource{}
+	for rows.Next() {
+		var i SceneSource
+		if err := rows.Scan(
+			&i.SceneID,
+			&i.Url,
+			&i.SiteID,
+			&i.Status,
+			&i.Canonical,
+			&i.Platform,
+			&i.FirstSeen,
+			&i.LastChecked,
+			&i.LastOk,
+			&i.CheckFailures,
+			&i.ArchivedUrl,
+			&i.SourceID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const promoteSourceToCanonical = `-- name: PromoteSourceToCanonical :exec
 UPDATE content_sources SET canonical = true WHERE id = $1
 `

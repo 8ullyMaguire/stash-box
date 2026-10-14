@@ -273,6 +273,86 @@ export type Completion = {
   total: Scalars['Int']['output'];
 };
 
+/**
+ * Where an aggregated piece of content lives, and whether it is still alive.
+ *
+ * This is the aggregator programme's read surface (`docs/spec/feature-content-aggregator.md`,
+ * phase 1). A scene's `urls` say which links the scene claims; a `ContentSource` adds what
+ * this instance knows about those links -- whether anything has ever checked them, when,
+ * and what happened.
+ *
+ * The two are deliberately separate. A URL's HEALTH outlives the scene's claim to it: the
+ * edit path replaces a scene's URL list by deleting every row and re-inserting the submitted
+ * set, and the health history survives that on purpose. So `urls` is membership and
+ * `sources` is membership plus health, and a client that wants "the links, with a warning on
+ * the dead ones" asks for the latter.
+ */
+export type ContentSource = {
+  __typename: 'ContentSource';
+  /**
+   * A snapshot of this URL, when one was taken.
+   *
+   * Null is the ordinary case: an archive that was never made is an absence, not a state.
+   */
+  archived_url?: Maybe<Scalars['String']['output']>;
+  /**
+   * Whether this is the source a reader should be sent to.
+   *
+   * At most one per scene, enforced by a partial unique index rather than by convention.
+   * A scene can also have NO canonical source -- that is a legitimate state, and the state
+   * a scene is in until someone elects one.
+   */
+  canonical: Scalars['Boolean']['output'];
+  /** Consecutive failed checks. Reset by a success; the threshold that matters is phase 9's. */
+  check_failures: Scalars['Int']['output'];
+  /** When this instance first saw the URL. Null when there is no health record. */
+  first_seen?: Maybe<Scalars['Time']['output']>;
+  /**
+   * The source record's id, or null.
+   *
+   * Null means the scene claims this URL but no health record exists for it yet -- the
+   * window between a URL being added and the health sweep seeing it, and the permanent
+   * state of a URL that was added before this feature existed. A null id is not an error
+   * and not a missing row: the URL is real, its health is simply unknown, which is exactly
+   * what the `status` field then says.
+   */
+  id?: Maybe<Scalars['ID']['output']>;
+  /**
+   * When the health sweep last looked, or null if it never has.
+   *
+   * Null is "never checked" and is distinct from a check that failed -- the same
+   * distinction the timestamp/verification-state work had to introduce, for the same
+   * reason: an absent value must not read as an answer.
+   */
+  last_checked?: Maybe<Scalars['Time']['output']>;
+  /**
+   * When this URL last responded successfully.
+   *
+   * Set only by a success, so it is the last date the source was known good rather than
+   * the last date it was looked at. That is the field a "this link has been dead since X"
+   * message reads, and the evidence a resurrection queue works from.
+   */
+  last_ok?: Maybe<Scalars['Time']['output']>;
+  /** The platform slug, when something has set one. Null is 'not recorded', never a guess from the URL. */
+  platform?: Maybe<Scalars['String']['output']>;
+  /** The site this URL belongs to, when the directory knows it. Resolved in bulk, not per source. */
+  site?: Maybe<Site>;
+  /**
+   * One of `unknown`, `live`, `intermittent`, `dead`, `dmca`, `archived`.
+   *
+   * A plain string rather than an enum, for now and on purpose: the transition rules that
+   * would give those words meaning (three consecutive failures to `intermittent`, seven days
+   * unreachable to `dead`) are phase 9's health daemon. An enum published before the rules
+   * exist freezes a vocabulary nobody has agreed to, and a client that switches on it would
+   * have to be rewritten when the rules land.
+   *
+   * `unknown` is the honest default: nothing has checked this URL yet. It is not `live`.
+   */
+  status: Scalars['String']['output'];
+  /** The URL. Always present, because membership is what this row exists to report. */
+  url: Scalars['String']['output'];
+};
+
 export enum CriterionModifier {
   /** = */
   EQUALS = 'EQUALS',
@@ -3815,6 +3895,8 @@ export type Scene = {
   performers: Array<PerformerAppearance>;
   production_date?: Maybe<Scalars['String']['output']>;
   release_date?: Maybe<Scalars['String']['output']>;
+  /** Every URL this scene claims, with what is known about each one's health. Aggregator programme, phase 1. */
+  sources: Array<ContentSource>;
   studio?: Maybe<Studio>;
   tags: Array<Tag>;
   title?: Maybe<Scalars['String']['output']>;

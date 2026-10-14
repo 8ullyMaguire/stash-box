@@ -14,6 +14,18 @@ SELECT * FROM scene_sources
 WHERE scene_id = $1
 ORDER BY canonical DESC, first_seen DESC NULLS LAST, url;
 
+-- name: FindSceneSourcesByIds :many
+-- The batched form, for the dataloader that serves Scene.sources when a page lists
+-- many scenes. Same view as FindSceneSources: one query for the whole page rather
+-- than one per scene.
+--
+-- Ordered by scene_id first so the grouping the dataloader does preserves the
+-- display order WITHIN each scene (canonical first), and is deterministic rather
+-- than whatever the planner returns.
+SELECT * FROM scene_sources
+WHERE scene_id = ANY(sqlc.arg(scene_ids)::UUID[])
+ORDER BY scene_id, canonical DESC, first_seen DESC NULLS LAST, url;
+
 -- name: FindContentSourcesForEntity :many
 -- The polymorphic read, for every entity kind that is not a scene. Phase 3's
 -- content_items use this; scenes use FindSceneSources above, because only scenes have

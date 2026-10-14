@@ -38,6 +38,7 @@ type Loaders struct {
 	SceneImageIDsByID              UUIDsLoader
 	SceneAppearancesByID           SceneAppearancesLoader
 	SceneUrlsByID                  URLLoader
+	SceneSourcesByID               ContentSourcesLoader
 	StudioImageIDsByID             UUIDsLoader
 	StudioIsFavoriteByID           BoolsLoader
 	StudioUrlsByID                 URLLoader
@@ -257,6 +258,17 @@ func GetLoaders(ctx context.Context, fac service.Factory) *Loaders {
 			fetch: func(ids []uuid.UUID) ([][]models.URL, []error) {
 				s := fac.Scene()
 				return s.LoadURLs(ctx, ids)
+			},
+		},
+		// The aggregator's source list, batched like every other per-scene collection
+		// here. Read through the scene_sources view, so a URL the scene has stopped
+		// claiming is absent while its health row survives (migration 108).
+		SceneSourcesByID: ContentSourcesLoader{
+			maxBatch: 100,
+			wait:     1 * time.Millisecond,
+			fetch: func(ids []uuid.UUID) ([][]models.ContentSource, []error) {
+				s := fac.Content()
+				return s.LoadSceneSources(ctx, ids)
 			},
 		},
 		PerformerUrlsByID: URLLoader{

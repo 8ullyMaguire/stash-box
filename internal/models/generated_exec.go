@@ -32,6 +32,7 @@ type ResolverRoot interface {
 	ClusterSceneSubmission() ClusterSceneSubmissionResolver
 	Collage() CollageResolver
 	CollageFrame() CollageFrameResolver
+	ContentSource() ContentSourceResolver
 	Draft() DraftResolver
 	Edit() EditResolver
 	EditComment() EditCommentResolver
@@ -152,6 +153,20 @@ type ComplexityRoot struct {
 		Missing    func(childComplexity int) int
 		Score      func(childComplexity int) int
 		Total      func(childComplexity int) int
+	}
+
+	ContentSource struct {
+		ArchivedURL   func(childComplexity int) int
+		Canonical     func(childComplexity int) int
+		CheckFailures func(childComplexity int) int
+		FirstSeen     func(childComplexity int) int
+		ID            func(childComplexity int) int
+		LastChecked   func(childComplexity int) int
+		LastOK        func(childComplexity int) int
+		Platform      func(childComplexity int) int
+		Site          func(childComplexity int) int
+		Status        func(childComplexity int) int
+		URL           func(childComplexity int) int
 	}
 
 	CropGuide struct {
@@ -920,6 +935,7 @@ type ComplexityRoot struct {
 		Performers     func(childComplexity int) int
 		ProductionDate func(childComplexity int) int
 		ReleaseDate    func(childComplexity int) int
+		Sources        func(childComplexity int) int
 		Studio         func(childComplexity int) int
 		Tags           func(childComplexity int) int
 		Title          func(childComplexity int) int
@@ -1212,6 +1228,11 @@ type CollageFrameResolver interface {
 	Timestamp(ctx context.Context, obj *CollageFrame) (int, error)
 	Fraction(ctx context.Context, obj *CollageFrame) (*float64, error)
 	Snapshot(ctx context.Context, obj *CollageFrame) (*CollageSnapshot, error)
+}
+type ContentSourceResolver interface {
+	ID(ctx context.Context, obj *ContentSource) (*uuid.UUID, error)
+
+	Site(ctx context.Context, obj *ContentSource) (*Site, error)
 }
 type DraftResolver interface {
 	Created(ctx context.Context, obj *Draft) (*time.Time, error)
@@ -1536,6 +1557,7 @@ type SceneResolver interface {
 	ReleaseDate(ctx context.Context, obj *Scene) (*string, error)
 
 	Urls(ctx context.Context, obj *Scene) ([]URL, error)
+	Sources(ctx context.Context, obj *Scene) ([]ContentSource, error)
 	Studio(ctx context.Context, obj *Scene) (*Studio, error)
 	Tags(ctx context.Context, obj *Scene) ([]Tag, error)
 	Images(ctx context.Context, obj *Scene) ([]Image, error)
@@ -1925,6 +1947,73 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Completion.Total(childComplexity), true
+
+	case "ContentSource.archived_url":
+		if e.ComplexityRoot.ContentSource.ArchivedURL == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentSource.ArchivedURL(childComplexity), true
+	case "ContentSource.canonical":
+		if e.ComplexityRoot.ContentSource.Canonical == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentSource.Canonical(childComplexity), true
+	case "ContentSource.check_failures":
+		if e.ComplexityRoot.ContentSource.CheckFailures == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentSource.CheckFailures(childComplexity), true
+	case "ContentSource.first_seen":
+		if e.ComplexityRoot.ContentSource.FirstSeen == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentSource.FirstSeen(childComplexity), true
+	case "ContentSource.id":
+		if e.ComplexityRoot.ContentSource.ID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentSource.ID(childComplexity), true
+	case "ContentSource.last_checked":
+		if e.ComplexityRoot.ContentSource.LastChecked == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentSource.LastChecked(childComplexity), true
+	case "ContentSource.last_ok":
+		if e.ComplexityRoot.ContentSource.LastOK == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentSource.LastOK(childComplexity), true
+	case "ContentSource.platform":
+		if e.ComplexityRoot.ContentSource.Platform == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentSource.Platform(childComplexity), true
+	case "ContentSource.site":
+		if e.ComplexityRoot.ContentSource.Site == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentSource.Site(childComplexity), true
+	case "ContentSource.status":
+		if e.ComplexityRoot.ContentSource.Status == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentSource.Status(childComplexity), true
+	case "ContentSource.url":
+		if e.ComplexityRoot.ContentSource.URL == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentSource.URL(childComplexity), true
 
 	case "CropGuide.axis":
 		if e.ComplexityRoot.CropGuide.Axis == nil {
@@ -6066,6 +6155,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Scene.ReleaseDate(childComplexity), true
+	case "Scene.sources":
+		if e.ComplexityRoot.Scene.Sources == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Scene.Sources(childComplexity), true
 	case "Scene.studio":
 		if e.ComplexityRoot.Scene.Studio == nil {
 			break
@@ -7808,6 +7903,95 @@ extend type Query {
   enable_genital_attributes: Boolean!
 }
 `, BuiltIn: false},
+	{Name: "../../graphql/schema/types/content.graphql", Input: `"""
+Where an aggregated piece of content lives, and whether it is still alive.
+
+This is the aggregator programme's read surface (` + "`" + `docs/spec/feature-content-aggregator.md` + "`" + `,
+phase 1). A scene's ` + "`" + `urls` + "`" + ` say which links the scene claims; a ` + "`" + `ContentSource` + "`" + ` adds what
+this instance knows about those links -- whether anything has ever checked them, when,
+and what happened.
+
+The two are deliberately separate. A URL's HEALTH outlives the scene's claim to it: the
+edit path replaces a scene's URL list by deleting every row and re-inserting the submitted
+set, and the health history survives that on purpose. So ` + "`" + `urls` + "`" + ` is membership and
+` + "`" + `sources` + "`" + ` is membership plus health, and a client that wants "the links, with a warning on
+the dead ones" asks for the latter.
+"""
+type ContentSource {
+  """
+  The source record's id, or null.
+
+  Null means the scene claims this URL but no health record exists for it yet -- the
+  window between a URL being added and the health sweep seeing it, and the permanent
+  state of a URL that was added before this feature existed. A null id is not an error
+  and not a missing row: the URL is real, its health is simply unknown, which is exactly
+  what the ` + "`" + `status` + "`" + ` field then says.
+  """
+  id: ID
+
+  "The URL. Always present, because membership is what this row exists to report."
+  url: String!
+
+  "The site this URL belongs to, when the directory knows it. Resolved in bulk, not per source."
+  site: Site
+
+  "The platform slug, when something has set one. Null is 'not recorded', never a guess from the URL."
+  platform: String
+
+  """
+  One of ` + "`" + `unknown` + "`" + `, ` + "`" + `live` + "`" + `, ` + "`" + `intermittent` + "`" + `, ` + "`" + `dead` + "`" + `, ` + "`" + `dmca` + "`" + `, ` + "`" + `archived` + "`" + `.
+
+  A plain string rather than an enum, for now and on purpose: the transition rules that
+  would give those words meaning (three consecutive failures to ` + "`" + `intermittent` + "`" + `, seven days
+  unreachable to ` + "`" + `dead` + "`" + `) are phase 9's health daemon. An enum published before the rules
+  exist freezes a vocabulary nobody has agreed to, and a client that switches on it would
+  have to be rewritten when the rules land.
+
+  ` + "`" + `unknown` + "`" + ` is the honest default: nothing has checked this URL yet. It is not ` + "`" + `live` + "`" + `.
+  """
+  status: String!
+
+  """
+  Whether this is the source a reader should be sent to.
+
+  At most one per scene, enforced by a partial unique index rather than by convention.
+  A scene can also have NO canonical source -- that is a legitimate state, and the state
+  a scene is in until someone elects one.
+  """
+  canonical: Boolean!
+
+  "When this instance first saw the URL. Null when there is no health record."
+  first_seen: Time
+
+  """
+  When the health sweep last looked, or null if it never has.
+
+  Null is "never checked" and is distinct from a check that failed -- the same
+  distinction the timestamp/verification-state work had to introduce, for the same
+  reason: an absent value must not read as an answer.
+  """
+  last_checked: Time
+
+  """
+  When this URL last responded successfully.
+
+  Set only by a success, so it is the last date the source was known good rather than
+  the last date it was looked at. That is the field a "this link has been dead since X"
+  message reads, and the evidence a resurrection queue works from.
+  """
+  last_ok: Time
+
+  "Consecutive failed checks. Reset by a success; the threshold that matters is phase 9's."
+  check_failures: Int!
+
+  """
+  A snapshot of this URL, when one was taken.
+
+  Null is the ordinary case: an archive that was never made is an absence, not a state.
+  """
+  archived_url: String
+}
+`, BuiltIn: false},
 	{Name: "../../graphql/schema/types/draft.graphql", Input: `type DraftSubmissionStatus {
   id: ID
 }
@@ -9245,7 +9429,7 @@ extend type Mutation {
   """
   Rename or re-describe a list.
 
-  Requires WRITE on the owner. Publishing is NOT reachable here: this is a content edit,
+  Requires MODIFY on the owner. Publishing is NOT reachable here: this is a content edit,
   and ` + "`" + `listPublish` + "`" + ` is the audited one.
   """
   listUpdate(input: ListUpdateInput!): List! @hasRole(role: MODIFY)
@@ -10379,6 +10563,8 @@ type Scene {
   release_date: String
   production_date: String
   urls: [URL!]!
+  "Every URL this scene claims, with what is known about each one's health. Aggregator programme, phase 1."
+  sources: [ContentSource!]!
   studio: Studio
   tags: [Tag!]!
   images: [Image!]!
@@ -11790,6 +11976,34 @@ func (ec *executionContext) childFields_Completion(ctx context.Context, field gr
 	return nil, fmt.Errorf("no field named %q was found under type Completion", field.Name)
 }
 
+func (ec *executionContext) childFields_ContentSource(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "id":
+		return ec.fieldContext_ContentSource_id(ctx, field)
+	case "url":
+		return ec.fieldContext_ContentSource_url(ctx, field)
+	case "site":
+		return ec.fieldContext_ContentSource_site(ctx, field)
+	case "platform":
+		return ec.fieldContext_ContentSource_platform(ctx, field)
+	case "status":
+		return ec.fieldContext_ContentSource_status(ctx, field)
+	case "canonical":
+		return ec.fieldContext_ContentSource_canonical(ctx, field)
+	case "first_seen":
+		return ec.fieldContext_ContentSource_first_seen(ctx, field)
+	case "last_checked":
+		return ec.fieldContext_ContentSource_last_checked(ctx, field)
+	case "last_ok":
+		return ec.fieldContext_ContentSource_last_ok(ctx, field)
+	case "check_failures":
+		return ec.fieldContext_ContentSource_check_failures(ctx, field)
+	case "archived_url":
+		return ec.fieldContext_ContentSource_archived_url(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type ContentSource", field.Name)
+}
+
 func (ec *executionContext) childFields_CropGuide(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 	switch field.Name {
 	case "axis":
@@ -12758,6 +12972,8 @@ func (ec *executionContext) childFields_Scene(ctx context.Context, field graphql
 		return ec.fieldContext_Scene_production_date(ctx, field)
 	case "urls":
 		return ec.fieldContext_Scene_urls(ctx, field)
+	case "sources":
+		return ec.fieldContext_Scene_sources(ctx, field)
 	case "studio":
 		return ec.fieldContext_Scene_studio(ctx, field)
 	case "tags":
@@ -17025,6 +17241,268 @@ func (ec *executionContext) _Completion_earned(ctx context.Context, field graphq
 }
 func (ec *executionContext) fieldContext_Completion_earned(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("Completion", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _ContentSource_id(ctx context.Context, field graphql.CollectedField, obj *ContentSource) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentSource_id(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.ContentSource().ID(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *uuid.UUID) graphql.Marshaler {
+			return ec.marshalOID2ᚖgithubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_ContentSource_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContentSource", field, true, true, errors.New("field of type ID does not have child fields"))
+}
+
+func (ec *executionContext) _ContentSource_url(ctx context.Context, field graphql.CollectedField, obj *ContentSource) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentSource_url(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.URL, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ContentSource_url(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContentSource", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _ContentSource_site(ctx context.Context, field graphql.CollectedField, obj *ContentSource) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentSource_site(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.ContentSource().Site(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *Site) graphql.Marshaler {
+			return ec.marshalOSite2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSite(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_ContentSource_site(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ContentSource",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_Site(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ContentSource_platform(ctx context.Context, field graphql.CollectedField, obj *ContentSource) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentSource_platform(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Platform, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
+			return ec.marshalOString2ᚖstring(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_ContentSource_platform(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContentSource", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _ContentSource_status(ctx context.Context, field graphql.CollectedField, obj *ContentSource) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentSource_status(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Status, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ContentSource_status(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContentSource", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _ContentSource_canonical(ctx context.Context, field graphql.CollectedField, obj *ContentSource) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentSource_canonical(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Canonical, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ContentSource_canonical(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContentSource", field, false, false, errors.New("field of type Boolean does not have child fields"))
+}
+
+func (ec *executionContext) _ContentSource_first_seen(ctx context.Context, field graphql.CollectedField, obj *ContentSource) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentSource_first_seen(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.FirstSeen, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *time.Time) graphql.Marshaler {
+			return ec.marshalOTime2ᚖtimeᚐTime(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_ContentSource_first_seen(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContentSource", field, false, false, errors.New("field of type Time does not have child fields"))
+}
+
+func (ec *executionContext) _ContentSource_last_checked(ctx context.Context, field graphql.CollectedField, obj *ContentSource) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentSource_last_checked(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.LastChecked, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *time.Time) graphql.Marshaler {
+			return ec.marshalOTime2ᚖtimeᚐTime(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_ContentSource_last_checked(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContentSource", field, false, false, errors.New("field of type Time does not have child fields"))
+}
+
+func (ec *executionContext) _ContentSource_last_ok(ctx context.Context, field graphql.CollectedField, obj *ContentSource) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentSource_last_ok(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.LastOK, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *time.Time) graphql.Marshaler {
+			return ec.marshalOTime2ᚖtimeᚐTime(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_ContentSource_last_ok(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContentSource", field, false, false, errors.New("field of type Time does not have child fields"))
+}
+
+func (ec *executionContext) _ContentSource_check_failures(ctx context.Context, field graphql.CollectedField, obj *ContentSource) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentSource_check_failures(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.CheckFailures, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ContentSource_check_failures(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContentSource", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _ContentSource_archived_url(ctx context.Context, field graphql.CollectedField, obj *ContentSource) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentSource_archived_url(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ArchivedURL, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
+			return ec.marshalOString2ᚖstring(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_ContentSource_archived_url(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContentSource", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
 func (ec *executionContext) _CropGuide_axis(ctx context.Context, field graphql.CollectedField, obj *CropGuide) (ret graphql.Marshaler) {
@@ -36598,6 +37076,38 @@ func (ec *executionContext) fieldContext_Scene_urls(_ context.Context, field gra
 	return fc, nil
 }
 
+func (ec *executionContext) _Scene_sources(ctx context.Context, field graphql.CollectedField, obj *Scene) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Scene_sources(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Scene().Sources(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []ContentSource) graphql.Marshaler {
+			return ec.marshalNContentSource2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentSourceᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Scene_sources(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Scene",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ContentSource(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Scene_studio(ctx context.Context, field graphql.CollectedField, obj *Scene) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -50815,6 +51325,160 @@ func (ec *executionContext) _Completion(ctx context.Context, sel ast.SelectionSe
 	return out
 }
 
+var contentSourceImplementors = []string{"ContentSource"}
+
+func (ec *executionContext) _ContentSource(ctx context.Context, sel ast.SelectionSet, obj *ContentSource) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, contentSourceImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ContentSource")
+		case "id":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._ContentSource_id(ctx, field, obj)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "url":
+			out.Values[i] = ec._ContentSource_url(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "site":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._ContentSource_site(ctx, field, obj)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "platform":
+			out.Values[i] = ec._ContentSource_platform(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "status":
+			out.Values[i] = ec._ContentSource_status(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "canonical":
+			out.Values[i] = ec._ContentSource_canonical(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "first_seen":
+			out.Values[i] = ec._ContentSource_first_seen(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "last_checked":
+			out.Values[i] = ec._ContentSource_last_checked(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "last_ok":
+			out.Values[i] = ec._ContentSource_last_ok(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "check_failures":
+			out.Values[i] = ec._ContentSource_check_failures(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "archived_url":
+			out.Values[i] = ec._ContentSource_archived_url(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
 var cropGuideImplementors = []string{"CropGuide"}
 
 func (ec *executionContext) _CropGuide(ctx context.Context, sel ast.SelectionSet, obj *CropGuide) graphql.Marshaler {
@@ -60507,6 +61171,44 @@ func (ec *executionContext) _Scene(ctx context.Context, sel ast.SelectionSet, ob
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "sources":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Scene_sources(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "studio":
 			field := field
 
@@ -65557,6 +66259,26 @@ func (ec *executionContext) marshalNCollageFrame2ᚕgithubᚗcomᚋstashappᚋst
 		fc := graphql.GetFieldContext(ctx)
 		fc.Result = &v[i]
 		return ec.marshalNCollageFrame2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐCollageFrame(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNContentSource2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentSource(ctx context.Context, sel ast.SelectionSet, v ContentSource) graphql.Marshaler {
+	return ec._ContentSource(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNContentSource2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentSourceᚄ(ctx context.Context, sel ast.SelectionSet, v []ContentSource) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNContentSource2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentSource(ctx, sel, v[i])
 	})
 
 	for _, e := range ret {

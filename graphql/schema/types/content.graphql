@@ -1,0 +1,88 @@
+"""
+Where an aggregated piece of content lives, and whether it is still alive.
+
+This is the aggregator programme's read surface (`docs/spec/feature-content-aggregator.md`,
+phase 1). A scene's `urls` say which links the scene claims; a `ContentSource` adds what
+this instance knows about those links -- whether anything has ever checked them, when,
+and what happened.
+
+The two are deliberately separate. A URL's HEALTH outlives the scene's claim to it: the
+edit path replaces a scene's URL list by deleting every row and re-inserting the submitted
+set, and the health history survives that on purpose. So `urls` is membership and
+`sources` is membership plus health, and a client that wants "the links, with a warning on
+the dead ones" asks for the latter.
+"""
+type ContentSource {
+  """
+  The source record's id, or null.
+
+  Null means the scene claims this URL but no health record exists for it yet -- the
+  window between a URL being added and the health sweep seeing it, and the permanent
+  state of a URL that was added before this feature existed. A null id is not an error
+  and not a missing row: the URL is real, its health is simply unknown, which is exactly
+  what the `status` field then says.
+  """
+  id: ID
+
+  "The URL. Always present, because membership is what this row exists to report."
+  url: String!
+
+  "The site this URL belongs to, when the directory knows it. Resolved in bulk, not per source."
+  site: Site
+
+  "The platform slug, when something has set one. Null is 'not recorded', never a guess from the URL."
+  platform: String
+
+  """
+  One of `unknown`, `live`, `intermittent`, `dead`, `dmca`, `archived`.
+
+  A plain string rather than an enum, for now and on purpose: the transition rules that
+  would give those words meaning (three consecutive failures to `intermittent`, seven days
+  unreachable to `dead`) are phase 9's health daemon. An enum published before the rules
+  exist freezes a vocabulary nobody has agreed to, and a client that switches on it would
+  have to be rewritten when the rules land.
+
+  `unknown` is the honest default: nothing has checked this URL yet. It is not `live`.
+  """
+  status: String!
+
+  """
+  Whether this is the source a reader should be sent to.
+
+  At most one per scene, enforced by a partial unique index rather than by convention.
+  A scene can also have NO canonical source -- that is a legitimate state, and the state
+  a scene is in until someone elects one.
+  """
+  canonical: Boolean!
+
+  "When this instance first saw the URL. Null when there is no health record."
+  first_seen: Time
+
+  """
+  When the health sweep last looked, or null if it never has.
+
+  Null is "never checked" and is distinct from a check that failed -- the same
+  distinction the timestamp/verification-state work had to introduce, for the same
+  reason: an absent value must not read as an answer.
+  """
+  last_checked: Time
+
+  """
+  When this URL last responded successfully.
+
+  Set only by a success, so it is the last date the source was known good rather than
+  the last date it was looked at. That is the field a "this link has been dead since X"
+  message reads, and the evidence a resurrection queue works from.
+  """
+  last_ok: Time
+
+  "Consecutive failed checks. Reset by a success; the threshold that matters is phase 9's."
+  check_failures: Int!
+
+  """
+  A snapshot of this URL, when one was taken.
+
+  Null is the ordinary case: an archive that was never made is an absence, not a state.
+  """
+  archived_url: String
+}

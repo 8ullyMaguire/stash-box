@@ -69,6 +69,9 @@ func (r *Resolver) Site() models.SiteResolver {
 func (r *Resolver) URL() models.URLResolver {
 	return &urlResolver{r}
 }
+func (r *Resolver) ContentSource() models.ContentSourceResolver {
+	return &contentSourceResolver{r}
+}
 func (r *Resolver) User() models.UserResolver {
 	return &userResolver{r}
 }

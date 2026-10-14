@@ -30,6 +30,7 @@ import (
 	"github.com/stashapp/stash-box/internal/service/badge"
 	"github.com/stashapp/stash-box/internal/service/collage"
 	"github.com/stashapp/stash-box/internal/service/completion"
+	"github.com/stashapp/stash-box/internal/service/content"
 	"github.com/stashapp/stash-box/internal/service/draft"
 	"github.com/stashapp/stash-box/internal/service/edit"
 	"github.com/stashapp/stash-box/internal/service/elo"
@@ -200,6 +201,15 @@ func (f *Factory) UserToken() *usertoken.UserToken {
 // Site returns a SiteService instance
 func (f *Factory) Site() *site.Site {
 	return site.NewSite(queries.New(f.db), f.withTxn)
+}
+
+// Content returns the content source service: where aggregated content lives, and
+// whether it is still alive (docs/spec/feature-content-aggregator.md, phases 1-2).
+//
+// It takes the transaction helper because the phases that write health state have to
+// agree with the row they are reading; the read paths here do not use it yet.
+func (f *Factory) Content() *content.Service {
+	return content.NewService(queries.New(f.db), f.withTxn)
 }
 
 // Edit returns an EditService instance

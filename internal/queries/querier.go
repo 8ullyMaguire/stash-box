@@ -772,6 +772,14 @@ type Querier interface {
 	// among the rest the recently-added ones are more likely to still be alive than a
 	// source that has been sitting there since the scene was created.
 	FindSceneSources(ctx context.Context, sceneID uuid.UUID) ([]SceneSource, error)
+	// The batched form, for the dataloader that serves Scene.sources when a page lists
+	// many scenes. Same view as FindSceneSources: one query for the whole page rather
+	// than one per scene.
+	//
+	// Ordered by scene_id first so the grouping the dataloader does preserves the
+	// display order WITHIN each scene (canonical first), and is deterministic rather
+	// than whatever the planner returns.
+	FindSceneSourcesByIds(ctx context.Context, sceneIds []uuid.UUID) ([]SceneSource, error)
 	// Get URLs for multiple scenes
 	FindSceneUrlsByIds(ctx context.Context, sceneIds []uuid.UUID) ([]SceneUrl, error)
 	FindScenesByFingerprintsExactWithHash(ctx context.Context, hashes []int64) ([]FindScenesByFingerprintsExactWithHashRow, error)

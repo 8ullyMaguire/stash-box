@@ -118,6 +118,8 @@ type Scene {
   release_date: String
   production_date: String
   urls: [URL!]!
+  "Every URL this scene claims, with what is known about each one's health. Aggregator programme, phase 1."
+  sources: [ContentSource!]!
   studio: Studio
   tags: [Tag!]!
   images: [Image!]!
