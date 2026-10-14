@@ -621,6 +621,16 @@ type PerformerPopularityAllTime struct {
 	UserCount   int       `db:"user_count" json:"user_count"`
 }
 
+type PerformerProfileSnapshot struct {
+	ID            uuid.UUID       `db:"id" json:"id"`
+	PerformerID   uuid.UUID       `db:"performer_id" json:"performer_id"`
+	SourceUrl     string          `db:"source_url" json:"source_url"`
+	UrlNormalized string          `db:"url_normalized" json:"url_normalized"`
+	CapturedAt    time.Time       `db:"captured_at" json:"captured_at"`
+	ContentHash   string          `db:"content_hash" json:"content_hash"`
+	Content       json.RawMessage `db:"content" json:"content"`
+}
+
 type PerformerRedirect struct {
 	SourceID uuid.UUID `db:"source_id" json:"source_id"`
 	TargetID uuid.UUID `db:"target_id" json:"target_id"`

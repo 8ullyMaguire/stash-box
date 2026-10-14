@@ -1662,13 +1662,47 @@ cap needs, and it now exists and is tested, so the remaining work is composition
 * Probes: the penalty removed; the denominator dropped instead of capped (which reddens the 3-of-400
   assertion); the resolution done by exact string match (an unnormalized URL stops resolving).
 
-### Slice 9g — performer profile snapshots
+### Slice 9g — performer profile snapshots (BUILT)
 
 **Goal:** a performer's profile page as captured from an external site, stored as evidence of what the
 instance knew and when, for the identification board.
 
-**Verification:** a snapshot round-trips with its capture time, and a second capture does not overwrite
-the first (a snapshot is a record, not a cache).
+**The problem it solves is the board's real hard case.** Not "who is this performer" but "the page that
+proved it is gone": a retired performer's agency profile, a studio page since rewritten, a site that
+closed. A link is not evidence -- it points at evidence whose lifetime somebody else controls. A
+snapshot is the claim itself, recorded at a moment, and it does not move when the source does.
+
+**NO BLOBS, following migration 78.** That migration refused a JPEG per scene snapshot because "Stash
+Box is a metadata server"; this one refuses the page's bytes for the same reason and one more: the page
+is not ours to keep. What is stored is the STRUCTURED claim the extractor read (title, studio, performer
+names, date, thumbnail address) plus a sha256 of it, so a later capture can be compared with an earlier
+one without either being rewritten.
+
+**THE UNIQUE KEY IS THE RULE** -- `(performer_id, url_normalized, content_hash)`, and it is why this is
+a record rather than a cache. The same page saying the same thing twice is ONE record whose
+`captured_at` never moves (a restamped timestamp is a cache with a fresh-looking date). The same page
+saying something DIFFERENT is a new row BESIDE the old one, because the interesting question about a
+source page is what it said before it changed. And the key is keyed on the NORMALISED url, so a curator
+pasting the same page with a tracking parameter or a different host case has captured one page, not two;
+`source_url` keeps the string they actually used, as evidence of where it came from.
+
+**The fetch is the ingest pipeline's own extractor** (`ingest.Service.SnapshotPerformerProfile`): a
+snapshot is a submission whose result is recorded instead of merged, so it must not grow a second
+network path that could disagree with the first about what a page says. A FAILED fetch records NOTHING
+and returns the reason -- `ErrGone` is a loss to accept, `ErrUnreachable` is one to retry -- because a
+row describing a fetch that did not happen is not evidence of anything.
+
+**Verification (DONE):** the same content captured twice is one record with an unmoved timestamp;
+changed content is a second record while the first still reads back its ORIGINAL title; a re-paste of
+the same page in a different form does not create a third; a failed fetch writes no row and returns its
+kind; an unknown performer is refused BY NAME before the foreign key can say
+`performer_profile_snapshots_performer_id_fkey`. Five probes, all killed: the store keying on the raw
+url, a re-capture restamping `captured_at`, the key ignoring the content hash (a migration mutation,
+re-applied by the harness), a failed fetch recorded anyway, and an unknown performer reaching the FK.
+
+**Not built, available if wanted:** a GraphQL surface (`Performer.profileSnapshots`), which needs a
+dataloader like `Scene.sources` has. The slice's criterion is a round trip with its capture time, and
+the service does that; nothing reads snapshots over the API yet.
 
 ## Phase 10 — media plane
 

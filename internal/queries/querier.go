@@ -473,6 +473,14 @@ type Querier interface {
 	CreatePerformerFavorite(ctx context.Context, arg CreatePerformerFavoriteParams) error
 	CreatePerformerImages(ctx context.Context, arg []CreatePerformerImagesParams) (int64, error)
 	CreatePerformerPiercings(ctx context.Context, arg []CreatePerformerPiercingsParams) (int64, error)
+	// Record what a page said about a performer, at this instant.
+	//
+	// ON CONFLICT DO UPDATE rather than DO NOTHING on purpose: DO NOTHING returns NO ROW, so the caller
+	// would have to re-select, and the re-select is the race this statement exists to close. The update
+	// is a no-op (it writes back the hash it collided on) and captured_at is untouched -- a second
+	// capture of the same content IS the same record, and moving its timestamp would turn a record into
+	// a cache with a fresh-looking date.
+	CreatePerformerProfileSnapshot(ctx context.Context, arg CreatePerformerProfileSnapshotParams) (PerformerProfileSnapshot, error)
 	// Performer redirects
 	CreatePerformerRedirect(ctx context.Context, arg CreatePerformerRedirectParams) error
 	CreatePerformerTattoos(ctx context.Context, arg []CreatePerformerTattoosParams) (int64, error)
@@ -1836,6 +1844,9 @@ type Querier interface {
 	// The partial index on status='open' covers exactly this, so the filter is not
 	// costing a scan of solved and abandoned queries.
 	ListOpenIdentificationQueries(ctx context.Context, limit int32) ([]IdentificationQuery, error)
+	// A performer's captures, newest first. `id` breaks ties so two captures in the same second have a
+	// stable order: a page that changes twice in one second is unlikely and an unstable page is not.
+	ListPerformerProfileSnapshots(ctx context.Context, performerID uuid.UUID) ([]PerformerProfileSnapshot, error)
 	// "Everything the community has worked out about this performer."
 	//
 	// This is the query that turns a solved query into a CANONICAL LINK, per §5: the

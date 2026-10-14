@@ -136,6 +136,7 @@ sql:
       - internal/database/migrations/postgres/121_t3_cooling.up.sql
       - internal/database/migrations/postgres/122_denylist_mode.up.sql
       - internal/database/migrations/postgres/123_content_terms.up.sql
+      - internal/database/migrations/postgres/124_performer_profile_snapshots.up.sql
     queries: "internal/queries/sql"
     gen:
       go:
