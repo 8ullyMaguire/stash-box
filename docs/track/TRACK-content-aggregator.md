@@ -15,7 +15,7 @@ or a file that exists.
 
 | Phase | Name | State | Evidence |
 |---|---|---|---|
-| 1 | source layer (`content_sources`, health, GraphQL) | in progress | `internal/database/migrations/postgres/108_content_sources.up.sql`, `scripts/verify-108.sh` |
+| 1 | source layer (`content_sources`, health, GraphQL) | in progress | schema + reads done: `108_content_sources.{up,down}.sql`, `internal/queries/sql/content_source.sql`, `scripts/verify-108.sh` (49/49, mutation-tested). NOT done: service, GraphQL `Scene.sources`, integration test |
 | 2 | ingestion pipeline (URL → content record) | not started | — |
 | 3 | the other five content kinds (`content_items`) | not started | — |
 | 4 | tag ontology (implications, versions, RFC) | not started | — |
@@ -57,6 +57,6 @@ Proven working 2026-10-14: the above, then
 |---|---|---|
 | C1 PRs decided | FAIL | 4/50 undecided: #1282, #1283, #1284, #1285 |
 | C3 spec/plan built | FAIL | 6/10 plan documents not Built |
-| C6b integration suite | UNKNOWN | no integration database was running; now runnable |
-| C7 build clean | FAIL | 5 files unformatted, one of them the newest committed test file |
-| C8 aggregator programme | FAIL | this table: 15 phases not started |
+| C6b integration suite | runnable | needs the docker Postgres above; `POSTGRES_DB` is a DSN string, not a URL |
+| C7 build clean | PASS | fixed: `make fmt` over the five files, none semantic |
+| C8 aggregator programme | FAIL | this table: 15 phases not started, 2 in progress |

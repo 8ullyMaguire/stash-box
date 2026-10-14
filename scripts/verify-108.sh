@@ -141,6 +141,49 @@ run_assert "exactly one canonical source exists for that scene" \
   "SELECT count(*) = 1 FROM content_sources WHERE entity_id = '$SCENE' AND canonical"
 
 echo
+echo "=== electing a canonical source: two statements, one transaction ==="
+# The single-statement CTE form is kept as a REJECT case below, so nobody can
+# "simplify" this back into one query without a test going red. Measured reason: a
+# data-modifying CTE's changes are not visible to the rest of the same command, so the
+# unique index sees both rows canonical at once and refuses the promotion.
+run_assert "the incumbent is currently canonical" \
+  "SELECT canonical FROM content_sources WHERE entity_id = '$SCENE' AND url = 'https://example.invalid/a'"
+run reject "the single-statement CTE form does NOT work (this is why it is two statements)" \
+  "WITH cleared AS (
+       UPDATE content_sources SET canonical = false
+       WHERE content_sources.entity_type = 'scene' AND content_sources.entity_id = '$SCENE'
+         AND content_sources.canonical
+         AND content_sources.id <> (SELECT id FROM content_sources WHERE entity_type = 'scene' AND entity_id = '$SCENE' AND url = 'https://example.invalid/b')
+   )
+   UPDATE content_sources SET canonical = true
+   WHERE content_sources.id = (SELECT id FROM content_sources WHERE entity_type = 'scene' AND entity_id = '$SCENE' AND url = 'https://example.invalid/b')"
+run_assert "and after that refusal the incumbent is STILL canonical (nothing half-applied)" \
+  "SELECT canonical FROM content_sources WHERE entity_id = '$SCENE' AND url = 'https://example.invalid/a'"
+run ok "two statements in one transaction promote the successor" \
+  "BEGIN;
+   UPDATE content_sources SET canonical = false
+   WHERE entity_type = 'scene' AND entity_id = '$SCENE' AND canonical
+     AND id <> (SELECT id FROM content_sources WHERE entity_type = 'scene' AND entity_id = '$SCENE' AND url = 'https://example.invalid/b');
+   UPDATE content_sources SET canonical = true
+   WHERE id = (SELECT id FROM content_sources WHERE entity_type = 'scene' AND entity_id = '$SCENE' AND url = 'https://example.invalid/b');
+   COMMIT;"
+run_assert "the successor is canonical and the incumbent is not" \
+  "SELECT count(*) = 1 FROM content_sources WHERE entity_id = '$SCENE' AND canonical AND url = 'https://example.invalid/b'"
+# The transaction and the assertion are separate on purpose: run_assert compares the whole
+# output with "t", and `psql -tAc "BEGIN; UPDATE ...; COMMIT; SELECT ..."` also prints the
+# command tags, which would make a correct assertion read as a failure.
+run ok "moving canonical back" \
+  "BEGIN;
+   UPDATE content_sources SET canonical = false
+   WHERE entity_type = 'scene' AND entity_id = '$SCENE' AND canonical
+     AND id <> (SELECT id FROM content_sources WHERE entity_type = 'scene' AND entity_id = '$SCENE' AND url = 'https://example.invalid/a');
+   UPDATE content_sources SET canonical = true
+   WHERE id = (SELECT id FROM content_sources WHERE entity_type = 'scene' AND entity_id = '$SCENE' AND url = 'https://example.invalid/a');
+   COMMIT;"
+run_assert "canonical is back on the original url, and there is still exactly one" \
+  "SELECT count(*) = 1 FROM content_sources WHERE entity_id = '$SCENE' AND canonical AND url = 'https://example.invalid/a'"
+
+echo
 echo "=== the mirror: scene_urls writes reach content_sources ==="
 run ok "inserting a scene_urls row" \
   "INSERT INTO scene_urls (scene_id, url, site_id) VALUES ('$SCENE', 'https://example.invalid/mirrored', '$SITE')"
