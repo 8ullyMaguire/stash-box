@@ -190,14 +190,19 @@ pipeline), `internal/service/ingest/extract/` (the extractor interface and the f
 `internal/cron` entry for the queue drain, `internal/api/resolver_ingest.go` (mutation
 `submitContentUrl(url:)`), `docs/spec/feature-ingestion.md`.
 
-**Status:** the schema half is landed and harnessed: `scenes.origin` (why a row exists,
-not derivable from fingerprints-or-sources), `ingest_queue` with the status/outcome
-machine, a partial unique index over the active URL states, and the four queue statements
-— enqueue, claim (`FOR UPDATE SKIP LOCKED`), finish, fail-with-backoff — proven against a
-real database by `scripts/verify-109.sh` (46 checks, four mutations, all killed). The Go
-half — the normaliser, the dedup decision, the extractor interface, the drain and the
-mutation — is not written yet, and nothing calls the queue statements (see the note on
-inert code in phase 9).
+**Status:** the schema half AND the decision half are landed. Schema: `scenes.origin`
+(why a row exists, not derivable from fingerprints-or-sources), `ingest_queue` with the
+status/outcome machine, a partial unique index over the active URL states, and the four
+queue statements — enqueue, claim (`FOR UPDATE SKIP LOCKED`), finish, fail-with-backoff —
+proven against a real database by `scripts/verify-109.sh` (46 checks, four mutations, all
+killed). Decision: `internal/service/ingest/normalize.go` (the dedup key) and
+`dedup.go` (`Decide`'s precedence, `Known.Target`, `BackoffSeconds`) with 46 subtests and
+five mutations, each reddening only its own assertions.
+
+NOT written: the extractor interface and its fake, the queue drain, and the
+`submitContentUrl` mutation — so nothing yet CALLS the queue statements, and the migration
+is currently the only thing that knows the queue exists. That is the next slice, and it is
+the one that makes this phase observable from outside.
 
 **Verification:** unit tests for the pure functions (normaliser, dedup decision) with
 table-driven cases; integration test submitting three URLs that resolve to one
