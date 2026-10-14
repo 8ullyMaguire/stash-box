@@ -160,7 +160,10 @@ func (s *Service) dropAboveTier(ctx context.Context, viewerID uuid.UUID, items [
 		return items, nil
 	}
 
-	ceiling, err := s.queries.UserVisibleTier(ctx, viewerID)
+	ceiling, err := s.queries.UserVisibleTier(ctx, queries.UserVisibleTierParams{
+		UserID:       viewerID,
+		CoolingHours: trust.T3CoolingHours,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("reading the viewer's content-tier ceiling: %w", err)
 	}

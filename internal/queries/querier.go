@@ -2283,6 +2283,11 @@ type Querier interface {
 	SetUserTrustLevel(ctx context.Context, arg SetUserTrustLevelParams) (UserTrust, error)
 	// The record of consent. The gate uses its MAXIMUM; the array is what an audit
 	// reads, so the value is stored as sent rather than collapsed to a number.
+	//
+	// `t3_consented_at` is stamped on GAIN and cleared on LOSS, and left alone in every
+	// other case -- the ELSE is the whole point: a member who re-sends the same numbers in
+	// a different order has not re-consented, and stamp-on-every-write would let them (or
+	// anyone replaying their request) restart the cooling clock at will.
 	SetVisibleTiers(ctx context.Context, arg SetVisibleTiersParams) (UserTrust, error)
 	SetWebhookEndpointDisabled(ctx context.Context, arg SetWebhookEndpointDisabledParams) (WebhookEndpoint, error)
 	SiteCompletionInputs(ctx context.Context, id uuid.UUID) (SiteCompletionInputsRow, error)
@@ -2446,10 +2451,18 @@ type Querier interface {
 	UpsertSiteDetails(ctx context.Context, arg UpsertSiteDetailsParams) (SiteDetail, error)
 	UpsertTasteVector(ctx context.Context, arg UpsertTasteVectorParams) (TasteVector, error)
 	// The viewer's ceiling: the MAXIMUM tier they have opted into, or 0 for a user
-	// with no preference, no user_trust row at all, or an empty array. COALESCE over
-	// unnest of a missing row keeps "anonymous" and "never asked" the same answer,
-	// which is what the gate wants: neither has consented to anything.
-	UserVisibleTier(ctx context.Context, userID uuid.UUID) (int16, error)
+	// with no preference, no user_trust row at all, or an empty array. The LEFT JOIN
+	// against a one-row default is what lets a member with no row answer 0 rather
+	// than not answering at all, so "anonymous" and "never asked" stay the same
+	// answer -- which is what the gate wants: neither has consented to anything.
+	//
+	// THE T3 COOLING PERIOD IS APPLIED HERE AND NOWHERE ELSE (phase 5, migration 121).
+	// Four read paths ask for this ceiling -- the scene query, similarity, the activity
+	// feed and the gate -- and one of them calling a different query that forgot to cool
+	// would be the whole rule gone. The period's LENGTH is a Go constant passed in
+	// (`trust.T3CoolingHours`), so the policy number is not buried in SQL; NULL means the
+	// consent predates the column and is not aged.
+	UserVisibleTier(ctx context.Context, arg UserVisibleTierParams) (int16, error)
 	// One vote. The composite primary key on the vote table is the rule: a second
 	// vote is a constraint violation rather than a silently doubled tally.
 	VoteForIdentificationCandidate(ctx context.Context, arg VoteForIdentificationCandidateParams) error

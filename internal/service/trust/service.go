@@ -377,8 +377,19 @@ const MaxContentTier = 3
 //
 // Zero for "never asked" is deliberate: the gate compares it against an entity's
 // tier, and an unasked user must be treated as having consented to nothing.
+// T3CoolingHours is the cooling period for tier 3, in hours.
+//
+// A named constant and not a setting: the plan's own principle is that a policy knob
+// with no operator surface is a guess, and this instance has no operator surface for
+// it. It is passed into the ceiling query rather than written into the SQL so the
+// number has exactly one home.
+const T3CoolingHours = 24
+
 func (s *Trust) VisibleTier(ctx context.Context, userID uuid.UUID) (int, error) {
-	tier, err := s.queries.UserVisibleTier(ctx, userID)
+	tier, err := s.queries.UserVisibleTier(ctx, queries.UserVisibleTierParams{
+		UserID:       userID,
+		CoolingHours: T3CoolingHours,
+	})
 	if err != nil {
 		return 0, err
 	}

@@ -10,6 +10,7 @@ import (
 
 	"github.com/stashapp/stash-box/internal/auth"
 	"github.com/stashapp/stash-box/internal/models"
+	"github.com/stashapp/stash-box/internal/queries"
 	queryhelper "github.com/stashapp/stash-box/internal/service/query"
 	"github.com/stashapp/stash-box/internal/service/tagontology"
 	"github.com/stashapp/stash-box/internal/service/trust"
@@ -364,7 +365,10 @@ func (s *Scene) buildSceneQuery(ctx context.Context, psql sq.StatementBuilderTyp
 	// Skipped entirely at the ceiling: a viewer who has opted into every tier has nothing
 	// to exclude, and an unconsented viewer's visibleTier is 0, which still pays the
 	// predicate -- the normal case must not be the cheap one.
-	visibleTier, err := s.queries.UserVisibleTier(ctx, userID)
+	visibleTier, err := s.queries.UserVisibleTier(ctx, queries.UserVisibleTierParams{
+		UserID:       userID,
+		CoolingHours: trust.T3CoolingHours,
+	})
 	if err != nil {
 		return query, err
 	}

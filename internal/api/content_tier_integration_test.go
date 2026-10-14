@@ -589,3 +589,90 @@ func TestTrendingDoesNotGoShortBecauseATieredSceneRanksFirst(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{tiered.UUID().String()}, page())
 }
+
+// --- the T3 cooling period (migration 121) ---
+
+// T0-T2 take effect immediately and T3 does not: consenting to the most extreme tier an instance
+// offers should not be something a member can do and act on in the same minute.
+//
+// The cooling is tested by BACKDATING `t3_consented_at` rather than by waiting, which is the reason
+// the stamp is data and not a process. The assertions, in order:
+//
+//  1. consenting to {1,2,3} does NOT reveal a tier-3 scene, while tier 2 is immediate;
+//  2. backdating the stamp by 25 hours DOES;
+//  3. RE-SENDING the same consent in a different order does NOT restart the clock;
+//  4. an explicit {1,2} keeps tier 3 away (the control, so 1 is not vacuous).
+func TestTierThreeCoolsBeforeItTakesEffect(t *testing.T) {
+	admin := asAdmin(t)
+	viewer := asRead(t)
+
+	_, err := viewer.resolver.Mutation().UserSetVisibleTiers(viewer.ctx, []int{})
+	require.NoError(t, err)
+
+	makeTiered := func(tier int) (uuid.UUID, uuid.UUID, string) {
+		tagName := admin.generateSceneName() + " cooling tier"
+		tag, err := admin.createTestTag(&models.TagCreateInput{Name: tagName})
+		require.NoError(t, err)
+		title := admin.generateSceneName()
+		scene, err := admin.createTestScene(&models.SceneCreateInput{
+			Title: &title, TagIds: []uuid.UUID{tag.UUID()},
+		})
+		require.NoError(t, err)
+		_, err = admin.resolver.Mutation().TagSetContentTier(admin.ctx, models.TagContentTierInput{
+			ID: tag.UUID(), Tier: tier, RequiresOptIn: false,
+		})
+		require.NoError(t, err)
+		return scene.UUID(), tag.UUID(), title
+	}
+
+	// Two scenes of their own, so each half of the rule is measured on a scene only that half can
+	// explain: "tier 3 is not visible yet" and "tier 2 is visible already".
+	_, _, tier3Title := makeTiered(3)
+	tier2ID, _, tier2Title := makeTiered(2)
+
+	found := func(title string) []string {
+		got, err := viewer.client.queryScenes(models.SceneQueryInput{
+			Title: &title, Sort: models.SceneSortEnumDate, Direction: models.SortDirectionEnumDesc, PerPage: 10,
+		})
+		require.NoError(t, err)
+		ids := make([]string, 0, len(got.Scenes))
+		for _, s := range got.Scenes {
+			ids = append(ids, s.UUID().String())
+		}
+		return ids
+	}
+
+	// COUNT THE SUBJECTS FIRST: at ceiling 0, before any consent, the tier-2 scene is NOT visible
+	// either -- so its presence later is the consent and not the fixture.
+	require.Empty(t, found(tier2Title), "tier 2 must not be visible without consent")
+	require.Empty(t, found(tier3Title), "tier 3 must not be visible without consent")
+
+	_, err = viewer.resolver.Mutation().UserSetVisibleTiers(viewer.ctx, []int{1, 2, 3})
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{tier2ID.String()}, found(tier2Title),
+		"tier 2 is immediate: the cooling is for tier 3")
+	assert.Empty(t, found(tier3Title),
+		"consenting to tier 3 must not reveal it in the same minute")
+
+	// 2. The cooling expires on its own, and the test does not wait for it: the stamp is data.
+	_, err = dbtest.DB().Exec(context.Background(),
+		`UPDATE user_trust SET t3_consented_at = now() - interval '25 hours' WHERE user_id = $1`,
+		userDB.read.ID)
+	require.NoError(t, err, "backdating the consent beyond the cooling period")
+
+	visible := found(tier3Title)
+	require.NotEmpty(t, visible, "after the cooling period the consent must take effect")
+
+	// 3. THE PROPERTY A NAIVE IMPLEMENTATION FAILS: re-sending the same consent, in a different
+	// order, does not reset the clock. A stamp-on-every-write version puts tier 3 away again here.
+	_, err = viewer.resolver.Mutation().UserSetVisibleTiers(viewer.ctx, []int{3, 2, 1})
+	require.NoError(t, err)
+	assert.Equal(t, visible, found(tier3Title),
+		"re-ordering the same consent is not a change of consent")
+
+	// 4. The control: withdrawing tier 3 puts it away, and no cooling is involved in that.
+	_, err = viewer.resolver.Mutation().UserSetVisibleTiers(viewer.ctx, []int{1, 2})
+	require.NoError(t, err)
+	assert.Empty(t, found(tier3Title), "a consent without tier 3 cannot see tier 3")
+}

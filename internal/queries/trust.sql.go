@@ -476,7 +476,13 @@ func (q *Queries) SetUserTrustLevel(ctx context.Context, arg SetUserTrustLevelPa
 
 const setVisibleTiers = `-- name: SetVisibleTiers :one
 UPDATE "user_trust"
-SET "visible_tiers" = $1, "updated_at" = NOW()
+SET "visible_tiers" = $1,
+    "t3_consented_at" = CASE
+        WHEN 3 = ANY ($1::smallint[]) AND NOT (3 = ANY ("visible_tiers")) THEN NOW()
+        WHEN NOT (3 = ANY ($1::smallint[])) THEN NULL
+        ELSE "t3_consented_at"
+    END,
+    "updated_at" = NOW()
 WHERE "user_id" = $2
 RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers
 `
@@ -488,6 +494,11 @@ type SetVisibleTiersParams struct {
 
 // The record of consent. The gate uses its MAXIMUM; the array is what an audit
 // reads, so the value is stored as sent rather than collapsed to a number.
+//
+// `t3_consented_at` is stamped on GAIN and cleared on LOSS, and left alone in every
+// other case -- the ELSE is the whole point: a member who re-sends the same numbers in
+// a different order has not re-consented, and stamp-on-every-write would let them (or
+// anyone replaying their request) restart the cooling clock at will.
 func (q *Queries) SetVisibleTiers(ctx context.Context, arg SetVisibleTiersParams) (UserTrust, error) {
 	row := q.db.QueryRow(ctx, setVisibleTiers, arg.VisibleTiers, arg.UserID)
 	var i UserTrust
@@ -509,16 +520,37 @@ func (q *Queries) SetVisibleTiers(ctx context.Context, arg SetVisibleTiersParams
 }
 
 const userVisibleTier = `-- name: UserVisibleTier :one
-SELECT COALESCE(MAX(tier), 0)::SMALLINT AS "tier"
-FROM unnest(COALESCE((SELECT "visible_tiers" FROM "user_trust" WHERE "user_id" = $1), '{}')) AS tier
+SELECT CASE
+    WHEN v."visible_tiers" IS NULL THEN 0
+    WHEN 3 = ANY (v."visible_tiers")
+         AND v."t3_consented_at" IS NOT NULL
+         AND NOW() < v."t3_consented_at" + make_interval(hours => $1::int)
+    THEN 2
+    ELSE (SELECT COALESCE(MAX(x), 0) FROM unnest(v."visible_tiers") AS x)
+END::SMALLINT AS "tier"
+FROM (SELECT 1) AS one
+LEFT JOIN "user_trust" v ON v."user_id" = $2
 `
 
+type UserVisibleTierParams struct {
+	CoolingHours int       `db:"cooling_hours" json:"cooling_hours"`
+	UserID       uuid.UUID `db:"user_id" json:"user_id"`
+}
+
 // The viewer's ceiling: the MAXIMUM tier they have opted into, or 0 for a user
-// with no preference, no user_trust row at all, or an empty array. COALESCE over
-// unnest of a missing row keeps "anonymous" and "never asked" the same answer,
-// which is what the gate wants: neither has consented to anything.
-func (q *Queries) UserVisibleTier(ctx context.Context, userID uuid.UUID) (int16, error) {
-	row := q.db.QueryRow(ctx, userVisibleTier, userID)
+// with no preference, no user_trust row at all, or an empty array. The LEFT JOIN
+// against a one-row default is what lets a member with no row answer 0 rather
+// than not answering at all, so "anonymous" and "never asked" stay the same
+// answer -- which is what the gate wants: neither has consented to anything.
+//
+// THE T3 COOLING PERIOD IS APPLIED HERE AND NOWHERE ELSE (phase 5, migration 121).
+// Four read paths ask for this ceiling -- the scene query, similarity, the activity
+// feed and the gate -- and one of them calling a different query that forgot to cool
+// would be the whole rule gone. The period's LENGTH is a Go constant passed in
+// (`trust.T3CoolingHours`), so the policy number is not buried in SQL; NULL means the
+// consent predates the column and is not aged.
+func (q *Queries) UserVisibleTier(ctx context.Context, arg UserVisibleTierParams) (int16, error) {
+	row := q.db.QueryRow(ctx, userVisibleTier, arg.CoolingHours, arg.UserID)
 	var tier int16
 	err := row.Scan(&tier)
 	return tier, err

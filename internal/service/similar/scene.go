@@ -12,6 +12,7 @@ import (
 	"github.com/stashapp/stash-box/internal/queries"
 	"github.com/stashapp/stash-box/internal/service/errutil"
 	"github.com/stashapp/stash-box/internal/service/scene"
+	"github.com/stashapp/stash-box/internal/service/trust"
 )
 
 // Tuning, and why the defaults are what they are.
@@ -131,7 +132,10 @@ func (s *Service) FindSimilarScenes(ctx context.Context, input SimilarSceneInput
 	// compares against -- so an unconsented viewer is recommended nothing above tier 0.
 	visibleTier := int16(0)
 	if user := auth.GetCurrentUser(ctx); user != nil {
-		tier, err := s.queries.UserVisibleTier(ctx, user.ID)
+		tier, err := s.queries.UserVisibleTier(ctx, queries.UserVisibleTierParams{
+			UserID:       user.ID,
+			CoolingHours: trust.T3CoolingHours,
+		})
 		if err != nil {
 			return nil, fmt.Errorf("reading the viewer's content-tier ceiling: %w", err)
 		}
