@@ -881,8 +881,9 @@ type ComplexityRoot struct {
 	}
 
 	QueryScenesResultType struct {
-		Count  func(childComplexity int) int
-		Scenes func(childComplexity int) int
+		Count       func(childComplexity int) int
+		Diagnostics func(childComplexity int) int
+		Scenes      func(childComplexity int) int
 	}
 
 	QuerySiteCategoriesResultType struct {
@@ -1004,6 +1005,13 @@ type ComplexityRoot struct {
 		Tags                func(childComplexity int) int
 		Title               func(childComplexity int) int
 		Urls                func(childComplexity int) int
+	}
+
+	SearchDiagnostic struct {
+		Code    func(childComplexity int) int
+		Message func(childComplexity int) int
+		Offset  func(childComplexity int) int
+		Term    func(childComplexity int) int
 	}
 
 	SimilarPerformer struct {
@@ -1595,6 +1603,7 @@ type QueryPerformersResultTypeResolver interface {
 type QueryScenesResultTypeResolver interface {
 	Count(ctx context.Context, obj *SceneQuery) (int, error)
 	Scenes(ctx context.Context, obj *SceneQuery) ([]Scene, error)
+	Diagnostics(ctx context.Context, obj *SceneQuery) ([]SearchDiagnostic, error)
 }
 type QueryUnorganizedImagesResultTypeResolver interface {
 	Count(ctx context.Context, obj *UnorganizedImagesQuery) (int, error)
@@ -6030,6 +6039,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.QueryScenesResultType.Count(childComplexity), true
+	case "QueryScenesResultType.diagnostics":
+		if e.ComplexityRoot.QueryScenesResultType.Diagnostics == nil {
+			break
+		}
+
+		return e.ComplexityRoot.QueryScenesResultType.Diagnostics(childComplexity), true
 	case "QueryScenesResultType.scenes":
 		if e.ComplexityRoot.QueryScenesResultType.Scenes == nil {
 			break
@@ -6563,6 +6578,31 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.SceneEdit.Urls(childComplexity), true
+
+	case "SearchDiagnostic.code":
+		if e.ComplexityRoot.SearchDiagnostic.Code == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SearchDiagnostic.Code(childComplexity), true
+	case "SearchDiagnostic.message":
+		if e.ComplexityRoot.SearchDiagnostic.Message == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SearchDiagnostic.Message(childComplexity), true
+	case "SearchDiagnostic.offset":
+		if e.ComplexityRoot.SearchDiagnostic.Offset == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SearchDiagnostic.Offset(childComplexity), true
+	case "SearchDiagnostic.term":
+		if e.ComplexityRoot.SearchDiagnostic.Term == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SearchDiagnostic.Term(childComplexity), true
 
 	case "SimilarPerformer.coPerformers":
 		if e.ComplexityRoot.SimilarPerformer.CoPerformers == nil {
@@ -8839,6 +8879,24 @@ input IntCriterionInput {
   modifier: CriterionModifier!
 }
 
+"""
+One term of a search-language query that could not be applied, and where it is.
+
+` + "`" + `offset` + "`" + ` is a byte offset into the query text, so a client can point at the term the reader has
+to edit. A diagnostic is not an error: the result set comes back EMPTY for the query as written,
+and this says which term made it so.
+"""
+type SearchDiagnostic {
+  """Machine-readable reason: unknown_name, unknown_field_value, not_yet, unsupported."""
+  code: String!
+  """The term as written, in canonical form."""
+  term: String!
+  """Byte offset of the term in the query text."""
+  offset: Int!
+  """What is wrong, in one sentence, naming the term and what would work instead."""
+  message: String!
+}
+
 input DateCriterionInput {
   value: Date!
   modifier: CriterionModifier!
@@ -10949,6 +11007,14 @@ type SceneEdit {
 type QueryScenesResultType {
   count: Int!
   scenes: [Scene!]!
+  """
+  What the query asked for that the filter could NOT apply, with the offset of each term.
+
+  Empty for a query that means what it says. A term that cannot be applied faithfully is never
+  dropped -- ` + "`" + `query: "anal duration:60..600"` + "`" + ` returns NOTHING and says why, because dropping the
+  duration term would return more than was asked for and present it as the answer.
+  """
+  diagnostics: [SearchDiagnostic!]!
 }
 
 enum SceneSortEnum {
@@ -11001,6 +11067,25 @@ input SceneQueryInput {
   favorites: FavoriteFilter
   """Filter to scenes with fingerprints submitted by the user"""
   has_fingerprint_submissions: Boolean = False
+
+  """
+  A search-language query: ` + "`" + `anal -rough` + "`" + `, ` + "`" + `duration:60..600` + "`" + `, ` + "`" + `anal -rough sort:-date` + "`" + `.
+
+  Parsed and merged into the SAME filter as the fields above (the query wins where it speaks),
+  rather than being a second query implementation that would have to re-apply the tag hierarchy
+  and could disagree with this one. Bare words are TAGS; free text is ` + "`" + `text:"..."` + "`" + `. A term the
+  filter cannot apply makes the result empty and is reported in ` + "`" + `diagnostics` + "`" + `.
+  """
+  query: String
+  """
+  Filter to EXCLUDE scenes with these tags, and anything implying them (the ontology closure).
+
+  A separate field from ` + "`" + `tags` + "`" + ` because a criterion carries ONE modifier, so "tag A and not tag B"
+  -- the search language's own headline example, ` + "`" + `anal -rough` + "`" + ` -- has no other representation.
+  """
+  exclude_tags: MultiIDCriterionInput
+  """Filter by scene duration in seconds"""
+  duration: IntCriterionInput
 
   page: Int! = 1
   per_page: Int! = 25
@@ -13231,6 +13316,8 @@ func (ec *executionContext) childFields_QueryScenesResultType(ctx context.Contex
 		return ec.fieldContext_QueryScenesResultType_count(ctx, field)
 	case "scenes":
 		return ec.fieldContext_QueryScenesResultType_scenes(ctx, field)
+	case "diagnostics":
+		return ec.fieldContext_QueryScenesResultType_diagnostics(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type QueryScenesResultType", field.Name)
 }
@@ -13389,6 +13476,20 @@ func (ec *executionContext) childFields_Scene(ctx context.Context, field graphql
 		return ec.fieldContext_Scene_completion(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type Scene", field.Name)
+}
+
+func (ec *executionContext) childFields_SearchDiagnostic(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "code":
+		return ec.fieldContext_SearchDiagnostic_code(ctx, field)
+	case "term":
+		return ec.fieldContext_SearchDiagnostic_term(ctx, field)
+	case "offset":
+		return ec.fieldContext_SearchDiagnostic_offset(ctx, field)
+	case "message":
+		return ec.fieldContext_SearchDiagnostic_message(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type SearchDiagnostic", field.Name)
 }
 
 func (ec *executionContext) childFields_SimilarPerformer(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -37145,6 +37246,38 @@ func (ec *executionContext) fieldContext_QueryScenesResultType_scenes(_ context.
 	return fc, nil
 }
 
+func (ec *executionContext) _QueryScenesResultType_diagnostics(ctx context.Context, field graphql.CollectedField, obj *SceneQuery) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_QueryScenesResultType_diagnostics(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.QueryScenesResultType().Diagnostics(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []SearchDiagnostic) graphql.Marshaler {
+			return ec.marshalNSearchDiagnostic2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSearchDiagnosticᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_QueryScenesResultType_diagnostics(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "QueryScenesResultType",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_SearchDiagnostic(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _QuerySiteCategoriesResultType_count(ctx context.Context, field graphql.CollectedField, obj *QuerySiteCategoriesResultType) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -39425,6 +39558,98 @@ func (ec *executionContext) fieldContext_SceneEdit_fingerprints(_ context.Contex
 		},
 	}
 	return fc, nil
+}
+
+func (ec *executionContext) _SearchDiagnostic_code(ctx context.Context, field graphql.CollectedField, obj *SearchDiagnostic) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SearchDiagnostic_code(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Code, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SearchDiagnostic_code(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SearchDiagnostic", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _SearchDiagnostic_term(ctx context.Context, field graphql.CollectedField, obj *SearchDiagnostic) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SearchDiagnostic_term(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Term, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SearchDiagnostic_term(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SearchDiagnostic", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _SearchDiagnostic_offset(ctx context.Context, field graphql.CollectedField, obj *SearchDiagnostic) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SearchDiagnostic_offset(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Offset, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SearchDiagnostic_offset(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SearchDiagnostic", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _SearchDiagnostic_message(ctx context.Context, field graphql.CollectedField, obj *SearchDiagnostic) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SearchDiagnostic_message(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Message, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SearchDiagnostic_message(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SearchDiagnostic", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
 func (ec *executionContext) _SimilarPerformer_performer(ctx context.Context, field graphql.CollectedField, obj *SimilarPerformer) (ret graphql.Marshaler) {
@@ -49461,7 +49686,7 @@ func (ec *executionContext) unmarshalInputSceneQueryInput(ctx context.Context, o
 		asMap["sort"] = "DATE"
 	}
 
-	fieldsInOrder := [...]string{"text", "title", "url", "code", "date", "production_date", "id", "studios", "parentStudio", "tags", "performers", "alias", "fingerprints", "favorites", "has_fingerprint_submissions", "page", "per_page", "direction", "sort"}
+	fieldsInOrder := [...]string{"text", "title", "url", "code", "date", "production_date", "id", "studios", "parentStudio", "tags", "performers", "alias", "fingerprints", "favorites", "has_fingerprint_submissions", "query", "exclude_tags", "duration", "page", "per_page", "direction", "sort"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -49573,6 +49798,27 @@ func (ec *executionContext) unmarshalInputSceneQueryInput(ctx context.Context, o
 				return it, err
 			}
 			it.HasFingerprintSubmissions = data
+		case "query":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("query"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Query = data
+		case "exclude_tags":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("exclude_tags"))
+			data, err := ec.unmarshalOMultiIDCriterionInput2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐMultiIDCriterionInput(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ExcludeTags = data
+		case "duration":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("duration"))
+			data, err := ec.unmarshalOIntCriterionInput2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIntCriterionInput(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Duration = data
 		case "page":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("page"))
 			data, err := ec.unmarshalNInt2int(ctx, v)
@@ -62081,6 +62327,44 @@ func (ec *executionContext) _QueryScenesResultType(ctx context.Context, sel ast.
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "diagnostics":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._QueryScenesResultType_diagnostics(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -63958,6 +64242,59 @@ func (ec *executionContext) _SceneEdit(ctx context.Context, sel ast.SelectionSet
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var searchDiagnosticImplementors = []string{"SearchDiagnostic"}
+
+func (ec *executionContext) _SearchDiagnostic(ctx context.Context, sel ast.SelectionSet, obj *SearchDiagnostic) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, searchDiagnosticImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("SearchDiagnostic")
+		case "code":
+			out.Values[i] = ec._SearchDiagnostic_code(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "term":
+			out.Values[i] = ec._SearchDiagnostic_term(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "offset":
+			out.Values[i] = ec._SearchDiagnostic_offset(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "message":
+			out.Values[i] = ec._SearchDiagnostic_message(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -70179,6 +70516,26 @@ func (ec *executionContext) marshalNSceneSortEnum2githubᚗcomᚋstashappᚋstas
 func (ec *executionContext) unmarshalNSceneUpdateInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSceneUpdateInput(ctx context.Context, v any) (SceneUpdateInput, error) {
 	res, err := ec.unmarshalInputSceneUpdateInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNSearchDiagnostic2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSearchDiagnostic(ctx context.Context, sel ast.SelectionSet, v SearchDiagnostic) graphql.Marshaler {
+	return ec._SearchDiagnostic(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNSearchDiagnostic2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSearchDiagnosticᚄ(ctx context.Context, sel ast.SelectionSet, v []SearchDiagnostic) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNSearchDiagnostic2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSearchDiagnostic(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
 }
 
 func (ec *executionContext) marshalNSimilarPerformer2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSimilarPerformer(ctx context.Context, sel ast.SelectionSet, v SimilarPerformer) graphql.Marshaler {

@@ -78,7 +78,13 @@ func TestTagsIncludeAndExclude(t *testing.T) {
 	assert.Equal(t, models.CriterionModifierIncludes, out.Filter.Tags.Modifier)
 	assert.Equal(t, []uuid.UUID{testID(1)}, out.Filter.Tags.Value)
 
-	assert.Equal(t, []uuid.UUID{testID(2)}, out.ExcludeTags)
+	// The exclusion is a criterion of its own, because a criterion carries one modifier: this is
+	// the field slice 2 added for it, and the integration test compares it against the same
+	// statement written by hand as a filter.
+	require.NotNil(t, out.Filter.ExcludeTags, "the exclusion must be a filter, not a carried list")
+	assert.Equal(t, models.CriterionModifierExcludes, out.Filter.ExcludeTags.Modifier)
+	assert.Equal(t, []uuid.UUID{testID(2)}, out.Filter.ExcludeTags.Value)
+
 	assert.Empty(t, out.Diagnostics)
 	assert.False(t, out.NoMatch)
 }
@@ -210,6 +216,39 @@ func TestSortSetsDirectionAndTheNegationMeansDescending(t *testing.T) {
 	assert.True(t, unknown.NoMatch)
 	require.Len(t, unknown.Diagnostics, 1)
 	assert.Equal(t, DiagUnknownFieldValue, unknown.Diagnostics[0].Code)
+}
+
+// A duration is a NUMBER in seconds, and the criterion carries one value and a modifier: the
+// comparisons it can express are lowerable, and the two shapes it cannot are REFUSED rather than
+// approximated (a range answered as `>from` silently ignores the upper bound).
+func TestDurationComparisonsLowerAndTheUnsayableOnesAreRefused(t *testing.T) {
+	gt := lowerText(t, "duration:>300", models.SceneQueryInput{})
+	require.NotNil(t, gt.Filter.Duration)
+	assert.Equal(t, 300, gt.Filter.Duration.Value)
+	assert.Equal(t, models.CriterionModifierGreaterThan, gt.Filter.Duration.Modifier)
+	assert.Empty(t, gt.Diagnostics)
+
+	lt := lowerText(t, "duration:<60", models.SceneQueryInput{})
+	require.NotNil(t, lt.Filter.Duration)
+	assert.Equal(t, models.CriterionModifierLessThan, lt.Filter.Duration.Modifier)
+
+	eq := lowerText(t, "duration:120", models.SceneQueryInput{})
+	require.NotNil(t, eq.Filter.Duration)
+	assert.Equal(t, 120, eq.Filter.Duration.Value)
+	assert.Equal(t, models.CriterionModifierEquals, eq.Filter.Duration.Modifier)
+
+	for _, text := range []string{"duration:60..600", "duration:>=300"} {
+		refused := lowerText(t, text, models.SceneQueryInput{})
+		assert.True(t, refused.NoMatch, "%s cannot be said by a one-value criterion", text)
+		require.Len(t, refused.Diagnostics, 1)
+		assert.Equal(t, DiagNotYet, refused.Diagnostics[0].Code)
+		assert.Nil(t, refused.Filter.Duration, "%s must not lower to one of its two bounds", text)
+	}
+
+	notANumber := lowerText(t, "duration:soon", models.SceneQueryInput{})
+	assert.True(t, notANumber.NoMatch)
+	require.Len(t, notANumber.Diagnostics, 1)
+	assert.Equal(t, DiagUnknownFieldValue, notANumber.Diagnostics[0].Code)
 }
 
 // Paging and defaults are the caller's, and the language replaces only the fields it mentions:

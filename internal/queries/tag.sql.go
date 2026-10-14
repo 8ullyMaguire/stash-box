@@ -231,6 +231,42 @@ func (q *Queries) FindTagByNameOrAlias(ctx context.Context, lower string) (Tag, 
 	return i, err
 }
 
+const findTagByNameOrAliasUnfiltered = `-- name: FindTagByNameOrAliasUnfiltered :one
+SELECT t.id, t.name, t.description, t.created_at, t.updated_at, t.deleted, t.category_id FROM tags T
+LEFT JOIN tag_aliases TA ON T.id = TA.tag_id
+WHERE (
+  LOWER(TA.alias) = LOWER($1)
+  OR LOWER(T.name) = LOWER($1)
+)
+ORDER BY T.deleted ASC
+LIMIT 1
+`
+
+// Name or alias WITHOUT the `deleted` filter that FindTagByNameOrAlias applies.
+//
+// A merge soft-deletes the source tag and writes a redirect to the survivor; it does NOT write
+// the old name as an alias (internal/service/edit/tag.go, mergeInto). So a merged-away name is
+// reachable ONLY through the soft-deleted row, and a lookup that filters those out turns the
+// name into "unknown" -- which, for a saved search or a reader's memory of the old name, means
+// the query empties instead of following the redirect.
+//
+// Live rows sort first, so a name a live tag has taken back wins over the older merged-away row
+// that used to carry it.
+func (q *Queries) FindTagByNameOrAliasUnfiltered(ctx context.Context, lower string) (Tag, error) {
+	row := q.db.QueryRow(ctx, findTagByNameOrAliasUnfiltered, lower)
+	var i Tag
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Description,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Deleted,
+		&i.CategoryID,
+	)
+	return i, err
+}
+
 const findTagIdsBySceneIds = `-- name: FindTagIdsBySceneIds :many
 SELECT scene_id, tag_id FROM scene_tags WHERE scene_id = ANY($1::UUID[])
 `

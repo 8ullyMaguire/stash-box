@@ -69,6 +69,26 @@ WHERE (
   OR LOWER(T.name) = LOWER($1)
 ) AND T.deleted = FALSE;
 
+-- name: FindTagByNameOrAliasUnfiltered :one
+-- Name or alias WITHOUT the `deleted` filter that FindTagByNameOrAlias applies.
+--
+-- A merge soft-deletes the source tag and writes a redirect to the survivor; it does NOT write
+-- the old name as an alias (internal/service/edit/tag.go, mergeInto). So a merged-away name is
+-- reachable ONLY through the soft-deleted row, and a lookup that filters those out turns the
+-- name into "unknown" -- which, for a saved search or a reader's memory of the old name, means
+-- the query empties instead of following the redirect.
+--
+-- Live rows sort first, so a name a live tag has taken back wins over the older merged-away row
+-- that used to carry it.
+SELECT T.* FROM tags T
+LEFT JOIN tag_aliases TA ON T.id = TA.tag_id
+WHERE (
+  LOWER(TA.alias) = LOWER($1)
+  OR LOWER(T.name) = LOWER($1)
+)
+ORDER BY T.deleted ASC
+LIMIT 1;
+
 -- Tag redirects
 
 -- name: CreateTagRedirect :exec

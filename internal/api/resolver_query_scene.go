@@ -50,6 +50,29 @@ func (r *querySceneResolver) Scenes(ctx context.Context, obj *models.SceneQuery)
 	return r.services.Scene().QueryForPerformer(ctx, obj.Filter, obj.PerformerID)
 }
 
+// Diagnostics is what a `query` asked for that the filter could not apply. It is a field of its
+// own so that a client renders it BESIDE the results, which are empty by construction whenever
+// it is not: a term nobody could apply was not dropped, it made the answer empty, and this is
+// the reason (internal/service/scene/query_language.go).
+func (r *querySceneResolver) Diagnostics(ctx context.Context, obj *models.SceneQuery) ([]models.SearchDiagnostic, error) {
+	diagnostics, err := r.services.Scene().LanguageDiagnostics(ctx, obj.Filter)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]models.SearchDiagnostic, 0, len(diagnostics))
+	for _, diagnostic := range diagnostics {
+		out = append(out, models.SearchDiagnostic{
+			Code:    string(diagnostic.Code),
+			Term:    diagnostic.Term,
+			Offset:  diagnostic.Offset,
+			Message: diagnostic.Message,
+		})
+	}
+
+	return out, nil
+}
+
 func (r *queryResolver) QueryExistingScene(ctx context.Context, input models.QueryExistingSceneInput) (*models.QueryExistingSceneResult, error) {
 	input.Fingerprints = filterMD5FingerprintInputs(input.Fingerprints)
 	return &models.QueryExistingSceneResult{

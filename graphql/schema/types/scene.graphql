@@ -226,6 +226,14 @@ type SceneEdit {
 type QueryScenesResultType {
   count: Int!
   scenes: [Scene!]!
+  """
+  What the query asked for that the filter could NOT apply, with the offset of each term.
+
+  Empty for a query that means what it says. A term that cannot be applied faithfully is never
+  dropped -- `query: "anal duration:60..600"` returns NOTHING and says why, because dropping the
+  duration term would return more than was asked for and present it as the answer.
+  """
+  diagnostics: [SearchDiagnostic!]!
 }
 
 enum SceneSortEnum {
@@ -278,6 +286,25 @@ input SceneQueryInput {
   favorites: FavoriteFilter
   """Filter to scenes with fingerprints submitted by the user"""
   has_fingerprint_submissions: Boolean = False
+
+  """
+  A search-language query: `anal -rough`, `duration:60..600`, `anal -rough sort:-date`.
+
+  Parsed and merged into the SAME filter as the fields above (the query wins where it speaks),
+  rather than being a second query implementation that would have to re-apply the tag hierarchy
+  and could disagree with this one. Bare words are TAGS; free text is `text:"..."`. A term the
+  filter cannot apply makes the result empty and is reported in `diagnostics`.
+  """
+  query: String
+  """
+  Filter to EXCLUDE scenes with these tags, and anything implying them (the ontology closure).
+
+  A separate field from `tags` because a criterion carries ONE modifier, so "tag A and not tag B"
+  -- the search language's own headline example, `anal -rough` -- has no other representation.
+  """
+  exclude_tags: MultiIDCriterionInput
+  """Filter by scene duration in seconds"""
+  duration: IntCriterionInput
 
   page: Int! = 1
   per_page: Int! = 25

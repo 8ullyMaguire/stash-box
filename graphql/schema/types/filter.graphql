@@ -23,6 +23,24 @@ input IntCriterionInput {
   modifier: CriterionModifier!
 }
 
+"""
+One term of a search-language query that could not be applied, and where it is.
+
+`offset` is a byte offset into the query text, so a client can point at the term the reader has
+to edit. A diagnostic is not an error: the result set comes back EMPTY for the query as written,
+and this says which term made it so.
+"""
+type SearchDiagnostic {
+  """Machine-readable reason: unknown_name, unknown_field_value, not_yet, unsupported."""
+  code: String!
+  """The term as written, in canonical form."""
+  term: String!
+  """Byte offset of the term in the query text."""
+  offset: Int!
+  """What is wrong, in one sentence, naming the term and what would work instead."""
+  message: String!
+}
+
 input DateCriterionInput {
   value: Date!
   modifier: CriterionModifier!

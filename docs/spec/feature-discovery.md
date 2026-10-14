@@ -96,10 +96,14 @@ re-reads. The `SceneQueryInput` is derived by parsing it, every time. The altern
 text the user sees the first time one of them is edited, which is the mistake phase 4 refused
 when it declined to materialise implications onto `scene_tags`.
 
-**The cost, stated:** a tag rename or merge does not rewrite saved-search text, so a saved
-search over a merged-away name narrows silently. Slice 2 rewrites the token on merge (the
-merge path in `internal/service/edit/tag.go` is the place); if it does not land there, it is a
-recorded deferral with this paragraph as its home.
+**The cost, and where it is paid.** The stored text is not rewritten when a tag is merged or
+renamed, so the query keeps the OLD name — and the resolver follows it: a lookup tries the live
+name or alias, then the soft-deleted row and its redirect (§4). A merge soft-deletes the source
+and writes exactly that redirect, so a saved search over a merged-away name keeps meaning what it
+meant. A RENAME is not covered the same way: no redirect is written for one and the old name is
+not kept as an alias, so the name becomes unknown — and the query reports `unknown_name` beside
+an empty result rather than narrowing in silence. Rewriting stored text on rename is a recorded
+deferral; the diagnostic is what makes it visible.
 
 ## 4. The search language (slice 1)
 
@@ -117,7 +121,7 @@ quoted-word := '"' any-but-quote '"'
 | Term | Meaning | Lowers to |
 |---|---|---|
 | `anal` | a TAG (the draft's core mode: bare words are tags) | `Tags` INCLUDES, resolved by name |
-| `-rough` | NOT that tag, transitively — §4.1 of the ontology spec | a SECOND criterion, `exclude_tags`, which slice 2 adds to `SceneQueryInput`: the existing `Tags` field carries ONE modifier, so "tag A and not tag B" cannot be held in it |
+| `-rough` | NOT that tag, transitively — §4.1 of the ontology spec | a SECOND criterion, `exclude_tags`, because one criterion carries one modifier: "tag A and not tag B" has nowhere else to live |
 | `tag:anal` | the same, spelled out | as above |
 | `"hotel room"` | a tag whose name has a space | as above |
 | `text:"hotel room"` | free text against the BM25 index | `Text` (the existing field) |
@@ -160,18 +164,37 @@ quoted-word := '"' any-but-quote '"'
    `duration:`, both return MORE than was asked for; an empty answer that says why is the
    honest one.
 
-**What slice 1 built, and its limits.** `internal/service/search`: `Parse`, `Render`, `Equal` and
-`Lower`, with a `Resolver` interface so the language is testable without a database. The limits
-that remain are in the criteria the builder has today, and each is refused with its reason rather
-than approximated: the date criterion carries ONE value and a modifier (`scene/query.go:241`) and
-has no "at or after" arm at all, so `date:>=x`, `date:<=x` and a date RANGE answer nothing;
-`duration`, `score`, `similar_to` and `playlist` have no criterion yet. `parent_studio:` names a
-STUDIO and resolves to its id, because the builder walks the studio tree from an id
-(`scene/query.go:94`). Slice 2 adds `exclude_tags` and `duration`, and **must also add them to the
-filter-presence list at `scene/query.go:309`** — that block decides whether the custom-plan path
-may be taken, and a filter missing from it can be answered by a fast path that never saw it.
+**Where a query is written.** `SceneQueryInput.query` is the entry point, not `text`: the
+`text` field already exists in the schema and is DEPRECATED (it predates `title`), so reusing it
+would have redefined a field clients still send. `query` says what it is, and the two halves of
+the old name survive as themselves: `title` filters titles, `text:"..."` in the LANGUAGE filters
+the BM25 index.
 
-## 5. Saved searches and their notifications (slice 2)
+**What is built, and its limits.** `internal/service/search` (`Parse`, `Render`, `Equal`,
+`Lower` behind a `Resolver`) and its wiring: `query` parses and lowers into the same filter the
+builder applies, `exclude_tags` and `duration` are criteria, and a term that cannot be applied
+empties the answer and reports itself in `QueryScenesResultType.diagnostics`. The limits left are
+the criteria the builder has: the date criterion carries ONE value and a modifier
+(`scene/query.go:241`) and has no "at or after" arm, so `date:>=x`, `date:<=x` and a date RANGE
+answer nothing; so does a duration RANGE (`duration:60..600`) or `duration:>=300`, for the same
+one-value reason; `score`, `similar_to` and `playlist` have no criterion yet. `parent_studio:`
+names a STUDIO and resolves to its id, because the builder walks the studio tree from an id
+(`scene/query.go:94`). A new filter the language learns to lower must be added to the
+filter-presence list at `scene/query.go:355`, or the optimized trending path can be taken and
+answer without it.
+
+**Names resolve through a merge.** A tag name lookup tries the live name or alias, then the
+soft-deleted row and its redirect (`FindTagByNameOrAliasUnfiltered` + `FindTagWithRedirect`).
+A merge does NOT write the old name as an alias — it soft-deletes the source and writes the
+redirect — so without that second step a query written before a merge reports `unknown_name` and
+empties silently. §3.2's cost is therefore paid in the resolver, not deferred to a rewrite, and
+`TestAQueryOverAMergedTagStillMeansSomething` is the test that says so.
+
+## 5. Saved searches and their notifications (slice 2b)
+
+The language reaches the query surface already (slice 2a: `SceneQueryInput.query`,
+`exclude_tags`, `duration`, `QueryScenesResultType.diagnostics`); what is left here is storing a
+query and watching it.
 
 Migration **113 `saved_searches`**: `id, user_id, name, query text NOT NULL, notify boolean NOT
 NULL DEFAULT false, created_at, updated_at`, `UNIQUE (user_id, name)`, index on

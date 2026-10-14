@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/gofrs/uuid"
@@ -30,7 +31,21 @@ const (
 	DiagUnknownFieldValue DiagnosticCode = "unknown_field_value"
 	DiagNotYet            DiagnosticCode = "not_yet"
 	DiagUnsupported       DiagnosticCode = "unsupported"
+	DiagParseError        DiagnosticCode = "parse_error"
 )
+
+// DiagnosticFromParseError turns a parse failure into the same Diagnostic shape a lowering
+// failure takes, so a client renders ONE list of reasons rather than two kinds of failure with
+// different shapes. The term is not always known (an unterminated quote is about the whole
+// remainder), and the offset is what a client highlights with.
+func DiagnosticFromParseError(e *ParseError) Diagnostic {
+	msg := e.Msg
+	if e.Suggestion != "" {
+		msg += fmt.Sprintf(" (did you mean %q?)", e.Suggestion)
+	}
+
+	return Diagnostic{Code: DiagParseError, Term: e.Term, Offset: e.Offset, Message: msg}
+}
 
 // Diagnostic is a term that could not be applied, with where it is. It is not an error: the
 // caller shows it next to the result set, which is what makes a mistyped field recoverable
@@ -42,13 +57,8 @@ type Diagnostic struct {
 	Message string
 }
 
-// Query is a lowered expression: the filter the existing query builders already understand,
-// plus what the expression asked for that those builders cannot yet express.
-//
-// ExcludeTags is separate from Filter.Tags because SceneQueryInput carries ONE tag criterion
-// with ONE modifier, so "tag A and not tag B" -- the draft's own headline example, `anal
-// -rough` -- cannot be held in it. Slice 2 adds `exclude_tags` to the input and applies the
-// same hierarchy expansion to it; until then the exclusion is carried here, faithfully.
+// Query is a lowered expression: the filter the existing query builders already understand, plus
+// the diagnostics for what it could not apply.
 //
 // NoMatch says the answer is EMPTY BY CONSTRUCTION: some term asked for something that could not
 // be applied faithfully, so the query as written has no answers. The alternative -- dropping the
@@ -56,7 +66,6 @@ type Diagnostic struct {
 // wrong list is worse than an empty one with a reason next to it.
 type Query struct {
 	Filter      models.SceneQueryInput
-	ExcludeTags []uuid.UUID
 	Diagnostics []Diagnostic
 	NoMatch     bool
 }
@@ -137,11 +146,12 @@ func Lower(ctx context.Context, expr *Expr, base models.SceneQueryInput, resolve
 			}
 		case FieldDate:
 			applyDate(&out, term, diagnose)
+		case FieldDuration:
+			applyDuration(&out, term, diagnose)
 		case FieldSort:
 			applySort(&out, term, diagnose)
-		case FieldDuration, FieldScore, FieldSimilarTo, FieldPlaylist:
+		case FieldScore, FieldSimilarTo, FieldPlaylist:
 			when := map[Field]string{
-				FieldDuration:  "slice 2 (SceneQueryInput carries no duration criterion)",
 				FieldScore:     "phase 5 (there is no community score column yet)",
 				FieldSimilarTo: "slice 5 (similarity)",
 				FieldPlaylist:  "slices 2-3 (lists reach search with the tag explorer)",
@@ -212,7 +222,16 @@ func Lower(ctx context.Context, expr *Expr, base models.SceneQueryInput, resolve
 			Value:    tagIDs,
 		}
 	}
-	out.ExcludeTags = excludeTagIDs
+	if len(excludeTagIDs) > 0 {
+		// A criterion carries ONE modifier, which is why an exclusion needs its own field
+		// (`exclude_tags`) rather than a second modifier on `Tags`: "tag A and not tag B" -- the
+		// draft's own headline example -- cannot be held in one criterion. The modifier is set
+		// here rather than read from the term, because the FIELD is what says it excludes.
+		out.Filter.ExcludeTags = &models.MultiIDCriterionInput{
+			Modifier: models.CriterionModifierExcludes,
+			Value:    excludeTagIDs,
+		}
+	}
 
 	if len(parentStudioIDs) > 0 {
 		id := parentStudioIDs[0].String()
@@ -312,6 +331,45 @@ func applyDate(out *Query, term Term, diagnose func(DiagnosticCode, Term, string
 	case term.Op == OpLte:
 		diagnose(DiagNotYet, term, "the date criterion has no 'at or before' arm; write date:< instead")
 	}
+}
+
+// applyDuration lowers a duration comparison onto scenes.duration, in SECONDS.
+//
+// A range is refused rather than approximated, and so is `>=`: IntCriterionInput carries ONE
+// value and a modifier, so `duration:60..600` cannot be said. Answering it with `>60` would
+// return everything longer than a minute while looking like it had honoured the upper bound --
+// more rows than were asked for, presented as the answer.
+func applyDuration(out *Query, term Term, diagnose func(DiagnosticCode, Term, string, ...any)) {
+	switch {
+	case term.Range != nil:
+		diagnose(DiagNotYet, term,
+			"a duration range is not expressible yet: the criterion carries one value, so write duration:> or duration:<")
+
+		return
+	case term.Op == OpGte, term.Op == OpLte:
+		diagnose(DiagNotYet, term,
+			"the duration criterion has no 'or equal' arm; write duration:> or duration:< instead")
+
+		return
+	}
+
+	seconds, err := strconv.Atoi(term.Word)
+	if err != nil {
+		diagnose(DiagUnknownFieldValue, term, "duration is a number of seconds, and %q is not a number", term.Word)
+
+		return
+	}
+
+	modifier := models.CriterionModifierEquals
+	switch term.Op {
+	case OpGt:
+		modifier = models.CriterionModifierGreaterThan
+	case OpLt:
+		modifier = models.CriterionModifierLessThan
+	case OpEq, OpGte, OpLte:
+	}
+
+	out.Filter.Duration = &models.IntCriterionInput{Value: seconds, Modifier: modifier}
 }
 
 var sortNames = map[string]models.SceneSortEnum{

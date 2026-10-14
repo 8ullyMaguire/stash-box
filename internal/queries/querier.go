@@ -1018,6 +1018,17 @@ type Querier interface {
 	FindTagByAlias(ctx context.Context, upper interface{}) (Tag, error)
 	FindTagByName(ctx context.Context, upper interface{}) (Tag, error)
 	FindTagByNameOrAlias(ctx context.Context, lower string) (Tag, error)
+	// Name or alias WITHOUT the `deleted` filter that FindTagByNameOrAlias applies.
+	//
+	// A merge soft-deletes the source tag and writes a redirect to the survivor; it does NOT write
+	// the old name as an alias (internal/service/edit/tag.go, mergeInto). So a merged-away name is
+	// reachable ONLY through the soft-deleted row, and a lookup that filters those out turns the
+	// name into "unknown" -- which, for a saved search or a reader's memory of the old name, means
+	// the query empties instead of following the redirect.
+	//
+	// Live rows sort first, so a name a live tag has taken back wins over the older merged-away row
+	// that used to carry it.
+	FindTagByNameOrAliasUnfiltered(ctx context.Context, lower string) (Tag, error)
 	FindTagCategory(ctx context.Context, id uuid.UUID) (TagCategory, error)
 	// Everything ABOVE a category: parents, grandparents, to the root.
 	//

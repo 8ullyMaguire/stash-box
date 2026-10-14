@@ -67,8 +67,18 @@ func (s sceneOutput) UUID() uuid.UUID {
 }
 
 type queryScenesResultType struct {
-	Count  int           `json:"count"`
-	Scenes []sceneOutput `json:"scenes"`
+	Count       int                      `json:"count"`
+	Scenes      []sceneOutput            `json:"scenes"`
+	Diagnostics []searchDiagnosticOutput `json:"diagnostics"`
+}
+
+// searchDiagnosticOutput mirrors the schema's SearchDiagnostic. Its json tags are what
+// makeFragment turns into the selection set, so the query asks for exactly these fields.
+type searchDiagnosticOutput struct {
+	Code    string `json:"code"`
+	Term    string `json:"term"`
+	Offset  int    `json:"offset"`
+	Message string `json:"message"`
 }
 
 type measurements struct {

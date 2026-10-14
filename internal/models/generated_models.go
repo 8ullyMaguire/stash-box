@@ -1521,11 +1521,25 @@ type SceneQueryInput struct {
 	// Filter by favorited entity
 	Favorites *FavoriteFilter `json:"favorites,omitempty"`
 	// Filter to scenes with fingerprints submitted by the user
-	HasFingerprintSubmissions *bool             `json:"has_fingerprint_submissions,omitempty"`
-	Page                      int               `json:"page"`
-	PerPage                   int               `json:"per_page"`
-	Direction                 SortDirectionEnum `json:"direction"`
-	Sort                      SceneSortEnum     `json:"sort"`
+	HasFingerprintSubmissions *bool `json:"has_fingerprint_submissions,omitempty"`
+	// A search-language query: `anal -rough`, `duration:60..600`, `anal -rough sort:-date`.
+	//
+	// Parsed and merged into the SAME filter as the fields above (the query wins where it speaks),
+	// rather than being a second query implementation that would have to re-apply the tag hierarchy
+	// and could disagree with this one. Bare words are TAGS; free text is `text:"..."`. A term the
+	// filter cannot apply makes the result empty and is reported in `diagnostics`.
+	Query *string `json:"query,omitempty"`
+	// Filter to EXCLUDE scenes with these tags, and anything implying them (the ontology closure).
+	//
+	// A separate field from `tags` because a criterion carries ONE modifier, so "tag A and not tag B"
+	// -- the search language's own headline example, `anal -rough` -- has no other representation.
+	ExcludeTags *MultiIDCriterionInput `json:"exclude_tags,omitempty"`
+	// Filter by scene duration in seconds
+	Duration  *IntCriterionInput `json:"duration,omitempty"`
+	Page      int                `json:"page"`
+	PerPage   int                `json:"per_page"`
+	Direction SortDirectionEnum  `json:"direction"`
+	Sort      SceneSortEnum      `json:"sort"`
 }
 
 type SceneUpdateInput struct {
@@ -1543,6 +1557,22 @@ type SceneUpdateInput struct {
 	Duration       *int                       `json:"duration,omitempty"`
 	Director       *string                    `json:"director,omitempty"`
 	Code           *string                    `json:"code,omitempty"`
+}
+
+// One term of a search-language query that could not be applied, and where it is.
+//
+// `offset` is a byte offset into the query text, so a client can point at the term the reader has
+// to edit. A diagnostic is not an error: the result set comes back EMPTY for the query as written,
+// and this says which term made it so.
+type SearchDiagnostic struct {
+	// Machine-readable reason: unknown_name, unknown_field_value, not_yet, unsupported.
+	Code string `json:"code"`
+	// The term as written, in canonical form.
+	Term string `json:"term"`
+	// Byte offset of the term in the query text.
+	Offset int `json:"offset"`
+	// What is wrong, in one sentence, naming the term and what would work instead.
+	Message string `json:"message"`
 }
 
 // One recommended performer, with the evidence that recommended them.

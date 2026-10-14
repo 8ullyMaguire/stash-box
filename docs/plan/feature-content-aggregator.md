@@ -406,14 +406,26 @@ part of the commit message.
    name the behaviour and nothing else, and restoring returned the suite to green. Nothing is
    wired yet, so this slice's own tests are its only surface, which is why the integration test
    belongs to slice 2, where the text reaches a resolver.
-2. **Saved searches.** Migration **113** (`saved_searches`, `UNIQUE (user_id, name)`, the
+2a. **The language reaches the query surface. DONE** (commit `a22b8d4` expected).
+   `SceneQueryInput.query` (NOT the deprecated `text` field, which clients still send),
+   `exclude_tags` and `duration` criteria with their builder branches, the two new fields added
+   to the filter-presence list at `scene/query.go:355`, `QueryScenesResultType.diagnostics`,
+   `internal/service/scene/query_language.go` (the `Resolver` over `FindTagByNameOrAlias` /
+   `FindPerformerByName` / `FindStudioByName`, plus the redirect fallback that makes a
+   merged-away tag name still resolve), and
+   `internal/api/scene_query_language_integration_test.go`.
+   **Verification:** `POSTGRES_DB=... go test -tags integration -p 1 -run 'Language|Unapplicable|DurationComparison|MergedTag' ./internal/api/` → ok: the language and the hand-written
+   filter return the SAME scenes against a real database (`anal -rough`); an unapplicable term
+   (`score:`, a misspelling, an unknown tag) returns EMPTY with exactly one diagnostic naming it;
+   `duration:>300` reaches SQL; and a query over a merged-away tag still finds its scene.
+   **Mutation-checked** by `scripts/mutate-query-language-integration.py`: dropping the
+   `exclude_tags` criterion, disabling the duration branch, dropping the redirect fallback
+   (the name-only lookup that FAILED the first time the merge test ran), and disabling the
+   `noMatch` short-circuit each reddened exactly one test and restored green.
+2b. **Saved searches.** Migration **113** (`saved_searches`, `UNIQUE (user_id, name)`, the
    `notification_type` enum value), `internal/queries/sql/saved_search.sql`, the GraphQL type
-   and mutations, `SceneQuery.text` as the entry point (parse → lower → the existing builder),
-   and the `created_since` notification job in `internal/cron`. It also adds the two fields
-   slice 1 could not lower — `exclude_tags` (so `anal -rough` is a filter and not only a
-   carried list) and `duration` — and **both must be added to the filter-presence list at
-   `scene/query.go:309`** with them: that block decides whether the custom-plan path may be
-   taken, and a filter missing from it can be answered by a fast path that never saw it.
+   and mutations, a `results` field that runs the stored text through the same parse → lower →
+   builder path 2a wired, and the `created_since` notification job in `internal/cron`.
    **Verification:** `./scripts/verify-113.sh` → the constraints and the enum value;
    `POSTGRES_DB=<dsn> go test -tags=integration -run 'TestSavedSearch' ./internal/api/` →
    save/list/run/rename, ONE notification per run, and the language test — `anal -rough`

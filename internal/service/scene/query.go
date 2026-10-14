@@ -21,6 +21,18 @@ func (s *Scene) Query(ctx context.Context, input models.SceneQueryInput) ([]mode
 func (s *Scene) QueryForPerformer(ctx context.Context, input models.SceneQueryInput, performerID *uuid.UUID) ([]models.Scene, error) {
 	user := auth.GetCurrentUser(ctx)
 
+	filter, _, noMatch, err := s.lowerQueryLanguage(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+	if noMatch {
+		// A term in `query` asked for something the filter cannot apply. An empty LIST -- not
+		// nil, the field is non-null -- is the honest answer; the reasons come from
+		// LanguageDiagnostics, which computes the same list this call just did.
+		return []models.Scene{}, nil
+	}
+	input = filter
+
 	psql := sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
 	query, err := s.buildSceneQuery(ctx, psql, input, performerID, user.ID, false)
 	if err != nil {
@@ -54,6 +66,18 @@ func (s *Scene) QueryCount(ctx context.Context, input models.SceneQueryInput) (i
 
 func (s *Scene) QueryCountForPerformer(ctx context.Context, input models.SceneQueryInput, performerID *uuid.UUID) (int, error) {
 	user := auth.GetCurrentUser(ctx)
+
+	filter, _, noMatch, err := s.lowerQueryLanguage(ctx, input)
+	if err != nil {
+		return 0, err
+	}
+	if noMatch {
+		// Zero, because the query as written has no answers. The reasons are in
+		// LanguageDiagnostics; a count that ignored the term it could not apply would be a
+		// number for a different question (internal/service/scene/query_language.go).
+		return 0, nil
+	}
+	input = filter
 
 	psql := sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
 
@@ -115,6 +139,33 @@ func (s *Scene) buildSceneQuery(ctx context.Context, psql sq.StatementBuilderTyp
 		if err := queryhelper.ApplyMultiIDCriterionExpanded(&query, "scenes", "scene_tags", "scene_id", "tag_id", input.Tags, expansion); err != nil {
 			return query, err
 		}
+	}
+
+	// Filter by EXCLUDED tags. The expansion is the same one an include uses, and the criterion
+	// builds NOT EXISTS over it: excluding `sex` has to exclude what IMPLIES `sex`, or the
+	// hierarchy would be useless in the one direction where a reader needs it.
+	//
+	// The modifier is forced rather than read from the input: the FIELD's name is the modifier
+	// ("exclude_tags"), and honouring an `INCLUDES` sent here would silently invert the filter.
+	if input.ExcludeTags != nil && len(input.ExcludeTags.Value) > 0 {
+		expansion, err := tagontology.New(s.queries).Expand(ctx, input.ExcludeTags.Value)
+		if err != nil {
+			return query, err
+		}
+
+		excludes := *input.ExcludeTags
+		excludes.Modifier = models.CriterionModifierExcludes
+
+		if err := queryhelper.ApplyMultiIDCriterionExpanded(&query, "scenes", "scene_tags", "scene_id", "tag_id", &excludes, expansion); err != nil {
+			return query, err
+		}
+	}
+
+	// Filter by duration in seconds. `scenes.duration` is the integer column the sort already
+	// orders on; a comparison excludes NULL by SQL's own rules, which is the right reading of
+	// "longer than ten minutes" for a scene whose duration nobody recorded.
+	if input.Duration != nil {
+		query = queryhelper.ApplyIntCriterion(query, "scenes.duration", input.Duration)
 	}
 
 	// Filter by fingerprints
@@ -316,7 +367,15 @@ func (s *Scene) buildSceneQuery(ctx context.Context, psql sq.StatementBuilderTyp
 			(input.Studios != nil && len(input.Studios.Value) > 0) ||
 			(input.ID != nil && len(input.ID.Value) > 0) ||
 			input.Date != nil || input.Favorites != nil ||
-			input.Code != nil
+			input.Code != nil ||
+			(input.ExcludeTags != nil && len(input.ExcludeTags.Value) > 0) ||
+			input.Duration != nil
+		// Everything the search language can lower into is a field listed above, and the
+		// language variable itself is cleared before this function is reached -- so `input.Query`
+		// would always be nil here and cannot stand in for its terms. A field the language
+		// learns to lower in a later slice must be added to this list with it, or the optimized
+		// trending path can be taken and the filter never applied (spec section 4, slice 2's
+		// note in the plan).
 
 		if !hasOtherFilters && !forCount {
 			// Optimize: limit the trending subquery directly

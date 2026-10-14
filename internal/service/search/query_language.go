@@ -139,6 +139,11 @@ type ParseError struct {
 	Offset     int
 	Msg        string
 	Suggestion string
+
+	// Term is the offending term as written. Parse fills it in for every error its readers
+	// return, because the term's TEXT is known where it is read and nowhere else; an error
+	// raised by Parse itself already has the whole input for it.
+	Term string
 }
 
 func (e *ParseError) Error() string {
@@ -150,7 +155,7 @@ func (e *ParseError) Error() string {
 	return out
 }
 
-func isSpace(c byte) bool { return c == ' ' || c == '\t' || c == '\n' || c == '\r' }
+func isSpace(c byte) bool { return c == ' ' || c == '	' || c == '\n' || c == '\r' }
 
 // Parse reads a query. It is pure: no database, no clock, no ids.
 func Parse(text string) (*Expr, error) {
@@ -170,25 +175,36 @@ func Parse(text string) (*Expr, error) {
 			negated = true
 			i++
 			if i >= len(text) || isSpace(text[i]) {
-				return nil, &ParseError{Offset: start, Msg: "a lone '-' is not a term"}
+				return nil, &ParseError{Offset: start, Msg: "a lone '-' is not a term", Term: "-"}
 			}
 		}
 
 		raw, next, err := readTerm(text, i)
 		if err != nil {
-			return nil, err
+			return nil, withTerm(err, text[i:])
 		}
 		i = next
 
 		term, err := parseTerm(raw, start)
 		if err != nil {
-			return nil, err
+			return nil, withTerm(err, raw)
 		}
 		term.Negated = negated || term.Negated
 		expr.Terms = append(expr.Terms, term)
 	}
 
 	return expr, nil
+}
+
+// withTerm names the term an error is about. The readers raise errors from inside a term, where
+// the surrounding text is out of scope, so the caller that DOES have it fills it in rather than
+// every reader repeating it.
+func withTerm(err error, term string) error {
+	if parseErr, ok := err.(*ParseError); ok && parseErr.Term == "" {
+		parseErr.Term = term
+	}
+
+	return err
 }
 
 // readTerm reads one term: up to the next whitespace that is not inside quotes. Quoted runs are
