@@ -491,3 +491,101 @@ func TestForYouDoesNotRecommendWhatTheViewerHasNotOptedInto(t *testing.T) {
 	assert.Contains(t, forYouSceneIDs(consented), recommended.UUID().String(),
 		"opting into tier 2 must restore the recommendation")
 }
+
+// --- the trending path: the guard in slice 5a, until now unexercised ---
+
+// signalFor records a fingerprint submission by the user at `userOffset` in the users table, aged
+// `age`.
+//
+// THE RANKING IS A COUNT OF DISTINCT USERS, NOT A DECAYED SCORE: `scene_popularity_trending`
+// (migration 65) is `COUNT(DISTINCT user_id) ... WHERE created_at >= now()::DATE - 7` -- the
+// freshness decay of migration 114 is a DIFFERENT view. So a fixture that wants one scene above
+// another gives it MORE USERS inside the seven-day window, and an aged signal only decides whether
+// the scene appears in the view at all. (A scene with no counts in that window has no row, which is
+// how a first attempt at this fixture produced an empty page for a reason that was not the tier.)
+//
+// The distinct offset also matters because two signals from one user count once: a tie is real, and
+// `ORDER BY trending_count DESC, scene_id DESC` then breaks it by uuid, which is random per run.
+func (r *testRunner) signalFor(t *testing.T, sceneID uuid.UUID, userOffset int, age time.Duration) {
+	t.Helper()
+	ctx := context.Background()
+
+	var fingerprintID int
+	err := dbtest.DB().QueryRow(ctx,
+		`INSERT INTO fingerprints (hash, algorithm) VALUES ($1, 'PHASH') RETURNING id`,
+		time.Now().UnixNano()+int64(userOffset)).Scan(&fingerprintID)
+	require.NoError(t, err, "creating the fingerprint row the submission points at")
+
+	_, err = dbtest.DB().Exec(ctx, `
+		INSERT INTO scene_fingerprints (fingerprint_id, scene_id, user_id, duration, vote, created_at)
+		SELECT $1, $2, u.id, 0, 1, (now() AT TIME ZONE 'UTC') - $4::interval
+		FROM (SELECT id FROM users ORDER BY id OFFSET $3 LIMIT 1) u`,
+		fingerprintID, sceneID, userOffset, age.String())
+	require.NoError(t, err, "recording a submission aged by the fixture")
+}
+
+// The optimized trending path LIMITS its subquery BEFORE the filters run, so a page that has to
+// exclude tiered scenes cannot take it -- slice 5a's guard adds `tierFiltered` to `hasOtherFilters`
+// for exactly that reason, and this is the test that proves the guard does something. Without it the
+// optimized path returns a page whose FIRST entry is then filtered away, and the reader gets a
+// SHORT page (here, an empty one) rather than the next scene.
+func TestTrendingDoesNotGoShortBecauseATieredSceneRanksFirst(t *testing.T) {
+	admin := asAdmin(t)
+	viewer := asRead(t)
+
+	_, err := viewer.resolver.Mutation().UserSetVisibleTiers(viewer.ctx, []int{})
+	require.NoError(t, err)
+
+	tagName := admin.generateSceneName() + " trending tier"
+	tag, err := admin.createTestTag(&models.TagCreateInput{Name: tagName})
+	require.NoError(t, err)
+
+	tieredTitle := admin.generateSceneName()
+	tiered, err := admin.createTestScene(&models.SceneCreateInput{
+		Title: &tieredTitle, TagIds: []uuid.UUID{tag.UUID()},
+	})
+	require.NoError(t, err)
+
+	fillerTitle := admin.generateSceneName()
+	filler, err := admin.createTestScene(&models.SceneCreateInput{Title: &fillerTitle})
+	require.NoError(t, err)
+
+	// TWO users on the tiered scene and one on the filler, all inside the seven-day window: the
+	// tiered scene is first in the trending order outright, with no tie for the uuid to settle.
+	viewer.signalFor(t, tiered.UUID(), 0, 0)
+	viewer.signalFor(t, tiered.UUID(), 1, time.Hour)
+	viewer.signalFor(t, filler.UUID(), 2, 24*time.Hour)
+	require.NoError(t, dbtest.Factory().Scene().RefreshPopularityTrending(context.Background()))
+
+	// perPage 1 and NO other filter, so this is the optimized path with the smallest window that
+	// still shows the failure: one slot, taken by a scene the reader must not see.
+	page := func() []string {
+		got, err := viewer.client.queryScenes(models.SceneQueryInput{
+			Sort: models.SceneSortEnumTrending, Direction: models.SortDirectionEnumDesc, PerPage: 1,
+		})
+		require.NoError(t, err)
+		ids := make([]string, 0, len(got.Scenes))
+		for _, s := range got.Scenes {
+			ids = append(ids, s.UUID().String())
+		}
+		return ids
+	}
+
+	// COUNT THE SUBJECT FIRST: before the tag is classified, the tiered scene IS the first page.
+	require.Equal(t, []string{tiered.UUID().String()}, page(),
+		"the tiered scene must rank first before anything is claimed about the tier")
+
+	_, err = admin.resolver.Mutation().TagSetContentTier(admin.ctx, models.TagContentTierInput{
+		ID: tag.UUID(), Tier: 2, RequiresOptIn: false,
+	})
+	require.NoError(t, err)
+
+	after := page()
+	assert.NotContains(t, after, tiered.UUID().String(), "the tiered scene must be excluded")
+	assert.NotEmpty(t, after, "and the page must fall through to the next scene rather than going short")
+
+	// THE CONTROL: consent restores the scene to the top of the order.
+	_, err = viewer.resolver.Mutation().UserSetVisibleTiers(viewer.ctx, []int{1, 2})
+	require.NoError(t, err)
+	assert.Equal(t, []string{tiered.UUID().String()}, page())
+}

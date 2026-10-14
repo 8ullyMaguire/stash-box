@@ -593,10 +593,13 @@ from the LIVE function and watching the duplicate-key failure it exists to preve
 migration-87 argument that an entity id is checkable while a region or User-Agent is
 a client claim.
 
-**Migration 112 `content_tiers`:** `tags.content_tier smallint not null default 0`
-with `CHECK (0 <= content_tier and content_tier <= 3)`,
+**Migration 120 `content_tiers`** (the number in this plan said 112; 120 is what shipped):
+`tags.content_tier smallint not null default 0` with
+`CHECK (0 <= content_tier and content_tier <= 3)`,
 `tags.requires_opt_in boolean not null default false`,
-`users.opted_in_tiers smallint[] not null default '{}'`, and a view
+`user_trust.visible_tiers smallint[] not null default '{}'` (on `user_trust`, NOT
+`users.opted_in_tiers` — consent is trust state, and it is stored as SENT: the array is the record of
+consent and the gate uses its maximum as the ceiling), and a view
 `entity_effective_tier (entity_type, entity_id, tier)` computed as the **max** of its
 tags' tiers. **Denylist-shaped**: a tier can only ever remove visibility, never grant
 it — the rule migration 87 states and the reason an allowlist was refused.
