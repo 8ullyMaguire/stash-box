@@ -4,7 +4,8 @@ Implements **SPEC §7.23.1 row D2**: *"Identification board federates. A query
 broadcasts to peers with matching taste vectors. Metadata plane only
 (§7.17.1). Content never broadcasts."*
 
-Status: **spec written 2026-09-30, nothing built yet.** This document is the
+Status: **steps 1–6 built** (`d3934900` … `cdb90055`); **§8 (third-party
+identification sources) specified 2026-10-14, not started**. This document is the
 "what and why"; `docs/plan/feature-04-identification-federation.md` is the
 "how and what proves it".
 
@@ -143,3 +144,120 @@ applies:
   a test that reflects over it.
 - A foreign candidate provably cannot reach the local vote path, proven by a test
   that attempts it and expects a rejection.
+
+---
+
+## 8. Third-party identification sources (specified 2026-10-14, not started)
+
+The owner pasted a catalogue of external identification resources (2026-10-14):
+face-matching models and services, reverse image/video search engines, JAV/AV
+code lookup tools, anime taggers, community forums, and MCP servers for
+stash-box-style catalogues. This section says which of them are **shapes of
+features this board already has**, which are new, and what each one is allowed to
+do here — because the division between "a source suggested it" and "the local
+community voted for it" is the whole of F2, and a third party is a source the
+operator does not control.
+
+### 8.1 The catalogue, placed
+
+| Resource | What it is | Placement | Decision |
+|---|---|---|---|
+| **StashFace ONNX**, **MegaFace** | ONNX face models trained on StashDB / meta4allphotos | a **local provider** (sidecar) | F9, F10 — runs here, nothing leaves; suggestions only |
+| **FaceCheck.ID**, **xzeno.ai**, **PornstarByFace**, **SocialFinder.ai**, **Camgirlfinder**, **FaceSpy**, **OnlyFinder**, **AV女優判定AI**, **Doppelgänger** | remote face-search services | a **remote provider** | F10 — off by default; a biometric query is the operator's decision |
+| **SauceNAO**, **IQDB**, **trace.moe**, **TinEye**, **Yandex Images**, **FindIt.moe**, **ImgOps**, **SauceMatch**, **AVScan**, **Revideo.io**, **FrameTrace** | reverse image / video search | **deep link first** (7a), remote provider later | F8 — the link needs no key and no terms review; the API call is a separate decision per provider |
+| **IAFD**, **StashDB**, **indexxx**, **PornPics**, **Bang**, **meta4allphotos** | performer/scene metadata catalogues | **the source layer** (migrations 108–110, `content_sources` + `scene_urls`) | already the right shape: a source is a URL claim with health, not a scrape |
+| **avbuzz** (FANZA GraphQL), **jvav** (JavBus/Javdb), **AvHub**, **AVサーチくん**, **Rina**, **AvDict** | JAV metadata + AV-code recognition | **the ingestion pipeline** (phase 2) + **code extraction** | F12 — code extraction is a pure function and ships first |
+| **WD14 Tagging System**, **WD Tagger**, **pixai-tagger**, **image-tagger** | ONNX anime taggers | a **local tagging provider** | F9 — output is a tag *suggestion*; the edit system is the only write path |
+| **mcp-stashbox**, **ThePornDB MCP**, **desaira MCP** | MCP servers over adult catalogues | **phase 13** (API/interop) | §8.4 — expose stash-box as an MCP server; consuming another MCP source is a provider like any other |
+| **r/TOMP**, **r/HentaiSource**, **NameThatPorn**, **Stash Forum starter guide** | community channels where a human asks | **deep links + a thread URL on the query** | F12 — a hand-off to people, never a scraper |
+| **Erasa** | DMCA/takedown service | **§17 policy**, phase 14 | not an identification source; recorded here so it is not re-pasted as one |
+
+### 8.2 The decisions
+
+**F7 — A third-party source is EVIDENCE, never a vote, and never a local
+candidate row.** F2 extended across a new boundary: a peer is remote and
+accountable by attestation, a third-party service is remote and accountable by
+nothing. Its answer is stored as source evidence with its name and URL attached
+and is **not** insertable into `identification_candidates`, so it cannot be voted
+on, cannot win a plurality, and cannot become a canonical link. The alternative —
+letting a face-search API propose a candidate the community then votes on — makes
+the local tally a function of a service the operator does not control.
+
+**F8 — Deep links first, API calls later, and the two are separately enabled.**
+Most of the reverse-search resources need no key and no agreement to be *linked*:
+the server renders a URL with the image address in it, the user's own browser does
+the lookup, and nothing about the instance's users leaves it. That is the half
+that ships. A provider that CALLS an external API is a different decision per
+provider (keys, terms, rate limits, and what the request reveals), so it is
+opt-in, operator-configured, and recorded in the evidence row's `provider` field
+so a reader can tell which half produced it.
+
+**F9 — Local models are providers too, and their output is a suggestion.** The
+face models and the anime taggers are the resources whose fit is best here,
+because they run *inside* the operator's own infrastructure: no third party sees
+the images, no key is needed, and the result is reproducible. Their output is a
+*suggestion* with a confidence and a provenance — for the board, an evidence row;
+for tags, a draft for the edit system, which is the only path that writes a tag.
+An auto-tagger that wrote tags directly would be a second, unaudited writer of
+shared content, and this codebase already has one write path by design.
+
+**F10 — No biometric query leaves the instance unless the operator turns it on,
+per provider.** Sending a face to a third-party search service is a data-flow
+decision about a person who is not in the room, and it is the one integration in
+this catalogue that can be wrong in a way no test detects. The default is
+disabled; enabling one is an operator action recorded in config; and the spec
+requires that the provider's own row in `docs/SPEC.md`'s policy table say what it
+receives. (The §17 policy section already governs this class of decision — this
+is its identification-shaped case.)
+
+**F11 — Provenance is machine-readable, not prose.** Every suggestion carries
+`provider`, `source_url` and, where the provider gives one, a `confidence`. "Which
+source said this" is what makes a suggestion checkable by a human, and a free-text
+`note` alone would make it un-queryable — the same reasoning that put the peer's
+attestation on a foreign candidate.
+
+**F12 — Community channels are hand-offs, never integrations.** r/TOMP,
+r/HentaiSource, NameThatPorn and the forum guide are places a *person* asks a
+question. The board can link to them (with the question pre-filled where the
+channel supports it) and can record the thread's URL back on the query so the
+answer is findable later. Scraping them, or posting on a user's behalf, is out:
+it breaks their terms, it makes the instance's traffic look like a bot, and it
+would put words in a user's mouth.
+
+### 8.3 What this does NOT ship
+
+- **No scraping of any listed resource**, and no storing of their raw output as
+  canonical: a suggestion is attributed evidence, nothing more.
+- **No automatic resolution.** A source may only suggest; a query is still
+  resolved by the local community's votes, or abandoned.
+- **No automatic media upload to a third party** (F10), in either half.
+- **No JAV catalogue ingestion** from FANZA/JavBus by default: the AV-code
+  extraction is a pure function and ships, while a per-site scrape is a source
+  operator decision like any other (§8.4).
+- **No boundary weakening**: `identification_source_evidence` is a third table
+  beside `identification_foreign_candidates`, and the existing
+  `TestForeignEvidenceCannotReachLocalVotePath` gains a sibling for it.
+
+### 8.4 Where the non-identification resources land
+
+Three groups in the catalogue belong to other surfaces, and they are recorded
+here so a later reader does not re-file them as identification work:
+
+- **MCP (phase 13).** `mcp-stashbox` shows the shape stash-box should *expose*:
+  search scenes and performers, read records, identify files by fingerprint. That
+  is a read-only MCP server over surfaces that already exist, and it is the
+  cheapest interop the programme has left. Consuming an external MCP source
+  (ThePornDB, desaira) is a **provider** in this section's sense — evidence with
+  provenance — and not a second ingestion pipeline.
+- **Sources and codes (phases 2/12).** IAFD/indexxx/PornPics/Bang are domains the
+  source layer already models (`content_sources`, `scene_urls`, `sites.regex`);
+  what is new is a **seed list** of the well-known hosts and, for the JAV set, an
+  **AV-code extractor** — a pure function that recognises `ABC-123` in a title,
+  filename or URL and returns the code plus the canonical URLs it implies. It
+  belongs with ingestion because it is a *normalisation* step, and it is testable
+  without a network.
+- **Facilities (phases 10/16).** Face detection also serves **face-centred crop
+  suggestions** (`95_image_crops` exists; complaint #84), and the anime taggers
+  serve the **image/gallery/animation content kinds** (phase 3) — both are the
+  same provider interface with a different output, which is why F9 puts them
+  behind one registry rather than in three subsystems.

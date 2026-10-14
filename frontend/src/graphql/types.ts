@@ -78,6 +78,109 @@ export type ActivateNewUserInput = {
   password: Scalars['String']['input'];
 };
 
+/**
+ * Who did it.
+ *
+ * A light type rather than `User`, and that is a privacy decision as much as a shape one: a feed row
+ * says WHO acted, and the rest of a user's record (their roles, their trust level, their email
+ * domain) is not part of that statement. A client that needs the full record has `findUser`.
+ */
+export type ActivityActor = {
+  __typename: 'ActivityActor';
+  id: Scalars['ID']['output'];
+  name: Scalars['String']['output'];
+};
+
+export type ActivityFeedInput = {
+  /**
+   * A keyset cursor: only activity strictly older than this instant.
+   *
+   * Not an offset. A feed paged by offset shows a reader the same row twice whenever something is
+   * added between pages, which on a feed is the normal case rather than the edge case.
+   */
+  before?: InputMaybe<Scalars['Time']['input']>;
+  /** How many rows. Defaults to 20; above 50 is clamped rather than rejected. */
+  limit?: InputMaybe<Scalars['Int']['input']>;
+};
+
+/** One row of the activity feed. */
+export type ActivityItem = {
+  __typename: 'ActivityItem';
+  actor: ActivityActor;
+  /** When it happened. The order of the feed is this field, descending, with no exceptions. */
+  createdAt: Scalars['Time']['output'];
+  kind: ActivityKind;
+  /**
+   * The list the scene was added to, for `LIST_ADD` rows INTO A PUBLISHED LIST, and null otherwise.
+   *
+   * Null for a private list, deliberately: the activity is "someone filed this scene", which the
+   * visibility grant covers, while which list they filed it into is theirs until they publish it.
+   */
+  listId?: Maybe<Scalars['ID']['output']>;
+  listName?: Maybe<Scalars['String']['output']>;
+  /**
+   * The review's rating, for `REVIEW` rows that carried one.
+   *
+   * Null is normal, not missing data: a review of a studio's ethics is not a 1-to-5 quantity, so the
+   * column is nullable in the schema and an unrated review is a complete review.
+   */
+  rating?: Maybe<Scalars['Int']['output']>;
+  /**
+   * The scene the activity is about.
+   *
+   * Always present: a row whose scene no longer exists is dropped rather than returned with a null,
+   * because the feed is a list of things a reader can open.
+   */
+  scene: Scene;
+};
+
+/** Which kind of activity a feed row reports. */
+export enum ActivityKind {
+  /** The actor submitted a fingerprint: they say they have this scene. */
+  FINGERPRINT = 'FINGERPRINT',
+  /** The actor added the scene to a list. */
+  LIST_ADD = 'LIST_ADD',
+  /** The actor wrote a published review of the scene. */
+  REVIEW = 'REVIEW'
+}
+
+/** How much of an author's activity one follower may see. */
+export enum ActivityVisibility {
+  /** The ONE follower this grant names. Not the author's other followers. */
+  FOLLOWERS = 'FOLLOWERS',
+  /** The default. Nobody but the author. */
+  PRIVATE = 'PRIVATE',
+  /** Every reader of the instance, followers or not. */
+  PUBLIC = 'PUBLIC'
+}
+
+export type ActivityVisibilityInput = {
+  /**
+   * Whose grant is being set: the follower.
+   *
+   * The current user is always the AUTHOR of the activity, never this side, whatever is passed here.
+   * A follower who could set their own access would make the private default decoration, so this
+   * field names the one person whose feed is affected rather than the person deciding.
+   */
+  followerId: Scalars['ID']['input'];
+  visibility: ActivityVisibility;
+};
+
+/** One tag's share of a recommendation's affinity. */
+export type AffinityContribution = {
+  __typename: 'AffinityContribution';
+  /** The tag the viewer has taste for. */
+  tag: Tag;
+  /**
+   * This tag's weight in the affinity sum.
+   *
+   * Signed, and negative is a real answer: it is the viewer's own negative signal coming back to
+   * them. A client that renders only positive contributions is rendering a feed more confident
+   * than the data.
+   */
+  weight: Scalars['Float']['output'];
+};
+
 export type AmendEditInput = {
   id: Scalars['ID']['input'];
   reason: Scalars['String']['input'];
@@ -145,6 +248,11 @@ export enum BreastTypeEnum {
 
 export type CancelEditInput = {
   id: Scalars['ID']['input'];
+};
+
+export type ClearSessionStateInput = {
+  key: Scalars['String']['input'];
+  kind: Scalars['String']['input'];
 };
 
 export type ClusterMember = {
@@ -977,6 +1085,78 @@ export type FingerprintedSceneEdit = {
   edit: Edit;
 };
 
+/** One relationship, from the point of view of the user asking. */
+export type Follow = {
+  __typename: 'Follow';
+  createdAt: Scalars['Time']['output'];
+  /**
+   * The OTHER side of the relationship: who you follow, when listing those, and who follows you, when
+   * listing followers.
+   */
+  user: ActivityActor;
+  /** The visibility the author granted this follower. */
+  visibility: ActivityVisibility;
+};
+
+export type FollowInput = {
+  /** The user to follow. Following yourself is refused. */
+  userId: Scalars['ID']['input'];
+};
+
+export type ForYouInput = {
+  /**
+   * How many scenes to return.
+   *
+   * Defaults to 20, and is clamped rather than rejected at 50: a feed is scrolled, and a client
+   * asking for 5,000 rows is asking for a page size no feed surface can render.
+   */
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  /**
+   * A search-language query narrowing the feed, exactly as `queryScenes` takes it.
+   *
+   * Bare words are tags, `-tag` excludes, `text:"..."` is free text, and `sort:`/`direction:` are
+   * ACCEPTED AND IGNORED here -- the feed's order is affinity, and honouring a `sort:` would mean
+   * returning a page ordered by something the caller did not get told about.
+   */
+  query?: InputMaybe<Scalars['String']['input']>;
+  /**
+   * Makes the serendipity part reproducible.
+   *
+   * The same seed over the same pool returns the same page, so a client can pin a feed for a
+   * session, and so a change in the page can be attributed to a change in the parameter rather
+   * than to the shuffle. Omitted is 0.
+   */
+  seed?: InputMaybe<Scalars['Int']['input']>;
+  /**
+   * The share of the page drawn from outside the affinity order, 0 to 1.
+   *
+   * Defaults to 0.2 -- one slot in five. 0 is a pure affinity ranking, 1 is a shuffle of the
+   * eligible pool.
+   */
+  serendipity?: InputMaybe<Scalars['Float']['input']>;
+};
+
+/** One recommended scene, with the taste that recommended it. */
+export type ForYouScene = {
+  __typename: 'ForYouScene';
+  /**
+   * The total of `contributions`, in no particular unit.
+   *
+   * Exposed for ordering and debugging, NOT for display. Negative is normal. Render
+   * `contributions`.
+   */
+  affinity: Scalars['Float']['output'];
+  /**
+   * The tags that produced it, in DESCENDING magnitude, at most five.
+   *
+   * This is the answer to "why am I seeing this", and it names tags rather than describing them,
+   * so a reader can disagree with the recommendation and know what they are disagreeing with.
+   */
+  contributions: Array<AffinityContribution>;
+  /** The recommendation. */
+  scene: Scene;
+};
+
 /**
  * One thing a peer suggested, as EVIDENCE.
  *
@@ -1179,6 +1359,22 @@ export type IdentificationQuery = {
   resolvedType?: Maybe<IdentificationTargetType>;
   /** The visual evidence, when there is any. */
   snapshotId?: Maybe<Scalars['ID']['output']>;
+  /**
+   * Where a person can take this image to ask someone else (SPEC §8).
+   *
+   * Rendered links, not requests: the caller passes the address of the image it is
+   * showing (a cover on its source site, a frame) and gets back the external
+   * lookups with that address filled in. The SERVER never fetches any of them, and
+   * a source that takes an upload rather than an address comes back pointing at its
+   * front page with `prefilled: false` saying so.
+   *
+   * Empty when the caller passes no address: a query with nothing to look up yet is
+   * a normal state, not an error. Disabled sources are absent, and the face-matching
+   * ones are disabled until an operator enables them by name (SPEC §8, F10) --
+   * handing a face to a third party is a decision about a person who is not in the
+   * room, so it is not a default.
+   */
+  sourceLinks: Array<IdentificationSourceLink>;
   status: IdentificationStatus;
   /**
    * The entity the question is about, when the asker has it.
@@ -1188,6 +1384,12 @@ export type IdentificationQuery = {
    */
   targetId?: Maybe<Scalars['ID']['output']>;
   targetType: IdentificationTargetType;
+};
+
+
+/** A question about something half-remembered. */
+export type IdentificationQuerySourceLinksArgs = {
+  imageUrl: Scalars['String']['input'];
 };
 
 export type IdentificationResolveInput = {
@@ -1201,6 +1403,45 @@ export type IdentificationResolveInput = {
    * performer in a list of possible scenes.
    */
   resolvedType: IdentificationTargetType;
+};
+
+/** One external place a question can be taken to. */
+export type IdentificationSource = {
+  __typename: 'IdentificationSource';
+  /** Whether this instance offers it. */
+  enabled: Scalars['Boolean']['output'];
+  /** Where the source lives, for a reader deciding whether to open it. */
+  home: Scalars['String']['output'];
+  kind: IdentificationSourceKind;
+  name: Scalars['String']['output'];
+};
+
+/**
+ * What a source does with the media it is given (SPEC §8).
+ *
+ * A local model is a different thing -- it runs in the operator's own
+ * infrastructure and is a provider rather than a link -- so it has no kind here.
+ */
+export enum IdentificationSourceKind {
+  /** A place where a person asks a question and people answer (F12). */
+  COMMUNITY = 'COMMUNITY',
+  /** A service that matches a FACE. Off until an operator enables it (F10). */
+  REMOTE_FACE = 'REMOTE_FACE',
+  /** An engine that finds where else an image or clip appears. */
+  REVERSE_MEDIA = 'REVERSE_MEDIA'
+}
+
+/** A source rendered for one image address. */
+export type IdentificationSourceLink = {
+  __typename: 'IdentificationSourceLink';
+  kind: IdentificationSourceKind;
+  /**
+   * False when the source takes an upload rather than an address, so the reader
+   * arrives at its front door with nothing in hand.
+   */
+  prefilled: Scalars['Boolean']['output'];
+  source: Scalars['String']['output'];
+  url: Scalars['String']['output'];
 };
 
 /** A query's state. */
@@ -1482,6 +1723,36 @@ export type ImageUpdateInput = {
   url?: InputMaybe<Scalars['String']['input']>;
 };
 
+/**
+ * What happened to a submitted URL, as the submitter needs to hear it.
+ *
+ * Two outcomes and neither is a failure: `queued` means the URL is now work for the
+ * pipeline, and `duplicate` means this instance already has it. Reporting a duplicate as an
+ * error is how submitters learn to stop submitting, and a queue that nobody feeds is a queue
+ * that does not work (spec §5).
+ */
+export type IngestSubmission = {
+  __typename: 'IngestSubmission';
+  /** A sentence for the submitter: the refusal reason, or that the URL is already known. */
+  message?: Maybe<Scalars['String']['output']>;
+  /**
+   * What the submitted URL was reduced to -- the key dedup runs on.
+   *
+   * Returned because the interesting duplicate is the one where the submitter's URL LOOKS
+   * different from last week's: seeing `https://x.invalid/a` come back for
+   * `https://www.x.invalid/a/?utm_source=nl#t=30` is the difference between "the aggregator
+   * is broken" and "it already has this".
+   */
+  normalized_url: Scalars['String']['output'];
+  /**
+   * The queue row, when one was created. Absent for a duplicate: nothing was enqueued, and
+   * an id here would say otherwise.
+   */
+  queue_id?: Maybe<Scalars['ID']['output']>;
+  /** `queued`, `duplicate`, or `invalid` when the URL could not be parsed at all. */
+  status: Scalars['String']['output'];
+};
+
 export type IntCriterionInput = {
   modifier: CriterionModifier;
   value: Scalars['Int']['input'];
@@ -1715,9 +1986,26 @@ export type Mutation = {
   cancelEdit: Edit;
   /** Changes the password for the current user */
   changePassword: Scalars['Boolean']['output'];
+  /**
+   * Forget a cursor. False means there was nothing there, which is not an error.
+   *
+   * Explicit, because there is no expiry (migration 116 says why): a TTL on "where I left off" would
+   * silently forget a position a user came back for.
+   */
+  clearSessionState: Scalars['Boolean']['output'];
   confirmChangeEmail: UserChangeEmailStatus;
+  /**
+   * Keep a search. The name is per owner, so two people may each keep "unwatched anal" and mean
+   * different things by it.
+   */
+  createSavedSearch: SavedSearch;
   /** Delete a closed edit - moderator only */
   deleteEdit: Scalars['Boolean']['output'];
+  /**
+   * Forget a search, and the notifications it produced. False when there was no such search of
+   * yours -- a delete that removed nothing must not report success.
+   */
+  deleteSavedSearch: Scalars['Boolean']['output'];
   destroyDraft: Scalars['Boolean']['output'];
   /** Comment on an edit */
   editComment: Edit;
@@ -1756,6 +2044,8 @@ export type Mutation = {
    * evidence.
    */
   federation_peer_update: FederationPeer;
+  /** Follow a user. Idempotent: following twice is one relationship, and it grants NO visibility. */
+  followUser: Scalars['Boolean']['output'];
   /**
    * Generate a collage for a scene from its snapshots.
    *
@@ -1928,6 +2218,8 @@ export type Mutation = {
   reviewSubmit: Review;
   /** Removes invite tokens from a user */
   revokeInvite: Scalars['Int']['output'];
+  /** Store a cursor, for this user only. Upserts. */
+  saveSessionState: SessionState;
   sceneCreate?: Maybe<Scene>;
   /** Delete all fingerprint submissions for a specific fingerprint on a scene */
   sceneDeleteFingerprintSubmissions: Scalars['Boolean']['output'];
@@ -1939,6 +2231,13 @@ export type Mutation = {
   /** Move all fingerprint submissions from source scene to target scene */
   sceneMoveFingerprintSubmissions: Scalars['Boolean']['output'];
   sceneUpdate?: Maybe<Scene>;
+  /**
+   * Publish, restrict or withdraw one follower's access to YOUR activity.
+   *
+   * Only your own activity: the current user is the author. A follower cannot widen their own access,
+   * which is the difference between a permission and a claim.
+   */
+  setActivityVisibility: Scalars['Boolean']['output'];
   /**
    * Record or withdraw the user's opt-in to viewing content (SPEC section 6).
    *
@@ -1963,6 +2262,19 @@ export type Mutation = {
   /** Update a pending studio edit */
   studioEditUpdate: Edit;
   studioUpdate?: Maybe<Studio>;
+  /**
+   * Submit a URL for aggregation: fetch it, decide whether this instance already has the
+   * content, and either record a source or create a record for it (spec §1).
+   *
+   * EDIT, because that is the act: proposing a change to the shared record. BOT may also
+   * submit (the crawler is a client), and a bot's submissions go through the same dedup and
+   * review gates as anyone else's.
+   *
+   * `sceneId` says which scene the URL is a source FOR, when the submission comes from a
+   * scene page. It outranks the pipeline's own inference: a person naming a destination is
+   * an instruction, and a fingerprint match is a guess (see `Known.Target`).
+   */
+  submitContentUrl: IngestSubmission;
   /** Matches/unmatches a scene to fingerprint */
   submitFingerprint: Scalars['Boolean']['output'];
   /** Batch submit up to 1000 fingerprint matches */
@@ -1997,6 +2309,8 @@ export type Mutation = {
   /** Update a pending tag edit */
   tagEditUpdate: Edit;
   tagUpdate?: Maybe<Tag>;
+  /** Stop following. False means you were not following them, which is not an error. */
+  unfollowUser: Scalars['Boolean']['output'];
   /**
    * Take a vote back. An accidental tap should be undoable, and a vote the user
    * cannot withdraw is a vote they will not make.
@@ -2012,6 +2326,8 @@ export type Mutation = {
   updateImageTypePreferences: Scalars['Boolean']['output'];
   /** Update notification subscriptions for current user. */
   updateNotificationSubscriptions: Scalars['Boolean']['output'];
+  /** Change a saved search's name, text or subscription. The id must be yours. */
+  updateSavedSearch: SavedSearch;
   userCreate?: Maybe<User>;
   userDestroy: Scalars['Boolean']['output'];
   userUpdate?: Maybe<User>;
@@ -2062,13 +2378,28 @@ export type MutationChangePasswordArgs = {
 };
 
 
+export type MutationClearSessionStateArgs = {
+  input: ClearSessionStateInput;
+};
+
+
 export type MutationConfirmChangeEmailArgs = {
   token: Scalars['ID']['input'];
 };
 
 
+export type MutationCreateSavedSearchArgs = {
+  input: SavedSearchInput;
+};
+
+
 export type MutationDeleteEditArgs = {
   input: DeleteEditInput;
+};
+
+
+export type MutationDeleteSavedSearchArgs = {
+  id: Scalars['ID']['input'];
 };
 
 
@@ -2111,6 +2442,11 @@ export type MutationFederation_Peer_DeleteArgs = {
 
 export type MutationFederation_Peer_UpdateArgs = {
   input: FederationPeerUpdateInput;
+};
+
+
+export type MutationFollowUserArgs = {
+  input: FollowInput;
 };
 
 
@@ -2292,6 +2628,11 @@ export type MutationRevokeInviteArgs = {
 };
 
 
+export type MutationSaveSessionStateArgs = {
+  input: SessionStateInput;
+};
+
+
 export type MutationSceneCreateArgs = {
   input: SceneCreateInput;
 };
@@ -2325,6 +2666,11 @@ export type MutationSceneMoveFingerprintSubmissionsArgs = {
 
 export type MutationSceneUpdateArgs = {
   input: SceneUpdateInput;
+};
+
+
+export type MutationSetActivityVisibilityArgs = {
+  input: ActivityVisibilityInput;
 };
 
 
@@ -2386,6 +2732,12 @@ export type MutationStudioEditUpdateArgs = {
 
 export type MutationStudioUpdateArgs = {
   input: StudioUpdateInput;
+};
+
+
+export type MutationSubmitContentUrlArgs = {
+  sceneId?: InputMaybe<Scalars['ID']['input']>;
+  url: Scalars['String']['input'];
 };
 
 
@@ -2460,6 +2812,11 @@ export type MutationTagUpdateArgs = {
 };
 
 
+export type MutationUnfollowUserArgs = {
+  input: UnfollowInput;
+};
+
+
 export type MutationUnvoteIdentificationCandidateArgs = {
   candidateId: Scalars['ID']['input'];
 };
@@ -2477,6 +2834,11 @@ export type MutationUpdateImageTypePreferencesArgs = {
 
 export type MutationUpdateNotificationSubscriptionsArgs = {
   subscriptions: Array<NotificationEnum>;
+};
+
+
+export type MutationUpdateSavedSearchArgs = {
+  input: SavedSearchUpdateInput;
 };
 
 
@@ -2523,7 +2885,7 @@ export type Notification = {
   read: Scalars['Boolean']['output'];
 };
 
-export type NotificationData = CommentCommentedEdit | CommentOwnEdit | CommentVotedEdit | DownvoteOwnEdit | FailedOwnEdit | FavoritePerformerEdit | FavoritePerformerScene | FavoriteStudioEdit | FavoriteStudioScene | FingerprintMovedScene | FingerprintedSceneEdit | UpdatedEdit;
+export type NotificationData = CommentCommentedEdit | CommentOwnEdit | CommentVotedEdit | DownvoteOwnEdit | FailedOwnEdit | FavoritePerformerEdit | FavoritePerformerScene | FavoriteStudioEdit | FavoriteStudioScene | FingerprintMovedScene | FingerprintedSceneEdit | SavedSearchMatch | UpdatedEdit;
 
 export enum NotificationEnum {
   COMMENT_COMMENTED_EDIT = 'COMMENT_COMMENTED_EDIT',
@@ -2537,6 +2899,8 @@ export enum NotificationEnum {
   FAVORITE_STUDIO_SCENE = 'FAVORITE_STUDIO_SCENE',
   FINGERPRINTED_SCENE_EDIT = 'FINGERPRINTED_SCENE_EDIT',
   FINGERPRINT_MOVED = 'FINGERPRINT_MOVED',
+  /** A saved search found scenes it had not seen before (one notification per run) */
+  SAVED_SEARCH_MATCH = 'SAVED_SEARCH_MATCH',
   UPDATED_EDIT = 'UPDATED_EDIT'
 }
 
@@ -2544,6 +2908,16 @@ export enum NotificationLevel {
   NORMAL = 'NORMAL',
   URGENT = 'URGENT'
 }
+
+/** One version of the tag ontology, written when the graph changes. */
+export type OntologyVersion = {
+  __typename: 'OntologyVersion';
+  created: Scalars['Time']['output'];
+  note?: Maybe<Scalars['String']['output']>;
+  /** The whole ontology at this version, as a JSON list of {"tag": ..., "implies": ...} pairs by name. Empty for a listing. */
+  snapshot?: Maybe<Scalars['String']['output']>;
+  version: Scalars['Int']['output'];
+};
 
 export enum OperationEnum {
   CREATE = 'CREATE',
@@ -3034,6 +3408,12 @@ export type Query = {
    */
   accessRules: AccessRuleSet;
   /**
+   * What the people you follow have been doing, newest first.
+   *
+   * Empty is a real answer: you follow nobody, or nobody you follow has published anything.
+   */
+  activityFeed: Array<ActivityItem>;
+  /**
    * A count per scored entity type, for the State of the Archive page.
    *
    * READ, not VOTE: knowing how much work is left is not an act of curation, and
@@ -3103,6 +3483,8 @@ export type Query = {
   findDraft?: Maybe<Draft>;
   findDrafts: Array<Draft>;
   findEdit?: Maybe<Edit>;
+  /** One ontology version, with the whole graph as it stood at that version. */
+  findOntologyVersion?: Maybe<OntologyVersion>;
   /** Find a performer by ID */
   findPerformer?: Maybe<Performer>;
   /**
@@ -3112,6 +3494,8 @@ export type Query = {
    * A maximum of 100 ids may be requested at a time.
    */
   findPerformers: Array<Maybe<Performer>>;
+  /** One of this user's saved searches. Another user's id is `null`, not a row. */
+  findSavedSearch?: Maybe<SavedSearch>;
   /** Find a scene by ID */
   findScene?: Maybe<Scene>;
   /**
@@ -3152,10 +3536,31 @@ export type Query = {
   findUser?: Maybe<User>;
   /** Returns phash clusters for a scene */
   fingerprintClusters: FingerprintClustersResult;
+  /** Who follows you, newest first. The read behind the visibility editor. */
+  followers: Array<Follow>;
+  /** Who you follow, newest first. */
+  following: Array<Follow>;
+  /**
+   * Scenes this viewer is likely to want, ranked by the signals they have already left.
+   *
+   * Empty is a legitimate answer for a viewer with no signals: nothing is known about their taste,
+   * so every candidate is equally (un)likely and the honest page is the archive's own order. An
+   * error would make a new account look broken.
+   */
+  forYou: Array<ForYouScene>;
   getConfig: StashBoxConfig;
   getUnreadNotificationCount: UnreadNotificationCount;
   /** Read one query, with its candidates. */
   identificationQuery?: Maybe<IdentificationQuery>;
+  /**
+   * The external sources this instance offers, and whether each one is on (SPEC §8).
+   *
+   * Config-shaped and read-only: this is what an operator's `identification_sources`
+   * block resolved to, so a client can render the links without knowing any of the
+   * URLs, and a reader can see that a face-matching service exists here but has been
+   * left OFF rather than never having been considered.
+   */
+  identificationSources: Array<IdentificationSource>;
   /**
    * The image type vocabulary, groups in priority order with their types nested.
    * Filtering by target drops types that entity kind cannot carry, and drops any
@@ -3199,6 +3604,10 @@ export type Query = {
    * longer exists.
    */
   myIdentificationDetectiveScore?: Maybe<IdentificationDetective>;
+  /** The version of the tag ontology in force, for a client that must say which one produced an answer. */
+  ontologyVersion: Scalars['Int']['output'];
+  /** Ontology versions, newest first. Snapshots are empty here; ask for one by number. */
+  ontologyVersions: Array<OntologyVersion>;
   /** Incremental feed of performers changed since a keyset cursor */
   performerChangelog: Array<EntityChange>;
   /**
@@ -3233,6 +3642,8 @@ export type Query = {
   resolvedIdentificationQueries: Array<IdentificationQuery>;
   /** A single review by id, or null. */
   review?: Maybe<Review>;
+  /** This user's saved searches, most recently touched first. */
+  savedSearches: Array<SavedSearch>;
   /** Incremental feed of scenes changed since a keyset cursor */
   sceneChangelog: Array<EntityChange>;
   /**
@@ -3257,10 +3668,26 @@ export type Query = {
   searchScenes: QueryScenesResultType;
   searchStudio: Array<Studio>;
   searchTag: Array<Tag>;
+  /**
+   * The cursor this user synced for (kind, key), or null.
+   *
+   * Null for a `LOCAL` row as well as for an absent one: a client asking "what did the server keep"
+   * gets one answer, and the difference between "not stored" and "stored somewhere else" is not a
+   * distinction the caller can act on.
+   */
+  sessionState?: Maybe<SessionState>;
+  /**
+   * Everything this user syncs for one kind of surface.
+   *
+   * What a second device reads on arrival, so continuing does not need one request per key.
+   */
+  sessionStates: Array<SessionState>;
   /** Incremental feed of studios changed since a keyset cursor */
   studioChangelog: Array<EntityChange>;
   /** Incremental feed of tags changed since a keyset cursor */
   tagChangelog: Array<EntityChange>;
+  /** The tag ontology: every implication, by name, ordered. */
+  tagImplications: Array<TagImplication>;
   /**
    * Scenes with too few snapshots to build a usable collage from.
    *
@@ -3277,6 +3704,12 @@ export type Query = {
    */
   userStreak: Streak;
   version: Version;
+};
+
+
+/** The query root for this schema */
+export type QueryActivityFeedArgs = {
+  input?: InputMaybe<ActivityFeedInput>;
 };
 
 
@@ -3332,6 +3765,12 @@ export type QueryFindEditArgs = {
 
 
 /** The query root for this schema */
+export type QueryFindOntologyVersionArgs = {
+  version: Scalars['Int']['input'];
+};
+
+
+/** The query root for this schema */
 export type QueryFindPerformerArgs = {
   id: Scalars['ID']['input'];
 };
@@ -3340,6 +3779,12 @@ export type QueryFindPerformerArgs = {
 /** The query root for this schema */
 export type QueryFindPerformersArgs = {
   ids: Array<Scalars['ID']['input']>;
+};
+
+
+/** The query root for this schema */
+export type QueryFindSavedSearchArgs = {
+  id: Scalars['ID']['input'];
 };
 
 
@@ -3425,6 +3870,12 @@ export type QueryFingerprintClustersArgs = {
 
 
 /** The query root for this schema */
+export type QueryForYouArgs = {
+  input?: InputMaybe<ForYouInput>;
+};
+
+
+/** The query root for this schema */
 export type QueryIdentificationQueryArgs = {
   id: Scalars['ID']['input'];
 };
@@ -3454,6 +3905,12 @@ export type QueryListsArgs = {
   page?: InputMaybe<Scalars['Int']['input']>;
   perPage?: InputMaybe<Scalars['Int']['input']>;
   userId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+
+/** The query root for this schema */
+export type QueryOntologyVersionsArgs = {
+  limit?: Scalars['Int']['input'];
 };
 
 
@@ -3620,6 +4077,19 @@ export type QuerySearchTagArgs = {
 
 
 /** The query root for this schema */
+export type QuerySessionStateArgs = {
+  key: Scalars['String']['input'];
+  kind: Scalars['String']['input'];
+};
+
+
+/** The query root for this schema */
+export type QuerySessionStatesArgs = {
+  kind: Scalars['String']['input'];
+};
+
+
+/** The query root for this schema */
 export type QueryStudioChangelogArgs = {
   after_id?: InputMaybe<Scalars['ID']['input']>;
   limit?: InputMaybe<Scalars['Int']['input']>;
@@ -3701,7 +4171,32 @@ export type QueryPerformersResultType = {
 export type QueryScenesResultType = {
   __typename: 'QueryScenesResultType';
   count: Scalars['Int']['output'];
+  /**
+   * What the query asked for that the filter could NOT apply, with the offset of each term.
+   *
+   * Empty for a query that means what it says. A term that cannot be applied faithfully is never
+   * dropped -- `query: "anal duration:60..600"` returns NOTHING and says why, because dropping the
+   * duration term would return more than was asked for and present it as the answer.
+   */
+  diagnostics: Array<SearchDiagnostic>;
+  /**
+   * The tags this result set is made of, most-used first (docs/spec/feature-discovery.md section 6).
+   *
+   * Scoped by the same filter the results are scoped by, because it is the same builder: a facet
+   * cannot describe a different set of scenes than the one it sits beside. A facet's `count` is
+   * what filtering by that tag returns, through the implication closure.
+   *
+   * Resolved only when it is asked for -- it is one grouped query over the result set, not a field
+   * to send by accident.
+   */
+  facets: TagFacets;
   scenes: Array<Scene>;
+};
+
+
+export type QueryScenesResultTypeFacetsArgs = {
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  min_count?: InputMaybe<Scalars['Int']['input']>;
 };
 
 export type QuerySiteCategoriesResultType = {
@@ -3870,6 +4365,89 @@ export enum RoleEnum {
   VOTE = 'VOTE'
 }
 
+/**
+ * A search a reader keeps. The stored TEXT is canonical and the filter is derived by parsing it on
+ * every run -- docs/spec/feature-discovery.md section 3.2 -- so there is exactly one source of
+ * truth and no filter snapshot that can disagree with it.
+ *
+ * The cost, paid at resolution and stated there: a tag merge or rename does not rewrite the stored
+ * text, so a saved search keeps the OLD name and resolution follows the redirect. A term that can
+ * no longer be applied empties the result and says so in `results.diagnostics`; it is never dropped.
+ */
+export type SavedSearch = {
+  __typename: 'SavedSearch';
+  created: Scalars['Time']['output'];
+  id: Scalars['ID']['output'];
+  /** When the notification job last looked. Null means it has never run for this search. */
+  last_notified?: Maybe<Scalars['Time']['output']>;
+  name: Scalars['String']['output'];
+  /**
+   * Be told when it finds something new.
+   *
+   * One notification per run that found something, never one per match: a standing query over a
+   * busy instance is a feed, not a mailbox.
+   */
+  notify: Scalars['Boolean']['output'];
+  /** The query-language text, exactly as it was written. */
+  query: Scalars['String']['output'];
+  /**
+   * Runs the stored query. The same path `queryScenes` takes, so a saved search cannot answer
+   * differently from the statement it stores.
+   */
+  results: QueryScenesResultType;
+  updated: Scalars['Time']['output'];
+};
+
+
+/**
+ * A search a reader keeps. The stored TEXT is canonical and the filter is derived by parsing it on
+ * every run -- docs/spec/feature-discovery.md section 3.2 -- so there is exactly one source of
+ * truth and no filter snapshot that can disagree with it.
+ *
+ * The cost, paid at resolution and stated there: a tag merge or rename does not rewrite the stored
+ * text, so a saved search keeps the OLD name and resolution follows the redirect. A term that can
+ * no longer be applied empties the result and says so in `results.diagnostics`; it is never dropped.
+ */
+export type SavedSearchResultsArgs = {
+  direction?: InputMaybe<SortDirectionEnum>;
+  page?: InputMaybe<Scalars['Int']['input']>;
+  per_page?: InputMaybe<Scalars['Int']['input']>;
+  sort?: InputMaybe<SceneSortEnum>;
+};
+
+export type SavedSearchInput = {
+  name: Scalars['String']['input'];
+  notify?: InputMaybe<Scalars['Boolean']['input']>;
+  query: Scalars['String']['input'];
+};
+
+/**
+ * A saved search found something it had not seen before.
+ *
+ * `count` is how many matches the run found past the search's cursor, and the notification's own
+ * target id is the newest of them, so the notification opens the newest match rather than the
+ * search.
+ */
+export type SavedSearchMatch = {
+  __typename: 'SavedSearchMatch';
+  count: Scalars['Int']['output'];
+  /**
+   * The search that matched, or null if it has since been deleted.
+   *
+   * Deleting a search removes the notifications it produced in the same transaction, so null here
+   * means a race, not the normal path -- but a notification list renders every row it returns, and
+   * a non-null field with nothing behind it would fail the whole list rather than one link.
+   */
+  saved_search?: Maybe<SavedSearch>;
+};
+
+export type SavedSearchUpdateInput = {
+  id: Scalars['ID']['input'];
+  name: Scalars['String']['input'];
+  notify?: InputMaybe<Scalars['Boolean']['input']>;
+  query: Scalars['String']['input'];
+};
+
 export type Scene = {
   __typename: 'Scene';
   code?: Maybe<Scalars['String']['output']>;
@@ -3895,6 +4473,28 @@ export type Scene = {
   performers: Array<PerformerAppearance>;
   production_date?: Maybe<Scalars['String']['output']>;
   release_date?: Maybe<Scalars['String']['output']>;
+  /**
+   * Scenes related to this one, best first.
+   *
+   * An empty list is normal and not an error: a scene with no tags, no performers, no studio
+   * and no duration has nothing in common with anything, and one whose only neighbours share
+   * a single weak fact may rank below the page. That is a fact about the archive, not a
+   * failure.
+   *
+   * Excludes this scene and soft-deleted scenes, and never returns a scene unless it shares at
+   * least one fact -- a tag through the ontology, a performer, or its studio.
+   *
+   * There is NO minimum-evidence parameter, unlike `similarPerformers`' `minShared`. A floor
+   * there filters coincidence out of a short list of people; here the weak matches sink to the
+   * bottom of a list a client paginates, and a floor would silently hide a strong match with
+   * little shared vocabulary. `score` and `reasons` are both returned, so a client can filter
+   * on what it can see.
+   *
+   * There is no count field either, and for a different reason: the candidate pool is bounded
+   * (see `candidatePoolSize`), so a count would be a count of the pool rather than of the
+   * archive. "There are 500" would be a lie with a number on it.
+   */
+  similarScenes: Array<SimilarScene>;
   /** Every URL this scene claims, with what is known about each one's health. Aggregator programme, phase 1. */
   sources: Array<ContentSource>;
   studio?: Maybe<Studio>;
@@ -3907,6 +4507,11 @@ export type Scene = {
 
 export type SceneFingerprintsArgs = {
   is_submitted?: InputMaybe<Scalars['Boolean']['input']>;
+};
+
+
+export type SceneSimilarScenesArgs = {
+  limit?: InputMaybe<Scalars['Int']['input']>;
 };
 
 export type SceneCreateInput = {
@@ -4027,9 +4632,26 @@ export type SceneQueryInput = {
   alias?: InputMaybe<StringCriterionInput>;
   /** Filter by scene code */
   code?: InputMaybe<StringCriterionInput>;
+  /**
+   * Filter to scenes ADDED to the instance at or after this instant.
+   *
+   * Not a release date: `date` is when the scene was made, this is when it arrived here. It is
+   * what a saved search's notification cursor needs -- "what is new since I last looked" is a
+   * question about this instance, not about the calendar of the industry.
+   */
+  created_since?: InputMaybe<Scalars['Time']['input']>;
   /** Filter by date */
   date?: InputMaybe<DateCriterionInput>;
   direction?: SortDirectionEnum;
+  /** Filter by scene duration in seconds */
+  duration?: InputMaybe<IntCriterionInput>;
+  /**
+   * Filter to EXCLUDE scenes with these tags, and anything implying them (the ontology closure).
+   *
+   * A separate field from `tags` because a criterion carries ONE modifier, so "tag A and not tag B"
+   * -- the search language's own headline example, `anal -rough` -- has no other representation.
+   */
+  exclude_tags?: InputMaybe<MultiIdCriterionInput>;
   /** Filter by favorited entity */
   favorites?: InputMaybe<FavoriteFilter>;
   /** Filter to only include scenes with these fingerprints */
@@ -4046,6 +4668,15 @@ export type SceneQueryInput = {
   performers?: InputMaybe<MultiIdCriterionInput>;
   /** Filter by production date */
   production_date?: InputMaybe<DateCriterionInput>;
+  /**
+   * A search-language query: `anal -rough`, `duration:60..600`, `anal -rough sort:-date`.
+   *
+   * Parsed and merged into the SAME filter as the fields above (the query wins where it speaks),
+   * rather than being a second query implementation that would have to re-apply the tag hierarchy
+   * and could disagree with this one. Bare words are TAGS; free text is `text:"..."`. A term the
+   * filter cannot apply makes the result empty and is reported in `diagnostics`.
+   */
+  query?: InputMaybe<Scalars['String']['input']>;
   sort?: SceneSortEnum;
   /** Filter to only include scenes with this studio */
   studios?: InputMaybe<MultiIdCriterionInput>;
@@ -4063,6 +4694,8 @@ export enum SceneSortEnum {
   CREATED_AT = 'CREATED_AT',
   DATE = 'DATE',
   DURATION = 'DURATION',
+  /** Decayed engagement over the last 90 days (migration 114, spec section 7). */
+  FRESH = 'FRESH',
   POPULARITY = 'POPULARITY',
   /**
    * A random order, re-drawn on every request.
@@ -4073,6 +4706,8 @@ export enum SceneSortEnum {
    * independent samples rather than consecutive windows.
    */
   RANDOM = 'RANDOM',
+  /** Engaged THIS day more than the one before: the last 24 hours compared with the 24 before that. */
+  RISING = 'RISING',
   TITLE = 'TITLE',
   TRENDING = 'TRENDING',
   UPDATED_AT = 'UPDATED_AT'
@@ -4094,6 +4729,74 @@ export type SceneUpdateInput = {
   title?: InputMaybe<Scalars['String']['input']>;
   urls?: InputMaybe<Array<UrlInput>>;
 };
+
+/**
+ * One term of a search-language query that could not be applied, and where it is.
+ *
+ * `offset` is a byte offset into the query text, so a client can point at the term the reader has
+ * to edit. A diagnostic is not an error: the result set comes back EMPTY for the query as written,
+ * and this says which term made it so.
+ */
+export type SearchDiagnostic = {
+  __typename: 'SearchDiagnostic';
+  /** Machine-readable reason: unknown_name, unknown_field_value, not_yet, unsupported. */
+  code: Scalars['String']['output'];
+  /** What is wrong, in one sentence, naming the term and what would work instead. */
+  message: Scalars['String']['output'];
+  /** Byte offset of the term in the query text. */
+  offset: Scalars['Int']['output'];
+  /** The term as written, in canonical form. */
+  term: Scalars['String']['output'];
+};
+
+/** One stored cursor. */
+export type SessionState = {
+  __typename: 'SessionState';
+  /**
+   * The opaque payload, as the client wrote it.
+   *
+   * The VALUE is returned exactly; the TEXT need not be, because the column is jsonb and Postgres
+   * normalises whitespace and key order. A client that compares cursor strings byte for byte will
+   * see its own write come back different, which is why this is written down here.
+   *
+   * Null for a `LOCAL` row, and null there MEANS something: the client keeps this position itself.
+   * A `SYNCED` row always has one.
+   */
+  cursor?: Maybe<Scalars['String']['output']>;
+  /** Which one of that kind (`browse`, `tag:abc`, a saved search id). */
+  key: Scalars['String']['output'];
+  /** What the cursor is for (`scenes`, `forum-thread`, ...). */
+  kind: Scalars['String']['output'];
+  storage: SessionStorage;
+  updatedAt?: Maybe<Scalars['Time']['output']>;
+};
+
+export type SessionStateInput = {
+  /**
+   * The position, as the client wants it back.
+   *
+   * JSON, opaque to the server, at most 4096 bytes. IGNORED for a `LOCAL` save -- deliberately, and
+   * not as a convenience: a client that says "this stays on my device" and then sends the state
+   * anyway must not have it stored, or the choice is decoration.
+   */
+  cursor?: InputMaybe<Scalars['String']['input']>;
+  key: Scalars['String']['input'];
+  kind: Scalars['String']['input'];
+  storage?: SessionStorage;
+};
+
+/** Where a cursor lives. */
+export enum SessionStorage {
+  /**
+   * Kept by the client. The server records the CHOICE and no payload.
+   *
+   * The default, and the default is the safe direction: nothing leaves the device unless the user
+   * asked for it to.
+   */
+  LOCAL = 'LOCAL',
+  /** Kept by the server as well, so a second device can continue where this one stopped. */
+  SYNCED = 'SYNCED'
+}
 
 /**
  * One recommended performer, with the evidence that recommended them.
@@ -4137,6 +4840,89 @@ export type SimilarPerformer = {
    */
   targetScenes: Scalars['Int']['output'];
 };
+
+/**
+ * One recommended scene, with the evidence that recommended it.
+ *
+ * Ordered by `score` descending, with ties broken by id so two identical reads return the same
+ * page.
+ */
+export type SimilarScene = {
+  __typename: 'SimilarScene';
+  /** What the two scenes have in common, strongest kind first. */
+  reasons: Array<SimilarityReason>;
+  /** The recommendation. */
+  scene: Scene;
+  /**
+   * The ranking value, roughly 0-1 and above 1 for a rich candidate against a narrow subject.
+   *
+   * Exposed for ordering and debugging, NOT for display. Render the reasons.
+   */
+  score: Scalars['Float']['output'];
+  /**
+   * The embedding similarity of the two scenes, when the vector store knows both.
+   *
+   * Absent on every instance whose store holds nothing -- which is the default, because no
+   * embedding model produces vectors here yet. It is NOT a reason: it is a number, and it
+   * answers "why are these two in this order" when their evidence is equal. It never
+   * contributes to `score`, and a negative similarity is not reported at all: a claim that two
+   * scenes are unlike is not evidence that the structured match is wrong.
+   */
+  semanticScore?: Maybe<Scalars['Float']['output']>;
+};
+
+/**
+ * One thing two scenes have in common.
+ *
+ * `weight` is this reason's contribution to the score, so a client can reconstruct the number
+ * it is showing beside the reasons it is showing.
+ */
+export type SimilarityReason = {
+  __typename: 'SimilarityReason';
+  /** What kind of common ground this is. */
+  kind: SimilarityReasonKind;
+  /** The thing itself, in the words a reader would use: a tag, a performer or a studio name. Never a number. */
+  label: Scalars['String']['output'];
+  /**
+   * The subject's item that makes a TAG reason true, for the two ontology kinds: the subject's
+   * tag that the candidate's tag is a kind of, or the subject's tag that implies the
+   * candidate's. Absent for an exact tag match and for the other kinds, where there is nothing
+   * in between.
+   */
+  via?: Maybe<Scalars['String']['output']>;
+  /** This reason's contribution to `score`. */
+  weight: Scalars['Float']['output'];
+};
+
+/**
+ * What kind of thing two scenes have in common.
+ *
+ * A closed set, because the point of a reason is that a reader can check it. Three of the six
+ * are about tags and they are not interchangeable: see the note above the file.
+ */
+export enum SimilarityReasonKind {
+  /**
+   * The candidate carries a tag one of the subject's tags implies (the subject is tagged
+   * `cowgirl_position`, the candidate `woman_on_top`): a family relative rather than an
+   * instance. The weakest tag evidence there is, and named rather than hidden, because a
+   * reader who disagrees can see exactly what was claimed.
+   */
+  BROADER_TAG = 'BROADER_TAG',
+  /**
+   * The candidate carries a tag that is a KIND of one of the subject's tags
+   * (`cowgirl_position` for `woman_on_top`): a specific instance of a claim the subject makes.
+   * A claim in one direction only, so it weighs half of the same tag.
+   */
+  NARROWER_TAG = 'NARROWER_TAG',
+  /** Both scenes belong to the same studio. Weak on its own -- a studio publishes hundreds of scenes -- but it is what a reader would guess first, so it is named rather than folded into a score. */
+  SAME_STUDIO = 'SAME_STUDIO',
+  /** Both scenes carry this tag. */
+  SAME_TAG = 'SAME_TAG',
+  /** The same person appears in both scenes. The strongest single fact the archive records. */
+  SHARED_PERFORMER = 'SHARED_PERFORMER',
+  /** The two run for about the same length of time. A tiebreak, never a reason on its own: a runtime is not content. */
+  SIMILAR_DURATION = 'SIMILAR_DURATION'
+}
 
 export type Site = {
   __typename: 'Site';
@@ -4419,8 +5205,47 @@ export type Tag = {
   description?: Maybe<Scalars['String']['output']>;
   edits: Array<Edit>;
   id: Scalars['ID']['output'];
+  /** Direct: the tags that imply this one. */
+  implied_by: Array<Tag>;
+  /** Everything above this tag: every tag a reader could filter by and still find this one. */
+  implied_by_transitive: Array<TagAtDepth>;
+  /**
+   * Direct implications: applying this tag also applies these.
+   *
+   * An implication is changed only through a tag edit (`added_implications` /
+   * `removed_implications` on `TagEditDetailsInput`), because tag data is shared data and the
+   * edit system is this instance's proposal-discussion-vote machine.
+   */
+  implies: Array<Tag>;
+  /**
+   * Everything below this tag, at any depth, with how far below.
+   *
+   * Read this instead of walking `implies` when the question is "what will a filter on this
+   * tag actually return": it is one round trip and it is the set the search expands to.
+   */
+  implies_transitive: Array<TagAtDepth>;
   name: Scalars['String']['output'];
+  /**
+   * How many scenes a filter on this tag would return, through the implications below it.
+   *
+   * Not `COUNT(scene_tags)`: a scene tagged only `cowgirl_position` is found by a filter on
+   * `woman_on_top`, so it counts here too. That is the number a reader sees when they click the
+   * tag, and the two must not disagree.
+   */
+  scene_count: Scalars['Int']['output'];
   updated: Scalars['Time']['output'];
+};
+
+/**
+ * A tag and how far it is from the tag that was asked about.
+ *
+ * `depth` is what makes a flat list usable: without it a client cannot tell a direct
+ * implication from one three levels down without walking the graph itself. 1 is direct.
+ */
+export type TagAtDepth = {
+  __typename: 'TagAtDepth';
+  depth: Scalars['Int']['output'];
+  tag: Tag;
 };
 
 export type TagCategory = {
@@ -4505,18 +5330,29 @@ export type TagDestroyInput = {
 export type TagEdit = {
   __typename: 'TagEdit';
   added_aliases?: Maybe<Array<Scalars['String']['output']>>;
+  added_implications?: Maybe<Array<Tag>>;
   aliases: Array<Scalars['String']['output']>;
   category?: Maybe<TagCategory>;
   description?: Maybe<Scalars['String']['output']>;
   name?: Maybe<Scalars['String']['output']>;
   removed_aliases?: Maybe<Array<Scalars['String']['output']>>;
+  removed_implications?: Maybe<Array<Tag>>;
 };
 
 export type TagEditDetailsInput = {
+  /**
+   * Tags this tag implies, added by this edit. Both lists are relative to the tag being
+   * edited, and both are applied when the edit is approved.
+   *
+   * An edit that would create a cycle is refused when it is submitted, so the submitter gets
+   * the reason while they can still change it; the database refuses it again on apply.
+   */
+  added_implications?: InputMaybe<Array<Scalars['ID']['input']>>;
   aliases?: InputMaybe<Array<Scalars['String']['input']>>;
   category_id?: InputMaybe<Scalars['ID']['input']>;
   description?: InputMaybe<Scalars['String']['input']>;
   name?: InputMaybe<Scalars['String']['input']>;
+  removed_implications?: InputMaybe<Array<Scalars['ID']['input']>>;
 };
 
 export type TagEditInput = {
@@ -4525,11 +5361,52 @@ export type TagEditInput = {
   edit: EditInput;
 };
 
+export type TagFacet = {
+  __typename: 'TagFacet';
+  /** Result scenes carrying this tag or anything implying it: exactly what filtering by it returns. */
+  count: Scalars['Int']['output'];
+  /**
+   * `count` divided by every scene in this INSTANCE a filter on this tag would return.
+   *
+   * 1.0 means this query's result set already holds everything that tag has. It is a display
+   * figure and never a filter: it is computed against this instance's corpus, so two instances
+   * holding different scenes give the same query different numbers.
+   */
+  strength: Scalars['Float']['output'];
+  tag: Tag;
+};
+
+/**
+ * The tags a result set is made of, most-used first (docs/spec/feature-discovery.md section 6).
+ *
+ * Scoped by exactly the filter the results were scoped by -- the same query builder, not a copy --
+ * so a facet cannot describe a different set of scenes than the one it sits beside.
+ */
+export type TagFacets = {
+  __typename: 'TagFacets';
+  /**
+   * How many of the result scenes carry at least one tag. The denominator a client needs to render
+   * "40% of these" honestly.
+   */
+  tagged_count: Scalars['Int']['output'];
+  tags: Array<TagFacet>;
+};
+
 export enum TagGroupEnum {
   ACTION = 'ACTION',
   PEOPLE = 'PEOPLE',
   SCENE = 'SCENE'
 }
+
+/** One row of the ontology, by name. */
+export type TagImplication = {
+  __typename: 'TagImplication';
+  created_at: Scalars['Time']['output'];
+  implied_name: Scalars['String']['output'];
+  implied_tag_id: Scalars['ID']['output'];
+  tag_id: Scalars['ID']['output'];
+  tag_name: Scalars['String']['output'];
+};
 
 export type TagQueryInput = {
   /** Filter to category ID */
@@ -4593,6 +5470,10 @@ export type UnderSnapshottedScene = {
   scene: Scene;
   /** Snapshots currently claimed. */
   snapshotCount: Scalars['Int']['output'];
+};
+
+export type UnfollowInput = {
+  userId: Scalars['ID']['input'];
 };
 
 /**
@@ -6146,6 +7027,7 @@ export type NotificationsQuery = { __typename: 'Query', queryNotifications: { __
               | { __typename: 'StudioEdit' }
               | { __typename: 'TagEdit' }
              | null, votes: Array<{ __typename: 'EditVote', date: string, vote: VoteTypeEnum, user?: { __typename: 'User', id: string, name: string } | null }> } }
+        | { __typename: 'SavedSearchMatch' }
         | { __typename: 'UpdatedEdit', edit: { __typename: 'Edit', id: string, target_type: TargetTypeEnum, operation: OperationEnum, status: VoteStatusEnum, bot: boolean, applied: boolean, created: string, updated?: string | null, closed?: string | null, expires?: string | null, passing?: boolean | null, update_count: number, vote_count: number, destructive: boolean, user?: { __typename: 'User', id: string, name: string } | null, target?:
               | { __typename: 'Performer', id: string, name: string, disambiguation?: string | null }
               | { __typename: 'Scene', id: string, title?: string | null, studio?: { __typename: 'Studio', id: string, name: string } | null }

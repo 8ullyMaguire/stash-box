@@ -167,6 +167,26 @@ type config struct {
 	ImageAuditRetentionDays int `mapstructure:"image_audit_retention_days"`
 
 	CSP string `mapstructure:"csp"`
+
+	// Operator changes to the built-in identification source catalogue (SPEC §8,
+	// plan step 7a): each entry either replaces a built-in source by exact name
+	// or adds one. Empty leaves the catalogue as DefaultSources ships it, which
+	// is the whole point -- the no-network half needs no configuration.
+	IdentificationSources []IdentificationSourceConfig `mapstructure:"identification_sources"`
+}
+
+// IdentificationSourceConfig is one operator-supplied identification source.
+//
+// Enabled is a POINTER because "not specified" and "false" are different
+// statements: an entry that only changes a template must not silently turn the
+// source off, and with a plain bool the destructive reading is the one a missing
+// key produces. Reading nil as "unchanged" is what makes the config additive.
+type IdentificationSourceConfig struct {
+	Name     string `mapstructure:"name"`
+	Kind     string `mapstructure:"kind"`
+	Home     string `mapstructure:"home"`
+	Template string `mapstructure:"template"`
+	Enabled  *bool  `mapstructure:"enabled"`
 }
 
 var JWTSignKey = "jwt_secret_key"

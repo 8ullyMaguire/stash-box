@@ -21,6 +21,13 @@ func NewResolver(fac service.Factory) *Resolver {
 func (r *Resolver) Mutation() models.MutationResolver {
 	return &mutationResolver{r}
 }
+
+// IdentificationQuery carries `sourceLinks`, which takes the image address as an
+// argument (SPEC §8). See gqlgen.yml: a bound field's arguments are parsed and
+// then ignored, so the field is force-resolved.
+func (r *Resolver) IdentificationQuery() models.IdentificationQueryResolver {
+	return &identificationQueryResolver{r}
+}
 func (r *Resolver) Edit() models.EditResolver {
 	return &editResolver{r}
 }

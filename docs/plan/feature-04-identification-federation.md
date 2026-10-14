@@ -337,6 +337,131 @@ curl -s -X POST http://127.0.0.1:9998/graphql -H 'Content-Type: application/json
 
 Expect `{"data":{"federationPeers":[]}}` on a fresh instance, not an error.
 
+## Step 7 — third-party identification sources (SPEC §8)
+
+**Status: 7a DONE; 7b/7c planned; 7d deferred.** Steps 1–6 federate with *peers*
+— remote instances running this software, accountable by attestation. Step 7 adds
+the other kind of remote answerer: a service or model the operator does not
+control, which is why every slice below is about keeping its answer as
+**evidence** (F7) and about which half of a provider is even allowed to run (F8,
+F10).
+
+### 7a — the source registry and its deep links
+
+The no-network half: a source is a name, a home URL, and a URL template with a
+`{url}` (or `{query}`) hole in it. Rendering that template for a query's image is
+a pure function, so this ships without keys, without terms review and without
+anything about a user leaving the instance.
+
+- `internal/service/identification/sources.go` — `Source` (name, kind, home,
+  template), `DefaultSources()` (the catalogue from §8.1: SauceNAO, IQDB,
+  trace.moe, TinEye, Yandex, FindIt.moe, ImgOps, SauceMatch, AVScan, Revideo,
+  FaceCheck.ID, PornstarByFace, xzeno, SocialFinder, Camgirlfinder, OnlyFinder,
+  FaceSpy, r/TOMP, r/HentaiSource, NameThatPorn, Stash Forum guide — each marked
+  `remote_face` / `reverse_media` / `community`, since the kind is what decides
+  whether 7c's gate applies), `LinkFor(src, imageURL)` returning the rendered URL
+  and an error if the template has no hole or the image URL is empty.
+- `internal/config/config.go` — `identification_sources:` block: an `enabled`
+  name list and optional `add` entries, so an operator can disable one or add
+  their own without a release. A source not in the block's list is **off**.
+- `graphql/schema/types/identification.graphql` — `IdentificationSource` (name,
+  kind, home) and `IdentificationSourceLink` (source, url), a query
+  `identificationSources` for the registry, and the field
+  `IdentificationQuery.sourceLinks: [IdentificationSourceLink!]!`.
+- `internal/api/resolver_identification.go` — the two resolvers; `sourceLinks`
+  needs the query's image (the snapshot or collage URL) and returns `[]` for a
+  query with no image rather than an error, because "no image to reverse-search"
+  is a normal state of an early query.
+
+**Verification**
+
+```
+go test ./internal/service/identification/ -run TestSource -v
+```
+Expected: every default source's template renders; an image URL containing
+`?`, `&` and a space comes back **percent-encoded** in the right place (a
+`?url=` provider must encode, a path-append provider must escape); a source with
+no hole in its template is rejected; a disabled source is absent from `Links()`.
+Then the resolver:
+
+```
+POSTGRES_DB='postgres:smoke_pw@127.0.0.1:55434/stash-box-test?sslmode=disable' \
+  go test -tags integration ./internal/api/ -run TestIdentificationSourceLinks
+```
+Expected: `{"data":{"identificationQuery":{"sourceLinks":[{"source":"SauceNAO",
+"url":"https://saucenao.com/search.php?url=https%3A%2F%2F..."}]}}}` — the image's
+address encoded inside the link, and the list non-empty for a query that has one.
+
+**Mutations** (each must go red on its own test, neighbours green):
+
+1. `url.QueryEscape(imageURL)` → plain concatenation. Caught by the encoding case
+   (this is the whole reason the test exists: an unencoded `&` in the image URL
+   splits the outer query and the provider searches for the wrong thing).
+2. Drop the `enabled` filter in `Links()`. Caught by the disabled-source case.
+3. Return the error instead of `[]` when the query has no image. Caught by the
+   no-image resolver case.
+
+### 7b — source evidence, stored where it cannot vote (migration 117)
+
+A provider's answer is a row, not a vote (F7). New table
+`identification_source_evidence(query_id, provider, source_url, entity_type,
+remote_ref, remote_name, confidence, fetched_at)`, mirroring
+`identification_foreign_candidates` — and, like it, with **no column that can hold
+a local entity id**, so F7 is an assertion the schema makes rather than a
+convention a service keeps.
+
+- `internal/queries/sql/identification_sources.sql` — create/list/get/delete by
+  query and by provider; the ON CONFLICT DO UPDATE on
+  `(query_id, provider, entity_type, remote_ref)` because re-asking is normal and
+  an answer can legitimately move (the same reasoning as the foreign table's).
+- `internal/api/identification_sources_integration_test.go` —
+  `TestSourceEvidenceCannotReachLocalVotePath` as the sibling of the existing
+  `TestForeignEvidenceCannotReachLocalVotePath`: assert that no query in the new
+  SQL file writes `identification_candidates`, and that inserting evidence does
+  not change what `candidates` returns for the query.
+- Schema: `IdentificationQuery.sourceEvidence: [IdentificationSourceEvidence!]!`.
+
+**Verification**
+
+```
+scripts/verify-117.sh
+```
+Expected: the migration applies, `\d identification_source_evidence` shows no
+entity-id column, and both boundary tests pass. Then the whole tagged suite
+(`go test -tags integration -count=1 -p 1 ./...`) — the new table is reached by
+the resolution path, so the pre-existing identification suites must stay green.
+
+### 7c — the first provider that CALLS something, and the gate that stops it
+
+Only after 7b, and only behind F10. A `Provider` interface
+(`Suggest(ctx, Question) ([]Suggestion, error)`) with a **fake** in the tests;
+`source.enabled` in config decides both whether it is called *and* whether the
+operator has been shown what it sends. The default for every `remote_face`
+provider is `false`, and the test that matters is the negative one:
+
+```
+go test ./internal/service/identification/ -run TestRemoteFaceProviderNotCalled
+```
+Expected: with the gate closed, the provider's HTTP client is never invoked and
+the evidence list stays empty — asserted with a counting round-tripper, because
+"we would have declined to send it" is not the same as "we never sent it".
+The first real provider to implement is a **local** one (7d), not a remote one:
+StashFace ONNX / MegaFace answer the same question with nothing leaving the box.
+
+### 7d — local models (deferred, with the dependency written down)
+
+- **Face matcher** (StashFace ONNX / MegaFace): a sidecar process behind the 7c
+  interface, so the request path never loads a model. Same output also serves
+  **face-centred crop suggestions** (`95_image_crops` exists; complaint #84) —
+  one detector, two consumers.
+- **Anime/image tagger** (WD14, WD Tagger, pixai-tagger): suggestions for the
+  image/gallery/animation content kinds, which needs **phase 3** first — a
+  content item to tag. Its output is a draft for the edit system (F9), never a
+  direct write.
+- **AV-code extraction** (`ABC-123` in a title, filename or URL → code + the
+  canonical URLs it implies): pure, network-free, and belonging to ingestion
+  (§8.4), so it can ship independently of the models if it is wanted sooner.
+
 ## Definition of done
 
 - `go build ./...`, `go vet ./...` clean.

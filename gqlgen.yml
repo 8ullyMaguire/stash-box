@@ -16,6 +16,15 @@ autobind:
 models:
   ID:
     model: github.com/stashapp/stash-box/internal/models.ID
+  IdentificationQuery:
+    fields:
+      # `sourceLinks` takes the image address as an argument (SPEC §8). Left
+      # bound to the struct field, gqlgen parses the argument and then returns
+      # the field anyway, so the address the caller passed would be discarded and
+      # every link would render without it. Force-resolved for the same reason
+      # SavedSearch.results is.
+      sourceLinks:
+        resolver: true
   SavedSearch:
     fields:
       # `results` takes paging and sorting arguments. Left bound to the struct field,

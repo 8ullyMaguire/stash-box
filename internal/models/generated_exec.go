@@ -37,6 +37,7 @@ type ResolverRoot interface {
 	Edit() EditResolver
 	EditComment() EditCommentResolver
 	EditVote() EditVoteResolver
+	IdentificationQuery() IdentificationQueryResolver
 	Image() ImageResolver
 	ImageType() ImageTypeResolver
 	ModAudit() ModAuditResolver
@@ -443,9 +444,24 @@ type ComplexityRoot struct {
 		ResolvedID   func(childComplexity int) int
 		ResolvedType func(childComplexity int) int
 		SnapshotID   func(childComplexity int) int
+		SourceLinks  func(childComplexity int, imageURL string) int
 		Status       func(childComplexity int) int
 		TargetID     func(childComplexity int) int
 		TargetType   func(childComplexity int) int
+	}
+
+	IdentificationSource struct {
+		Enabled func(childComplexity int) int
+		Home    func(childComplexity int) int
+		Kind    func(childComplexity int) int
+		Name    func(childComplexity int) int
+	}
+
+	IdentificationSourceLink struct {
+		Kind      func(childComplexity int) int
+		Prefilled func(childComplexity int) int
+		Source    func(childComplexity int) int
+		URL       func(childComplexity int) int
 	}
 
 	Image struct {
@@ -852,6 +868,7 @@ type ComplexityRoot struct {
 		GetConfig                      func(childComplexity int) int
 		GetUnreadNotificationCount     func(childComplexity int) int
 		IdentificationQuery            func(childComplexity int, id uuid.UUID) int
+		IdentificationSources          func(childComplexity int) int
 		ImageTypeGroups                func(childComplexity int, target *ImageTypeScopeEnum, includeDisabled *bool) int
 		List                           func(childComplexity int, id uuid.UUID) int
 		ListOpenIdentificationQueries  func(childComplexity int, limit *int) int
@@ -1423,6 +1440,9 @@ type EditVoteResolver interface {
 	Date(ctx context.Context, obj *EditVote) (*time.Time, error)
 	Vote(ctx context.Context, obj *EditVote) (VoteTypeEnum, error)
 }
+type IdentificationQueryResolver interface {
+	SourceLinks(ctx context.Context, obj *IdentificationQuery, imageURL string) ([]IdentificationSourceLink, error)
+}
 type ImageResolver interface {
 	URL(ctx context.Context, obj *Image) (string, error)
 
@@ -1683,6 +1703,7 @@ type QueryResolver interface {
 	IdentificationQuery(ctx context.Context, id uuid.UUID) (*IdentificationQuery, error)
 	ResolvedIdentificationQueries(ctx context.Context, entityType IdentificationTargetType, entityID uuid.UUID, limit *int) ([]IdentificationQuery, error)
 	MyIdentificationDetectiveScore(ctx context.Context) (*IdentificationDetective, error)
+	IdentificationSources(ctx context.Context) ([]IdentificationSource, error)
 	List(ctx context.Context, id uuid.UUID) (*List, error)
 	PublishedLists(ctx context.Context, perPage *int, page *int) (*ListBrowseResult, error)
 	Lists(ctx context.Context, userID *uuid.UUID, perPage *int, page *int) ([]List, error)
@@ -3163,6 +3184,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.IdentificationQuery.SnapshotID(childComplexity), true
+	case "IdentificationQuery.sourceLinks":
+		if e.ComplexityRoot.IdentificationQuery.SourceLinks == nil {
+			break
+		}
+
+		args, err := ec.field_IdentificationQuery_sourceLinks_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.IdentificationQuery.SourceLinks(childComplexity, args["imageUrl"].(string)), true
 	case "IdentificationQuery.status":
 		if e.ComplexityRoot.IdentificationQuery.Status == nil {
 			break
@@ -3181,6 +3213,56 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.IdentificationQuery.TargetType(childComplexity), true
+
+	case "IdentificationSource.enabled":
+		if e.ComplexityRoot.IdentificationSource.Enabled == nil {
+			break
+		}
+
+		return e.ComplexityRoot.IdentificationSource.Enabled(childComplexity), true
+	case "IdentificationSource.home":
+		if e.ComplexityRoot.IdentificationSource.Home == nil {
+			break
+		}
+
+		return e.ComplexityRoot.IdentificationSource.Home(childComplexity), true
+	case "IdentificationSource.kind":
+		if e.ComplexityRoot.IdentificationSource.Kind == nil {
+			break
+		}
+
+		return e.ComplexityRoot.IdentificationSource.Kind(childComplexity), true
+	case "IdentificationSource.name":
+		if e.ComplexityRoot.IdentificationSource.Name == nil {
+			break
+		}
+
+		return e.ComplexityRoot.IdentificationSource.Name(childComplexity), true
+
+	case "IdentificationSourceLink.kind":
+		if e.ComplexityRoot.IdentificationSourceLink.Kind == nil {
+			break
+		}
+
+		return e.ComplexityRoot.IdentificationSourceLink.Kind(childComplexity), true
+	case "IdentificationSourceLink.prefilled":
+		if e.ComplexityRoot.IdentificationSourceLink.Prefilled == nil {
+			break
+		}
+
+		return e.ComplexityRoot.IdentificationSourceLink.Prefilled(childComplexity), true
+	case "IdentificationSourceLink.source":
+		if e.ComplexityRoot.IdentificationSourceLink.Source == nil {
+			break
+		}
+
+		return e.ComplexityRoot.IdentificationSourceLink.Source(childComplexity), true
+	case "IdentificationSourceLink.url":
+		if e.ComplexityRoot.IdentificationSourceLink.URL == nil {
+			break
+		}
+
+		return e.ComplexityRoot.IdentificationSourceLink.URL(childComplexity), true
 
 	case "Image.categorized_at":
 		if e.ComplexityRoot.Image.CategorizedAt == nil {
@@ -5904,6 +5986,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.IdentificationQuery(childComplexity, args["id"].(uuid.UUID)), true
+	case "Query.identificationSources":
+		if e.ComplexityRoot.Query.IdentificationSources == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Query.IdentificationSources(childComplexity), true
 	case "Query.imageTypeGroups":
 		if e.ComplexityRoot.Query.ImageTypeGroups == nil {
 			break
@@ -9826,6 +9914,23 @@ type IdentificationQuery {
   see it.
   """
   candidates: [IdentificationCandidate!]!
+
+  """
+  Where a person can take this image to ask someone else (SPEC §8).
+
+  Rendered links, not requests: the caller passes the address of the image it is
+  showing (a cover on its source site, a frame) and gets back the external
+  lookups with that address filled in. The SERVER never fetches any of them, and
+  a source that takes an upload rather than an address comes back pointing at its
+  front page with ` + "`" + `prefilled: false` + "`" + ` saying so.
+
+  Empty when the caller passes no address: a query with nothing to look up yet is
+  a normal state, not an error. Disabled sources are absent, and the face-matching
+  ones are disabled until an operator enables them by name (SPEC §8, F10) --
+  handing a face to a third party is a decision about a person who is not in the
+  room, so it is not a default.
+  """
+  sourceLinks(imageUrl: String!): [IdentificationSourceLink!]!
 }
 
 """One suggested answer to a query."""
@@ -9941,6 +10046,53 @@ extend type Query {
   longer exists.
   """
   myIdentificationDetectiveScore: IdentificationDetective @hasRole(role: VOTE)
+
+  """
+  The external sources this instance offers, and whether each one is on (SPEC §8).
+
+  Config-shaped and read-only: this is what an operator's ` + "`" + `identification_sources` + "`" + `
+  block resolved to, so a client can render the links without knowing any of the
+  URLs, and a reader can see that a face-matching service exists here but has been
+  left OFF rather than never having been considered.
+  """
+  identificationSources: [IdentificationSource!]! @hasRole(role: READ)
+}
+
+"""
+What a source does with the media it is given (SPEC §8).
+
+A local model is a different thing -- it runs in the operator's own
+infrastructure and is a provider rather than a link -- so it has no kind here.
+"""
+enum IdentificationSourceKind {
+  "An engine that finds where else an image or clip appears."
+  REVERSE_MEDIA
+  "A service that matches a FACE. Off until an operator enables it (F10)."
+  REMOTE_FACE
+  "A place where a person asks a question and people answer (F12)."
+  COMMUNITY
+}
+
+"""One external place a question can be taken to."""
+type IdentificationSource {
+  name: String!
+  kind: IdentificationSourceKind!
+  "Where the source lives, for a reader deciding whether to open it."
+  home: String!
+  "Whether this instance offers it."
+  enabled: Boolean!
+}
+
+"""A source rendered for one image address."""
+type IdentificationSourceLink {
+  source: String!
+  kind: IdentificationSourceKind!
+  url: String!
+  """
+  False when the source takes an upload rather than an address, so the reader
+  arrives at its front door with nothing in hand.
+  """
+  prefilled: Boolean!
 }
 
 extend type Mutation {
@@ -12304,6 +12456,10 @@ type SessionState {
   """
   The opaque payload, as the client wrote it.
 
+  The VALUE is returned exactly; the TEXT need not be, because the column is jsonb and Postgres
+  normalises whitespace and key order. A client that compares cursor strings byte for byte will
+  see its own write come back different, which is why this is written down here.
+
   Null for a ` + "`" + `LOCAL` + "`" + ` row, and null there MEANS something: the client keeps this position itself.
   A ` + "`" + `SYNCED` + "`" + ` row always has one.
   """
@@ -14203,8 +14359,38 @@ func (ec *executionContext) childFields_IdentificationQuery(ctx context.Context,
 		return ec.fieldContext_IdentificationQuery_resolvedAt(ctx, field)
 	case "candidates":
 		return ec.fieldContext_IdentificationQuery_candidates(ctx, field)
+	case "sourceLinks":
+		return ec.fieldContext_IdentificationQuery_sourceLinks(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type IdentificationQuery", field.Name)
+}
+
+func (ec *executionContext) childFields_IdentificationSource(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "name":
+		return ec.fieldContext_IdentificationSource_name(ctx, field)
+	case "kind":
+		return ec.fieldContext_IdentificationSource_kind(ctx, field)
+	case "home":
+		return ec.fieldContext_IdentificationSource_home(ctx, field)
+	case "enabled":
+		return ec.fieldContext_IdentificationSource_enabled(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type IdentificationSource", field.Name)
+}
+
+func (ec *executionContext) childFields_IdentificationSourceLink(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "source":
+		return ec.fieldContext_IdentificationSourceLink_source(ctx, field)
+	case "kind":
+		return ec.fieldContext_IdentificationSourceLink_kind(ctx, field)
+	case "url":
+		return ec.fieldContext_IdentificationSourceLink_url(ctx, field)
+	case "prefilled":
+		return ec.fieldContext_IdentificationSourceLink_prefilled(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type IdentificationSourceLink", field.Name)
 }
 
 func (ec *executionContext) childFields_Image(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -15488,6 +15674,20 @@ func (ec *executionContext) dir_hasRole_args(ctx context.Context, rawArgs map[st
 		return nil, err
 	}
 	args["role"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_IdentificationQuery_sourceLinks_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "imageUrl",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNString2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["imageUrl"] = arg0
 	return args, nil
 }
 
@@ -23715,6 +23915,234 @@ func (ec *executionContext) fieldContext_IdentificationQuery_candidates(_ contex
 		},
 	}
 	return fc, nil
+}
+
+func (ec *executionContext) _IdentificationQuery_sourceLinks(ctx context.Context, field graphql.CollectedField, obj *IdentificationQuery) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_IdentificationQuery_sourceLinks(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.IdentificationQuery().SourceLinks(ctx, obj, fc.Args["imageUrl"].(string))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []IdentificationSourceLink) graphql.Marshaler {
+			return ec.marshalNIdentificationSourceLink2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationSourceLinkᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_IdentificationQuery_sourceLinks(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "IdentificationQuery",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_IdentificationSourceLink(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_IdentificationQuery_sourceLinks_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _IdentificationSource_name(ctx context.Context, field graphql.CollectedField, obj *IdentificationSource) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_IdentificationSource_name(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Name, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_IdentificationSource_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("IdentificationSource", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _IdentificationSource_kind(ctx context.Context, field graphql.CollectedField, obj *IdentificationSource) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_IdentificationSource_kind(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Kind, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v IdentificationSourceKind) graphql.Marshaler {
+			return ec.marshalNIdentificationSourceKind2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationSourceKind(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_IdentificationSource_kind(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("IdentificationSource", field, false, false, errors.New("field of type IdentificationSourceKind does not have child fields"))
+}
+
+func (ec *executionContext) _IdentificationSource_home(ctx context.Context, field graphql.CollectedField, obj *IdentificationSource) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_IdentificationSource_home(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Home, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_IdentificationSource_home(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("IdentificationSource", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _IdentificationSource_enabled(ctx context.Context, field graphql.CollectedField, obj *IdentificationSource) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_IdentificationSource_enabled(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Enabled, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_IdentificationSource_enabled(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("IdentificationSource", field, false, false, errors.New("field of type Boolean does not have child fields"))
+}
+
+func (ec *executionContext) _IdentificationSourceLink_source(ctx context.Context, field graphql.CollectedField, obj *IdentificationSourceLink) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_IdentificationSourceLink_source(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Source, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_IdentificationSourceLink_source(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("IdentificationSourceLink", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _IdentificationSourceLink_kind(ctx context.Context, field graphql.CollectedField, obj *IdentificationSourceLink) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_IdentificationSourceLink_kind(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Kind, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v IdentificationSourceKind) graphql.Marshaler {
+			return ec.marshalNIdentificationSourceKind2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationSourceKind(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_IdentificationSourceLink_kind(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("IdentificationSourceLink", field, false, false, errors.New("field of type IdentificationSourceKind does not have child fields"))
+}
+
+func (ec *executionContext) _IdentificationSourceLink_url(ctx context.Context, field graphql.CollectedField, obj *IdentificationSourceLink) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_IdentificationSourceLink_url(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.URL, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_IdentificationSourceLink_url(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("IdentificationSourceLink", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _IdentificationSourceLink_prefilled(ctx context.Context, field graphql.CollectedField, obj *IdentificationSourceLink) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_IdentificationSourceLink_prefilled(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Prefilled, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_IdentificationSourceLink_prefilled(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("IdentificationSourceLink", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
 func (ec *executionContext) _Image_id(ctx context.Context, field graphql.CollectedField, obj *Image) (ret graphql.Marshaler) {
@@ -39352,6 +39780,56 @@ func (ec *executionContext) fieldContext_Query_myIdentificationDetectiveScore(_ 
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return ec.childFields_IdentificationDetective(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_identificationSources(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_identificationSources(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Query().IdentificationSources(ctx)
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal []IdentificationSource
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal []IdentificationSource
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v []IdentificationSource) graphql.Marshaler {
+			return ec.marshalNIdentificationSource2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationSourceᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_identificationSources(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_IdentificationSource(ctx, field)
 		},
 	}
 	return fc, nil
@@ -60400,60 +60878,204 @@ func (ec *executionContext) _IdentificationQuery(ctx context.Context, sel ast.Se
 		case "id":
 			out.Values[i] = ec._IdentificationQuery_id(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "targetType":
 			out.Values[i] = ec._IdentificationQuery_targetType(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "targetId":
 			out.Values[i] = ec._IdentificationQuery_targetId(ctx, field, obj)
 			if out.Values[i] == graphql.RequiredNull {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "description":
 			out.Values[i] = ec._IdentificationQuery_description(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "snapshotId":
 			out.Values[i] = ec._IdentificationQuery_snapshotId(ctx, field, obj)
 			if out.Values[i] == graphql.RequiredNull {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "status":
 			out.Values[i] = ec._IdentificationQuery_status(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "createdAt":
 			out.Values[i] = ec._IdentificationQuery_createdAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "resolvedType":
 			out.Values[i] = ec._IdentificationQuery_resolvedType(ctx, field, obj)
 			if out.Values[i] == graphql.RequiredNull {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "resolvedId":
 			out.Values[i] = ec._IdentificationQuery_resolvedId(ctx, field, obj)
 			if out.Values[i] == graphql.RequiredNull {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "resolvedBy":
 			out.Values[i] = ec._IdentificationQuery_resolvedBy(ctx, field, obj)
 			if out.Values[i] == graphql.RequiredNull {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "resolvedAt":
 			out.Values[i] = ec._IdentificationQuery_resolvedAt(ctx, field, obj)
 			if out.Values[i] == graphql.RequiredNull {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "candidates":
 			out.Values[i] = ec._IdentificationQuery_candidates(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "sourceLinks":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._IdentificationQuery_sourceLinks(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var identificationSourceImplementors = []string{"IdentificationSource"}
+
+func (ec *executionContext) _IdentificationSource(ctx context.Context, sel ast.SelectionSet, obj *IdentificationSource) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, identificationSourceImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("IdentificationSource")
+		case "name":
+			out.Values[i] = ec._IdentificationSource_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "kind":
+			out.Values[i] = ec._IdentificationSource_kind(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "home":
+			out.Values[i] = ec._IdentificationSource_home(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "enabled":
+			out.Values[i] = ec._IdentificationSource_enabled(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var identificationSourceLinkImplementors = []string{"IdentificationSourceLink"}
+
+func (ec *executionContext) _IdentificationSourceLink(ctx context.Context, sel ast.SelectionSet, obj *IdentificationSourceLink) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, identificationSourceLinkImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("IdentificationSourceLink")
+		case "source":
+			out.Values[i] = ec._IdentificationSourceLink_source(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "kind":
+			out.Values[i] = ec._IdentificationSourceLink_kind(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "url":
+			out.Values[i] = ec._IdentificationSourceLink_url(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "prefilled":
+			out.Values[i] = ec._IdentificationSourceLink_prefilled(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -66157,6 +66779,28 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 				}()
 				res = ec._Query_myIdentificationDetectiveScore(ctx, field)
 				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "identificationSources":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_identificationSources(ctx, field)
+				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
 				return res
@@ -74830,6 +75474,56 @@ func (ec *executionContext) marshalNIdentificationQuery2ᚖgithubᚗcomᚋstasha
 func (ec *executionContext) unmarshalNIdentificationResolveInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationResolveInput(ctx context.Context, v any) (IdentificationResolveInput, error) {
 	res, err := ec.unmarshalInputIdentificationResolveInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNIdentificationSource2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationSource(ctx context.Context, sel ast.SelectionSet, v IdentificationSource) graphql.Marshaler {
+	return ec._IdentificationSource(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNIdentificationSource2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationSourceᚄ(ctx context.Context, sel ast.SelectionSet, v []IdentificationSource) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNIdentificationSource2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationSource(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) unmarshalNIdentificationSourceKind2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationSourceKind(ctx context.Context, v any) (IdentificationSourceKind, error) {
+	var res IdentificationSourceKind
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNIdentificationSourceKind2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationSourceKind(ctx context.Context, sel ast.SelectionSet, v IdentificationSourceKind) graphql.Marshaler {
+	return v
+}
+
+func (ec *executionContext) marshalNIdentificationSourceLink2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationSourceLink(ctx context.Context, sel ast.SelectionSet, v IdentificationSourceLink) graphql.Marshaler {
+	return ec._IdentificationSourceLink(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNIdentificationSourceLink2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationSourceLinkᚄ(ctx context.Context, sel ast.SelectionSet, v []IdentificationSourceLink) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNIdentificationSourceLink2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationSourceLink(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
 }
 
 func (ec *executionContext) unmarshalNIdentificationStatus2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIdentificationStatus(ctx context.Context, v any) (IdentificationStatus, error) {

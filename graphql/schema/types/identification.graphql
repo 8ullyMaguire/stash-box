@@ -90,6 +90,23 @@ type IdentificationQuery {
   see it.
   """
   candidates: [IdentificationCandidate!]!
+
+  """
+  Where a person can take this image to ask someone else (SPEC §8).
+
+  Rendered links, not requests: the caller passes the address of the image it is
+  showing (a cover on its source site, a frame) and gets back the external
+  lookups with that address filled in. The SERVER never fetches any of them, and
+  a source that takes an upload rather than an address comes back pointing at its
+  front page with `prefilled: false` saying so.
+
+  Empty when the caller passes no address: a query with nothing to look up yet is
+  a normal state, not an error. Disabled sources are absent, and the face-matching
+  ones are disabled until an operator enables them by name (SPEC §8, F10) --
+  handing a face to a third party is a decision about a person who is not in the
+  room, so it is not a default.
+  """
+  sourceLinks(imageUrl: String!): [IdentificationSourceLink!]!
 }
 
 """One suggested answer to a query."""
@@ -205,6 +222,53 @@ extend type Query {
   longer exists.
   """
   myIdentificationDetectiveScore: IdentificationDetective @hasRole(role: VOTE)
+
+  """
+  The external sources this instance offers, and whether each one is on (SPEC §8).
+
+  Config-shaped and read-only: this is what an operator's `identification_sources`
+  block resolved to, so a client can render the links without knowing any of the
+  URLs, and a reader can see that a face-matching service exists here but has been
+  left OFF rather than never having been considered.
+  """
+  identificationSources: [IdentificationSource!]! @hasRole(role: READ)
+}
+
+"""
+What a source does with the media it is given (SPEC §8).
+
+A local model is a different thing -- it runs in the operator's own
+infrastructure and is a provider rather than a link -- so it has no kind here.
+"""
+enum IdentificationSourceKind {
+  "An engine that finds where else an image or clip appears."
+  REVERSE_MEDIA
+  "A service that matches a FACE. Off until an operator enables it (F10)."
+  REMOTE_FACE
+  "A place where a person asks a question and people answer (F12)."
+  COMMUNITY
+}
+
+"""One external place a question can be taken to."""
+type IdentificationSource {
+  name: String!
+  kind: IdentificationSourceKind!
+  "Where the source lives, for a reader deciding whether to open it."
+  home: String!
+  "Whether this instance offers it."
+  enabled: Boolean!
+}
+
+"""A source rendered for one image address."""
+type IdentificationSourceLink {
+  source: String!
+  kind: IdentificationSourceKind!
+  url: String!
+  """
+  False when the source takes an upload rather than an address, so the reader
+  arrives at its front door with nothing in hand.
+  """
+  prefilled: Boolean!
 }
 
 extend type Mutation {

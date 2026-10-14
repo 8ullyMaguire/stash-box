@@ -854,6 +854,20 @@ type IdentificationQuery struct {
 	// A candidate with zero votes still appears: it is exactly when someone needs to
 	// see it.
 	Candidates []IdentificationCandidate `json:"candidates"`
+	// Where a person can take this image to ask someone else (SPEC §8).
+	//
+	// Rendered links, not requests: the caller passes the address of the image it is
+	// showing (a cover on its source site, a frame) and gets back the external
+	// lookups with that address filled in. The SERVER never fetches any of them, and
+	// a source that takes an upload rather than an address comes back pointing at its
+	// front page with `prefilled: false` saying so.
+	//
+	// Empty when the caller passes no address: a query with nothing to look up yet is
+	// a normal state, not an error. Disabled sources are absent, and the face-matching
+	// ones are disabled until an operator enables them by name (SPEC §8, F10) --
+	// handing a face to a third party is a decision about a person who is not in the
+	// room, so it is not a default.
+	SourceLinks []IdentificationSourceLink `json:"sourceLinks"`
 }
 
 type IdentificationResolveInput struct {
@@ -865,6 +879,26 @@ type IdentificationResolveInput struct {
 	// performer in a list of possible scenes.
 	ResolvedType IdentificationTargetType `json:"resolvedType"`
 	ResolvedID   uuid.UUID                `json:"resolvedId"`
+}
+
+// One external place a question can be taken to.
+type IdentificationSource struct {
+	Name string                   `json:"name"`
+	Kind IdentificationSourceKind `json:"kind"`
+	// Where the source lives, for a reader deciding whether to open it.
+	Home string `json:"home"`
+	// Whether this instance offers it.
+	Enabled bool `json:"enabled"`
+}
+
+// A source rendered for one image address.
+type IdentificationSourceLink struct {
+	Source string                   `json:"source"`
+	Kind   IdentificationSourceKind `json:"kind"`
+	URL    string                   `json:"url"`
+	// False when the source takes an upload rather than an address, so the reader
+	// arrives at its front door with nothing in hand.
+	Prefilled bool `json:"prefilled"`
 }
 
 type IdentificationSuggestInput struct {
@@ -1771,6 +1805,10 @@ type SessionState struct {
 	// Which one of that kind (`browse`, `tag:abc`, a saved search id).
 	Key string `json:"key"`
 	// The opaque payload, as the client wrote it.
+	//
+	// The VALUE is returned exactly; the TEXT need not be, because the column is jsonb and Postgres
+	// normalises whitespace and key order. A client that compares cursor strings byte for byte will
+	// see its own write come back different, which is why this is written down here.
 	//
 	// Null for a `LOCAL` row, and null there MEANS something: the client keeps this position itself.
 	// A `SYNCED` row always has one.
@@ -3492,6 +3530,70 @@ func (e *HairColorEnum) UnmarshalJSON(b []byte) error {
 }
 
 func (e HairColorEnum) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+// What a source does with the media it is given (SPEC §8).
+//
+// A local model is a different thing -- it runs in the operator's own
+// infrastructure and is a provider rather than a link -- so it has no kind here.
+type IdentificationSourceKind string
+
+const (
+	// An engine that finds where else an image or clip appears.
+	IdentificationSourceKindReverseMedia IdentificationSourceKind = "REVERSE_MEDIA"
+	// A service that matches a FACE. Off until an operator enables it (F10).
+	IdentificationSourceKindRemoteFace IdentificationSourceKind = "REMOTE_FACE"
+	// A place where a person asks a question and people answer (F12).
+	IdentificationSourceKindCommunity IdentificationSourceKind = "COMMUNITY"
+)
+
+var AllIdentificationSourceKind = []IdentificationSourceKind{
+	IdentificationSourceKindReverseMedia,
+	IdentificationSourceKindRemoteFace,
+	IdentificationSourceKindCommunity,
+}
+
+func (e IdentificationSourceKind) IsValid() bool {
+	switch e {
+	case IdentificationSourceKindReverseMedia, IdentificationSourceKindRemoteFace, IdentificationSourceKindCommunity:
+		return true
+	}
+	return false
+}
+
+func (e IdentificationSourceKind) String() string {
+	return string(e)
+}
+
+func (e *IdentificationSourceKind) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = IdentificationSourceKind(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid IdentificationSourceKind", str)
+	}
+	return nil
+}
+
+func (e IdentificationSourceKind) MarshalGQL(w io.Writer) {
+	_, _ = fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *IdentificationSourceKind) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e IdentificationSourceKind) MarshalJSON() ([]byte, error) {
 	var buf bytes.Buffer
 	e.MarshalGQL(&buf)
 	return buf.Bytes(), nil
