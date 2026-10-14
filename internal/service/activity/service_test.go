@@ -127,3 +127,39 @@ func TestFeedInputLimitIsBounded(t *testing.T) {
 	assert.Positive(t, defaultLimit)
 	assert.Greater(t, maxLimit, defaultLimit)
 }
+
+// The content-tier filter (phase 5, migration 120). A table, because the mistake this guards
+// against is a comparison: greater-than written the other way round lets every tiered item
+// through and hides every untiered one, and both of those look like something else.
+func TestTheTierFilterKeepsWhatIsAtOrBelowTheCeiling(t *testing.T) {
+	below, at, above, untagged := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+
+	item := func(id uuid.UUID) Item {
+		return Item{Kind: KindFingerprint, Scene: &models.Scene{ID: id}}
+	}
+	items := []Item{item(below), item(at), item(above), item(untagged)}
+	tiers := map[uuid.UUID]int16{below: 1, at: 2, above: 3}
+	// `untagged` is deliberately absent from the map: the view LEFT JOINs, but a scene the
+	// loader returned without a row here has no tags, and the map's zero value has to mean
+	// "tier 0" rather than "keep" or "drop" by accident.
+
+	kept := filterAboveCeiling(items, tiers, 2)
+
+	require.Len(t, kept, 3, "an item ABOVE the ceiling is the one thing dropped")
+	ids := make([]uuid.UUID, 0, len(kept))
+	for _, k := range kept {
+		ids = append(ids, k.Scene.ID)
+	}
+	assert.Contains(t, ids, below, "below the ceiling")
+	assert.Contains(t, ids, at, "AT the ceiling: the comparison is strict")
+	assert.Contains(t, ids, untagged, "no tier row means tier 0, which is inside every ceiling")
+	assert.NotContains(t, ids, above, "above the ceiling")
+}
+
+func TestTheTierFilterIsNotAnItemFilter(t *testing.T) {
+	// An item with no scene is kept whatever the ceiling: this function is about tiers, and
+	// "has no scene" is not evidence about one. Dropping it here would be a feed silently
+	// losing rows to a rule that does not mention them.
+	kept := filterAboveCeiling([]Item{{Kind: KindReview}}, map[uuid.UUID]int16{}, 0)
+	assert.Len(t, kept, 1)
+}

@@ -2151,6 +2151,11 @@ type Querier interface {
 	// produce a compliant collage, so it scores exactly as a scene with none: a
 	// half-finished collage is not a partial collage, it is no collage.
 	SceneCompletionInputs(ctx context.Context, id uuid.UUID) (SceneCompletionInputsRow, error)
+	// The effective tier of a BATCH of scenes, which is what the activity feed needs: it assembles a
+	// page of items and then has to drop the ones above the viewer's ceiling. This is the case the
+	// entity_effective_tier view IS for -- a known, small set of ids -- as opposed to a filtered page
+	// over the whole table, which excludes with a NOT EXISTS instead.
+	SceneEffectiveTiers(ctx context.Context, sceneIds []uuid.UUID) ([]SceneEffectiveTiersRow, error)
 	// Scenes missing one field, for a generated quest.
 	ScenesMissingField(ctx context.Context, arg ScenesMissingFieldParams) ([]uuid.UUID, error)
 	// One row per (candidate scene, tag of that scene): what the viewer's taste says it is worth.

@@ -3,8 +3,10 @@
 package api_test
 
 import (
+	"reflect"
 	"testing"
 
+	"github.com/99designs/gqlgen/client"
 	"github.com/gofrs/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -69,8 +71,14 @@ func TestATieredSceneIsAbsentFromSearchUntilTheViewerOptsIn(t *testing.T) {
 	require.NoError(t, err)
 	sceneID := scene.UUID()
 
-	// A viewer who has consented to nothing. Every member starts here.
+	// A viewer who has consented to nothing.
+	//
+	// STATED, not assumed: asRead(t) hands out ONE shared user for the whole package, so a consent
+	// an earlier test set is still in place when this one runs -- which is how this test passed on
+	// its own and failed in the suite. Every test below sets the ceiling it means to test.
 	unconsented := asRead(t)
+	_, err = unconsented.resolver.Mutation().UserSetVisibleTiers(unconsented.ctx, []int{})
+	require.NoError(t, err)
 
 	// STEP 1 -- COUNT THE SUBJECT. Before the tag is classified the scene is
 	// visible to this exact viewer through this exact query, so the page below can
@@ -157,4 +165,101 @@ func TestATierAboveTheCeilingStaysAbsent(t *testing.T) {
 
 	visible := tierProbeSearch(t, twoTier, title)
 	require.Len(t, visible, 1, "opting into tier 3 must make a tier-3 scene visible")
+}
+
+// --- the similarity path: a RECOMMENDATION, which is where a tier matters most ---
+
+type similarSceneOutput struct {
+	Scene   sceneOutput `json:"scene"`
+	Score   float64     `json:"score"`
+	Reasons []struct {
+		Kind string `json:"kind"`
+	} `json:"reasons"`
+}
+
+func (c *graphqlClient) similarScenes(sceneID uuid.UUID, limit int) ([]similarSceneOutput, error) {
+	q := `
+	query SimilarScenes($id: ID!, $limit: Int) {
+		findScene(id: $id) {
+			id
+			similarScenes(limit: $limit) {
+				` + makeFragment(reflect.TypeFor[similarSceneOutput]()) + `
+			}
+		}
+	}`
+
+	var resp struct {
+		FindScene struct {
+			ID            string               `json:"id"`
+			SimilarScenes []similarSceneOutput `json:"similarScenes"`
+		} `json:"findScene"`
+	}
+	if err := c.Post(q, &resp, client.Var("id", sceneID), client.Var("limit", limit)); err != nil {
+		return nil, err
+	}
+	return resp.FindScene.SimilarScenes, nil
+}
+
+func similarSceneIDs(scenes []similarSceneOutput) []uuid.UUID {
+	ids := make([]uuid.UUID, 0, len(scenes))
+	for _, s := range scenes {
+		ids = append(ids, s.Scene.UUID())
+	}
+	return ids
+}
+
+// A similarity list is a RECOMMENDATION: the viewer did not ask for this scene and did not know
+// it existed. Offering what they opted out of is the failure the tier exists to prevent, and it
+// is worse here than in a search result they typed.
+func TestSimilarScenesExcludesWhatTheViewerHasNotOptedInto(t *testing.T) {
+	admin := asAdmin(t)
+
+	titleA := admin.generateSceneName()
+	titleB := admin.generateSceneName()
+	tagName := admin.generateSceneName() + " similarity"
+	tag, err := admin.createTestTag(&models.TagCreateInput{Name: tagName})
+	require.NoError(t, err)
+
+	// Two scenes sharing one tag: that shared fact is what makes B a candidate for A at all.
+	subject, err := admin.createTestScene(&models.SceneCreateInput{
+		Title: &titleA, TagIds: []uuid.UUID{tag.UUID()},
+	})
+	require.NoError(t, err)
+	candidate, err := admin.createTestScene(&models.SceneCreateInput{
+		Title: &titleB, TagIds: []uuid.UUID{tag.UUID()},
+	})
+	require.NoError(t, err)
+
+	// The same shared user: consent to NOTHING first, explicitly, or this test inherits whatever
+	// the test before it opted into.
+	viewer := asRead(t)
+	_, err = viewer.resolver.Mutation().UserSetVisibleTiers(viewer.ctx, []int{})
+	require.NoError(t, err)
+
+	// COUNT THE SUBJECT FIRST: before the tag is classified, the candidate is offered. Without
+	// this, an empty list below would be indistinguishable from a similarity query that never
+	// worked -- and an empty candidate pool is exactly what the tier predicate produces.
+	before, err := viewer.client.similarScenes(subject.UUID(), 10)
+	require.NoError(t, err)
+	require.NotEmpty(t, before, "the subject must have a candidate to lose")
+	assert.Contains(t, similarSceneIDs(before), candidate.UUID())
+
+	_, err = admin.resolver.Mutation().TagSetContentTier(admin.ctx, models.TagContentTierInput{
+		ID: tag.UUID(), Tier: 2, RequiresOptIn: false,
+	})
+	require.NoError(t, err)
+
+	unconsented, err := viewer.client.similarScenes(subject.UUID(), 10)
+	require.NoError(t, err)
+	assert.Empty(t, similarSceneIDs(unconsented), "similar-to must not offer a scene above the viewer's ceiling")
+
+	// THE CONTROL: the same query with consent returns the candidate, so the emptiness above is
+	// the tier and not the query.
+	_, err = viewer.resolver.Mutation().UserSetVisibleTiers(viewer.ctx, []int{1, 2})
+	require.NoError(t, err)
+
+	after, err := viewer.client.similarScenes(subject.UUID(), 10)
+	require.NoError(t, err)
+	require.NotEmpty(t, after, "opting into tier 2 must restore the candidate")
+	assert.Contains(t, similarSceneIDs(after), candidate.UUID())
 }

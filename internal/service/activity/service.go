@@ -24,6 +24,7 @@ import (
 	"github.com/stashapp/stash-box/internal/models"
 	"github.com/stashapp/stash-box/internal/queries"
 	"github.com/stashapp/stash-box/internal/service/scene"
+	"github.com/stashapp/stash-box/internal/service/trust"
 )
 
 // Kind is what happened. The values match the `kind` column the arms produce.
@@ -139,6 +140,74 @@ func mergeItems(items []Item, viewerID uuid.UUID, limit int) []Item {
 		items = items[:limit]
 	}
 	return items
+}
+
+// dropAboveTier removes items whose scene is above the viewer's content-tier ceiling
+// (phase 5, migration 120).
+//
+// FILTERED IN GO, unlike every other scene list in this repository, and the reason is the shape of
+// this feed: it is assembled from three arms (fingerprints, list additions, reviews) that share no
+// statement, each asked for at most `limit` rows, and the merge takes the newest `limit` overall.
+// Pushing the predicate into each arm would add the same join to three statements whose visibility
+// rules differ, and the cost of being wrong there is showing a reader what they opted out of.
+// The cost here is a page that can come back SHORT when some of its items are above the ceiling --
+// which is the same trade this function already makes when it drops the viewer's own items.
+//
+// The batch lookup is the entity_effective_tier view: a known, small set of ids, which is exactly
+// what a view over every entity is good for.
+func (s *Service) dropAboveTier(ctx context.Context, viewerID uuid.UUID, items []Item) ([]Item, error) {
+	if len(items) == 0 {
+		return items, nil
+	}
+
+	ceiling, err := s.queries.UserVisibleTier(ctx, viewerID)
+	if err != nil {
+		return nil, fmt.Errorf("reading the viewer's content-tier ceiling: %w", err)
+	}
+	if int(ceiling) >= trust.MaxContentTier {
+		// Opted into everything: nothing to exclude, and the lookup is skipped rather than
+		// run to discover an empty answer.
+		return items, nil
+	}
+
+	ids := make([]uuid.UUID, 0, len(items))
+	for _, item := range items {
+		if item.Scene != nil {
+			ids = append(ids, item.Scene.ID)
+		}
+	}
+
+	tiers, err := s.queries.SceneEffectiveTiers(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("reading the candidate scenes' tiers: %w", err)
+	}
+
+	byScene := make(map[uuid.UUID]int16, len(tiers))
+	for _, row := range tiers {
+		byScene[row.EntityID] = row.Tier
+	}
+	return filterAboveCeiling(items, byScene, ceiling), nil
+}
+
+// filterAboveCeiling keeps the items whose scene is within the viewer's ceiling.
+//
+// PURE, and separated from the lookup above it, for the reason the content-access gate gives for
+// being a pure function: the mistake that matters is a comparison, and a comparison shows up in a
+// table rather than in a database. The wrapper touches two tables; this touches none.
+//
+// An item with NO scene is kept, and that is deliberate: this function's subject is a tier, and
+// "has no scene" is not evidence about one -- dropping it here would be this function refusing
+// something for a reason it is not about. A scene the map does not mention has no tags, so its
+// tier is 0 and it is inside every ceiling.
+func filterAboveCeiling(items []Item, tierByScene map[uuid.UUID]int16, ceiling int16) []Item {
+	kept := items[:0]
+	for _, item := range items {
+		if item.Scene != nil && tierByScene[item.Scene.ID] > ceiling {
+			continue
+		}
+		kept = append(kept, item)
+	}
+	return kept
 }
 
 // Feed returns one page, newest first.
@@ -273,5 +342,9 @@ func (s *Service) Feed(ctx context.Context, input FeedInput) ([]Item, error) {
 		item.Scene = sc
 		out = append(out, item)
 	}
-	return out, nil
+
+	// Content tiers (phase 5, migration 120), last: an item whose scene the loader dropped is
+	// already gone, so the tier lookup runs over the page that survived rather than over the
+	// page as fetched.
+	return s.dropAboveTier(ctx, input.ViewerID, out)
 }

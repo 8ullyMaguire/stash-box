@@ -162,3 +162,11 @@ UPDATE "tags"
 SET "content_tier" = @content_tier, "requires_opt_in" = @requires_opt_in, "updated_at" = NOW()
 WHERE "id" = @id AND "deleted" = FALSE
 RETURNING *;
+
+-- name: SceneEffectiveTiers :many
+-- The effective tier of a BATCH of scenes, which is what the activity feed needs: it assembles a
+-- page of items and then has to drop the ones above the viewer's ceiling. This is the case the
+-- entity_effective_tier view IS for -- a known, small set of ids -- as opposed to a filtered page
+-- over the whole table, which excludes with a NOT EXISTS instead.
+SELECT "entity_id", "tier" FROM "entity_effective_tier"
+WHERE "entity_type" = 'scene' AND "entity_id" = ANY(@scene_ids::uuid[]);

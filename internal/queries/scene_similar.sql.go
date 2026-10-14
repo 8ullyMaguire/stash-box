@@ -71,6 +71,16 @@ FROM scenes c
 CROSS JOIN subject_size ss
 WHERE c.id <> $1::uuid
   AND NOT c.deleted
+  -- Content tiers (phase 5, migration 120): the same exclusion the scene query applies, in the
+  -- same direction (> ceiling), for the same reason. Similarity is a RECOMMENDATION, and
+  -- recommending what the viewer has opted out of is the failure the tier exists to prevent --
+  -- and it is worse here than in a search result, because the viewer did not ask for this scene
+  -- at all. The aliases are st2/t2 because this statement already uses st and t inside its CTEs.
+  AND NOT EXISTS (
+      SELECT 1 FROM scene_tags st2
+      JOIN tags t2 ON t2.id = st2.tag_id
+      WHERE st2.scene_id = c.id AND t2.content_tier > $2::int
+  )
   AND ss.subject_exists = 1
   AND (
         EXISTS (SELECT 1 FROM scene_tags cst WHERE cst.scene_id = c.id AND cst.tag_id IN (SELECT tag_id FROM reach_down))
@@ -79,11 +89,12 @@ WHERE c.id <> $1::uuid
      OR (c.studio_id IS NOT NULL AND c.studio_id = (SELECT studio_id FROM subject))
   )
 ORDER BY shared_facts DESC, c.id ASC
-LIMIT $2::int
+LIMIT $3::int
 `
 
 type FindSimilarSceneCandidatesParams struct {
 	SubjectID      uuid.UUID `db:"subject_id" json:"subject_id"`
+	VisibleTier    int       `db:"visible_tier" json:"visible_tier"`
 	CandidateLimit int       `db:"candidate_limit" json:"candidate_limit"`
 }
 
@@ -144,7 +155,7 @@ type FindSimilarSceneCandidatesRow struct {
 // test (`IN`), which cannot double-count.
 // A tag the subject's tags IMPLY: a broader claim the subject belongs to.
 func (q *Queries) FindSimilarSceneCandidates(ctx context.Context, arg FindSimilarSceneCandidatesParams) ([]FindSimilarSceneCandidatesRow, error) {
-	rows, err := q.db.Query(ctx, findSimilarSceneCandidates, arg.SubjectID, arg.CandidateLimit)
+	rows, err := q.db.Query(ctx, findSimilarSceneCandidates, arg.SubjectID, arg.VisibleTier, arg.CandidateLimit)
 	if err != nil {
 		return nil, err
 	}

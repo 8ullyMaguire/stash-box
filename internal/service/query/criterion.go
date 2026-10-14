@@ -329,3 +329,24 @@ func satisfiedBy(values []uuid.UUID, expansion map[uuid.UUID][]uuid.UUID) []uuid
 
 	return out
 }
+
+// ApplySceneTierCeiling excludes scenes whose content tier is above the viewer's ceiling
+// (phase 5, migration 120).
+//
+// One function rather than a predicate copy per caller: the rule is one comparison, and four
+// hand-written copies of it in four files is four chances for one of them to be `>=` instead of
+// `>` or to compare against the wrong column. The callers are the scene query, the similarity
+// candidate pool, and anything else that selects scenes for a viewer.
+//
+// A NOT EXISTS rather than a join to the entity_effective_tier view: the view aggregates EVERY
+// scene, which is the wrong shape for a filtered page, while this form stops at the first tag
+// above the ceiling and uses the index on scene_tags(scene_id). The view is for reporting and for
+// a BATCH of ids -- see SceneEffectiveTiers.
+//
+// The empty case is the caller's to skip: at the ceiling (MaxContentTier) there is nothing to
+// exclude and the predicate would be a cost with no answer.
+func ApplySceneTierCeiling(query *sq.SelectBuilder, visibleTier int) {
+	*query = query.Where(sq.Expr(
+		`NOT EXISTS (SELECT 1 FROM scene_tags st JOIN tags t ON t.id = st.tag_id WHERE st.scene_id = scenes.id AND t.content_tier > ?)`,
+		visibleTier))
+}

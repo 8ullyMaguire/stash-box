@@ -334,6 +334,40 @@ func (q *Queries) RecordTrustEvent(ctx context.Context, arg RecordTrustEventPara
 	return i, err
 }
 
+const sceneEffectiveTiers = `-- name: SceneEffectiveTiers :many
+SELECT "entity_id", "tier" FROM "entity_effective_tier"
+WHERE "entity_type" = 'scene' AND "entity_id" = ANY($1::uuid[])
+`
+
+type SceneEffectiveTiersRow struct {
+	EntityID uuid.UUID `db:"entity_id" json:"entity_id"`
+	Tier     int16     `db:"tier" json:"tier"`
+}
+
+// The effective tier of a BATCH of scenes, which is what the activity feed needs: it assembles a
+// page of items and then has to drop the ones above the viewer's ceiling. This is the case the
+// entity_effective_tier view IS for -- a known, small set of ids -- as opposed to a filtered page
+// over the whole table, which excludes with a NOT EXISTS instead.
+func (q *Queries) SceneEffectiveTiers(ctx context.Context, sceneIds []uuid.UUID) ([]SceneEffectiveTiersRow, error) {
+	rows, err := q.db.Query(ctx, sceneEffectiveTiers, sceneIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SceneEffectiveTiersRow{}
+	for rows.Next() {
+		var i SceneEffectiveTiersRow
+		if err := rows.Scan(&i.EntityID, &i.Tier); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const setContentViewingOptIn = `-- name: SetContentViewingOptIn :one
 UPDATE user_trust
 SET content_viewing_opt_in = $2, updated_at = NOW()

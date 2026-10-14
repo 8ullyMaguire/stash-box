@@ -7,6 +7,7 @@ import (
 
 	"github.com/gofrs/uuid"
 
+	"github.com/stashapp/stash-box/internal/auth"
 	"github.com/stashapp/stash-box/internal/models"
 	"github.com/stashapp/stash-box/internal/queries"
 	"github.com/stashapp/stash-box/internal/service/errutil"
@@ -125,9 +126,22 @@ func (s *Service) FindSimilarScenes(ctx context.Context, input SimilarSceneInput
 		limit = maxLimit
 	}
 
+	// The viewer's content-tier ceiling (phase 5, migration 120). Zero for an anonymous caller and
+	// for a member who has consented to nothing, which is the value the candidate predicate
+	// compares against -- so an unconsented viewer is recommended nothing above tier 0.
+	visibleTier := int16(0)
+	if user := auth.GetCurrentUser(ctx); user != nil {
+		tier, err := s.queries.UserVisibleTier(ctx, user.ID)
+		if err != nil {
+			return nil, fmt.Errorf("reading the viewer's content-tier ceiling: %w", err)
+		}
+		visibleTier = tier
+	}
+
 	candidates, err := s.queries.FindSimilarSceneCandidates(ctx, queries.FindSimilarSceneCandidatesParams{
 		SubjectID:      input.Subject.ID,
 		CandidateLimit: candidatePoolSize(limit),
+		VisibleTier:    int(visibleTier),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("finding scenes similar to %s: %w", input.Subject.ID, err)

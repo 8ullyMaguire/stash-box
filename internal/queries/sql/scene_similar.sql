@@ -107,6 +107,16 @@ FROM scenes c
 CROSS JOIN subject_size ss
 WHERE c.id <> sqlc.arg(subject_id)::uuid
   AND NOT c.deleted
+  -- Content tiers (phase 5, migration 120): the same exclusion the scene query applies, in the
+  -- same direction (> ceiling), for the same reason. Similarity is a RECOMMENDATION, and
+  -- recommending what the viewer has opted out of is the failure the tier exists to prevent --
+  -- and it is worse here than in a search result, because the viewer did not ask for this scene
+  -- at all. The aliases are st2/t2 because this statement already uses st and t inside its CTEs.
+  AND NOT EXISTS (
+      SELECT 1 FROM scene_tags st2
+      JOIN tags t2 ON t2.id = st2.tag_id
+      WHERE st2.scene_id = c.id AND t2.content_tier > sqlc.arg(visible_tier)::int
+  )
   AND ss.subject_exists = 1
   AND (
         EXISTS (SELECT 1 FROM scene_tags cst WHERE cst.scene_id = c.id AND cst.tag_id IN (SELECT tag_id FROM reach_down))

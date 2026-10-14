@@ -685,6 +685,68 @@ one path (search, plus facets and the performer list by construction) done and t
 open: the warnings-vs-gates split, the T3 cooling period, the onboarding wizard, and a test for
 the trending-path guard, which is written and has no coverage.
 
+### Slice 5b — the tier predicate reaches similarity and the feed — DONE
+
+**One predicate, not four copies.** `query.ApplySceneTierCeiling` now holds the comparison and the
+`NOT EXISTS`; `buildSceneQuery` was the first caller and the similarity candidate pool is the
+second. Four hand-written copies of one rule in four files is four chances for one of them to be
+`>=` instead of `>` or to name the wrong column, and the failure is a reader seeing what they
+opted out of.
+
+**Similarity** (`FindSimilarSceneCandidates`) gets the exclusion with a `visible_tier` argument,
+because a similarity list is a RECOMMENDATION: the viewer did not ask for the scene and did not
+know it existed. Offering what they opted out of there is worse than in a search result they
+typed. The candidate query filters *and* ranks, so the predicate sits in the candidate WHERE --
+before the rank, which is where a filter belongs.
+
+**The activity feed** is filtered in Go, and that is a departure worth naming: the feed is
+assembled from three arms (fingerprints, list additions, reviews) that share no statement, each
+asked for at most `limit` rows. Pushing the predicate into each arm means adding the same join to
+three statements whose visibility rules differ; the cost here is a page that can come back SHORT
+when its items are above the ceiling -- the same trade the function already makes when it drops
+the viewer's own items. The DECISION is a pure function (`filterAboveCeiling`) with its own table,
+so the comparison is testable without a database, and the wrapper above it does only the lookup
+(the `entity_effective_tier` view, which is exactly what a view over every entity is for: a known,
+small, batch of ids).
+
+**Correction to slice 5a's note: `forYou` DOES inherit the predicate.** `taste` calls
+`s.scenes.Query`, which is the tier-filtered statement, so the discovery feed is covered by
+construction -- slice 5a's "forYou does not go through buildSceneQuery" was wrong, and this is the
+record of it. Covered by construction is still a claim without a test: `taste` has no database
+tests, and an end-to-end For You assertion needs an affinity fixture (a fingerprint vote or a list
+addition by the viewer), so it is listed as open rather than asserted.
+
+**A DECISION, so it is not later discovered as a bug: `findScene(id)` is not tier-gated.** A tier
+removes a thing from a VIEW; a direct link is not a view. The plan's verification names search,
+feeds, recommendations and similar-to, and those are the paths that enumerate. Gating the direct
+lookup would also mean the SUBJECT of a similarity query has to be visible before it can be asked
+about, which is not what a tier means.
+
+#### The suite interaction this slice hit
+
+`asRead(t)` hands out **one shared user for the whole package**. Slice 5a's test set that user's
+ceiling to `{1,2}`, so the similarity test -- which asks for a scene at tier 2 and expects it
+absent -- **passed alone and failed in the package run**, with the shared user still consented from
+the earlier test. Every test in the file now STATES the consent it means to test
+(`UserSetVisibleTiers(ctx, []int{})` first), which is the "capture the value you assert about"
+rule applied to a fixture: the default is not a default when another test can change it.
+
+#### Evidence
+
+The similarity test counts the subject first (with the tag unclassified the candidate IS offered),
+then asserts the absence, then opts in and asserts it returns. The feed's decision has two unit
+tests: what is at or below the ceiling is kept (including a scene with NO tier row, whose zero
+value has to mean tier 0 rather than "keep" or "drop" by accident) and an item with no scene is
+not this function's business. Two mutation probes killed: the candidate predicate inactivated in
+the **generated** statement (a `.sql` edit alone proves nothing -- sqlc bakes the statement into a
+Go string literal, so the generated file is what runs) and the feed's comparison inverted.
+
+#### Still open in phase 5
+
+An end-to-end feed assertion (the wrapper is wired; the decision is unit-tested; the two are not
+proven to meet), an end-to-end For You assertion, the warnings-vs-gates split, the T3 cooling
+period, the onboarding wizard, and coverage for the trending-path guard from slice 5a.
+
 ## Phase 6 — trust, sub-scores, gamification
 
 **Goal:** NexusXXX §5.2–§5.4, §6.1–§6.5. **Verified:** `trust` is derived by a curve

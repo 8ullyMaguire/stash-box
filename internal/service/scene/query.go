@@ -370,9 +370,7 @@ func (s *Scene) buildSceneQuery(ctx context.Context, psql sq.StatementBuilderTyp
 	}
 	tierFiltered := visibleTier < trust.MaxContentTier
 	if tierFiltered {
-		query = query.Where(sq.Expr(
-			`NOT EXISTS (SELECT 1 FROM scene_tags st JOIN tags t ON t.id = st.tag_id WHERE st.scene_id = scenes.id AND t.content_tier > ?)`,
-			visibleTier))
+		queryhelper.ApplySceneTierCeiling(&query, int(visibleTier))
 	}
 
 	// Apply sort and pagination
