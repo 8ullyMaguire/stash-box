@@ -184,30 +184,64 @@ defaulting T0 until it lands) → `pending` review when confidence is low, auto-
 when the source site is trusted and confidence is high → archive submission.
 
 **Files:** `internal/database/migrations/postgres/109_scene_origin_and_ingest_queue.{up,down}.sql`,
+`110_content_source_normalized_url.{up,down}.sql`,
 `internal/queries/sql/ingest.sql` (+ generated), `scripts/verify-109.sh`,
 `internal/service/ingest/` (normalise + dedup decision as pure functions, then the
-pipeline), `internal/service/ingest/extract/` (the extractor interface and the fake),
-`internal/cron` entry for the queue drain, `internal/api/resolver_ingest.go` (mutation
-`submitContentUrl(url:)`), `docs/spec/feature-ingestion.md`.
+pipeline), `internal/service/ingest/extract/` (the extractor interface, the production
+implementation and the fake), `internal/cron` entry for the queue drain,
+`internal/api/resolver_mutation_content.go` (mutation `submitContentUrl(url:, sceneId:)`),
+`scripts/verify-110.sh`, `internal/api/ingest_integration_test.go`,
+`docs/spec/feature-ingestion.md`.
 
-**Status:** the schema half AND the decision half are landed. Schema: `scenes.origin`
-(why a row exists, not derivable from fingerprints-or-sources), `ingest_queue` with the
-status/outcome machine, a partial unique index over the active URL states, and the four
-queue statements — enqueue, claim (`FOR UPDATE SKIP LOCKED`), finish, fail-with-backoff —
-proven against a real database by `scripts/verify-109.sh` (46 checks, four mutations, all
-killed). Decision: `internal/service/ingest/normalize.go` (the dedup key) and
-`dedup.go` (`Decide`'s precedence, `Known.Target`, `BackoffSeconds`) with 46 subtests and
-five mutations, each reddening only its own assertions.
+**Not yt-dlp (a correction to the first cut of this plan).** The extractor reads OpenGraph
+tags over `net/http` — no media toolchain in the dependency graph, no download, and no
+fingerprints, which is stated at the package comment rather than discovered later. The
+interface is what makes swapping in a yt-dlp-backed extractor a small change when a phase
+needs one; the first cut needs a title and a length, and every yt-dlp-shaped dependency
+would be a toolchain to install for that.
 
-NOT written: the extractor interface and its fake, the queue drain, and the
-`submitContentUrl` mutation — so nothing yet CALLS the queue statements, and the migration
-is currently the only thing that knows the queue exists. That is the next slice, and it is
-the one that makes this phase observable from outside.
+**Status:** LANDED — phase 2 is complete. Schema and decisions as above, and now the
+pipeline itself: `internal/service/ingest/extract/` (the `Extractor` interface, the
+production `HTTPExtractor` reading OpenGraph tags with nothing beyond `net/http`, and the
+`Fake` every rule test uses), `internal/service/ingest/pipeline.go` (`Submit`, `Drain`,
+`process`), the `@every 1m` drain in `internal/cron`, and the `submitContentUrl(url:,
+sceneId:)` mutation under an Edit role rule.
 
-**Verification:** unit tests for the pure functions (normaliser, dedup decision) with
-table-driven cases; integration test submitting three URLs that resolve to one
-existing scene → one row, three sources, one cluster; a **mutation** run that breaks
-the dedup comparison and reddens exactly that test.
+Three decisions the implementation forced, each recorded where it is made and not only
+here:
+
+1. **The fetch happens only when a record might be created.** Stage 3's URL-level
+   questions (refused? already claimed? a named target?) are answered from the database
+   BEFORE the network is touched. The first cut fetched first and decided second, which
+   meant a URL a human had taken down was requested again -- and a URL this instance
+   already had was re-fetched for metadata nobody would read. `confidence` is NULL on
+   those rows rather than 0.0, because 0.0 would say the extractor looked and found
+   nothing.
+2. **`gone` is `failed`, not `done`.** The spec's §5 table said a 404 marks the source
+   dead and closes the row as done. That is wrong for this path: there is no source row
+   to mark when nothing claims the URL, and where something does claim it, health is the
+   sweep's job (phase 9) rather than the ingest path's. Corrected in the spec.
+3. **The pipeline creates the directory entry for a host it has never seen.**
+   `scene_urls.site_id` is NOT NULL, so without a site row there is no MEMBERSHIP -- and
+   the scene page, the completion score and every other reader of a scene's URLs read
+   `scene_urls`, not `content_sources`. A pipeline that wrote only the health row
+   produced sources that existed, were queryable by hand, and appeared on no page.
+   `EnsureIngestSite` upserts on the host name with `highlighted = FALSE` (overriding the
+   column's true default: the directory's featured list is a curated one) and the host as
+   its regex, which is what makes it run once per host instead of once per URL.
+
+**Verification:** `./scripts/verify-110.sh` — 17 checks: the integration run's exit code,
+that nothing was SKIPPED (a skipped integration test exits 0 and reads as a pass), that
+the `-run` filter matched tests at all, every named test's PASS line, the real-extractor
+test, and the unit suites beneath it. The suite is
+`internal/api/ingest_integration_test.go` — real database, real migration chain, and for
+its last two tests a real HTTP server read by the production extractor, so the only thing
+faked anywhere is the public internet. Four mutations, each reddening exactly its own
+test: the named-target rule deleted (`attached` became `created`), the takedown denial
+disabled (the page was fetched and the URL re-attached), the `scene_urls` membership write
+removed (the created record's source list came back empty — the bug the integration test
+was written to catch, and it caught it), and the retry policy made uniformly transient (a
+404 landed `pending` instead of `failed`).
 
 ## Phase 3 — the other five content kinds
 
