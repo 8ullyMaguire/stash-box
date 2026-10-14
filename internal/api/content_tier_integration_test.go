@@ -3,13 +3,17 @@
 package api_test
 
 import (
+	"context"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/99designs/gqlgen/client"
 	"github.com/gofrs/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	dbtest "github.com/stashapp/stash-box/internal/database/testutil"
 
 	"github.com/stashapp/stash-box/internal/models"
 )
@@ -200,10 +204,12 @@ func (c *graphqlClient) similarScenes(sceneID uuid.UUID, limit int) ([]similarSc
 	return resp.FindScene.SimilarScenes, nil
 }
 
-func similarSceneIDs(scenes []similarSceneOutput) []uuid.UUID {
-	ids := make([]uuid.UUID, 0, len(scenes))
+// Strings, not uuids: an assertion failure prints this list, and `[]uuid.UUID{[16]uint8{0x1, ...}}`
+// in a failure message hides the one thing the message is for.
+func similarSceneIDs(scenes []similarSceneOutput) []string {
+	ids := make([]string, 0, len(scenes))
 	for _, s := range scenes {
-		ids = append(ids, s.Scene.UUID())
+		ids = append(ids, s.Scene.UUID().String())
 	}
 	return ids
 }
@@ -242,7 +248,7 @@ func TestSimilarScenesExcludesWhatTheViewerHasNotOptedInto(t *testing.T) {
 	before, err := viewer.client.similarScenes(subject.UUID(), 10)
 	require.NoError(t, err)
 	require.NotEmpty(t, before, "the subject must have a candidate to lose")
-	assert.Contains(t, similarSceneIDs(before), candidate.UUID())
+	assert.Contains(t, similarSceneIDs(before), candidate.UUID().String())
 
 	_, err = admin.resolver.Mutation().TagSetContentTier(admin.ctx, models.TagContentTierInput{
 		ID: tag.UUID(), Tier: 2, RequiresOptIn: false,
@@ -261,5 +267,227 @@ func TestSimilarScenesExcludesWhatTheViewerHasNotOptedInto(t *testing.T) {
 	after, err := viewer.client.similarScenes(subject.UUID(), 10)
 	require.NoError(t, err)
 	require.NotEmpty(t, after, "opting into tier 2 must restore the candidate")
-	assert.Contains(t, similarSceneIDs(after), candidate.UUID())
+	assert.Contains(t, similarSceneIDs(after), candidate.UUID().String())
+}
+
+// --- the activity feed: the third enumerating path ---
+
+type activityItemOutput struct {
+	Kind  string `json:"kind"`
+	Actor struct {
+		ID string `json:"id"`
+	} `json:"actor"`
+	Scene struct {
+		ID string `json:"id"`
+	} `json:"scene"`
+	ListID *string `json:"listId"`
+}
+
+func (c *graphqlClient) activityFeed(limit int) ([]activityItemOutput, error) {
+	q := `
+	query Feed($limit: Int) {
+		activityFeed(input: {limit: $limit}) {
+			` + makeFragment(reflect.TypeFor[activityItemOutput]()) + `
+		}
+	}`
+
+	var resp struct {
+		ActivityFeed []activityItemOutput `json:"activityFeed"`
+	}
+	if err := c.Post(q, &resp, client.Var("limit", limit)); err != nil {
+		return nil, err
+	}
+	return resp.ActivityFeed, nil
+}
+
+// followSomeoneAndSignalTheirs makes the feed non-empty: a user the viewer follows gets a relative
+// grant to their activity (PRIVATE is the default, so a follow alone shows nothing), and that user
+// submits a fingerprint on `sceneID`.
+//
+// The actor is chosen in SQL rather than from a runner, because the actor has to be a DIFFERENT user
+// from the viewer and the runners in this package are shared, so "not me" is the only property that
+// matters.
+func (r *testRunner) followSomeoneAndSignalTheirs(t *testing.T, viewerID, sceneID uuid.UUID) {
+	t.Helper()
+	ctx := context.Background()
+
+	var actorID uuid.UUID
+	err := dbtest.DB().QueryRow(ctx, `
+		INSERT INTO user_follows (follower_id, followed_id, activity_visibility)
+		SELECT $1, u.id, 'public' FROM users u WHERE u.id <> $1 ORDER BY u.id LIMIT 1
+		RETURNING followed_id`, viewerID).Scan(&actorID)
+	require.NoError(t, err, "following a user, with a grant that makes their activity visible")
+
+	// The feed's FINGERPRINT arm reads `scene_fingerprints` (an FK to `fingerprints`), which is why
+	// the hash row exists: it is not decoration, and an insert without it fails on the constraint
+	// before any tier is reached.
+	var fingerprintID int
+	err = dbtest.DB().QueryRow(ctx, `INSERT INTO fingerprints (hash, algorithm) VALUES ($1, 'PHASH') RETURNING id`,
+		time.Now().UnixNano()).Scan(&fingerprintID)
+	require.NoError(t, err, "creating the fingerprint row the submission points at")
+
+	_, err = dbtest.DB().Exec(ctx, `
+		INSERT INTO scene_fingerprints (fingerprint_id, scene_id, user_id, duration, vote)
+		VALUES ($1, $2, $3, 0, 1)`, fingerprintID, sceneID, actorID)
+	require.NoError(t, err, "recording the followed user's submission")
+}
+
+// The feed is the third path that ENUMERATES scenes for a viewer -- after search and similarity.
+// Its filter is the one written in Go, so this is the test that proves the decision and the lookup
+// actually meet: the pure table above cannot show that the wrapper is called at all.
+func TestTheActivityFeedDropsWhatTheViewerHasNotOptedInto(t *testing.T) {
+	admin := asAdmin(t)
+	viewer := asRead(t)
+
+	_, err := viewer.resolver.Mutation().UserSetVisibleTiers(viewer.ctx, []int{})
+	require.NoError(t, err)
+
+	title := admin.generateSceneName()
+	tagName := admin.generateSceneName() + " feed tier"
+	tag, err := admin.createTestTag(&models.TagCreateInput{Name: tagName})
+	require.NoError(t, err)
+	scene, err := admin.createTestScene(&models.SceneCreateInput{
+		Title: &title, TagIds: []uuid.UUID{tag.UUID()},
+	})
+	require.NoError(t, err)
+
+	viewer.followSomeoneAndSignalTheirs(t, userDB.read.ID, scene.UUID())
+
+	// COUNT THE SUBJECT FIRST. The feed is empty for three uninteresting reasons -- the viewer
+	// follows nobody, the grant is private, the scene is not published -- and every one of them
+	// would make the absence below pass for a reason that is not the tier.
+	before, err := viewer.client.activityFeed(20)
+	require.NoError(t, err)
+	require.Contains(t, feedSceneIDs(before), scene.UUID().String(),
+		"the followed user's activity must be in the feed before anything is claimed about the tier")
+
+	_, err = admin.resolver.Mutation().TagSetContentTier(admin.ctx, models.TagContentTierInput{
+		ID: tag.UUID(), Tier: 2, RequiresOptIn: false,
+	})
+	require.NoError(t, err)
+
+	after, err := viewer.client.activityFeed(20)
+	require.NoError(t, err)
+	assert.NotContains(t, feedSceneIDs(after), scene.UUID().String(),
+		"the feed must not show a scene above the viewer's ceiling")
+
+	// THE CONTROL: the same call with consent returns the row again.
+	_, err = viewer.resolver.Mutation().UserSetVisibleTiers(viewer.ctx, []int{1, 2})
+	require.NoError(t, err)
+
+	consented, err := viewer.client.activityFeed(20)
+	require.NoError(t, err)
+	assert.Contains(t, feedSceneIDs(consented), scene.UUID().String(),
+		"opting into tier 2 must put the row back, so the absence above is the tier and not the feed")
+}
+
+func feedSceneIDs(items []activityItemOutput) []string {
+	ids := make([]string, 0, len(items))
+	for _, item := range items {
+		ids = append(ids, item.Scene.ID)
+	}
+	return ids
+}
+
+// --- For You: the fourth path, covered by construction and until now unasserted ---
+
+type forYouSceneOutput struct {
+	Scene struct {
+		ID string `json:"id"`
+	} `json:"scene"`
+	Affinity float64 `json:"affinity"`
+}
+
+func (c *graphqlClient) forYou(limit int, serendipity float64) ([]forYouSceneOutput, error) {
+	q := `
+	query ForYou($limit: Int, $serendipity: Float) {
+		forYou(input: {limit: $limit, serendipity: $serendipity}) {
+			` + makeFragment(reflect.TypeFor[forYouSceneOutput]()) + `
+		}
+	}`
+
+	var resp struct {
+		ForYou []forYouSceneOutput `json:"forYou"`
+	}
+	if err := c.Post(q, &resp, client.Var("limit", limit), client.Var("serendipity", serendipity)); err != nil {
+		return nil, err
+	}
+	return resp.ForYou, nil
+}
+
+func forYouSceneIDs(scenes []forYouSceneOutput) []string {
+	ids := make([]string, 0, len(scenes))
+	for _, s := range scenes {
+		ids = append(ids, s.Scene.ID)
+	}
+	return ids
+}
+
+// `forYou` reaches scenes through `scenes.Query`, the tier-filtered statement -- slice 5a's note
+// claiming otherwise was wrong, and "covered by construction" is a claim without a test. This is
+// that test.
+//
+// `serendipity: 0`, deliberately: it makes the page a pure affinity ranking, so a scene that is
+// absent cannot be absent because it lost a coin toss. A shuffled page would make this assertion
+// pass or fail depending on the seed.
+func TestForYouDoesNotRecommendWhatTheViewerHasNotOptedInto(t *testing.T) {
+	admin := asAdmin(t)
+
+	// MODIFY, because filing a scene into a list is what creates the affinity signal and
+	// `listAddItem` requires it. The shared user, so the ceiling is stated rather than assumed.
+	viewer := asModify(t)
+	_, err := viewer.resolver.Mutation().UserSetVisibleTiers(viewer.ctx, []int{})
+	require.NoError(t, err)
+
+	tagName := admin.generateSceneName() + " for-you tier"
+	tag, err := admin.createTestTag(&models.TagCreateInput{Name: tagName})
+	require.NoError(t, err)
+
+	signalTitle := admin.generateSceneName()
+	signal, err := admin.createTestScene(&models.SceneCreateInput{
+		Title: &signalTitle, TagIds: []uuid.UUID{tag.UUID()},
+	})
+	require.NoError(t, err)
+
+	recommendedTitle := admin.generateSceneName()
+	recommended, err := admin.createTestScene(&models.SceneCreateInput{
+		Title: &recommendedTitle, TagIds: []uuid.UUID{tag.UUID()},
+	})
+	require.NoError(t, err)
+
+	// The signal: the viewer files the first scene into their own list. Affinity is DERIVED from
+	// this at read time, so nothing has to be recomputed for it to count.
+	list, err := viewer.resolver.Mutation().ListCreate(viewer.ctx, models.ListCreateInput{Name: "for you tier"})
+	require.NoError(t, err)
+	_, err = viewer.resolver.Mutation().ListAddItem(viewer.ctx, models.ListItemInput{
+		ListID: list.ID, EntityType: models.ListEntityTypeEnumScene, EntityID: signal.UUID(),
+	})
+	require.NoError(t, err)
+
+	// COUNT THE SUBJECT FIRST: with the tag unclassified, the scene sharing it is recommended.
+	// Without this, an empty page below would be indistinguishable from a signal that never
+	// registered -- which is the more likely reason for an empty For You page.
+	before, err := viewer.client.forYou(20, 0)
+	require.NoError(t, err)
+	require.Contains(t, forYouSceneIDs(before), recommended.UUID().String(),
+		"affinity from the viewer's own list must surface the scene sharing the tag")
+
+	_, err = admin.resolver.Mutation().TagSetContentTier(admin.ctx, models.TagContentTierInput{
+		ID: tag.UUID(), Tier: 2, RequiresOptIn: false,
+	})
+	require.NoError(t, err)
+
+	after, err := viewer.client.forYou(20, 0)
+	require.NoError(t, err)
+	assert.NotContains(t, forYouSceneIDs(after), recommended.UUID().String(),
+		"For You must not recommend a scene above the viewer's ceiling")
+
+	// THE CONTROL.
+	_, err = viewer.resolver.Mutation().UserSetVisibleTiers(viewer.ctx, []int{1, 2})
+	require.NoError(t, err)
+
+	consented, err := viewer.client.forYou(20, 0)
+	require.NoError(t, err)
+	assert.Contains(t, forYouSceneIDs(consented), recommended.UUID().String(),
+		"opting into tier 2 must restore the recommendation")
 }

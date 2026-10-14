@@ -747,6 +747,52 @@ An end-to-end feed assertion (the wrapper is wired; the decision is unit-tested;
 proven to meet), an end-to-end For You assertion, the warnings-vs-gates split, the T3 cooling
 period, the onboarding wizard, and coverage for the trending-path guard from slice 5a.
 
+### Slice 5c — the four paths verified end to end — DONE
+
+Slice 5b left two of the plan's four paths asserted only at the level of the piece that had changed:
+the feed's decision had a unit table and its wrapper was wired, and For You was covered by
+construction. Neither is a verification, and the plan names all four paths. Both are now asserted
+through the GraphQL API.
+
+**The activity feed.** A follow row alone shows NOTHING -- that is the schema's own contract
+("nothing is visible until the author publishes it", default PRIVATE) -- so the fixture makes a
+relative grant, has the followed user submit a fingerprint, and only then asks. The test counts the
+row first for a reason the fixture cannot avoid: an empty feed has three uninteresting causes (no
+follows, a private grant, an unpublished scene) and every one of them would make the absence pass
+for something that is not the tier. Probed by unwiring the filter (`return out, nil`): the absence
+reddened with its own message, so the decision and the lookup are proven to MEET, not merely to
+exist.
+
+Writing that fixture cost a wrong guess worth recording: the column is `activity_visibility`, not
+`visibility`. The schema comment paraphrases the field and the migration has its name -- read the
+MIGRATION before writing fixture SQL.
+
+**For You.** `serendipity: 0` on purpose: the page is then a pure affinity ranking, so a scene that
+is absent cannot be absent because it lost a coin toss (the seed makes the shuffled page testable,
+but not a page for an absence assertion). The signal is the viewer's own list addition (+0.8,
+derived at read time, so nothing has to be recomputed for it to count), and `listAddItem` requires
+MODIFY -- which is also why this test's viewer is the modify user rather than the read user.
+
+With this, the four paths the plan names -- search (with its facets and performer-scene riders),
+similarity, the feed, and For You -- each have an absence assertion preceded by a count of the
+subject in that exact query.
+
+**A readability fix in the same pass:** the id lists these assertions compare are `[]string`, not
+`[]uuid.UUID`. An `assert.NotContains` failure prints the container it searched, and
+`[]uuid.UUID{[16]uint8{0x1, 0xa1, ...}}` hides the one thing a failure message exists for.
+
+#### Evidence
+
+Unit clean; 44 integration packages, 0 FAIL (serial); fmt and vet clean. One probe, killed, plus the
+two from slice 5b. The For You test needed no probe of its own: its ABSENCE is non-vacuous by
+construction, because the count-first assertion requires the same query to have returned the scene
+one statement earlier.
+
+#### Still open in phase 5
+
+The warnings-vs-gates split, the T3 cooling period, the onboarding wizard, and coverage for the
+trending-path guard from slice 5a.
+
 ## Phase 6 — trust, sub-scores, gamification
 
 **Goal:** NexusXXX §5.2–§5.4, §6.1–§6.5. **Verified:** `trust` is derived by a curve
