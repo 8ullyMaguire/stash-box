@@ -230,6 +230,11 @@ type ComplexityRoot struct {
 		URL           func(childComplexity int) int
 	}
 
+	ContentWarning struct {
+		Reason func(childComplexity int) int
+		Source func(childComplexity int) int
+	}
+
 	CropGuide struct {
 		Axis     func(childComplexity int) int
 		Label    func(childComplexity int) int
@@ -1091,6 +1096,7 @@ type ComplexityRoot struct {
 		Title          func(childComplexity int) int
 		Updated        func(childComplexity int) int
 		Urls           func(childComplexity int) int
+		Warnings       func(childComplexity int) int
 	}
 
 	SceneDraft struct {
@@ -1826,6 +1832,7 @@ type SceneResolver interface {
 	Updated(ctx context.Context, obj *Scene) (*time.Time, error)
 	Completion(ctx context.Context, obj *Scene) (*Completion, error)
 	SimilarScenes(ctx context.Context, obj *Scene, limit *int) ([]SimilarScene, error)
+	Warnings(ctx context.Context, obj *Scene) ([]ContentWarning, error)
 }
 type SceneDraftResolver interface {
 	Studio(ctx context.Context, obj *SceneDraft) (SceneDraftStudio, error)
@@ -2502,6 +2509,19 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.ContentSource.URL(childComplexity), true
+
+	case "ContentWarning.reason":
+		if e.ComplexityRoot.ContentWarning.Reason == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentWarning.Reason(childComplexity), true
+	case "ContentWarning.source":
+		if e.ComplexityRoot.ContentWarning.Source == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentWarning.Source(childComplexity), true
 
 	case "CropGuide.axis":
 		if e.ComplexityRoot.CropGuide.Axis == nil {
@@ -7207,6 +7227,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Scene.Urls(childComplexity), true
+	case "Scene.warnings":
+		if e.ComplexityRoot.Scene.Warnings == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Scene.Warnings(childComplexity), true
 
 	case "SceneDraft.code":
 		if e.ComplexityRoot.SceneDraft.Code == nil {
@@ -12891,6 +12917,48 @@ extend type Scene {
     @hasRole(role: READ)
 }
 `, BuiltIn: false},
+	{Name: "../../graphql/schema/types/scene_warnings.graphql", Input: `# Content warnings (aggregator phase 5 slice 5h; NexusXXX section 10).
+#
+# The instance has two instruments and they are not interchangeable. A GATE decides access: an entity
+# on the denylist in ` + "`" + `gate` + "`" + ` mode is not served. A WARNING is an annotation on a view: it says
+# something about what a reader is looking at and changes nothing about whether they may look.
+#
+# FOLDING THEM TOGETHER WOULD BE WRONG IN BOTH DIRECTIONS. Into the tier system, and a note would
+# remove visibility (a tier can only ever remove), which is the opposite of what a warning is for.
+# Into the gate, and every operator note would be a block.
+#
+# AN EMPTY LIST IS THE NORMAL ANSWER, and it is not null: ` + "`" + `[ContentWarning!]!` + "`" + ` makes "no warnings to
+# report" a complete statement, so a client never has to tell it apart from a server that does not
+# report warnings at all.
+#
+# AND THE LIST IS EMPTY FOR A SCENE THE READER CANNOT SEE, deliberately: "this content is restricted"
+# is itself a disclosure about content the reader cannot open.
+
+"A caution about a scene: a note the instance wants the reader to see."
+type ContentWarning {
+  """
+  The operator's reason, or the empty string when none was given.
+
+  Empty rather than null: ` + "`" + `content_denylist_*.reason` + "`" + ` is nullable because an audit must be able to
+  tell "denied with no reason" from "denied for an empty reason", and this field is the reader-facing
+  half of that -- an absent reason is a reason nobody wrote down.
+  """
+  reason: String!
+
+  "Which entity the note came from: ` + "`" + `tag` + "`" + `, ` + "`" + `studio` + "`" + ` or ` + "`" + `performer` + "`" + `."
+  source: String!
+}
+
+extend type Scene {
+  """
+  The instance's warnings about this scene, from warn-mode denylist entries.
+
+  Always a list, never null, and never the reason a scene is withheld: a warning changes visibility in
+  neither direction.
+  """
+  warnings: [ContentWarning!]!
+}
+`, BuiltIn: false},
 	{Name: "../../graphql/schema/types/session_state.graphql", Input: `# "Where I left off": opt-in session state (feature-discovery SPEC section 11, aggregator phase 7
 # slice 7).
 #
@@ -14507,6 +14575,16 @@ func (ec *executionContext) childFields_ContentSource(ctx context.Context, field
 	return nil, fmt.Errorf("no field named %q was found under type ContentSource", field.Name)
 }
 
+func (ec *executionContext) childFields_ContentWarning(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "reason":
+		return ec.fieldContext_ContentWarning_reason(ctx, field)
+	case "source":
+		return ec.fieldContext_ContentWarning_source(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type ContentWarning", field.Name)
+}
+
 func (ec *executionContext) childFields_CropGuide(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 	switch field.Name {
 	case "axis":
@@ -15613,6 +15691,8 @@ func (ec *executionContext) childFields_Scene(ctx context.Context, field graphql
 		return ec.fieldContext_Scene_completion(ctx, field)
 	case "similarScenes":
 		return ec.fieldContext_Scene_similarScenes(ctx, field)
+	case "warnings":
+		return ec.fieldContext_Scene_warnings(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type Scene", field.Name)
 }
@@ -21546,6 +21626,52 @@ func (ec *executionContext) _ContentSource_archived_url(ctx context.Context, fie
 }
 func (ec *executionContext) fieldContext_ContentSource_archived_url(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("ContentSource", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _ContentWarning_reason(ctx context.Context, field graphql.CollectedField, obj *ContentWarning) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentWarning_reason(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Reason, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ContentWarning_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContentWarning", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _ContentWarning_source(ctx context.Context, field graphql.CollectedField, obj *ContentWarning) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentWarning_source(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Source, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ContentWarning_source(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContentWarning", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
 func (ec *executionContext) _CropGuide_axis(ctx context.Context, field graphql.CollectedField, obj *CropGuide) (ret graphql.Marshaler) {
@@ -44160,6 +44286,38 @@ func (ec *executionContext) fieldContext_Scene_similarScenes(ctx context.Context
 	return fc, nil
 }
 
+func (ec *executionContext) _Scene_warnings(ctx context.Context, field graphql.CollectedField, obj *Scene) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Scene_warnings(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Scene().Warnings(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []ContentWarning) graphql.Marshaler {
+			return ec.marshalNContentWarning2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentWarningᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Scene_warnings(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Scene",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ContentWarning(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _SceneDraft_id(ctx context.Context, field graphql.CollectedField, obj *SceneDraft) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -60226,6 +60384,49 @@ func (ec *executionContext) _ContentSource(ctx context.Context, sel ast.Selectio
 	return out
 }
 
+var contentWarningImplementors = []string{"ContentWarning"}
+
+func (ec *executionContext) _ContentWarning(ctx context.Context, sel ast.SelectionSet, obj *ContentWarning) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, contentWarningImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ContentWarning")
+		case "reason":
+			out.Values[i] = ec._ContentWarning_reason(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "source":
+			out.Values[i] = ec._ContentWarning_source(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
 var cropGuideImplementors = []string{"CropGuide"}
 
 func (ec *executionContext) _CropGuide(ctx context.Context, sel ast.SelectionSet, obj *CropGuide) graphql.Marshaler {
@@ -71403,6 +71604,44 @@ func (ec *executionContext) _Scene(ctx context.Context, sel ast.SelectionSet, ob
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "warnings":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Scene_warnings(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -76961,6 +77200,26 @@ func (ec *executionContext) marshalNContentSource2ᚕgithubᚗcomᚋstashappᚋs
 		fc := graphql.GetFieldContext(ctx)
 		fc.Result = &v[i]
 		return ec.marshalNContentSource2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentSource(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNContentWarning2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentWarning(ctx context.Context, sel ast.SelectionSet, v ContentWarning) graphql.Marshaler {
+	return ec._ContentWarning(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNContentWarning2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentWarningᚄ(ctx context.Context, sel ast.SelectionSet, v []ContentWarning) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNContentWarning2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentWarning(ctx, sel, v[i])
 	})
 
 	for _, e := range ret {

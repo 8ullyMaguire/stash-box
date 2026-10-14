@@ -923,3 +923,159 @@ func TestTheActivityFeedDropsDenylistedScenes(t *testing.T) {
 	assert.NotContains(t, feedSceneIDs(after), scene.UUID().String(),
 		"the feed must not show a denylisted scene")
 }
+
+// --- warnings vs gates (phase 5 slice 5h, migration 122) ---
+
+type contentWarningOutput struct {
+	Reason string `json:"reason"`
+	Source string `json:"source"`
+}
+
+// sceneWithWarnings asks for one scene and its warnings in the same request, because the point of the
+// pair is that they are independent: a scene can be present with a warning, present with none, or
+// absent -- and the third case must not report the second's reason.
+func sceneWithWarnings(t *testing.T, r *testRunner, sceneID uuid.UUID) (bool, []contentWarningOutput) {
+	t.Helper()
+	q := `
+	query SceneWarnings($id: ID!) {
+		findScene(id: $id) {
+			id
+			warnings { reason source }
+		}
+	}`
+	var resp struct {
+		FindScene *struct {
+			ID       string                 `json:"id"`
+			Warnings []contentWarningOutput `json:"warnings"`
+		} `json:"findScene"`
+	}
+	require.NoError(t, r.client.Post(q, &resp, client.Var("id", sceneID)))
+	if resp.FindScene == nil {
+		return false, nil
+	}
+	return true, resp.FindScene.Warnings
+}
+
+// A warn entry is an ANNOTATION, a gate entry is a DECISION, and the two must not be each other: the
+// warning changes nothing about what is served, and the gate does not turn into a reader-facing note.
+func TestAWarnEntryReportsWithoutRemoving(t *testing.T) {
+	admin := asAdmin(t)
+	viewer := asRead(t)
+
+	_, err := viewer.resolver.Mutation().UserSetVisibleTiers(viewer.ctx, []int{})
+	require.NoError(t, err)
+
+	warnName := admin.generateSceneName() + " warned tag"
+	warnTag, err := admin.createTestTag(&models.TagCreateInput{Name: warnName})
+	require.NoError(t, err)
+	title := admin.generateSceneName()
+	scene, err := admin.createTestScene(&models.SceneCreateInput{
+		Title: &title, TagIds: []uuid.UUID{warnTag.UUID()},
+	})
+	require.NoError(t, err)
+
+	// COUNT THE SUBJECT FIRST, both halves of it: the scene is served, and it has nothing to report.
+	require.Equal(t, []string{scene.UUID().String()}, titleSearch(t, viewer, title),
+		"the scene must be served before the denylist is why it is not")
+	found, warnings := sceneWithWarnings(t, viewer, scene.UUID())
+	require.True(t, found)
+	require.Empty(t, warnings, "nothing to report before anything is recorded")
+
+	// A WARN row: present, and now it reports.
+	_, err = dbtest.DB().Exec(context.Background(),
+		`INSERT INTO content_denylist_tag (tag_id, reason, mode) VALUES ($1, 'restricted in your region', 'warn')`,
+		warnTag.UUID())
+	require.NoError(t, err, "warning about a tag")
+	t.Cleanup(func() {
+		_, err := dbtest.DB().Exec(context.Background(), `DELETE FROM content_denylist_tag WHERE tag_id = $1`, warnTag.UUID())
+		require.NoError(t, err)
+	})
+
+	assert.Equal(t, []string{scene.UUID().String()}, titleSearch(t, viewer, title),
+		"a WARNING must not remove the scene: it is an annotation, not a gate")
+	found, warnings = sceneWithWarnings(t, viewer, scene.UUID())
+	require.True(t, found)
+	require.Len(t, warnings, 1, "the warning must be reported")
+	assert.Equal(t, "tag", warnings[0].Source)
+	assert.Equal(t, "restricted in your region", warnings[0].Reason)
+
+	// A GATE row on a second tag of the same scene: the scene goes away, and it reports NOTHING --
+	// "this content is restricted" about content the reader cannot open is itself a disclosure.
+	gateName := admin.generateSceneName() + " gated tag"
+	gateTag, err := admin.createTestTag(&models.TagCreateInput{Name: gateName})
+	require.NoError(t, err)
+	_, err = viewer.resolver.Mutation().SceneUpdate(viewer.ctx, models.SceneUpdateInput{
+		ID: scene.UUID(), TagIds: []uuid.UUID{warnTag.UUID(), gateTag.UUID()},
+	})
+	require.NoError(t, err)
+	_, err = dbtest.DB().Exec(context.Background(),
+		`INSERT INTO content_denylist_tag (tag_id, reason, mode) VALUES ($1, 'not served here', 'gate')`,
+		gateTag.UUID())
+	require.NoError(t, err, "gating a tag")
+	t.Cleanup(func() {
+		_, err := dbtest.DB().Exec(context.Background(), `DELETE FROM content_denylist_tag WHERE tag_id = $1`, gateTag.UUID())
+		require.NoError(t, err)
+	})
+
+	assert.Empty(t, titleSearch(t, viewer, title), "a GATE removes the scene even with a warning beside it")
+	found, warnings = sceneWithWarnings(t, viewer, scene.UUID())
+	if found {
+		assert.Empty(t, warnings, "a scene the instance denies reports no warnings")
+	}
+}
+
+// A warning is an annotation ON A VIEW. If the scene is not in the reader's view there is nothing to
+// annotate, so a warn entry on a scene above the viewer's ceiling must report nothing -- and the SAME
+// call with consent must report it, which is what makes the first assertion about the viewer's ceiling
+// rather than about a broken query.
+func TestAWarningIsNotShownForASceneTheViewerCannotSee(t *testing.T) {
+	admin := asAdmin(t)
+	viewer := asRead(t)
+
+	_, err := viewer.resolver.Mutation().UserSetVisibleTiers(viewer.ctx, []int{})
+	require.NoError(t, err)
+
+	tagName := admin.generateSceneName() + " warned tier"
+	tag, err := admin.createTestTag(&models.TagCreateInput{Name: tagName})
+	require.NoError(t, err)
+	title := admin.generateSceneName()
+	scene, err := admin.createTestScene(&models.SceneCreateInput{
+		Title: &title, TagIds: []uuid.UUID{tag.UUID()},
+	})
+	require.NoError(t, err)
+
+	_, err = admin.resolver.Mutation().TagSetContentTier(admin.ctx, models.TagContentTierInput{
+		ID: tag.UUID(), Tier: 2, RequiresOptIn: false,
+	})
+	require.NoError(t, err)
+	_, err = dbtest.DB().Exec(context.Background(),
+		`INSERT INTO content_denylist_tag (tag_id, reason, mode) VALUES ($1, 'tier two note', 'warn')`,
+		tag.UUID())
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, err := dbtest.DB().Exec(context.Background(), `DELETE FROM content_denylist_tag WHERE tag_id = $1`, tag.UUID())
+		require.NoError(t, err)
+	})
+
+	assert.Empty(t, titleSearch(t, viewer, title), "the scene is above this viewer's ceiling")
+
+	// THE CONTROL: the same request with consent reports the warning, so the emptiness above is the
+	// viewer's ceiling and not a query that never returned anything.
+	_, err = viewer.resolver.Mutation().UserSetVisibleTiers(viewer.ctx, []int{1, 2})
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{scene.UUID().String()}, titleSearch(t, viewer, title),
+		"consent puts the scene in the view")
+	found, warnings := sceneWithWarnings(t, viewer, scene.UUID())
+	require.True(t, found)
+	require.Len(t, warnings, 1, "and in the view, the warning is reported")
+	assert.Equal(t, "tier two note", warnings[0].Reason)
+
+	// And back below the ceiling: nothing, again.
+	_, err = viewer.resolver.Mutation().UserSetVisibleTiers(viewer.ctx, []int{})
+	require.NoError(t, err)
+	found, warnings = sceneWithWarnings(t, viewer, scene.UUID())
+	if found {
+		assert.Empty(t, warnings, "out of the view, a warning is a disclosure and is withheld")
+	}
+}

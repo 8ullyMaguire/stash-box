@@ -367,13 +367,14 @@ func ApplySceneTierCeiling(query *sq.SelectBuilder, visibleTier int) {
 // id, and not to every performer's studio. NULL is handled for free: a scene with no studio matches
 // nothing, so NOT EXISTS is true and the scene is kept.
 //
-// This is a GATE. The `warn` mode (plan phase 5, slice 5g) is a separate column and a separate
-// surface, and it must not be smuggled in here by making this predicate conditional.
+// This is the GATE arm. Slice 5h added a `mode` column, and only 'gate' rows exclude here: a `warn`
+// row is REPORTED by Scene.warnings and must change nothing about what is served, so it must not be
+// swept up by this predicate either.
 func ApplySceneDenylist(query *sq.SelectBuilder, sceneID, studioID string) {
 	*query = query.Where(sq.Expr(
-		`NOT EXISTS (SELECT 1 FROM scene_tags st JOIN content_denylist_tag dt ON dt.tag_id = st.tag_id WHERE st.scene_id = ` + sceneID + `)`))
+		`NOT EXISTS (SELECT 1 FROM scene_tags st JOIN content_denylist_tag dt ON dt.tag_id = st.tag_id AND dt.mode = 'gate' WHERE st.scene_id = ` + sceneID + `)`))
 	*query = query.Where(sq.Expr(
-		`NOT EXISTS (SELECT 1 FROM scene_performers sp JOIN content_denylist_performer dp ON dp.performer_id = sp.performer_id WHERE sp.scene_id = ` + sceneID + `)`))
+		`NOT EXISTS (SELECT 1 FROM scene_performers sp JOIN content_denylist_performer dp ON dp.performer_id = sp.performer_id AND dp.mode = 'gate' WHERE sp.scene_id = ` + sceneID + `)`))
 	*query = query.Where(sq.Expr(
-		`NOT EXISTS (SELECT 1 FROM content_denylist_studio ds WHERE ds.studio_id = ` + studioID + `)`))
+		`NOT EXISTS (SELECT 1 FROM content_denylist_studio ds WHERE ds.mode = 'gate' AND ds.studio_id = ` + studioID + `)`))
 }

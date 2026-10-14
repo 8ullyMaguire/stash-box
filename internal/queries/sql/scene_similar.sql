@@ -123,16 +123,16 @@ WHERE c.id <> sqlc.arg(subject_id)::uuid
   -- asked for it.
   AND NOT EXISTS (
       SELECT 1 FROM scene_tags den_st
-      JOIN content_denylist_tag den_dt ON den_dt.tag_id = den_st.tag_id
+      JOIN content_denylist_tag den_dt ON den_dt.tag_id = den_st.tag_id AND den_dt.mode = 'gate'
       WHERE den_st.scene_id = c.id
   )
   AND NOT EXISTS (
       SELECT 1 FROM scene_performers den_sp
-      JOIN content_denylist_performer den_dp ON den_dp.performer_id = den_sp.performer_id
+      JOIN content_denylist_performer den_dp ON den_dp.performer_id = den_sp.performer_id AND den_dp.mode = 'gate'
       WHERE den_sp.scene_id = c.id
   )
   AND NOT EXISTS (
-      SELECT 1 FROM content_denylist_studio den_ds WHERE den_ds.studio_id = c.studio_id
+      SELECT 1 FROM content_denylist_studio den_ds WHERE den_ds.mode = 'gate' AND den_ds.studio_id = c.studio_id
   )
   AND ss.subject_exists = 1
   AND (

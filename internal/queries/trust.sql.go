@@ -84,9 +84,9 @@ func (q *Queries) ApplyTrustEvent(ctx context.Context, arg ApplyTrustEventParams
 
 const contentDenylistActive = `-- name: ContentDenylistActive :one
 SELECT (
-    EXISTS (SELECT 1 FROM "content_denylist_tag")
-    OR EXISTS (SELECT 1 FROM "content_denylist_studio")
-    OR EXISTS (SELECT 1 FROM "content_denylist_performer")
+    EXISTS (SELECT 1 FROM "content_denylist_tag" WHERE "mode" = 'gate')
+    OR EXISTS (SELECT 1 FROM "content_denylist_studio" WHERE "mode" = 'gate')
+    OR EXISTS (SELECT 1 FROM "content_denylist_performer" WHERE "mode" = 'gate')
 )::bool AS "active"
 `
 
@@ -114,9 +114,9 @@ func (q *Queries) CountUserTrustEvents(ctx context.Context, userID uuid.UUID) (i
 const deniedSceneIDs = `-- name: DeniedSceneIDs :many
 SELECT DISTINCT s."id"::uuid AS "scene_id"
 FROM unnest($1::uuid[]) AS s("id")
-WHERE EXISTS (SELECT 1 FROM "scene_tags" st JOIN "content_denylist_tag" dt ON dt."tag_id" = st."tag_id" WHERE st."scene_id" = s."id")
-   OR EXISTS (SELECT 1 FROM "scene_performers" sp JOIN "content_denylist_performer" dp ON dp."performer_id" = sp."performer_id" WHERE sp."scene_id" = s."id")
-   OR EXISTS (SELECT 1 FROM "scenes" sc JOIN "content_denylist_studio" ds ON ds."studio_id" = sc."studio_id" WHERE sc."id" = s."id")
+WHERE EXISTS (SELECT 1 FROM "scene_tags" st JOIN "content_denylist_tag" dt ON dt."tag_id" = st."tag_id" AND dt."mode" = 'gate' WHERE st."scene_id" = s."id")
+   OR EXISTS (SELECT 1 FROM "scene_performers" sp JOIN "content_denylist_performer" dp ON dp."performer_id" = sp."performer_id" AND dp."mode" = 'gate' WHERE sp."scene_id" = s."id")
+   OR EXISTS (SELECT 1 FROM "scenes" sc JOIN "content_denylist_studio" ds ON ds."studio_id" = sc."studio_id" AND ds."mode" = 'gate' WHERE sc."id" = s."id")
 `
 
 // Which of these scenes are denylisted, for the paths that assemble a page in Go (the activity feed)
@@ -407,6 +407,51 @@ func (q *Queries) SceneEffectiveTiers(ctx context.Context, sceneIds []uuid.UUID)
 	for rows.Next() {
 		var i SceneEffectiveTiersRow
 		if err := rows.Scan(&i.EntityID, &i.Tier); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const sceneWarnings = `-- name: SceneWarnings :many
+SELECT 'tag'::text AS "source", COALESCE(dt."reason", '')::text AS "reason"
+FROM "scene_tags" st JOIN "content_denylist_tag" dt ON dt."tag_id" = st."tag_id"
+WHERE st."scene_id" = $1 AND dt."mode" = 'warn'
+UNION ALL
+SELECT 'studio'::text, COALESCE(ds."reason", '')::text
+FROM "scenes" sc JOIN "content_denylist_studio" ds ON ds."studio_id" = sc."studio_id"
+WHERE sc."id" = $1 AND ds."mode" = 'warn'
+UNION ALL
+SELECT 'performer'::text, COALESCE(dp."reason", '')::text
+FROM "scene_performers" sp JOIN "content_denylist_performer" dp ON dp."performer_id" = sp."performer_id"
+WHERE sp."scene_id" = $1 AND dp."mode" = 'warn'
+`
+
+type SceneWarningsRow struct {
+	Source string `db:"source" json:"source"`
+	Reason string `db:"reason" json:"reason"`
+}
+
+// The WARN-mode entries touching one scene, for `Scene.warnings`. Three arms UNIONed rather than one
+// polymorphic query, for the reason migration 87 gives for three tables: there is no query that needs
+// them together except this one, and here the `source` column is what a reader is shown.
+//
+// An empty result is the normal answer and means "nothing to report", which is why the GraphQL field is
+// a non-null list: a client must not have to distinguish "no warnings" from "this surface is silent".
+func (q *Queries) SceneWarnings(ctx context.Context, sceneID uuid.UUID) ([]SceneWarningsRow, error) {
+	rows, err := q.db.Query(ctx, sceneWarnings, sceneID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SceneWarningsRow{}
+	for rows.Next() {
+		var i SceneWarningsRow
+		if err := rows.Scan(&i.Source, &i.Reason); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

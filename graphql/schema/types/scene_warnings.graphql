@@ -1,0 +1,41 @@
+# Content warnings (aggregator phase 5 slice 5h; NexusXXX section 10).
+#
+# The instance has two instruments and they are not interchangeable. A GATE decides access: an entity
+# on the denylist in `gate` mode is not served. A WARNING is an annotation on a view: it says
+# something about what a reader is looking at and changes nothing about whether they may look.
+#
+# FOLDING THEM TOGETHER WOULD BE WRONG IN BOTH DIRECTIONS. Into the tier system, and a note would
+# remove visibility (a tier can only ever remove), which is the opposite of what a warning is for.
+# Into the gate, and every operator note would be a block.
+#
+# AN EMPTY LIST IS THE NORMAL ANSWER, and it is not null: `[ContentWarning!]!` makes "no warnings to
+# report" a complete statement, so a client never has to tell it apart from a server that does not
+# report warnings at all.
+#
+# AND THE LIST IS EMPTY FOR A SCENE THE READER CANNOT SEE, deliberately: "this content is restricted"
+# is itself a disclosure about content the reader cannot open.
+
+"A caution about a scene: a note the instance wants the reader to see."
+type ContentWarning {
+  """
+  The operator's reason, or the empty string when none was given.
+
+  Empty rather than null: `content_denylist_*.reason` is nullable because an audit must be able to
+  tell "denied with no reason" from "denied for an empty reason", and this field is the reader-facing
+  half of that -- an absent reason is a reason nobody wrote down.
+  """
+  reason: String!
+
+  "Which entity the note came from: `tag`, `studio` or `performer`."
+  source: String!
+}
+
+extend type Scene {
+  """
+  The instance's warnings about this scene, from warn-mode denylist entries.
+
+  Always a list, never null, and never the reason a scene is withheld: a warning changes visibility in
+  neither direction.
+  """
+  warnings: [ContentWarning!]!
+}

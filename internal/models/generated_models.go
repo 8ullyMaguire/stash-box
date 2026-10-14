@@ -355,6 +355,18 @@ type ContentItemMedia struct {
 	DurationSeconds *int                 `json:"durationSeconds,omitempty"`
 }
 
+// A caution about a scene: a note the instance wants the reader to see.
+type ContentWarning struct {
+	// The operator's reason, or the empty string when none was given.
+	//
+	// Empty rather than null: `content_denylist_*.reason` is nullable because an audit must be able to
+	// tell "denied with no reason" from "denied for an empty reason", and this field is the reader-facing
+	// half of that -- an absent reason is a reason nobody wrote down.
+	Reason string `json:"reason"`
+	// Which entity the note came from: `tag`, `studio` or `performer`.
+	Source string `json:"source"`
+}
+
 // One guide line of a crop template
 type CropGuide struct {
 	Axis CropGuideAxisEnum `json:"axis"`

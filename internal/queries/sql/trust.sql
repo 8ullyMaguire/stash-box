@@ -203,9 +203,9 @@ WHERE "entity_type" = 'scene' AND "entity_id" = ANY(@scene_ids::uuid[]);
 -- its subquery before the filters run, so a page that must exclude denylisted scenes cannot take it
 -- -- the same guard the tiers need, and it needs the same answer to "is there anything to exclude".
 SELECT (
-    EXISTS (SELECT 1 FROM "content_denylist_tag")
-    OR EXISTS (SELECT 1 FROM "content_denylist_studio")
-    OR EXISTS (SELECT 1 FROM "content_denylist_performer")
+    EXISTS (SELECT 1 FROM "content_denylist_tag" WHERE "mode" = 'gate')
+    OR EXISTS (SELECT 1 FROM "content_denylist_studio" WHERE "mode" = 'gate')
+    OR EXISTS (SELECT 1 FROM "content_denylist_performer" WHERE "mode" = 'gate')
 )::bool AS "active";
 
 -- name: DeniedSceneIDs :many
@@ -214,6 +214,25 @@ SELECT (
 -- over the whole table excludes with a NOT EXISTS (query.ApplySceneDenylist) instead.
 SELECT DISTINCT s."id"::uuid AS "scene_id"
 FROM unnest(@scene_ids::uuid[]) AS s("id")
-WHERE EXISTS (SELECT 1 FROM "scene_tags" st JOIN "content_denylist_tag" dt ON dt."tag_id" = st."tag_id" WHERE st."scene_id" = s."id")
-   OR EXISTS (SELECT 1 FROM "scene_performers" sp JOIN "content_denylist_performer" dp ON dp."performer_id" = sp."performer_id" WHERE sp."scene_id" = s."id")
-   OR EXISTS (SELECT 1 FROM "scenes" sc JOIN "content_denylist_studio" ds ON ds."studio_id" = sc."studio_id" WHERE sc."id" = s."id");
+WHERE EXISTS (SELECT 1 FROM "scene_tags" st JOIN "content_denylist_tag" dt ON dt."tag_id" = st."tag_id" AND dt."mode" = 'gate' WHERE st."scene_id" = s."id")
+   OR EXISTS (SELECT 1 FROM "scene_performers" sp JOIN "content_denylist_performer" dp ON dp."performer_id" = sp."performer_id" AND dp."mode" = 'gate' WHERE sp."scene_id" = s."id")
+   OR EXISTS (SELECT 1 FROM "scenes" sc JOIN "content_denylist_studio" ds ON ds."studio_id" = sc."studio_id" AND ds."mode" = 'gate' WHERE sc."id" = s."id");
+
+-- name: SceneWarnings :many
+-- The WARN-mode entries touching one scene, for `Scene.warnings`. Three arms UNIONed rather than one
+-- polymorphic query, for the reason migration 87 gives for three tables: there is no query that needs
+-- them together except this one, and here the `source` column is what a reader is shown.
+--
+-- An empty result is the normal answer and means "nothing to report", which is why the GraphQL field is
+-- a non-null list: a client must not have to distinguish "no warnings" from "this surface is silent".
+SELECT 'tag'::text AS "source", COALESCE(dt."reason", '')::text AS "reason"
+FROM "scene_tags" st JOIN "content_denylist_tag" dt ON dt."tag_id" = st."tag_id"
+WHERE st."scene_id" = @scene_id AND dt."mode" = 'warn'
+UNION ALL
+SELECT 'studio'::text, COALESCE(ds."reason", '')::text
+FROM "scenes" sc JOIN "content_denylist_studio" ds ON ds."studio_id" = sc."studio_id"
+WHERE sc."id" = @scene_id AND ds."mode" = 'warn'
+UNION ALL
+SELECT 'performer'::text, COALESCE(dp."reason", '')::text
+FROM "scene_performers" sp JOIN "content_denylist_performer" dp ON dp."performer_id" = sp."performer_id"
+WHERE sp."scene_id" = @scene_id AND dp."mode" = 'warn';

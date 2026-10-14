@@ -880,7 +880,10 @@ done the claim has to be corrected instead. Either way the operator-facing sente
 
 #### A. Warnings vs gates
 
-**Today there is one instrument and it is all-or-nothing:** `EvaluateContentAccess` refuses (seven
+BUILT — see slice 5h (migration 122). Design as written, with one addition the implementation needed:
+the visibility guard on the warnings list lives in the SERVICE, so `resolveWarnings` is only the wiring.
+
+**Before slice 5f there was one instrument and it was all-or-nothing:** `EvaluateContentAccess` refuses (seven
 conditions) and the per-entity denylist blocks — once something consults it. Nothing can tell a reader
 "this is restricted" while letting them proceed, so an instance's only options are silence and refusal.
 
@@ -997,6 +1000,36 @@ otherwise the only way to un-denylist something is to bypass the API.
 internal/service/trust` is true of enumeration and not of direct access.** The field's contract says a
 reason is empty exactly when `Enforced` is true, so the honest options are to build 5g or to narrow the
 claim — not to leave a half-true sentence in an operator-facing report.
+
+### Slice 5h — warnings vs gates — DONE
+
+Migration 122 adds `mode VARCHAR(4) NOT NULL DEFAULT 'gate' CHECK (mode IN ('gate','warn'))` to the three
+denylist tables. **Additive, and the default is the safe direction:** `gate` is what every existing row
+means, so nothing changes effect, and a row inserted without naming a mode blocks.
+
+**Two instruments, and they must not be each other.** A gate decides ACCESS; a warning is an annotation
+on a VIEW. Only `gate` rows exclude — in the shared scene predicate, in the similarity candidate SQL, in
+the `DeniedSceneIDs` batch and in the `ContentDenylistActive` guard — while warn rows are reported by
+`Scene.warnings`. The failure this prevents is symmetrical and both halves are asserted: a warn row that
+removes a scene, and a gate row that never becomes a reader-facing note.
+
+**`warnings: [ContentWarning!]!` — an empty LIST, never null, and never the reason a scene is withheld.**
+The non-null list is the contract: "no warnings to report" is a complete statement, so a client never has
+to tell it apart from a server that does not report warnings at all. `ContentWarning` carries `source`
+(`tag`/`studio`/`performer`) and `reason`, with an empty string rather than null when the operator wrote
+none — the reader-facing half of the same distinction `content_denylist_*.reason` is nullable for.
+
+**A WARNING IS WITHHELD FOR A SCENE THE READER CANNOT SEE, and that check is in the service, not the
+resolver.** Two ways a scene is out of view — the instance denies it, or its tier is above the viewer's
+ceiling — and both return the empty list: a warning is an annotation on a view, and "this content is
+restricted" is itself a disclosure about content the reader cannot open. The resolver is the wiring;
+putting the rule where every caller passes is the lesson the four tier paths taught.
+
+**Probes, three, all killed:** the gate predicate made mode-blind (reddening "a WARNING must not remove
+the scene" and the ceiling test), the ceiling check made unsatisfiable, and the batch denial lookup's
+mode filter flipped in the generated statement. The second probe is the third occurrence of a harness
+lesson worth stating once: **delete a check and its variables become unused, so the mutation does not
+compile** — cut it by making it unsatisfiable (`row.Tier > visibleTier+99`) rather than by removing it.
 
 ## Phase 6 — trust, sub-scores, gamification
 

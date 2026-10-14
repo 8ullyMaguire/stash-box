@@ -2164,6 +2164,13 @@ type Querier interface {
 	// entity_effective_tier view IS for -- a known, small set of ids -- as opposed to a filtered page
 	// over the whole table, which excludes with a NOT EXISTS instead.
 	SceneEffectiveTiers(ctx context.Context, sceneIds []uuid.UUID) ([]SceneEffectiveTiersRow, error)
+	// The WARN-mode entries touching one scene, for `Scene.warnings`. Three arms UNIONed rather than one
+	// polymorphic query, for the reason migration 87 gives for three tables: there is no query that needs
+	// them together except this one, and here the `source` column is what a reader is shown.
+	//
+	// An empty result is the normal answer and means "nothing to report", which is why the GraphQL field is
+	// a non-null list: a client must not have to distinguish "no warnings" from "this surface is silent".
+	SceneWarnings(ctx context.Context, sceneID uuid.UUID) ([]SceneWarningsRow, error)
 	// Scenes missing one field, for a generated quest.
 	ScenesMissingField(ctx context.Context, arg ScenesMissingFieldParams) ([]uuid.UUID, error)
 	// One row per (candidate scene, tag of that scene): what the viewer's taste says it is worth.
