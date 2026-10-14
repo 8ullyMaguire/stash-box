@@ -256,6 +256,24 @@ func (c Cron) sweepContentSources() {
 		return
 	}
 
+	// The archive queue (slice 9e): sources that are gone or going, preserved before they vanish. It
+	// runs AFTER the sweep so that a source the sweep has just found dead is archived in the same tick
+	// rather than an hour later.
+	attempts, err := c.fac.Content().ArchiveSources(ctx, content.SweepBatch, content.NewWayback())
+	tracing.RecordError(span, err)
+	if err != nil {
+		logger.Errorf("Error archiving content sources: %s", err)
+		return
+	}
+	for _, attempt := range attempts {
+		if attempt.Err != nil {
+			// A failure is a RESULT here: one host refusing to archive says nothing about the next.
+			logger.Warnf("Could not archive %s: %s", attempt.URL, attempt.Err)
+			continue
+		}
+		logger.Infof("Content source archived: %s -> %s", attempt.URL, attempt.ArchivedURL)
+	}
+
 	// Logged by NAME and by how long the gap was, not counted: a source this instance recorded as
 	// dead is serving again, and "which one, gone since when" is the whole content of that news.
 	for _, source := range resurrected {

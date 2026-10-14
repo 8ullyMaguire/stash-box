@@ -697,6 +697,60 @@ func (q *Queries) FindSiteForURL(ctx context.Context, url *string) (FindSiteForU
 	return i, err
 }
 
+const findSourcesToArchive = `-- name: FindSourcesToArchive :many
+SELECT cs.id, cs.entity_type, cs.entity_id, cs.url, cs.site_id, cs.platform, cs.status, cs.canonical, cs.first_seen, cs.last_checked, cs.last_ok, cs.check_failures, cs.archived_url, cs.archived_at, cs.created_by, cs.url_normalized
+FROM content_sources cs
+WHERE cs.status IN ('dead', 'intermittent')
+  AND cs.archived_url IS NULL
+ORDER BY cs.last_checked ASC NULLS FIRST, cs.first_seen ASC
+LIMIT $1
+`
+
+// The archive queue's candidates (slice 9e): sources that are gone or going, with no archive yet.
+//
+// DEAD AND INTERMITTENT ONLY. An archive is worth making when a URL is at risk of vanishing, and
+// `dmca`/`archived` are deliberately absent: those are decisions the instance has taken, and sending a
+// URL it has decided not to serve to a third party for permanent storage would be passing a takedown
+// around -- the same reasoning as slice 9d's refusal to mirror one.
+//
+// Ordered oldest-checked first, so a URL that has been gone longest is preserved first.
+func (q *Queries) FindSourcesToArchive(ctx context.Context, lim int32) ([]ContentSource, error) {
+	rows, err := q.db.Query(ctx, findSourcesToArchive, lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ContentSource{}
+	for rows.Next() {
+		var i ContentSource
+		if err := rows.Scan(
+			&i.ID,
+			&i.EntityType,
+			&i.EntityID,
+			&i.Url,
+			&i.SiteID,
+			&i.Platform,
+			&i.Status,
+			&i.Canonical,
+			&i.FirstSeen,
+			&i.LastChecked,
+			&i.LastOk,
+			&i.CheckFailures,
+			&i.ArchivedUrl,
+			&i.ArchivedAt,
+			&i.CreatedBy,
+			&i.UrlNormalized,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const insertContentSource = `-- name: InsertContentSource :one
 INSERT INTO content_sources (
     entity_type, entity_id, url, url_normalized, site_id, platform, created_by
@@ -804,6 +858,46 @@ func (q *Queries) RecordSourceCheck(ctx context.Context, arg RecordSourceCheckPa
 		arg.CheckFailures,
 		arg.ID,
 	)
+	var i ContentSource
+	err := row.Scan(
+		&i.ID,
+		&i.EntityType,
+		&i.EntityID,
+		&i.Url,
+		&i.SiteID,
+		&i.Platform,
+		&i.Status,
+		&i.Canonical,
+		&i.FirstSeen,
+		&i.LastChecked,
+		&i.LastOk,
+		&i.CheckFailures,
+		&i.ArchivedUrl,
+		&i.ArchivedAt,
+		&i.CreatedBy,
+		&i.UrlNormalized,
+	)
+	return i, err
+}
+
+const setContentSourceArchive = `-- name: SetContentSourceArchive :one
+UPDATE content_sources
+SET archived_url = $1, archived_at = now()
+WHERE id = $2
+RETURNING id, entity_type, entity_id, url, site_id, platform, status, canonical, first_seen, last_checked, last_ok, check_failures, archived_url, archived_at, created_by, url_normalized
+`
+
+type SetContentSourceArchiveParams struct {
+	ArchivedUrl *string   `db:"archived_url" json:"archived_url"`
+	ID          uuid.UUID `db:"id" json:"id"`
+}
+
+// The ONLY statement that writes the archive pair (slice 9e), which is why it writes both columns
+// together: `content_sources` carries CHECK ((archived_url IS NULL) = (archived_at IS NULL)), so a
+// half-written archive -- a URL with no capture time, or a capture time pointing nowhere -- is refused
+// by the database rather than by whoever reviews the next change to this file.
+func (q *Queries) SetContentSourceArchive(ctx context.Context, arg SetContentSourceArchiveParams) (ContentSource, error) {
+	row := q.db.QueryRow(ctx, setContentSourceArchive, arg.ArchivedUrl, arg.ID)
 	var i ContentSource
 	err := row.Scan(
 		&i.ID,

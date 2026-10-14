@@ -1495,13 +1495,34 @@ mirror, the takedown branch removed, and the same-content requirement dropped (t
 the neighbouring test, because with the entity filter gone a leftover live source from another test
 becomes an eligible "mirror" -- the same invariant, observed one assertion over).
 
-### Slice 9e — Wayback submission
+### Slice 9e — Wayback submission — DONE
 
-`archived_url`/`archived_at` exist as a pair with a CHECK. This slice submits a URL to the archive and
-records the pair, and it is the only writer of those columns.
+`archived_url`/`archived_at` exist as a pair with a CHECK (`(archived_url IS NULL) = (archived_at IS
+NULL)`), and `SetContentSourceArchive` is the only statement that writes them, for that reason: a
+half-written archive is refused by the database rather than by whoever reviews the next change to the
+file. The probe that writes the pair half at a time is KILLED BY THE CONSTRAINT, which is the CHECK
+earning its place rather than being documentation.
 
-**Verification:** a submission writes both columns or neither (the CHECK is the test), and a source with
-an archive is not resubmitted.
+**Dead and intermittent only.** An archive is worth making when a URL is at risk of vanishing;
+`dmca` and `archived` are absent deliberately, because sending a URL the instance has decided not to
+serve to a third party for permanent storage would be passing a takedown around -- the same reasoning
+that stops a mirror in 9d. An already-archived source is never resubmitted: the Internet Archive is
+somebody else's service.
+
+**A refusal is a RESULT, not an error.** One host refusing to archive says nothing about the next, so
+`ArchiveSources` records the failure on that attempt (`ArchiveAttempt{URL, ArchivedURL, Err}`) and
+carries on; only a database failure stops the run. And `Wayback.Archive` returns an error when a
+submission is accepted but names no copy: a 200 without `Content-Location` is a success that produced
+nothing this instance can record, and treating it as one would write a row whose time is real and whose
+address is empty.
+
+**Verification (DONE):** `Wayback` against an httptest server whose transport is rewritten so the
+production URL stays in the code under test (the path form is made absolute, an absolute form is taken
+as it comes, a missing header is an error, a 5xx is an error); four integration tests (a dead source
+preserved with BOTH columns asserted, an archived source not resubmitted, a takedown left alone, a
+refusal reported while the batch continues). Four probes, all killed -- one of them only after the
+mutation script was fixed: `str.replace` with a needle that does not match is a silent no-op, so a
+probe can report SURVIVED for a cut that was never made. The script now asserts the text changed.
 
 ### Slice 9f — `expected_totals` integration
 

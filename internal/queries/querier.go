@@ -1243,6 +1243,15 @@ type Querier interface {
 	// Postgres's own engine and never by the Go layer.
 	FindSiteForURL(ctx context.Context, url *string) (FindSiteForURLRow, error)
 	FindSitesByIds(ctx context.Context, dollar_1 []uuid.UUID) ([]Site, error)
+	// The archive queue's candidates (slice 9e): sources that are gone or going, with no archive yet.
+	//
+	// DEAD AND INTERMITTENT ONLY. An archive is worth making when a URL is at risk of vanishing, and
+	// `dmca`/`archived` are deliberately absent: those are decisions the instance has taken, and sending a
+	// URL it has decided not to serve to a third party for permanent storage would be passing a takedown
+	// around -- the same reasoning as slice 9d's refusal to mirror one.
+	//
+	// Ordered oldest-checked first, so a URL that has been gone longest is preserved first.
+	FindSourcesToArchive(ctx context.Context, lim int32) ([]ContentSource, error)
 	FindStudio(ctx context.Context, id uuid.UUID) (Studio, error)
 	// Get aliases for multiple studios
 	FindStudioAliasesByIds(ctx context.Context, studioIds []uuid.UUID) ([]StudioAlias, error)
@@ -2288,6 +2297,11 @@ type Querier interface {
 	SearchSiteDirectory(ctx context.Context, arg SearchSiteDirectoryParams) ([]SearchSiteDirectoryRow, error)
 	SearchStudios(ctx context.Context, arg SearchStudiosParams) ([]SearchStudiosRow, error)
 	SearchTags(ctx context.Context, arg SearchTagsParams) ([]Tag, error)
+	// The ONLY statement that writes the archive pair (slice 9e), which is why it writes both columns
+	// together: `content_sources` carries CHECK ((archived_url IS NULL) = (archived_at IS NULL)), so a
+	// half-written archive -- a URL with no capture time, or a capture time pointing nowhere -- is refused
+	// by the database rather than by whoever reviews the next change to this file.
+	SetContentSourceArchive(ctx context.Context, arg SetContentSourceArchiveParams) (ContentSource, error)
 	// The one user-writable field in this table (SPEC §6: high-trust users
 	// EXPLICITLY opt in to viewing content).
 	//

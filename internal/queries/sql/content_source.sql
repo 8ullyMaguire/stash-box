@@ -245,3 +245,29 @@ WHERE cs.entity_type = 'scene'
   AND cs.status = 'live'
 ORDER BY cs.canonical DESC, cs.check_failures ASC
 LIMIT sqlc.arg('lim');
+
+-- name: SetContentSourceArchive :one
+-- The ONLY statement that writes the archive pair (slice 9e), which is why it writes both columns
+-- together: `content_sources` carries CHECK ((archived_url IS NULL) = (archived_at IS NULL)), so a
+-- half-written archive -- a URL with no capture time, or a capture time pointing nowhere -- is refused
+-- by the database rather than by whoever reviews the next change to this file.
+UPDATE content_sources
+SET archived_url = @archived_url, archived_at = now()
+WHERE id = @id
+RETURNING *;
+
+-- name: FindSourcesToArchive :many
+-- The archive queue's candidates (slice 9e): sources that are gone or going, with no archive yet.
+--
+-- DEAD AND INTERMITTENT ONLY. An archive is worth making when a URL is at risk of vanishing, and
+-- `dmca`/`archived` are deliberately absent: those are decisions the instance has taken, and sending a
+-- URL it has decided not to serve to a third party for permanent storage would be passing a takedown
+-- around -- the same reasoning as slice 9d's refusal to mirror one.
+--
+-- Ordered oldest-checked first, so a URL that has been gone longest is preserved first.
+SELECT cs.*
+FROM content_sources cs
+WHERE cs.status IN ('dead', 'intermittent')
+  AND cs.archived_url IS NULL
+ORDER BY cs.last_checked ASC NULLS FIRST, cs.first_seen ASC
+LIMIT @lim;
