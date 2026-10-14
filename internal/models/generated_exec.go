@@ -91,6 +91,21 @@ type ComplexityRoot struct {
 		Unenforced func(childComplexity int) int
 	}
 
+	ActivityActor struct {
+		ID   func(childComplexity int) int
+		Name func(childComplexity int) int
+	}
+
+	ActivityItem struct {
+		Actor     func(childComplexity int) int
+		CreatedAt func(childComplexity int) int
+		Kind      func(childComplexity int) int
+		ListID    func(childComplexity int) int
+		ListName  func(childComplexity int) int
+		Rating    func(childComplexity int) int
+		Scene     func(childComplexity int) int
+	}
+
 	AffinityContribution struct {
 		Tag    func(childComplexity int) int
 		Weight func(childComplexity int) int
@@ -370,6 +385,12 @@ type ComplexityRoot struct {
 		Edit func(childComplexity int) int
 	}
 
+	Follow struct {
+		CreatedAt  func(childComplexity int) int
+		User       func(childComplexity int) int
+		Visibility func(childComplexity int) int
+	}
+
 	ForYouScene struct {
 		Affinity      func(childComplexity int) int
 		Contributions func(childComplexity int) int
@@ -535,6 +556,7 @@ type ComplexityRoot struct {
 		ApproveEdit                       func(childComplexity int, input ApproveEditInput) int
 		CancelEdit                        func(childComplexity int, input CancelEditInput) int
 		ChangePassword                    func(childComplexity int, input UserChangePasswordInput) int
+		ClearSessionState                 func(childComplexity int, input ClearSessionStateInput) int
 		ConfirmChangeEmail                func(childComplexity int, token uuid.UUID) int
 		CreateSavedSearch                 func(childComplexity int, input SavedSearchInput) int
 		DeleteEdit                        func(childComplexity int, input DeleteEditInput) int
@@ -547,6 +569,7 @@ type ComplexityRoot struct {
 		FederationPeerCreate              func(childComplexity int, input FederationPeerCreateInput) int
 		FederationPeerDelete              func(childComplexity int, id uuid.UUID) int
 		FederationPeerUpdate              func(childComplexity int, input FederationPeerUpdateInput) int
+		FollowUser                        func(childComplexity int, input FollowInput) int
 		GenerateCollage                   func(childComplexity int, sceneID uuid.UUID, frameCount *int) int
 		GenerateInviteCode                func(childComplexity int) int
 		GenerateInviteCodes               func(childComplexity int, input *GenerateInviteCodeInput) int
@@ -584,6 +607,7 @@ type ComplexityRoot struct {
 		ReviewDelete                      func(childComplexity int, id uuid.UUID) int
 		ReviewSubmit                      func(childComplexity int, input ReviewSubmitInput) int
 		RevokeInvite                      func(childComplexity int, input RevokeInviteInput) int
+		SaveSessionState                  func(childComplexity int, input SessionStateInput) int
 		SceneCreate                       func(childComplexity int, input SceneCreateInput) int
 		SceneDeleteFingerprintSubmissions func(childComplexity int, input DeleteFingerprintSubmissionsInput) int
 		SceneDestroy                      func(childComplexity int, input SceneDestroyInput) int
@@ -591,6 +615,7 @@ type ComplexityRoot struct {
 		SceneEditUpdate                   func(childComplexity int, id uuid.UUID, input SceneEditInput) int
 		SceneMoveFingerprintSubmissions   func(childComplexity int, input MoveFingerprintSubmissionsInput) int
 		SceneUpdate                       func(childComplexity int, input SceneUpdateInput) int
+		SetActivityVisibility             func(childComplexity int, input ActivityVisibilityInput) int
 		SetContentViewingOptIn            func(childComplexity int, enabled bool) int
 		SiteCategoryCreate                func(childComplexity int, input SiteCategoryCreateInput) int
 		SiteCategoryDestroy               func(childComplexity int, input SiteCategoryDestroyInput) int
@@ -618,6 +643,7 @@ type ComplexityRoot struct {
 		TagEdit                           func(childComplexity int, input TagEditInput) int
 		TagEditUpdate                     func(childComplexity int, id uuid.UUID, input TagEditInput) int
 		TagUpdate                         func(childComplexity int, input TagUpdateInput) int
+		UnfollowUser                      func(childComplexity int, input UnfollowInput) int
 		UnvoteIdentificationCandidate     func(childComplexity int, candidateID uuid.UUID) int
 		UpdateEditComment                 func(childComplexity int, input UpdateEditCommentInput) int
 		UpdateImageTypePreferences        func(childComplexity int, input ImageTypePreferencesInput) int
@@ -791,6 +817,7 @@ type ComplexityRoot struct {
 
 	Query struct {
 		AccessRules                    func(childComplexity int) int
+		ActivityFeed                   func(childComplexity int, input *ActivityFeedInput) int
 		ArchiveEntityCounts            func(childComplexity int) int
 		CountIncompleteEntities        func(childComplexity int, entityType EntityType, below int) int
 		EloLeaderboard                 func(childComplexity int, entityType EloEntityType, limit *int) int
@@ -819,6 +846,8 @@ type ComplexityRoot struct {
 		FindTags                       func(childComplexity int, ids []uuid.UUID) int
 		FindUser                       func(childComplexity int, id *uuid.UUID, username *string) int
 		FingerprintClusters            func(childComplexity int, input FingerprintClustersInput) int
+		Followers                      func(childComplexity int) int
+		Following                      func(childComplexity int) int
 		ForYou                         func(childComplexity int, input *ForYouInput) int
 		GetConfig                      func(childComplexity int) int
 		GetUnreadNotificationCount     func(childComplexity int) int
@@ -859,6 +888,8 @@ type ComplexityRoot struct {
 		SearchScenes                   func(childComplexity int, term string, limit *int, page *int, perPage *int) int
 		SearchStudio                   func(childComplexity int, term string, limit *int) int
 		SearchTag                      func(childComplexity int, term string, limit *int) int
+		SessionState                   func(childComplexity int, kind string, key string) int
+		SessionStates                  func(childComplexity int, kind string) int
 		StudioChangelog                func(childComplexity int, since time.Time, afterID *uuid.UUID, limit *int) int
 		TagChangelog                   func(childComplexity int, since time.Time, afterID *uuid.UUID, limit *int) int
 		TagImplications                func(childComplexity int) int
@@ -1048,6 +1079,14 @@ type ComplexityRoot struct {
 		Message func(childComplexity int) int
 		Offset  func(childComplexity int) int
 		Term    func(childComplexity int) int
+	}
+
+	SessionState struct {
+		Cursor    func(childComplexity int) int
+		Key       func(childComplexity int) int
+		Kind      func(childComplexity int) int
+		Storage   func(childComplexity int) int
+		UpdatedAt func(childComplexity int) int
 	}
 
 	SimilarPerformer struct {
@@ -1478,6 +1517,9 @@ type MutationResolver interface {
 	MarkNotificationsRead(ctx context.Context, notification *MarkNotificationReadInput) (bool, error)
 	UpdateNotificationSubscriptions(ctx context.Context, subscriptions []NotificationEnum) (bool, error)
 	UpdateImageTypePreferences(ctx context.Context, input ImageTypePreferencesInput) (bool, error)
+	FollowUser(ctx context.Context, input FollowInput) (bool, error)
+	UnfollowUser(ctx context.Context, input UnfollowInput) (bool, error)
+	SetActivityVisibility(ctx context.Context, input ActivityVisibilityInput) (bool, error)
 	AddSnapshot(ctx context.Context, sceneID uuid.UUID, timestamp int) (*CollageSnapshot, error)
 	GenerateCollage(ctx context.Context, sceneID uuid.UUID, frameCount *int) (*Collage, error)
 	SubmitContentURL(ctx context.Context, url string, sceneID *uuid.UUID) (*IngestSubmission, error)
@@ -1501,6 +1543,8 @@ type MutationResolver interface {
 	ListReorderItem(ctx context.Context, id uuid.UUID, position int) (*ListItem, error)
 	ReviewSubmit(ctx context.Context, input ReviewSubmitInput) (*Review, error)
 	ReviewDelete(ctx context.Context, id uuid.UUID) (bool, error)
+	SaveSessionState(ctx context.Context, input SessionStateInput) (*SessionState, error)
+	ClearSessionState(ctx context.Context, input ClearSessionStateInput) (bool, error)
 }
 type NotificationResolver interface {
 	Created(ctx context.Context, obj *Notification) (*time.Time, error)
@@ -1621,6 +1665,9 @@ type QueryResolver interface {
 	GetUnreadNotificationCount(ctx context.Context) (*UnreadNotificationCount, error)
 	QueryModAudits(ctx context.Context, input ModAuditQueryInput) (*ModAuditQuery, error)
 	QueryUnorganizedImages(ctx context.Context, input UnorganizedImagesQueryInput) (*UnorganizedImagesQuery, error)
+	ActivityFeed(ctx context.Context, input *ActivityFeedInput) ([]ActivityItem, error)
+	Following(ctx context.Context) ([]Follow, error)
+	Followers(ctx context.Context) ([]Follow, error)
 	ArchiveEntityCounts(ctx context.Context) ([]ArchiveEntityCount, error)
 	SceneSnapshots(ctx context.Context, sceneID uuid.UUID) ([]CollageSnapshot, error)
 	SceneCollage(ctx context.Context, sceneID uuid.UUID) (*Collage, error)
@@ -1641,6 +1688,8 @@ type QueryResolver interface {
 	Lists(ctx context.Context, userID *uuid.UUID, perPage *int, page *int) ([]List, error)
 	Review(ctx context.Context, id uuid.UUID) (*Review, error)
 	ForYou(ctx context.Context, input *ForYouInput) ([]ForYouScene, error)
+	SessionState(ctx context.Context, kind string, key string) (*SessionState, error)
+	SessionStates(ctx context.Context, kind string) ([]SessionState, error)
 	UserStreak(ctx context.Context) (*Streak, error)
 }
 type QueryEditsResultTypeResolver interface {
@@ -1874,6 +1923,62 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.AccessRuleSet.Unenforced(childComplexity), true
+
+	case "ActivityActor.id":
+		if e.ComplexityRoot.ActivityActor.ID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ActivityActor.ID(childComplexity), true
+	case "ActivityActor.name":
+		if e.ComplexityRoot.ActivityActor.Name == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ActivityActor.Name(childComplexity), true
+
+	case "ActivityItem.actor":
+		if e.ComplexityRoot.ActivityItem.Actor == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ActivityItem.Actor(childComplexity), true
+	case "ActivityItem.createdAt":
+		if e.ComplexityRoot.ActivityItem.CreatedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ActivityItem.CreatedAt(childComplexity), true
+	case "ActivityItem.kind":
+		if e.ComplexityRoot.ActivityItem.Kind == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ActivityItem.Kind(childComplexity), true
+	case "ActivityItem.listId":
+		if e.ComplexityRoot.ActivityItem.ListID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ActivityItem.ListID(childComplexity), true
+	case "ActivityItem.listName":
+		if e.ComplexityRoot.ActivityItem.ListName == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ActivityItem.ListName(childComplexity), true
+	case "ActivityItem.rating":
+		if e.ComplexityRoot.ActivityItem.Rating == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ActivityItem.Rating(childComplexity), true
+	case "ActivityItem.scene":
+		if e.ComplexityRoot.ActivityItem.Scene == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ActivityItem.Scene(childComplexity), true
 
 	case "AffinityContribution.tag":
 		if e.ComplexityRoot.AffinityContribution.Tag == nil {
@@ -2835,6 +2940,25 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.FingerprintedSceneEdit.Edit(childComplexity), true
 
+	case "Follow.createdAt":
+		if e.ComplexityRoot.Follow.CreatedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Follow.CreatedAt(childComplexity), true
+	case "Follow.user":
+		if e.ComplexityRoot.Follow.User == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Follow.User(childComplexity), true
+	case "Follow.visibility":
+		if e.ComplexityRoot.Follow.Visibility == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Follow.Visibility(childComplexity), true
+
 	case "ForYouScene.affinity":
 		if e.ComplexityRoot.ForYouScene.Affinity == nil {
 			break
@@ -3553,6 +3677,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.ChangePassword(childComplexity, args["input"].(UserChangePasswordInput)), true
+	case "Mutation.clearSessionState":
+		if e.ComplexityRoot.Mutation.ClearSessionState == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_clearSessionState_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.ClearSessionState(childComplexity, args["input"].(ClearSessionStateInput)), true
 	case "Mutation.confirmChangeEmail":
 		if e.ComplexityRoot.Mutation.ConfirmChangeEmail == nil {
 			break
@@ -3685,6 +3820,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.FederationPeerUpdate(childComplexity, args["input"].(FederationPeerUpdateInput)), true
+	case "Mutation.followUser":
+		if e.ComplexityRoot.Mutation.FollowUser == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_followUser_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.FollowUser(childComplexity, args["input"].(FollowInput)), true
 	case "Mutation.generateCollage":
 		if e.ComplexityRoot.Mutation.GenerateCollage == nil {
 			break
@@ -4082,6 +4228,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.RevokeInvite(childComplexity, args["input"].(RevokeInviteInput)), true
+	case "Mutation.saveSessionState":
+		if e.ComplexityRoot.Mutation.SaveSessionState == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_saveSessionState_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.SaveSessionState(childComplexity, args["input"].(SessionStateInput)), true
 	case "Mutation.sceneCreate":
 		if e.ComplexityRoot.Mutation.SceneCreate == nil {
 			break
@@ -4159,6 +4316,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.SceneUpdate(childComplexity, args["input"].(SceneUpdateInput)), true
+	case "Mutation.setActivityVisibility":
+		if e.ComplexityRoot.Mutation.SetActivityVisibility == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_setActivityVisibility_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.SetActivityVisibility(childComplexity, args["input"].(ActivityVisibilityInput)), true
 	case "Mutation.setContentViewingOptIn":
 		if e.ComplexityRoot.Mutation.SetContentViewingOptIn == nil {
 			break
@@ -4456,6 +4624,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.TagUpdate(childComplexity, args["input"].(TagUpdateInput)), true
+	case "Mutation.unfollowUser":
+		if e.ComplexityRoot.Mutation.UnfollowUser == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_unfollowUser_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.UnfollowUser(childComplexity, args["input"].(UnfollowInput)), true
 	case "Mutation.unvoteIdentificationCandidate":
 		if e.ComplexityRoot.Mutation.UnvoteIdentificationCandidate == nil {
 			break
@@ -5375,6 +5554,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.AccessRules(childComplexity), true
+	case "Query.activityFeed":
+		if e.ComplexityRoot.Query.ActivityFeed == nil {
+			break
+		}
+
+		args, err := ec.field_Query_activityFeed_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.ActivityFeed(childComplexity, args["input"].(*ActivityFeedInput)), true
 	case "Query.archiveEntityCounts":
 		if e.ComplexityRoot.Query.ArchiveEntityCounts == nil {
 			break
@@ -5668,6 +5858,18 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.FingerprintClusters(childComplexity, args["input"].(FingerprintClustersInput)), true
+	case "Query.followers":
+		if e.ComplexityRoot.Query.Followers == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Query.Followers(childComplexity), true
+	case "Query.following":
+		if e.ComplexityRoot.Query.Following == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Query.Following(childComplexity), true
 	case "Query.forYou":
 		if e.ComplexityRoot.Query.ForYou == nil {
 			break
@@ -6064,6 +6266,28 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.SearchTag(childComplexity, args["term"].(string), args["limit"].(*int)), true
+	case "Query.sessionState":
+		if e.ComplexityRoot.Query.SessionState == nil {
+			break
+		}
+
+		args, err := ec.field_Query_sessionState_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.SessionState(childComplexity, args["kind"].(string), args["key"].(string)), true
+	case "Query.sessionStates":
+		if e.ComplexityRoot.Query.SessionStates == nil {
+			break
+		}
+
+		args, err := ec.field_Query_sessionStates_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.SessionStates(childComplexity, args["kind"].(string)), true
 	case "Query.studioChangelog":
 		if e.ComplexityRoot.Query.StudioChangelog == nil {
 			break
@@ -6859,6 +7083,37 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.SearchDiagnostic.Term(childComplexity), true
+
+	case "SessionState.cursor":
+		if e.ComplexityRoot.SessionState.Cursor == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SessionState.Cursor(childComplexity), true
+	case "SessionState.key":
+		if e.ComplexityRoot.SessionState.Key == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SessionState.Key(childComplexity), true
+	case "SessionState.kind":
+		if e.ComplexityRoot.SessionState.Kind == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SessionState.Kind(childComplexity), true
+	case "SessionState.storage":
+		if e.ComplexityRoot.SessionState.Storage == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SessionState.Storage(childComplexity), true
+	case "SessionState.updatedAt":
+		if e.ComplexityRoot.SessionState.UpdatedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SessionState.UpdatedAt(childComplexity), true
 
 	case "SimilarPerformer.coPerformers":
 		if e.ComplexityRoot.SimilarPerformer.CoPerformers == nil {
@@ -7999,6 +8254,8 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 	ec := newExecutionContext(opCtx, e, make(chan graphql.DeferredResult))
 	inputUnmarshalMap := graphql.BuildUnmarshalerMap(
 		ec.unmarshalInputActivateNewUserInput,
+		ec.unmarshalInputActivityFeedInput,
+		ec.unmarshalInputActivityVisibilityInput,
 		ec.unmarshalInputAmendEditInput,
 		ec.unmarshalInputAmendItemRemoval,
 		ec.unmarshalInputApproveEditInput,
@@ -8006,6 +8263,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputBodyModificationInput,
 		ec.unmarshalInputBreastTypeCriterionInput,
 		ec.unmarshalInputCancelEditInput,
+		ec.unmarshalInputClearSessionStateInput,
 		ec.unmarshalInputDateCriterionInput,
 		ec.unmarshalInputDeleteEditInput,
 		ec.unmarshalInputDeleteFingerprintSubmissionsInput,
@@ -8025,6 +8283,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputFingerprintInput,
 		ec.unmarshalInputFingerprintQueryInput,
 		ec.unmarshalInputFingerprintSubmission,
+		ec.unmarshalInputFollowInput,
 		ec.unmarshalInputForYouInput,
 		ec.unmarshalInputGenerateInviteCodeInput,
 		ec.unmarshalInputGrantInviteInput,
@@ -8081,6 +8340,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputSceneEditInput,
 		ec.unmarshalInputSceneQueryInput,
 		ec.unmarshalInputSceneUpdateInput,
+		ec.unmarshalInputSessionStateInput,
 		ec.unmarshalInputSiteCategoryCreateInput,
 		ec.unmarshalInputSiteCategoryDestroyInput,
 		ec.unmarshalInputSiteCategoryUpdateInput,
@@ -8105,6 +8365,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputTagQueryInput,
 		ec.unmarshalInputTagUpdateInput,
 		ec.unmarshalInputURLInput,
+		ec.unmarshalInputUnfollowInput,
 		ec.unmarshalInputUnorganizedImagesQueryInput,
 		ec.unmarshalInputUpdateEditCommentInput,
 		ec.unmarshalInputUserChangeEmailInput,
@@ -8188,6 +8449,171 @@ func newExecutionContext(
 }
 
 var sources = []*ast.Source{
+	{Name: "../../graphql/schema/types/activity.graphql", Input: `# Social discovery: who you follow, and what they have been doing
+# (feature-discovery SPEC section 10, aggregator phase 7 slice 7).
+#
+# THE FEED IS CHRONOLOGICAL BY CONTRACT. The draft says it in as many words -- "no algorithmic
+# reordering" -- so ` + "`" + `activityFeed` + "`" + ` has no ` + "`" + `sort` + "`" + `, no ` + "`" + `serendipity` + "`" + ` and no relevance input: the
+# order is the timestamp, and the only input is a keyset cursor for the next page. A feed a reader
+# cannot follow in time is not a feed, and a surface that adds a ranking here would be changing
+# what this page IS rather than how it is served.
+#
+# NOTHING IS VISIBLE UNTIL THE AUTHOR PUBLISHES IT. Following someone records that you watch them;
+# it grants nothing. The author sets ` + "`" + `activityVisibility` + "`" + ` per follower, the default is PRIVATE, and
+# the column lives on the follow row because that is what the draft specifies (migration 115
+# explains why, and what "public" then has to mean).
+#
+# SO THE FEED CAN BE EMPTY, AND AN EMPTY FEED IS A REAL ANSWER: you follow nobody, or everyone you
+# follow keeps their activity private. Both are states a client must render as "nothing here yet"
+# rather than as an error.
+
+"Which kind of activity a feed row reports."
+enum ActivityKind {
+  "The actor submitted a fingerprint: they say they have this scene."
+  FINGERPRINT
+  "The actor added the scene to a list."
+  LIST_ADD
+  "The actor wrote a published review of the scene."
+  REVIEW
+}
+
+"""
+Who did it.
+
+A light type rather than ` + "`" + `User` + "`" + `, and that is a privacy decision as much as a shape one: a feed row
+says WHO acted, and the rest of a user's record (their roles, their trust level, their email
+domain) is not part of that statement. A client that needs the full record has ` + "`" + `findUser` + "`" + `.
+"""
+type ActivityActor {
+  id: ID!
+  name: String!
+}
+
+"One row of the activity feed."
+type ActivityItem {
+  kind: ActivityKind!
+
+  "When it happened. The order of the feed is this field, descending, with no exceptions."
+  createdAt: Time!
+
+  actor: ActivityActor!
+
+  """
+  The scene the activity is about.
+
+  Always present: a row whose scene no longer exists is dropped rather than returned with a null,
+  because the feed is a list of things a reader can open.
+  """
+  scene: Scene!
+
+  """
+  The list the scene was added to, for ` + "`" + `LIST_ADD` + "`" + ` rows INTO A PUBLISHED LIST, and null otherwise.
+
+  Null for a private list, deliberately: the activity is "someone filed this scene", which the
+  visibility grant covers, while which list they filed it into is theirs until they publish it.
+  """
+  listId: ID
+  listName: String
+
+  """
+  The review's rating, for ` + "`" + `REVIEW` + "`" + ` rows that carried one.
+
+  Null is normal, not missing data: a review of a studio's ethics is not a 1-to-5 quantity, so the
+  column is nullable in the schema and an unrated review is a complete review.
+  """
+  rating: Int
+}
+
+input ActivityFeedInput {
+  "How many rows. Defaults to 20; above 50 is clamped rather than rejected."
+  limit: Int = 20
+
+  """
+  A keyset cursor: only activity strictly older than this instant.
+
+  Not an offset. A feed paged by offset shows a reader the same row twice whenever something is
+  added between pages, which on a feed is the normal case rather than the edge case.
+  """
+  before: Time
+}
+
+"How much of an author's activity one follower may see."
+enum ActivityVisibility {
+  "The default. Nobody but the author."
+  PRIVATE
+  "The ONE follower this grant names. Not the author's other followers."
+  FOLLOWERS
+  "Every reader of the instance, followers or not."
+  PUBLIC
+}
+
+"One relationship, from the point of view of the user asking."
+type Follow {
+  """
+  The OTHER side of the relationship: who you follow, when listing those, and who follows you, when
+  listing followers.
+  """
+  user: ActivityActor!
+
+  "The visibility the author granted this follower."
+  visibility: ActivityVisibility!
+
+  createdAt: Time!
+}
+
+input FollowInput {
+  "The user to follow. Following yourself is refused."
+  userId: ID!
+}
+
+input UnfollowInput {
+  userId: ID!
+}
+
+input ActivityVisibilityInput {
+  """
+  Whose grant is being set: the follower.
+
+  The current user is always the AUTHOR of the activity, never this side, whatever is passed here.
+  A follower who could set their own access would make the private default decoration, so this
+  field names the one person whose feed is affected rather than the person deciding.
+  """
+  followerId: ID!
+
+  visibility: ActivityVisibility!
+}
+
+extend type Mutation {
+  "Follow a user. Idempotent: following twice is one relationship, and it grants NO visibility."
+  followUser(input: FollowInput!): Boolean! @hasRole(role: READ)
+
+  "Stop following. False means you were not following them, which is not an error."
+  unfollowUser(input: UnfollowInput!): Boolean! @hasRole(role: READ)
+
+  """
+  Publish, restrict or withdraw one follower's access to YOUR activity.
+
+  Only your own activity: the current user is the author. A follower cannot widen their own access,
+  which is the difference between a permission and a claim.
+  """
+  setActivityVisibility(input: ActivityVisibilityInput!): Boolean! @hasRole(role: READ)
+}
+
+extend type Query {
+  """
+  What the people you follow have been doing, newest first.
+
+  Empty is a real answer: you follow nobody, or nobody you follow has published anything.
+  """
+  activityFeed(input: ActivityFeedInput): [ActivityItem!]! @hasRole(role: READ)
+
+  "Who you follow, newest first."
+  following: [Follow!]! @hasRole(role: READ)
+
+  "Who follows you, newest first. The read behind the visibility editor."
+  followers: [Follow!]! @hasRole(role: READ)
+}
+`, BuiltIn: false},
 	{Name: "../../graphql/schema/types/archive.graphql", Input: `# Archive-wide state (SPEC §7.7, growth item 9).
 #
 # One type, one field. The page it backs ("State of the Archive") asks a single
@@ -11837,6 +12263,109 @@ extend type Scene {
     @hasRole(role: READ)
 }
 `, BuiltIn: false},
+	{Name: "../../graphql/schema/types/session_state.graphql", Input: `# "Where I left off": opt-in session state (feature-discovery SPEC section 11, aggregator phase 7
+# slice 7).
+#
+# LOCAL-FIRST, AND NOT AS A CONVENTION. The browser keeps the position; the server holds a copy
+# ONLY for a surface the user turned sync on for, and a ` + "`" + `LOCAL` + "`" + ` write stores no payload at all
+# (migration 116, and the CHECK that makes it unrepresentable rather than merely intended). So a
+# client can always offer "keep this on this device" as a real choice -- it is not a promise the
+# server makes and might break, it is what the server cannot store.
+#
+# THE CURSOR IS OPAQUE. The server validates that it is JSON and bounds its size, and never
+# interprets it. Interpreting it would make every client change a server change, which is the
+# opposite of what a cursor is for.
+#
+# WHY ` + "`" + `kind` + "`" + ` AND ` + "`" + `key` + "`" + ` ARE FREE TEXT: the surface that stores a cursor and the server that holds it
+# are versioned separately, and an enum here would make a new surface a migration. An unknown kind
+# is inert -- a row nobody else's reader looks at.
+
+"Where a cursor lives."
+enum SessionStorage {
+  """
+  Kept by the client. The server records the CHOICE and no payload.
+
+  The default, and the default is the safe direction: nothing leaves the device unless the user
+  asked for it to.
+  """
+  LOCAL
+  "Kept by the server as well, so a second device can continue where this one stopped."
+  SYNCED
+}
+
+"One stored cursor."
+type SessionState {
+  "What the cursor is for (` + "`" + `scenes` + "`" + `, ` + "`" + `forum-thread` + "`" + `, ...)."
+  kind: String!
+
+  "Which one of that kind (` + "`" + `browse` + "`" + `, ` + "`" + `tag:abc` + "`" + `, a saved search id)."
+  key: String!
+
+  """
+  The opaque payload, as the client wrote it.
+
+  Null for a ` + "`" + `LOCAL` + "`" + ` row, and null there MEANS something: the client keeps this position itself.
+  A ` + "`" + `SYNCED` + "`" + ` row always has one.
+  """
+  cursor: String
+
+  storage: SessionStorage!
+
+  updatedAt: Time
+}
+
+input SessionStateInput {
+  kind: String!
+  key: String!
+
+  """
+  The position, as the client wants it back.
+
+  JSON, opaque to the server, at most 4096 bytes. IGNORED for a ` + "`" + `LOCAL` + "`" + ` save -- deliberately, and
+  not as a convenience: a client that says "this stays on my device" and then sends the state
+  anyway must not have it stored, or the choice is decoration.
+  """
+  cursor: String
+
+  storage: SessionStorage! = LOCAL
+}
+
+input ClearSessionStateInput {
+  kind: String!
+  key: String!
+}
+
+extend type Query {
+  """
+  The cursor this user synced for (kind, key), or null.
+
+  Null for a ` + "`" + `LOCAL` + "`" + ` row as well as for an absent one: a client asking "what did the server keep"
+  gets one answer, and the difference between "not stored" and "stored somewhere else" is not a
+  distinction the caller can act on.
+  """
+  sessionState(kind: String!, key: String!): SessionState @hasRole(role: READ)
+
+  """
+  Everything this user syncs for one kind of surface.
+
+  What a second device reads on arrival, so continuing does not need one request per key.
+  """
+  sessionStates(kind: String!): [SessionState!]! @hasRole(role: READ)
+}
+
+extend type Mutation {
+  "Store a cursor, for this user only. Upserts."
+  saveSessionState(input: SessionStateInput!): SessionState! @hasRole(role: READ)
+
+  """
+  Forget a cursor. False means there was nothing there, which is not an error.
+
+  Explicit, because there is no expiry (migration 116 says why): a TTL on "where I left off" would
+  silently forget a position a user came back for.
+  """
+  clearSessionState(input: ClearSessionStateInput!): Boolean! @hasRole(role: READ)
+}
+`, BuiltIn: false},
 	{Name: "../../graphql/schema/types/site.graphql", Input: `type Site {
   id: ID!
   name: String!
@@ -13066,6 +13595,36 @@ func (ec *executionContext) childFields_AccessRuleSet(ctx context.Context, field
 	return nil, fmt.Errorf("no field named %q was found under type AccessRuleSet", field.Name)
 }
 
+func (ec *executionContext) childFields_ActivityActor(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "id":
+		return ec.fieldContext_ActivityActor_id(ctx, field)
+	case "name":
+		return ec.fieldContext_ActivityActor_name(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type ActivityActor", field.Name)
+}
+
+func (ec *executionContext) childFields_ActivityItem(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "kind":
+		return ec.fieldContext_ActivityItem_kind(ctx, field)
+	case "createdAt":
+		return ec.fieldContext_ActivityItem_createdAt(ctx, field)
+	case "actor":
+		return ec.fieldContext_ActivityItem_actor(ctx, field)
+	case "scene":
+		return ec.fieldContext_ActivityItem_scene(ctx, field)
+	case "listId":
+		return ec.fieldContext_ActivityItem_listId(ctx, field)
+	case "listName":
+		return ec.fieldContext_ActivityItem_listName(ctx, field)
+	case "rating":
+		return ec.fieldContext_ActivityItem_rating(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type ActivityItem", field.Name)
+}
+
 func (ec *executionContext) childFields_AffinityContribution(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 	switch field.Name {
 	case "tag":
@@ -13520,6 +14079,18 @@ func (ec *executionContext) childFields_FingerprintSubmissionResult(ctx context.
 		return ec.fieldContext_FingerprintSubmissionResult_error(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type FingerprintSubmissionResult", field.Name)
+}
+
+func (ec *executionContext) childFields_Follow(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "user":
+		return ec.fieldContext_Follow_user(ctx, field)
+	case "visibility":
+		return ec.fieldContext_Follow_visibility(ctx, field)
+	case "createdAt":
+		return ec.fieldContext_Follow_createdAt(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type Follow", field.Name)
 }
 
 func (ec *executionContext) childFields_ForYouScene(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -14294,6 +14865,22 @@ func (ec *executionContext) childFields_SearchDiagnostic(ctx context.Context, fi
 	return nil, fmt.Errorf("no field named %q was found under type SearchDiagnostic", field.Name)
 }
 
+func (ec *executionContext) childFields_SessionState(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "kind":
+		return ec.fieldContext_SessionState_kind(ctx, field)
+	case "key":
+		return ec.fieldContext_SessionState_key(ctx, field)
+	case "cursor":
+		return ec.fieldContext_SessionState_cursor(ctx, field)
+	case "storage":
+		return ec.fieldContext_SessionState_storage(ctx, field)
+	case "updatedAt":
+		return ec.fieldContext_SessionState_updatedAt(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type SessionState", field.Name)
+}
+
 func (ec *executionContext) childFields_SimilarPerformer(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 	switch field.Name {
 	case "performer":
@@ -15032,6 +15619,20 @@ func (ec *executionContext) field_Mutation_changePassword_args(ctx context.Conte
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_clearSessionState_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
+		func(ctx context.Context, v any) (ClearSessionStateInput, error) {
+			return ec.unmarshalNClearSessionStateInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐClearSessionStateInput(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_confirmChangeEmail_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -15208,6 +15809,20 @@ func (ec *executionContext) field_Mutation_federation_peer_update_args(ctx conte
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
 		func(ctx context.Context, v any) (FederationPeerUpdateInput, error) {
 			return ec.unmarshalNFederationPeerUpdateInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐFederationPeerUpdateInput(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_followUser_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
+		func(ctx context.Context, v any) (FollowInput, error) {
+			return ec.unmarshalNFollowInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐFollowInput(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -15730,6 +16345,20 @@ func (ec *executionContext) field_Mutation_revokeInvite_args(ctx context.Context
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_saveSessionState_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
+		func(ctx context.Context, v any) (SessionStateInput, error) {
+			return ec.unmarshalNSessionStateInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSessionStateInput(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_sceneCreate_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -15828,6 +16457,20 @@ func (ec *executionContext) field_Mutation_sceneUpdate_args(ctx context.Context,
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
 		func(ctx context.Context, v any) (SceneUpdateInput, error) {
 			return ec.unmarshalNSceneUpdateInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSceneUpdateInput(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_setActivityVisibility_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
+		func(ctx context.Context, v any) (ActivityVisibilityInput, error) {
+			return ec.unmarshalNActivityVisibilityInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐActivityVisibilityInput(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -16238,6 +16881,20 @@ func (ec *executionContext) field_Mutation_tagUpdate_args(ctx context.Context, r
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_unfollowUser_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
+		func(ctx context.Context, v any) (UnfollowInput, error) {
+			return ec.unmarshalNUnfollowInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐUnfollowInput(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_unvoteIdentificationCandidate_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -16533,6 +17190,20 @@ func (ec *executionContext) field_Query___type_args(ctx context.Context, rawArgs
 		return nil, err
 	}
 	args["name"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_activityFeed_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
+		func(ctx context.Context, v any) (*ActivityFeedInput, error) {
+			return ec.unmarshalOActivityFeedInput2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐActivityFeedInput(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
 	return args, nil
 }
 
@@ -17536,6 +18207,42 @@ func (ec *executionContext) field_Query_searchTag_args(ctx context.Context, rawA
 	return args, nil
 }
 
+func (ec *executionContext) field_Query_sessionState_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "kind",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNString2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["kind"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "key",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNString2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["key"] = arg1
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_sessionStates_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "kind",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNString2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["kind"] = arg0
+	return args, nil
+}
+
 func (ec *executionContext) field_Query_studioChangelog_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -17971,6 +18678,231 @@ func (ec *executionContext) fieldContext_AccessRuleSet_unenforced(_ context.Cont
 		},
 	}
 	return fc, nil
+}
+
+func (ec *executionContext) _ActivityActor_id(ctx context.Context, field graphql.CollectedField, obj *ActivityActor) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ActivityActor_id(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v uuid.UUID) graphql.Marshaler {
+			return ec.marshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ActivityActor_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ActivityActor", field, false, false, errors.New("field of type ID does not have child fields"))
+}
+
+func (ec *executionContext) _ActivityActor_name(ctx context.Context, field graphql.CollectedField, obj *ActivityActor) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ActivityActor_name(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Name, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ActivityActor_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ActivityActor", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _ActivityItem_kind(ctx context.Context, field graphql.CollectedField, obj *ActivityItem) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ActivityItem_kind(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Kind, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v ActivityKind) graphql.Marshaler {
+			return ec.marshalNActivityKind2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐActivityKind(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ActivityItem_kind(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ActivityItem", field, false, false, errors.New("field of type ActivityKind does not have child fields"))
+}
+
+func (ec *executionContext) _ActivityItem_createdAt(ctx context.Context, field graphql.CollectedField, obj *ActivityItem) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ActivityItem_createdAt(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.CreatedAt, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v time.Time) graphql.Marshaler {
+			return ec.marshalNTime2timeᚐTime(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ActivityItem_createdAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ActivityItem", field, false, false, errors.New("field of type Time does not have child fields"))
+}
+
+func (ec *executionContext) _ActivityItem_actor(ctx context.Context, field graphql.CollectedField, obj *ActivityItem) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ActivityItem_actor(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Actor, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *ActivityActor) graphql.Marshaler {
+			return ec.marshalNActivityActor2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐActivityActor(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ActivityItem_actor(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ActivityItem",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ActivityActor(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ActivityItem_scene(ctx context.Context, field graphql.CollectedField, obj *ActivityItem) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ActivityItem_scene(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Scene, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *Scene) graphql.Marshaler {
+			return ec.marshalNScene2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐScene(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ActivityItem_scene(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ActivityItem",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_Scene(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ActivityItem_listId(ctx context.Context, field graphql.CollectedField, obj *ActivityItem) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ActivityItem_listId(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ListID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *uuid.UUID) graphql.Marshaler {
+			return ec.marshalOID2ᚖgithubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_ActivityItem_listId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ActivityItem", field, false, false, errors.New("field of type ID does not have child fields"))
+}
+
+func (ec *executionContext) _ActivityItem_listName(ctx context.Context, field graphql.CollectedField, obj *ActivityItem) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ActivityItem_listName(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ListName, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
+			return ec.marshalOString2ᚖstring(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_ActivityItem_listName(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ActivityItem", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _ActivityItem_rating(ctx context.Context, field graphql.CollectedField, obj *ActivityItem) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ActivityItem_rating(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Rating, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *int) graphql.Marshaler {
+			return ec.marshalOInt2ᚖint(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_ActivityItem_rating(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ActivityItem", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
 func (ec *executionContext) _AffinityContribution_tag(ctx context.Context, field graphql.CollectedField, obj *AffinityContribution) (ret graphql.Marshaler) {
@@ -21814,6 +22746,84 @@ func (ec *executionContext) fieldContext_FingerprintedSceneEdit_edit(_ context.C
 		},
 	}
 	return fc, nil
+}
+
+func (ec *executionContext) _Follow_user(ctx context.Context, field graphql.CollectedField, obj *Follow) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Follow_user(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.User, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *ActivityActor) graphql.Marshaler {
+			return ec.marshalNActivityActor2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐActivityActor(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Follow_user(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Follow",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ActivityActor(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Follow_visibility(ctx context.Context, field graphql.CollectedField, obj *Follow) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Follow_visibility(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Visibility, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v ActivityVisibility) graphql.Marshaler {
+			return ec.marshalNActivityVisibility2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐActivityVisibility(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Follow_visibility(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Follow", field, false, false, errors.New("field of type ActivityVisibility does not have child fields"))
+}
+
+func (ec *executionContext) _Follow_createdAt(ctx context.Context, field graphql.CollectedField, obj *Follow) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Follow_createdAt(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.CreatedAt, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v time.Time) graphql.Marshaler {
+			return ec.marshalNTime2timeᚐTime(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Follow_createdAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Follow", field, false, false, errors.New("field of type Time does not have child fields"))
 }
 
 func (ec *executionContext) _ForYouScene_scene(ctx context.Context, field graphql.CollectedField, obj *ForYouScene) (ret graphql.Marshaler) {
@@ -29071,6 +30081,192 @@ func (ec *executionContext) fieldContext_Mutation_updateImageTypePreferences(ctx
 	return fc, nil
 }
 
+func (ec *executionContext) _Mutation_followUser(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_followUser(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().FollowUser(ctx, fc.Args["input"].(FollowInput))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal bool
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal bool
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_followUser(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_followUser_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_unfollowUser(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_unfollowUser(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().UnfollowUser(ctx, fc.Args["input"].(UnfollowInput))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal bool
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal bool
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_unfollowUser(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_unfollowUser_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_setActivityVisibility(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_setActivityVisibility(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().SetActivityVisibility(ctx, fc.Args["input"].(ActivityVisibilityInput))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal bool
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal bool
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_setActivityVisibility(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_setActivityVisibility_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Mutation_addSnapshot(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -30491,6 +31687,130 @@ func (ec *executionContext) fieldContext_Mutation_reviewDelete(ctx context.Conte
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Mutation_reviewDelete_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_saveSessionState(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_saveSessionState(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().SaveSessionState(ctx, fc.Args["input"].(SessionStateInput))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal *SessionState
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *SessionState
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *SessionState) graphql.Marshaler {
+			return ec.marshalNSessionState2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSessionState(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_saveSessionState(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_SessionState(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_saveSessionState_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_clearSessionState(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_clearSessionState(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().ClearSessionState(ctx, fc.Args["input"].(ClearSessionStateInput))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal bool
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal bool
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_clearSessionState(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_clearSessionState_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -36993,6 +38313,168 @@ func (ec *executionContext) fieldContext_Query_queryUnorganizedImages(ctx contex
 	return fc, nil
 }
 
+func (ec *executionContext) _Query_activityFeed(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_activityFeed(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().ActivityFeed(ctx, fc.Args["input"].(*ActivityFeedInput))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal []ActivityItem
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal []ActivityItem
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v []ActivityItem) graphql.Marshaler {
+			return ec.marshalNActivityItem2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐActivityItemᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_activityFeed(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ActivityItem(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_activityFeed_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_following(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_following(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Query().Following(ctx)
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal []Follow
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal []Follow
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v []Follow) graphql.Marshaler {
+			return ec.marshalNFollow2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐFollowᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_following(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_Follow(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_followers(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_followers(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Query().Followers(ctx)
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal []Follow
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal []Follow
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v []Follow) graphql.Marshaler {
+			return ec.marshalNFollow2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐFollowᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_followers(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_Follow(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Query_archiveEntityCounts(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -38179,6 +39661,130 @@ func (ec *executionContext) fieldContext_Query_forYou(ctx context.Context, field
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Query_forYou_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_sessionState(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_sessionState(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().SessionState(ctx, fc.Args["kind"].(string), fc.Args["key"].(string))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal *SessionState
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *SessionState
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *SessionState) graphql.Marshaler {
+			return ec.marshalOSessionState2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSessionState(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_Query_sessionState(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_SessionState(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_sessionState_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_sessionStates(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_sessionStates(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().SessionStates(ctx, fc.Args["kind"].(string))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal []SessionState
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal []SessionState
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v []SessionState) graphql.Marshaler {
+			return ec.marshalNSessionState2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSessionStateᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_sessionStates(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_SessionState(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_sessionStates_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -41516,6 +43122,121 @@ func (ec *executionContext) _SearchDiagnostic_message(ctx context.Context, field
 }
 func (ec *executionContext) fieldContext_SearchDiagnostic_message(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("SearchDiagnostic", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _SessionState_kind(ctx context.Context, field graphql.CollectedField, obj *SessionState) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SessionState_kind(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Kind, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SessionState_kind(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SessionState", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _SessionState_key(ctx context.Context, field graphql.CollectedField, obj *SessionState) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SessionState_key(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Key, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SessionState_key(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SessionState", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _SessionState_cursor(ctx context.Context, field graphql.CollectedField, obj *SessionState) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SessionState_cursor(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Cursor, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
+			return ec.marshalOString2ᚖstring(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_SessionState_cursor(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SessionState", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _SessionState_storage(ctx context.Context, field graphql.CollectedField, obj *SessionState) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SessionState_storage(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Storage, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v SessionStorage) graphql.Marshaler {
+			return ec.marshalNSessionStorage2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSessionStorage(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SessionState_storage(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SessionState", field, false, false, errors.New("field of type SessionStorage does not have child fields"))
+}
+
+func (ec *executionContext) _SessionState_updatedAt(ctx context.Context, field graphql.CollectedField, obj *SessionState) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SessionState_updatedAt(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.UpdatedAt, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *time.Time) graphql.Marshaler {
+			return ec.marshalOTime2ᚖtimeᚐTime(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_SessionState_updatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SessionState", field, false, false, errors.New("field of type Time does not have child fields"))
 }
 
 func (ec *executionContext) _SimilarPerformer_performer(ctx context.Context, field graphql.CollectedField, obj *SimilarPerformer) (ret graphql.Marshaler) {
@@ -47453,6 +49174,84 @@ func (ec *executionContext) unmarshalInputActivateNewUserInput(ctx context.Conte
 	return it, nil
 }
 
+func (ec *executionContext) unmarshalInputActivityFeedInput(ctx context.Context, obj any) (ActivityFeedInput, error) {
+	var it ActivityFeedInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	if _, present := asMap["limit"]; !present {
+		asMap["limit"] = 20
+	}
+
+	fieldsInOrder := [...]string{"limit", "before"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "limit":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("limit"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Limit = data
+		case "before":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("before"))
+			data, err := ec.unmarshalOTime2ᚖtimeᚐTime(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Before = data
+		}
+	}
+	return it, nil
+}
+
+func (ec *executionContext) unmarshalInputActivityVisibilityInput(ctx context.Context, obj any) (ActivityVisibilityInput, error) {
+	var it ActivityVisibilityInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"followerId", "visibility"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "followerId":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("followerId"))
+			data, err := ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.FollowerID = data
+		case "visibility":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("visibility"))
+			data, err := ec.unmarshalNActivityVisibility2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐActivityVisibility(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Visibility = data
+		}
+	}
+	return it, nil
+}
+
 func (ec *executionContext) unmarshalInputAmendEditInput(ctx context.Context, obj any) (AmendEditInput, error) {
 	var it AmendEditInput
 	if obj == nil {
@@ -47721,6 +49520,43 @@ func (ec *executionContext) unmarshalInputCancelEditInput(ctx context.Context, o
 				return it, err
 			}
 			it.ID = data
+		}
+	}
+	return it, nil
+}
+
+func (ec *executionContext) unmarshalInputClearSessionStateInput(ctx context.Context, obj any) (ClearSessionStateInput, error) {
+	var it ClearSessionStateInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"kind", "key"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "kind":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("kind"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Kind = data
+		case "key":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("key"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Key = data
 		}
 	}
 	return it, nil
@@ -48679,6 +50515,36 @@ func (ec *executionContext) unmarshalInputFingerprintSubmission(ctx context.Cont
 				return it, err
 			}
 			it.Vote = data
+		}
+	}
+	return it, nil
+}
+
+func (ec *executionContext) unmarshalInputFollowInput(ctx context.Context, obj any) (FollowInput, error) {
+	var it FollowInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"userId"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "userId":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("userId"))
+			data, err := ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.UserID = data
 		}
 	}
 	return it, nil
@@ -52365,6 +54231,61 @@ func (ec *executionContext) unmarshalInputSceneUpdateInput(ctx context.Context, 
 	return it, nil
 }
 
+func (ec *executionContext) unmarshalInputSessionStateInput(ctx context.Context, obj any) (SessionStateInput, error) {
+	var it SessionStateInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	if _, present := asMap["storage"]; !present {
+		asMap["storage"] = "LOCAL"
+	}
+
+	fieldsInOrder := [...]string{"kind", "key", "cursor", "storage"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "kind":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("kind"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Kind = data
+		case "key":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("key"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Key = data
+		case "cursor":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("cursor"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Cursor = data
+		case "storage":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("storage"))
+			data, err := ec.unmarshalNSessionStorage2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSessionStorage(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Storage = data
+		}
+	}
+	return it, nil
+}
+
 func (ec *executionContext) unmarshalInputSiteCategoryCreateInput(ctx context.Context, obj any) (SiteCategoryCreateInput, error) {
 	var it SiteCategoryCreateInput
 	if obj == nil {
@@ -53608,6 +55529,36 @@ func (ec *executionContext) unmarshalInputURLInput(ctx context.Context, obj any)
 	return it, nil
 }
 
+func (ec *executionContext) unmarshalInputUnfollowInput(ctx context.Context, obj any) (UnfollowInput, error) {
+	var it UnfollowInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"userId"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "userId":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("userId"))
+			data, err := ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.UserID = data
+		}
+	}
+	return it, nil
+}
+
 func (ec *executionContext) unmarshalInputUnorganizedImagesQueryInput(ctx context.Context, obj any) (UnorganizedImagesQueryInput, error) {
 	var it UnorganizedImagesQueryInput
 	if obj == nil {
@@ -54430,6 +56381,117 @@ func (ec *executionContext) _AccessRuleSet(ctx context.Context, sel ast.Selectio
 		case "unenforced":
 			out.Values[i] = ec._AccessRuleSet_unenforced(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var activityActorImplementors = []string{"ActivityActor"}
+
+func (ec *executionContext) _ActivityActor(ctx context.Context, sel ast.SelectionSet, obj *ActivityActor) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, activityActorImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ActivityActor")
+		case "id":
+			out.Values[i] = ec._ActivityActor_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "name":
+			out.Values[i] = ec._ActivityActor_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var activityItemImplementors = []string{"ActivityItem"}
+
+func (ec *executionContext) _ActivityItem(ctx context.Context, sel ast.SelectionSet, obj *ActivityItem) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, activityItemImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ActivityItem")
+		case "kind":
+			out.Values[i] = ec._ActivityItem_kind(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "createdAt":
+			out.Values[i] = ec._ActivityItem_createdAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "actor":
+			out.Values[i] = ec._ActivityItem_actor(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "scene":
+			out.Values[i] = ec._ActivityItem_scene(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "listId":
+			out.Values[i] = ec._ActivityItem_listId(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		case "listName":
+			out.Values[i] = ec._ActivityItem_listName(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		case "rating":
+			out.Values[i] = ec._ActivityItem_rating(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
 				out.Invalids++
 			}
 		default:
@@ -57957,6 +60019,54 @@ func (ec *executionContext) _FingerprintedSceneEdit(ctx context.Context, sel ast
 	return out
 }
 
+var followImplementors = []string{"Follow"}
+
+func (ec *executionContext) _Follow(ctx context.Context, sel ast.SelectionSet, obj *Follow) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, followImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("Follow")
+		case "user":
+			out.Values[i] = ec._Follow_user(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "visibility":
+			out.Values[i] = ec._Follow_visibility(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "createdAt":
+			out.Values[i] = ec._Follow_createdAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
 var forYouSceneImplementors = []string{"ForYouScene"}
 
 func (ec *executionContext) _ForYouScene(ctx context.Context, sel ast.SelectionSet, obj *ForYouScene) graphql.Marshaler {
@@ -59863,6 +61973,27 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "followUser":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_followUser(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "unfollowUser":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_unfollowUser(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "setActivityVisibility":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_setActivityVisibility(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "addSnapshot":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_addSnapshot(ctx, field)
@@ -60020,6 +62151,20 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 		case "reviewDelete":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_reviewDelete(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "saveSessionState":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_saveSessionState(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "clearSessionState":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_clearSessionState(ctx, field)
 			})
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
@@ -63627,6 +65772,72 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "activityFeed":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_activityFeed(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "following":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_following(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "followers":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_followers(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
 		case "archiveEntityCounts":
 			field := field
 
@@ -64055,6 +66266,50 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 					}
 				}()
 				res = ec._Query_forYou(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "sessionState":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_sessionState(ctx, field)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "sessionStates":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_sessionStates(ctx, field)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -67095,6 +69350,64 @@ func (ec *executionContext) _SearchDiagnostic(ctx context.Context, sel ast.Selec
 		case "message":
 			out.Values[i] = ec._SearchDiagnostic_message(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var sessionStateImplementors = []string{"SessionState"}
+
+func (ec *executionContext) _SessionState(ctx context.Context, sel ast.SelectionSet, obj *SessionState) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, sessionStateImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("SessionState")
+		case "kind":
+			out.Values[i] = ec._SessionState_kind(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "key":
+			out.Values[i] = ec._SessionState_key(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "cursor":
+			out.Values[i] = ec._SessionState_cursor(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		case "storage":
+			out.Values[i] = ec._SessionState_storage(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "updatedAt":
+			out.Values[i] = ec._SessionState_updatedAt(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
 				out.Invalids++
 			}
 		default:
@@ -71354,6 +73667,61 @@ func (ec *executionContext) unmarshalNActivateNewUserInput2githubᚗcomᚋstasha
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
+func (ec *executionContext) marshalNActivityActor2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐActivityActor(ctx context.Context, sel ast.SelectionSet, v *ActivityActor) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._ActivityActor(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNActivityItem2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐActivityItem(ctx context.Context, sel ast.SelectionSet, v ActivityItem) graphql.Marshaler {
+	return ec._ActivityItem(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNActivityItem2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐActivityItemᚄ(ctx context.Context, sel ast.SelectionSet, v []ActivityItem) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNActivityItem2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐActivityItem(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) unmarshalNActivityKind2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐActivityKind(ctx context.Context, v any) (ActivityKind, error) {
+	var res ActivityKind
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNActivityKind2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐActivityKind(ctx context.Context, sel ast.SelectionSet, v ActivityKind) graphql.Marshaler {
+	return v
+}
+
+func (ec *executionContext) unmarshalNActivityVisibility2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐActivityVisibility(ctx context.Context, v any) (ActivityVisibility, error) {
+	var res ActivityVisibility
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNActivityVisibility2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐActivityVisibility(ctx context.Context, sel ast.SelectionSet, v ActivityVisibility) graphql.Marshaler {
+	return v
+}
+
+func (ec *executionContext) unmarshalNActivityVisibilityInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐActivityVisibilityInput(ctx context.Context, v any) (ActivityVisibilityInput, error) {
+	res, err := ec.unmarshalInputActivityVisibilityInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
 func (ec *executionContext) marshalNAffinityContribution2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐAffinityContribution(ctx context.Context, sel ast.SelectionSet, v AffinityContribution) graphql.Marshaler {
 	return ec._AffinityContribution(ctx, sel, &v)
 }
@@ -71452,6 +73820,11 @@ func (ec *executionContext) marshalNBoolean2bool(ctx context.Context, sel ast.Se
 
 func (ec *executionContext) unmarshalNCancelEditInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐCancelEditInput(ctx context.Context, v any) (CancelEditInput, error) {
 	res, err := ec.unmarshalInputCancelEditInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) unmarshalNClearSessionStateInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐClearSessionStateInput(ctx context.Context, v any) (ClearSessionStateInput, error) {
+	res, err := ec.unmarshalInputClearSessionStateInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
@@ -72237,6 +74610,31 @@ func (ec *executionContext) marshalNFloat2float64(ctx context.Context, sel ast.S
 		}
 	}
 	return graphql.WrapContextMarshaler(ctx, res)
+}
+
+func (ec *executionContext) marshalNFollow2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐFollow(ctx context.Context, sel ast.SelectionSet, v Follow) graphql.Marshaler {
+	return ec._Follow(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNFollow2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐFollowᚄ(ctx context.Context, sel ast.SelectionSet, v []Follow) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNFollow2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐFollow(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) unmarshalNFollowInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐFollowInput(ctx context.Context, v any) (FollowInput, error) {
+	res, err := ec.unmarshalInputFollowInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
 }
 
 func (ec *executionContext) marshalNForYouScene2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐForYouScene(ctx context.Context, sel ast.SelectionSet, v ForYouScene) graphql.Marshaler {
@@ -73655,6 +76053,51 @@ func (ec *executionContext) marshalNSearchDiagnostic2ᚕgithubᚗcomᚋstashapp�
 	return ret
 }
 
+func (ec *executionContext) marshalNSessionState2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSessionState(ctx context.Context, sel ast.SelectionSet, v SessionState) graphql.Marshaler {
+	return ec._SessionState(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNSessionState2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSessionStateᚄ(ctx context.Context, sel ast.SelectionSet, v []SessionState) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNSessionState2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSessionState(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNSessionState2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSessionState(ctx context.Context, sel ast.SelectionSet, v *SessionState) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._SessionState(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalNSessionStateInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSessionStateInput(ctx context.Context, v any) (SessionStateInput, error) {
+	res, err := ec.unmarshalInputSessionStateInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) unmarshalNSessionStorage2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSessionStorage(ctx context.Context, v any) (SessionStorage, error) {
+	var res SessionStorage
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNSessionStorage2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSessionStorage(ctx context.Context, sel ast.SelectionSet, v SessionStorage) graphql.Marshaler {
+	return v
+}
+
 func (ec *executionContext) marshalNSimilarPerformer2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSimilarPerformer(ctx context.Context, sel ast.SelectionSet, v SimilarPerformer) graphql.Marshaler {
 	return ec._SimilarPerformer(ctx, sel, &v)
 }
@@ -74323,6 +76766,11 @@ func (ec *executionContext) marshalNUnderSnapshottedScene2ᚕgithubᚗcomᚋstas
 	return ret
 }
 
+func (ec *executionContext) unmarshalNUnfollowInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐUnfollowInput(ctx context.Context, v any) (UnfollowInput, error) {
+	res, err := ec.unmarshalInputUnfollowInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
 func (ec *executionContext) marshalNUnorganizedImage2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐUnorganizedImage(ctx context.Context, sel ast.SelectionSet, v UnorganizedImage) graphql.Marshaler {
 	return ec._UnorganizedImage(ctx, sel, &v)
 }
@@ -74666,6 +77114,14 @@ func (ec *executionContext) marshalN__TypeKind2string(ctx context.Context, sel a
 		}
 	}
 	return res
+}
+
+func (ec *executionContext) unmarshalOActivityFeedInput2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐActivityFeedInput(ctx context.Context, v any) (*ActivityFeedInput, error) {
+	if v == nil {
+		return nil, nil
+	}
+	res, err := ec.unmarshalInputActivityFeedInput(ctx, v)
+	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
 func (ec *executionContext) unmarshalOAmendItemRemoval2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐAmendItemRemovalᚄ(ctx context.Context, v any) ([]AmendItemRemoval, error) {
@@ -75732,6 +78188,13 @@ func (ec *executionContext) marshalOSceneSortEnum2ᚖgithubᚗcomᚋstashappᚋs
 		return graphql.Null
 	}
 	return v
+}
+
+func (ec *executionContext) marshalOSessionState2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSessionState(ctx context.Context, sel ast.SelectionSet, v *SessionState) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._SessionState(ctx, sel, v)
 }
 
 func (ec *executionContext) marshalOSite2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSite(ctx context.Context, sel ast.SelectionSet, v *Site) graphql.Marshaler {

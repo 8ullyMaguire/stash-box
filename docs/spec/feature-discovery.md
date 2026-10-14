@@ -615,21 +615,99 @@ one that lands on what arrived today looks like an archive. Nothing is claimed a
 because nothing is known about it.
 
 
-## 10. Social discovery (slice 7)
+## 10. Social discovery (slice 7, DONE)
 
-Migration **115 `user_follows`** `(follower_id, followed_id, created_at, activity_visibility
-enum('private','followers','public'))`. The activity feed is chronological by contract (the
-draft: *"no algorithmic reordering"*), assembled from `favorites`-equivalent rows, list
-additions and reviews by followed users, with the visibility default **private** for anything
-new — the safer default is the one that cannot leak.
+Migration **115 `user_follows`** `(follower_id, followed_id, activity_visibility, created_at)`,
+`PRIMARY KEY (follower_id, followed_id)`, `activity_visibility IN ('private','followers','public')`
+defaulting to **`private`**. The activity feed is chronological by contract (the draft: *"no
+algorithmic reordering"*), assembled from fingerprint submissions, list additions and published
+reviews by followed users.
 
-## 11. "Where I left off" (slice 7)
+### 10.1 The level lives on the follow row, and what that forces
 
-Migration **116 `session_states`** `(user_id, kind, key, cursor jsonb, storage
-enum('local','synced'), updated_at)`, `UNIQUE (user_id, kind, key)`. **Local-first**: the
-browser keeps the state and the server copy is opt-in per user, which is the draft's own
-`storage: enum [local, synced]`. The server surface is only there so a second device can
-continue; nothing reads it unless the user turned it on.
+The draft puts `activity_visibility` on the follow, so it is **per follow**: `followers` publishes
+to the ONE follower that row names, and it does not publish to the author's other followers. The
+consequence is that `public` has to carry the remaining load — "let anyone see this, follower or
+not" — because a per-row column cannot express "all of my followers". Both readings are asserted:
+a per-follow grant reaches the named follower and not a third user, and a public grant reaches a
+reader who follows nobody at all.
+
+**Following grants nothing.** A follow row is a statement about who watches whom; it is not
+consent to publish. The default is `private` in the COLUMN, `SetActivityVisibility` can only be
+called by the AUTHOR of the activity (the current user, never the `followerId` argument), and
+following someone twice is one relationship that changes no level. A test drives the whole rule
+through the API: the follower's own legitimate grant to someone else leaves the author's grant to
+them untouched, read back from the row.
+
+### 10.2 Three bounded arms, merged in Go
+
+Each kind of activity is one indexed query with its own `LIMIT` (`FindFingerprintActivity`,
+`FindListActivity`, `FindReviewActivity`), and the merge is in the service: drop the viewer's own
+activity, order by timestamp descending, cut to the page. **Not one `UNION`**: sqlc cannot resolve
+a CTE alias across `UNION` arms that carry their own `ORDER BY`/`LIMIT` (measured — *"table alias f
+does not exist"*), and three bounded queries plus a merge is the same work with a smaller blast
+radius. A per-arm `LIMIT` of the page size is exactly sufficient, because the merged page cannot
+contain more than one page of any single arm.
+
+The order is the timestamp with a deterministic tiebreak (kind, then scene id), because a reader
+paging a feed must not see a row move between pages. There is no score, no decay and no diversity
+adjustment, and the package doc says a future reader should find that written down rather than
+infer it from the absence of a ranking.
+
+### 10.3 What a row reports, and what it withholds
+
+- **A withdrawal is not the activity.** `scene_fingerprints.vote = -1` means *I do not have this*,
+  so the arm filters `vote = 1`; the signal still counts for freshness (§7.2), which is a
+  different question.
+- **An unpublished list is not named.** The activity is "someone filed this scene", which the
+  visibility grant covers; *which* list they filed it into is theirs until they publish it. The
+  rule is a named Go function with its own test, not a `CASE` in SQL: wrapping the columns in
+  `CASE ... ELSE NULL::uuid END` reads well and lies to sqlc — the cast makes the column
+  non-nullable, the rows still contain NULLs, and scanning one into a non-pointer field is a
+  runtime error rather than a wrong value.
+- **A scene that no longer loads is dropped.** The page is one batched load; a row whose scene is
+  gone is a link to a 404, not a recommendation.
+- **Ratings are nullable**, and an unrated review is a complete review.
+- **Paging is a keyset cursor** (`before`, strictly older), because an offset shows a reader the
+  same row twice whenever something is added between pages — the normal case on a feed. The page
+  is 20 by default and 50 at most, clamped.
+
+### 10.4 What is deferred
+
+Follow notifications are phase 11 (growth owns notifications about people), and the visibility
+editor's UI is phase 16. §12 carries both.
+
+## 11. "Where I left off" (slice 7, DONE)
+
+Migration **116 `session_states`** `(user_id, kind, key, cursor jsonb, storage, updated_at)`,
+`PRIMARY KEY (user_id, kind, key)`, with
+
+```sql
+CHECK (("storage" = 'synced' AND "cursor" IS NOT NULL)
+    OR ("storage" = 'local'  AND "cursor" IS NULL))
+```
+
+**Local-first, and the schema is what enforces it.** The browser keeps the state, and the server
+copy is opt-in per user — the draft's own `storage: enum [local, synced]`. A `local` row holds the
+CHOICE and no payload, and the CHECK makes a local row with a payload unrepresentable rather than
+merely unintended: the service ignores a cursor sent with a local save, and a test inserts one
+directly through SQL to prove the refusal is the database's and not the service's. Switching a
+surface from synced to local REMOVES the stored payload — a setting that leaves the data behind is
+not an opt-out.
+
+**The cursor is opaque, and opacity is about MEANING, not bytes.** The server validates that it is
+JSON and at most 4096 bytes, stores it and returns it; it never interprets it, which is what keeps
+a client free to change what a cursor means. The column is `jsonb`, so the VALUE is preserved and
+the TEXT is Postgres's: whitespace and key order may differ from what the client sent. The
+schema's doc comment says so, because a client comparing cursor strings byte for byte would see
+its own write come back different.
+
+Everything is scoped to the authenticated user — **there is no id argument anywhere in this
+surface** — `kind` and `key` are free text (a new surface is not a migration), and there is no
+expiry: a TTL on "where I left off" would silently forget a position someone came back for. The
+`clearSessionState` mutation is the explicit removal and reports whether there was one. Reads are
+one key (`sessionState`) or one surface (`sessionStates(kind)`), which is what a second device
+reads on arrival.
 
 ## 12. What is deferred, and to what
 
@@ -704,9 +782,34 @@ continue; nothing reads it unless the user turned it on.
 - **Slice 6** — the degenerate-output test for the serendipity parameter, plus: at
   `serendipity=0` the feed is a subset of the affinity-ranked set, and propagation raises the
   parent's affinity but by less than the direct weight.
-- **Slice 7** — follows: the visibility default is private (asserted, not assumed); the feed
-  is chronological; and a private activity produces no row in another user's feed — an absence
-  assertion, so it is preceded by counting the subject.
+- **Slice 7** — `scripts/mutate-social-activity.py` plus
+  `internal/api/activity_integration_test.go` (9 tests) and
+  `internal/api/session_state_integration_test.go` (7 tests), with unit tests for the two pure
+  rules (`internal/service/activity/service_test.go` — the merge order, the tiebreak's stability
+  across arrival orders, the page cut, the unpublished-list rule; `.../follow/service_test.go`,
+  `.../sessionstate/service_test.go` — the level and storage spellings, the refusals).
+  The two claims the drafts state as acceptance criteria:
+  **the visibility default is private — asserted, not assumed** (following a user with activity
+  yields an EMPTY feed, and the same activity appears the moment the author publishes, through the
+  mutation) and **the feed is chronological** (three rows inserted in one order and then AGED in
+  SQL into another come back in the timestamp order, with the pairwise descending check as well as
+  the example, and a 4-row walk in pages of 2 that never repeats a row and returns the four in
+  sequence).
+  Absence assertions all count their subject first, which is this repo's rule and is what the
+  slice needed three times: the private grant is shown to be the thing that removed the row, a
+  per-follow grant is shown to reach its named follower while a third user sees nothing, and the
+  follower's own successful grant is shown not to have widened their access to the author.
+  The local-first claim is asserted at the COLUMN (`SELECT cursor IS NULL`) rather than through
+  the API, and one test inserts a `local` row with a payload through raw SQL to prove the
+  database refuses it — the API returning null would also be true of a resolver that stored the
+  payload and hid it.
+  Eleven mutations, each reddening exactly the test that names that behaviour and restoring green:
+  the follow's default visibility, the "who granted ME something" filter, the per-follow vs
+  per-user grant, the public broadcast, the withdrawal filter, the unpublished-list rule, the
+  viewer's own activity, the sort direction, the page cut, the local save's payload, and the
+  CHECK itself (four of them mutate the GENERATED `follow.sql.go`, because sqlc compiles each
+  statement into a Go string literal and a `.sql` edit changes nothing that runs).
+  All of it is green in the package's FULL run, not only per-test.
 
 ## 14. Decisions and reversals this phase records
 
@@ -830,3 +933,40 @@ continue; nothing reads it unless the user turned it on.
     started failing because of a test about a feed. A test that reads "page 1 of everything" over a
     database the whole package shares is asserting a property of the database, not of the code; it
     now looks its tags up by name.
+27. **A grant is a row, and the row's default is the safe direction** (§10.1). `activity_visibility`
+    defaults to `private` in the COLUMN rather than in the service, so a follow created by any path
+    — the API today, a migration later — publishes nothing until someone decides otherwise. The
+    same reasoning makes `SetActivityVisibility` take the AUTHOR from the session and the follower
+    from the argument: a signature that could not tell them apart is a signature a resolver can
+    get wrong in the direction that leaks.
+28. **`followers` is per FOLLOW, so `public` has to mean "everyone"** (§10.1). The draft puts the
+    level on the follow row; the consequence is that a row cannot express "all my followers", and
+    the only level that reaches a reader who follows nobody is `public`. Both halves are asserted,
+    because the failure mode of getting this wrong (a grant that reaches one person more than it
+    should) is invisible from the account that granted it.
+29. **An enum with two spellings needs a mapping in BOTH directions, and a test that goes through
+    both** (§10, §11). The GraphQL enums are upper case by convention and the columns are lower
+    case to match their CHECK constraints, so `string(input.Visibility)` sends `'FOLLOWERS'` to a
+    constraint that accepts `'followers'`, and `string(state.Storage)` returns `'local'` as an enum
+    value that does not exist. The integration tests caught this TWICE in one slice — the second
+    time on the read path, which no unit test would have reached — and the mappings are now named
+    functions (`storedVisibility`/`visibilityEnum`, `storedStorage`/`graphqlStorage`) rather than
+    conversions.
+30. **A jsonb column preserves the VALUE and owns the TEXT** (§11). The cursor is opaque to the
+    server, which is about meaning: Postgres normalises whitespace and key order, so a client
+    comparing cursor strings byte for byte sees its own write come back different. Written into the
+    schema's doc comment and asserted with a JSON comparison rather than string equality, because
+    the test that said "byte for byte" was the test that was wrong.
+31. **A `CASE ... ELSE NULL::uuid END` in a feed query is a nullability lie** (§10.3). It reads
+    well and it compiles, but the cast tells sqlc the column is non-nullable while the rows contain
+    NULLs, so a scan into a non-pointer field is a runtime error rather than a wrong value. The
+    rule moved into a named Go function (`HideUnpublishedList`) with its own test, which is also
+    where a reader can find out WHAT the rule is.
+32. **A shared integration database makes every absence assertion a claim about the suite** (§10,
+    §13). The feed is instance-wide, so a public grant made by one case is a row in every later
+    case's feed, and the local tests' first versions failed for reasons that had nothing to do with
+    what they named: a case reused the `(moderate -> read)` pair that an earlier case had already
+    published. Each absence case now owns a distinct `(author -> viewer)` pair and filters its feed
+    by a per-case title prefix, and the one case that assumed its rows were the HEAD of a global
+    page now walks the whole feed instead. Same family as §25 and §26: the assertion was fine and
+    the fixture was measuring the wrong thing.

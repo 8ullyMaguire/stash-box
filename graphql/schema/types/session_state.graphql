@@ -1,0 +1,106 @@
+# "Where I left off": opt-in session state (feature-discovery SPEC section 11, aggregator phase 7
+# slice 7).
+#
+# LOCAL-FIRST, AND NOT AS A CONVENTION. The browser keeps the position; the server holds a copy
+# ONLY for a surface the user turned sync on for, and a `LOCAL` write stores no payload at all
+# (migration 116, and the CHECK that makes it unrepresentable rather than merely intended). So a
+# client can always offer "keep this on this device" as a real choice -- it is not a promise the
+# server makes and might break, it is what the server cannot store.
+#
+# THE CURSOR IS OPAQUE. The server validates that it is JSON and bounds its size, and never
+# interprets it. Interpreting it would make every client change a server change, which is the
+# opposite of what a cursor is for.
+#
+# WHY `kind` AND `key` ARE FREE TEXT: the surface that stores a cursor and the server that holds it
+# are versioned separately, and an enum here would make a new surface a migration. An unknown kind
+# is inert -- a row nobody else's reader looks at.
+
+"Where a cursor lives."
+enum SessionStorage {
+  """
+  Kept by the client. The server records the CHOICE and no payload.
+
+  The default, and the default is the safe direction: nothing leaves the device unless the user
+  asked for it to.
+  """
+  LOCAL
+  "Kept by the server as well, so a second device can continue where this one stopped."
+  SYNCED
+}
+
+"One stored cursor."
+type SessionState {
+  "What the cursor is for (`scenes`, `forum-thread`, ...)."
+  kind: String!
+
+  "Which one of that kind (`browse`, `tag:abc`, a saved search id)."
+  key: String!
+
+  """
+  The opaque payload, as the client wrote it.
+
+  The VALUE is returned exactly; the TEXT need not be, because the column is jsonb and Postgres
+  normalises whitespace and key order. A client that compares cursor strings byte for byte will
+  see its own write come back different, which is why this is written down here.
+
+  Null for a `LOCAL` row, and null there MEANS something: the client keeps this position itself.
+  A `SYNCED` row always has one.
+  """
+  cursor: String
+
+  storage: SessionStorage!
+
+  updatedAt: Time
+}
+
+input SessionStateInput {
+  kind: String!
+  key: String!
+
+  """
+  The position, as the client wants it back.
+
+  JSON, opaque to the server, at most 4096 bytes. IGNORED for a `LOCAL` save -- deliberately, and
+  not as a convenience: a client that says "this stays on my device" and then sends the state
+  anyway must not have it stored, or the choice is decoration.
+  """
+  cursor: String
+
+  storage: SessionStorage! = LOCAL
+}
+
+input ClearSessionStateInput {
+  kind: String!
+  key: String!
+}
+
+extend type Query {
+  """
+  The cursor this user synced for (kind, key), or null.
+
+  Null for a `LOCAL` row as well as for an absent one: a client asking "what did the server keep"
+  gets one answer, and the difference between "not stored" and "stored somewhere else" is not a
+  distinction the caller can act on.
+  """
+  sessionState(kind: String!, key: String!): SessionState @hasRole(role: READ)
+
+  """
+  Everything this user syncs for one kind of surface.
+
+  What a second device reads on arrival, so continuing does not need one request per key.
+  """
+  sessionStates(kind: String!): [SessionState!]! @hasRole(role: READ)
+}
+
+extend type Mutation {
+  "Store a cursor, for this user only. Upserts."
+  saveSessionState(input: SessionStateInput!): SessionState! @hasRole(role: READ)
+
+  """
+  Forget a cursor. False means there was nothing there, which is not an error.
+
+  Explicit, because there is no expiry (migration 116 says why): a TTL on "where I left off" would
+  silently forget a position a user came back for.
+  """
+  clearSessionState(input: ClearSessionStateInput!): Boolean! @hasRole(role: READ)
+}

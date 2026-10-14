@@ -1,7 +1,9 @@
 # PLAN — the content aggregator programme (NexusXXX parity)
 
-Status: **in progress** — phases 1, 2 and 4 done; phase 7 in progress (slices 1, 2a, 2b and 3
-done; 4–7 outstanding); phases 3 and 5–17 not started. The state table is
+Status: **in progress** — phases 1, 2, 4 and 7 done; phases 3 and 5–17 not started. Phase 7's seven
+slices are all complete, so the discovery programme this phase exists for is finished: the query
+language, the tag explorer, freshness and trending, similarity, the taste profile and For You, the
+social feed and "where I left off". The state table is
 `docs/track/TRACK-content-aggregator.md`, which `docs/goal-check.py` clause C8 reads.
 
 Implements `docs/spec/feature-content-aggregator.md`. Phase-level, because that is
@@ -563,11 +565,49 @@ part of the commit message.
    signals (no producer until phase 10), no blacklist or score floor (no stored preference until
    phase 16), and no "reset my taste" mutation — §12 lists it as deferred, and a delete-the-
    signals button is a data-deletion surface, not a feed feature.
-7. **Social discovery and "where I left off".** Migration **115** (`user_follows`), **116**
-   (`session_states`), the chronological activity feed, the opt-in sync surface.
-   **Verification:** the visibility default is private (asserted); the feed is chronological;
-   and a private activity appears in nobody else's feed — an absence assertion, so the subject
-   is counted first.
+7. **Social discovery and "where I left off". DONE.** Migration **115** (`user_follows`:
+   the pair, `activity_visibility` defaulting to `private`, the index the feed reads) and **116**
+   (`session_states` with the CHECK that makes a `local` row with a payload unrepresentable); the
+   three-arm chronological activity feed with its opt-in sync surface.
+   `internal/service/follow/` (the levels, `Follow`/`Unfollow`/`SetVisibility`, where the AUTHOR is
+   the session and the follower is the argument), `internal/service/activity/` (`Feed`, the three
+   bounded arms, and `mergeItems` — the viewer's own activity, the timestamp order with its
+   deterministic tiebreak, the page cut — plus `HideUnpublishedList`), `internal/service/sessionstate/`
+   (validation, the local-storage rule, the per-user reads), `internal/queries/sql/follow.sql` and
+   `session_state.sql` with their generated counterparts, the `activityFeed`/`following`/`followers`
+   queries and the `followUser`/`unfollowUser`/`setActivityVisibility` mutations, and
+   `sessionState`/`sessionStates`/`saveSessionState`/`clearSessionState`.
+   **Verification:** `go test ./internal/service/activity/ ./internal/service/follow/
+   ./internal/service/sessionstate/` and
+   `POSTGRES_DB=... go test -tags integration -count=1 -p 1 -run 'Activity|Followers|Feed|Follow|
+   SessionState|SwitchingToLocal|DatabaseRefuses' ./internal/api/` → 16 integration tests and three
+   unit packages green, in the package's FULL run and not only alone.
+   **The two acceptance criteria are asserted, not assumed:** the visibility default is private
+   (following an author with activity yields an empty feed, and the same activity appears the
+   moment the author publishes through the mutation) and the feed is chronological (rows inserted
+   in one order and AGED in SQL into another come back in timestamp order, with a pairwise
+   descending check and a full walk in pages of two that never repeats a row).
+   **The absence assertions count their subject first** — this slice needed it three times, and it
+   is what caught the design's own leak risk: a per-follow grant reaches its named follower while
+   a third user sees nothing, and a follower's own successful grant leaves their access to the
+   author's activity unchanged (read back from the row). The local-first claim is asserted at the
+   COLUMN (`SELECT cursor IS NULL`), and one test inserts a `local` row with a payload through raw
+   SQL to prove the DATABASE refuses it — the API returning null would also be true of a resolver
+   that stored the payload and hid it.
+   **Mutation-checked** by `scripts/mutate-social-activity.py` — 11/11 caught and restored: the
+   follow's default visibility, the "who granted me something" filter, the per-follow vs per-user
+   grant, the public broadcast, the withdrawal filter, the unpublished-list rule, the viewer's own
+   activity, the sort direction, the page cut, the local save's payload, and the CHECK itself.
+   Four mutate the GENERATED `follow.sql.go`, for the reason slice 5 recorded.
+   **What the tests found, not review:** the GraphQL enum and the column disagree about case, in
+   BOTH directions (`'FOLLOWERS'` against a CHECK that accepts `'followers'`, and `'local'`
+   returned as an enum value that does not exist) — two failures in one slice, the second on the
+   READ path; a `CASE ... ELSE NULL::uuid END` that hid real NULLs from sqlc behind a cast, so the
+   rule moved into a named Go function; and the paging test that assumed its four rows were the
+   head of a global feed, rewritten to walk the feed instead.
+   **Not here, deliberately:** no follow notifications (phase 11), no visibility-editor UI (phase
+   16), no TTL on a session cursor (an expiry would silently forget a position someone came back
+   for), and no ranking input on the feed at all.
 
 ## Phase 8 — social
 

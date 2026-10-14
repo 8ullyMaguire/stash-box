@@ -85,6 +85,60 @@ type ActivateNewUserInput struct {
 	Password      string    `json:"password"`
 }
 
+// Who did it.
+//
+// A light type rather than `User`, and that is a privacy decision as much as a shape one: a feed row
+// says WHO acted, and the rest of a user's record (their roles, their trust level, their email
+// domain) is not part of that statement. A client that needs the full record has `findUser`.
+type ActivityActor struct {
+	ID   uuid.UUID `json:"id"`
+	Name string    `json:"name"`
+}
+
+type ActivityFeedInput struct {
+	// How many rows. Defaults to 20; above 50 is clamped rather than rejected.
+	Limit *int `json:"limit,omitempty"`
+	// A keyset cursor: only activity strictly older than this instant.
+	//
+	// Not an offset. A feed paged by offset shows a reader the same row twice whenever something is
+	// added between pages, which on a feed is the normal case rather than the edge case.
+	Before *time.Time `json:"before,omitempty"`
+}
+
+// One row of the activity feed.
+type ActivityItem struct {
+	Kind ActivityKind `json:"kind"`
+	// When it happened. The order of the feed is this field, descending, with no exceptions.
+	CreatedAt time.Time      `json:"createdAt"`
+	Actor     *ActivityActor `json:"actor"`
+	// The scene the activity is about.
+	//
+	// Always present: a row whose scene no longer exists is dropped rather than returned with a null,
+	// because the feed is a list of things a reader can open.
+	Scene *Scene `json:"scene"`
+	// The list the scene was added to, for `LIST_ADD` rows INTO A PUBLISHED LIST, and null otherwise.
+	//
+	// Null for a private list, deliberately: the activity is "someone filed this scene", which the
+	// visibility grant covers, while which list they filed it into is theirs until they publish it.
+	ListID   *uuid.UUID `json:"listId,omitempty"`
+	ListName *string    `json:"listName,omitempty"`
+	// The review's rating, for `REVIEW` rows that carried one.
+	//
+	// Null is normal, not missing data: a review of a studio's ethics is not a 1-to-5 quantity, so the
+	// column is nullable in the schema and an unrated review is a complete review.
+	Rating *int `json:"rating,omitempty"`
+}
+
+type ActivityVisibilityInput struct {
+	// Whose grant is being set: the follower.
+	//
+	// The current user is always the AUTHOR of the activity, never this side, whatever is passed here.
+	// A follower who could set their own access would make the private default decoration, so this
+	// field names the one person whose feed is affected rather than the person deciding.
+	FollowerID uuid.UUID          `json:"followerId"`
+	Visibility ActivityVisibility `json:"visibility"`
+}
+
 // One tag's share of a recommendation's affinity.
 type AffinityContribution struct {
 	// The tag the viewer has taste for.
@@ -154,6 +208,11 @@ type BreastTypeCriterionInput struct {
 
 type CancelEditInput struct {
 	ID uuid.UUID `json:"id"`
+}
+
+type ClearSessionStateInput struct {
+	Kind string `json:"kind"`
+	Key  string `json:"key"`
 }
 
 type ClusterMember struct {
@@ -601,6 +660,21 @@ type FingerprintedSceneEdit struct {
 }
 
 func (FingerprintedSceneEdit) IsNotificationData() {}
+
+// One relationship, from the point of view of the user asking.
+type Follow struct {
+	// The OTHER side of the relationship: who you follow, when listing those, and who follows you, when
+	// listing followers.
+	User *ActivityActor `json:"user"`
+	// The visibility the author granted this follower.
+	Visibility ActivityVisibility `json:"visibility"`
+	CreatedAt  time.Time          `json:"createdAt"`
+}
+
+type FollowInput struct {
+	// The user to follow. Following yourself is refused.
+	UserID uuid.UUID `json:"userId"`
+}
 
 type ForYouInput struct {
 	// How many scenes to return.
@@ -1690,6 +1764,33 @@ type SearchDiagnostic struct {
 	Message string `json:"message"`
 }
 
+// One stored cursor.
+type SessionState struct {
+	// What the cursor is for (`scenes`, `forum-thread`, ...).
+	Kind string `json:"kind"`
+	// Which one of that kind (`browse`, `tag:abc`, a saved search id).
+	Key string `json:"key"`
+	// The opaque payload, as the client wrote it.
+	//
+	// Null for a `LOCAL` row, and null there MEANS something: the client keeps this position itself.
+	// A `SYNCED` row always has one.
+	Cursor    *string        `json:"cursor,omitempty"`
+	Storage   SessionStorage `json:"storage"`
+	UpdatedAt *time.Time     `json:"updatedAt,omitempty"`
+}
+
+type SessionStateInput struct {
+	Kind string `json:"kind"`
+	Key  string `json:"key"`
+	// The position, as the client wants it back.
+	//
+	// JSON, opaque to the server, at most 4096 bytes. IGNORED for a `LOCAL` save -- deliberately, and
+	// not as a convenience: a client that says "this stays on my device" and then sends the state
+	// anyway must not have it stored, or the choice is decoration.
+	Cursor  *string        `json:"cursor,omitempty"`
+	Storage SessionStorage `json:"storage"`
+}
+
 // One recommended performer, with the evidence that recommended them.
 //
 // The evidence fields are the design. A recommendation that cannot say WHY it
@@ -2005,6 +2106,10 @@ type TagUpdateInput struct {
 	CategoryID  *uuid.UUID `json:"category_id,omitempty"`
 }
 
+type UnfollowInput struct {
+	UserID uuid.UUID `json:"userId"`
+}
+
 type UnorganizedImagesQueryInput struct {
 	Page        int        `json:"page"`
 	PerPage     int        `json:"per_page"`
@@ -2145,6 +2250,128 @@ type Version struct {
 	BuildTime string `json:"build_time"`
 	BuildType string `json:"build_type"`
 	Version   string `json:"version"`
+}
+
+// Which kind of activity a feed row reports.
+type ActivityKind string
+
+const (
+	// The actor submitted a fingerprint: they say they have this scene.
+	ActivityKindFingerprint ActivityKind = "FINGERPRINT"
+	// The actor added the scene to a list.
+	ActivityKindListAdd ActivityKind = "LIST_ADD"
+	// The actor wrote a published review of the scene.
+	ActivityKindReview ActivityKind = "REVIEW"
+)
+
+var AllActivityKind = []ActivityKind{
+	ActivityKindFingerprint,
+	ActivityKindListAdd,
+	ActivityKindReview,
+}
+
+func (e ActivityKind) IsValid() bool {
+	switch e {
+	case ActivityKindFingerprint, ActivityKindListAdd, ActivityKindReview:
+		return true
+	}
+	return false
+}
+
+func (e ActivityKind) String() string {
+	return string(e)
+}
+
+func (e *ActivityKind) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = ActivityKind(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid ActivityKind", str)
+	}
+	return nil
+}
+
+func (e ActivityKind) MarshalGQL(w io.Writer) {
+	_, _ = fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *ActivityKind) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e ActivityKind) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+// How much of an author's activity one follower may see.
+type ActivityVisibility string
+
+const (
+	// The default. Nobody but the author.
+	ActivityVisibilityPrivate ActivityVisibility = "PRIVATE"
+	// The ONE follower this grant names. Not the author's other followers.
+	ActivityVisibilityFollowers ActivityVisibility = "FOLLOWERS"
+	// Every reader of the instance, followers or not.
+	ActivityVisibilityPublic ActivityVisibility = "PUBLIC"
+)
+
+var AllActivityVisibility = []ActivityVisibility{
+	ActivityVisibilityPrivate,
+	ActivityVisibilityFollowers,
+	ActivityVisibilityPublic,
+}
+
+func (e ActivityVisibility) IsValid() bool {
+	switch e {
+	case ActivityVisibilityPrivate, ActivityVisibilityFollowers, ActivityVisibilityPublic:
+		return true
+	}
+	return false
+}
+
+func (e ActivityVisibility) String() string {
+	return string(e)
+}
+
+func (e *ActivityVisibility) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = ActivityVisibility(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid ActivityVisibility", str)
+	}
+	return nil
+}
+
+func (e ActivityVisibility) MarshalGQL(w io.Writer) {
+	_, _ = fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *ActivityVisibility) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e ActivityVisibility) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
 }
 
 type BreastTypeEnum string
@@ -4337,6 +4564,67 @@ func (e *SceneSortEnum) UnmarshalJSON(b []byte) error {
 }
 
 func (e SceneSortEnum) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+// Where a cursor lives.
+type SessionStorage string
+
+const (
+	// Kept by the client. The server records the CHOICE and no payload.
+	//
+	// The default, and the default is the safe direction: nothing leaves the device unless the user
+	// asked for it to.
+	SessionStorageLocal SessionStorage = "LOCAL"
+	// Kept by the server as well, so a second device can continue where this one stopped.
+	SessionStorageSynced SessionStorage = "SYNCED"
+)
+
+var AllSessionStorage = []SessionStorage{
+	SessionStorageLocal,
+	SessionStorageSynced,
+}
+
+func (e SessionStorage) IsValid() bool {
+	switch e {
+	case SessionStorageLocal, SessionStorageSynced:
+		return true
+	}
+	return false
+}
+
+func (e SessionStorage) String() string {
+	return string(e)
+}
+
+func (e *SessionStorage) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = SessionStorage(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid SessionStorage", str)
+	}
+	return nil
+}
+
+func (e SessionStorage) MarshalGQL(w io.Writer) {
+	_, _ = fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *SessionStorage) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e SessionStorage) MarshalJSON() ([]byte, error) {
 	var buf bytes.Buffer
 	e.MarshalGQL(&buf)
 	return buf.Bytes(), nil

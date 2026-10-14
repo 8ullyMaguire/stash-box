@@ -594,6 +594,7 @@ type Querier interface {
 	DeleteExpiredModAudits(ctx context.Context, dollar_1 interface{}) error
 	DeleteExpiredUserTokens(ctx context.Context) error
 	DeleteFederationPeer(ctx context.Context, id uuid.UUID) error
+	DeleteFollow(ctx context.Context, arg DeleteFollowParams) (int64, error)
 	// Used when a peer is removed from the registry. Without this, deleting a peer
 	// would either fail on the FK or leave orphaned evidence pointing at a peer the
 	// operator believes they have removed.
@@ -648,6 +649,9 @@ type Querier interface {
 	// FIRST, because after the retarget they are indistinguishable from a tag implying itself--
 	// which is a different statement (and the CHECK would refuse it, mid-merge).
 	DeleteSelfTagImplicationsForMerge(ctx context.Context, arg DeleteSelfTagImplicationsForMergeParams) error
+	// Explicit, because there is no expiry (migration 116 says why). Deleting a row that does not
+	// exist is not an error; the caller learns whether anything was there from the row count.
+	DeleteSessionState(ctx context.Context, arg DeleteSessionStateParams) (int64, error)
 	DeleteSite(ctx context.Context, id uuid.UUID) error
 	DeleteSiteCategory(ctx context.Context, id int) error
 	DeleteStudio(ctx context.Context, id uuid.UUID) error
@@ -811,6 +815,40 @@ type Querier interface {
 	FindEditComment(ctx context.Context, id uuid.UUID) (EditComment, error)
 	FindExistingPerformers(ctx context.Context, arg FindExistingPerformersParams) ([]Performer, error)
 	FindExistingScenes(ctx context.Context, arg FindExistingScenesParams) ([]Scene, error)
+	// THE FEED IS THREE QUERIES, ONE PER KIND OF ACTIVITY, MERGED IN GO.
+	//
+	// A single UNION would be the tidier-looking choice and it is the one this file first had. sqlc
+	// cannot resolve a CTE or a subquery alias built from a UNION of parenthesised arms with their own
+	// ORDER BY / LIMIT -- "table alias f does not exist" -- and the shapes it does accept (an outer
+	// ORDER BY over three unbounded arms) make the planner read every signal on the instance to return
+	// twenty rows. Three bounded, indexed reads merged by timestamp is the same answer, each arm is
+	// separately testable, and each arm's visibility rule is visible in the arm it belongs to.
+	//
+	// EVERY ARM SHARES THREE RULES, and they are repeated rather than factored into a view because each
+	// one is about THAT arm's tables:
+	//
+	//   * VISIBILITY. An actor's activity reaches this viewer if the actor granted THIS viewer
+	//     'followers' or 'public', or if the actor granted 'public' to anyone (the broadcast -- see
+	//     migration 115 for why a per-follow column is where that value lives). A 'private' grant,
+	//     which is the DEFAULT, matches neither clause: a feature that forgets to set the column shows
+	//     nobody's activity rather than everybody's.
+	//   * `before` IS NULLABLE, and an absent cursor means "from the top". It is a KEYSET cursor
+	//     (`created_at < before`), not an offset: a feed paged by OFFSET shows a reader the same row
+	//     twice when something is added between pages, which is exactly what happens on a feed.
+	//   * THE VIEWER'S OWN ACTIVITY IS EXCLUDED, in the service rather than here, because the three
+	//     arms return into one merge and doing it once is what makes it true of all of them.
+	// A fingerprint submission. `vote = 1` only: a WITHDRAWAL is a real signal but it is not the
+	// activity "added this scene", and reporting it as one would put a scene in a feed on the strength
+	// of someone saying they do NOT have it.
+	FindFingerprintActivity(ctx context.Context, arg FindFingerprintActivityParams) ([]FindFingerprintActivityRow, error)
+	// One follow row, for the follower's own view of it and for the visibility editor.
+	FindFollow(ctx context.Context, arg FindFollowParams) (FindFollowRow, error)
+	// Who follows this user, newest first, with the visibility each was granted. This is the read
+	// the visibility editor is built on: the followed user needs to see the rows before changing
+	// one.
+	FindFollowers(ctx context.Context, userID uuid.UUID) ([]FindFollowersRow, error)
+	// Who this user follows, newest first, with the visibility THEY were granted.
+	FindFollowing(ctx context.Context, userID uuid.UUID) ([]FindFollowingRow, error)
 	FindImage(ctx context.Context, id uuid.UUID) (Image, error)
 	FindImageByChecksum(ctx context.Context, checksum string) (Image, error)
 	FindImageIdsByPerformerIds(ctx context.Context, dollar_1 []uuid.UUID) ([]PerformerImage, error)
@@ -828,6 +866,11 @@ type Querier interface {
 	FindImpliedByTagID(ctx context.Context, impliedTagID uuid.UUID) ([]Tag, error)
 	FindInviteKey(ctx context.Context, id uuid.UUID) (InviteKey, error)
 	FindList(ctx context.Context, id uuid.UUID) (List, error)
+	// A scene added to a list. THE LIST'S NAME IS REPORTED ONLY IF THE LIST IS PUBLISHED: the activity
+	// is "someone filed this scene", which the visibility grant covers, while WHICH list they filed it
+	// into is theirs until they publish it. A private list's name leaking through a follower's feed
+	// would be the visibility column protecting one thing and this arm leaking another.
+	FindListActivity(ctx context.Context, arg FindListActivityParams) ([]FindListActivityRow, error)
 	// A list's publication history, newest first.
 	FindListAudit(ctx context.Context, listID uuid.UUID) ([]ListAudit, error)
 	// Lookup for the "you already have a list called this" check. Scoped to the owner because
@@ -906,6 +949,10 @@ type Querier interface {
 	// the index alone; a draft is not merely excluded from the result, it is not in the index.
 	FindPublishedLists(ctx context.Context, arg FindPublishedListsParams) ([]List, error)
 	FindReview(ctx context.Context, id uuid.UUID) (Review, error)
+	// A review. PUBLISHED only, for the reason the taste service gives: a flagged or removed review is
+	// a moderator's decision about whether the text may stand, and a feed showing it reports a review
+	// the reader cannot open.
+	FindReviewActivity(ctx context.Context, arg FindReviewActivityParams) ([]FindReviewActivityRow, error)
 	// Used by the upsert path to decide create-vs-update, and by the service to turn a
 	// duplicate submission into an update rather than a constraint error.
 	FindReviewByAuthorAndEntity(ctx context.Context, arg FindReviewByAuthorAndEntityParams) (Review, error)
@@ -972,6 +1019,13 @@ type Querier interface {
 	FindScenesByFingerprintsExactWithHash(ctx context.Context, hashes []int64) ([]FindScenesByFingerprintsExactWithHashRow, error)
 	// Scene fingerprints (use fingerprint.sql for most fingerprint operations)
 	FindScenesByFullFingerprintsWithHash(ctx context.Context, arg FindScenesByFullFingerprintsWithHashParams) ([]FindScenesByFullFingerprintsWithHashRow, error)
+	// A SYNCED cursor, addressed by what it is for. A `local` row is skipped by the predicate rather
+	// than filtered afterwards, so there is no code path in which the payload is read and then
+	// discarded: "nothing reads it unless the user turned it on" is this WHERE clause.
+	FindSessionState(ctx context.Context, arg FindSessionStateParams) (SessionState, error)
+	// Everything this user syncs for one kind of surface: what a second device reads on arrival, so
+	// it does not need one request per key.
+	FindSessionStatesByKind(ctx context.Context, arg FindSessionStatesByKindParams) ([]SessionState, error)
 	// Performers who appear in the same scenes as a given performer (growth item 27,
 	// SPEC §7.5's "cheapest recommendation available").
 	//
@@ -1257,6 +1311,11 @@ type Querier interface {
 	// visible in what they fingerprint. The absolute value is meaningless on its own; only
 	// comparisons between tags, and the sign, are.
 	FindViewerTagAffinity(ctx context.Context, userID uuid.UUID) ([]FindViewerTagAffinityRow, error)
+	// The actors whose activity this viewer may see: the ones who granted THIS viewer at least
+	// 'followers', plus the ones who granted 'public' to anyone. Computed once per request and passed
+	// to the three arms as an id array, so the rule is written down once in Go where a test can call it
+	// directly.
+	FindVisibleActivityActors(ctx context.Context, viewerID uuid.UUID) ([]uuid.UUID, error)
 	FindWebhookEndpoint(ctx context.Context, id uuid.UUID) (WebhookEndpoint, error)
 	// Scoped by user on purpose. An endpoint id is a UUID and a GraphQL client cannot
 	// be assumed to pass the caller's own, so a lookup that does not check ownership
@@ -2125,6 +2184,9 @@ type Querier interface {
 	// own choice and is safe to keep.
 	SetContentViewingOptIn(ctx context.Context, arg SetContentViewingOptInParams) (UserTrust, error)
 	SetEditCommentHidden(ctx context.Context, arg SetEditCommentHiddenParams) (EditComment, error)
+	// The FOLLOWED user's grant to one follower. The service checks that the current user is the
+	// followed side; this statement could not, because the actor is not a column of this table.
+	SetFollowVisibility(ctx context.Context, arg SetFollowVisibilityParams) (int64, error)
 	SetImageOrganized(ctx context.Context, arg SetImageOrganizedParams) (Image, error)
 	// Enabling
 	// Takes the complete set of disabled keys, so a group absent from the list is
@@ -2271,6 +2333,34 @@ type Querier interface {
 	// move this period. Omitting it here would silently reset every rating to 0.06
 	// on every vote, which is the one thing the column exists to prevent.
 	UpsertEloRating(ctx context.Context, arg UpsertEloRatingParams) (EloRating, error)
+	// Follows and the activity feed (discovery SPEC section 10, aggregator phase 7 slice 7).
+	//
+	// THE FEED IS CHRONOLOGICAL BY CONTRACT. The draft is explicit -- "no algorithmic reordering" --
+	// so there is no score here, no decay, no diversity term and no permission for a later change to
+	// add one: the order is `created_at DESC`, ties broken by kind and id so that two reads of the
+	// same data return the same page. A feed that reorders itself is not a feed a reader can follow.
+	//
+	// VISIBILITY IS EVALUATED IN SQL, IN ONE PLACE, because the alternative is three arms each
+	// remembering to apply it and one of them forgetting. The `visible` CTE is the whole rule:
+	// an actor's activity reaches this viewer if the actor granted THIS viewer 'followers' or
+	// 'public', or if the actor granted 'public' to anyone (the broadcast -- see migration 115 for
+	// why a per-follow column is where that value lives). A 'private' grant, which is the DEFAULT,
+	// matches neither clause, so a feature that forgets to set the column shows nobody's activity
+	// rather than everybody's.
+	// Idempotent: ON CONFLICT DO NOTHING, so a double-clicked follow is one row rather than a
+	// second one whose activity a reader would see twice. It does NOT touch the visibility, which is
+	// the FOLLOWED user's grant: re-following must not reset someone else's choice.
+	UpsertFollow(ctx context.Context, arg UpsertFollowParams) (int64, error)
+	// Session state: "where I left off" (discovery SPEC section 11, aggregator phase 7 slice 7).
+	//
+	// THE SERVER HOLDS A CURSOR ONLY WHEN THE USER OPTED IN. The rule lives in the table's CHECK
+	// (migration 116): a `local` row has no payload, and this file never tries to give it one -- the
+	// upsert below writes NULL for a local write, whatever the client sent, so a client cannot make
+	// the server store what it said it was keeping to itself.
+	// The cursor is written ONLY for a synced row. `CASE WHEN ... THEN $4::jsonb END` rather than a
+	// service-side branch, because the schema's CHECK would reject the other shape anyway: the two
+	// places agree, and the one that runs is the one that decides.
+	UpsertSessionState(ctx context.Context, arg UpsertSessionStateParams) error
 	// Create or replace the directory fields.
 	//
 	// An UPSERT because site_details is 1:1 with sites and a partial update that only

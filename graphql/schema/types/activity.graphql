@@ -1,0 +1,164 @@
+# Social discovery: who you follow, and what they have been doing
+# (feature-discovery SPEC section 10, aggregator phase 7 slice 7).
+#
+# THE FEED IS CHRONOLOGICAL BY CONTRACT. The draft says it in as many words -- "no algorithmic
+# reordering" -- so `activityFeed` has no `sort`, no `serendipity` and no relevance input: the
+# order is the timestamp, and the only input is a keyset cursor for the next page. A feed a reader
+# cannot follow in time is not a feed, and a surface that adds a ranking here would be changing
+# what this page IS rather than how it is served.
+#
+# NOTHING IS VISIBLE UNTIL THE AUTHOR PUBLISHES IT. Following someone records that you watch them;
+# it grants nothing. The author sets `activityVisibility` per follower, the default is PRIVATE, and
+# the column lives on the follow row because that is what the draft specifies (migration 115
+# explains why, and what "public" then has to mean).
+#
+# SO THE FEED CAN BE EMPTY, AND AN EMPTY FEED IS A REAL ANSWER: you follow nobody, or everyone you
+# follow keeps their activity private. Both are states a client must render as "nothing here yet"
+# rather than as an error.
+
+"Which kind of activity a feed row reports."
+enum ActivityKind {
+  "The actor submitted a fingerprint: they say they have this scene."
+  FINGERPRINT
+  "The actor added the scene to a list."
+  LIST_ADD
+  "The actor wrote a published review of the scene."
+  REVIEW
+}
+
+"""
+Who did it.
+
+A light type rather than `User`, and that is a privacy decision as much as a shape one: a feed row
+says WHO acted, and the rest of a user's record (their roles, their trust level, their email
+domain) is not part of that statement. A client that needs the full record has `findUser`.
+"""
+type ActivityActor {
+  id: ID!
+  name: String!
+}
+
+"One row of the activity feed."
+type ActivityItem {
+  kind: ActivityKind!
+
+  "When it happened. The order of the feed is this field, descending, with no exceptions."
+  createdAt: Time!
+
+  actor: ActivityActor!
+
+  """
+  The scene the activity is about.
+
+  Always present: a row whose scene no longer exists is dropped rather than returned with a null,
+  because the feed is a list of things a reader can open.
+  """
+  scene: Scene!
+
+  """
+  The list the scene was added to, for `LIST_ADD` rows INTO A PUBLISHED LIST, and null otherwise.
+
+  Null for a private list, deliberately: the activity is "someone filed this scene", which the
+  visibility grant covers, while which list they filed it into is theirs until they publish it.
+  """
+  listId: ID
+  listName: String
+
+  """
+  The review's rating, for `REVIEW` rows that carried one.
+
+  Null is normal, not missing data: a review of a studio's ethics is not a 1-to-5 quantity, so the
+  column is nullable in the schema and an unrated review is a complete review.
+  """
+  rating: Int
+}
+
+input ActivityFeedInput {
+  "How many rows. Defaults to 20; above 50 is clamped rather than rejected."
+  limit: Int = 20
+
+  """
+  A keyset cursor: only activity strictly older than this instant.
+
+  Not an offset. A feed paged by offset shows a reader the same row twice whenever something is
+  added between pages, which on a feed is the normal case rather than the edge case.
+  """
+  before: Time
+}
+
+"How much of an author's activity one follower may see."
+enum ActivityVisibility {
+  "The default. Nobody but the author."
+  PRIVATE
+  "The ONE follower this grant names. Not the author's other followers."
+  FOLLOWERS
+  "Every reader of the instance, followers or not."
+  PUBLIC
+}
+
+"One relationship, from the point of view of the user asking."
+type Follow {
+  """
+  The OTHER side of the relationship: who you follow, when listing those, and who follows you, when
+  listing followers.
+  """
+  user: ActivityActor!
+
+  "The visibility the author granted this follower."
+  visibility: ActivityVisibility!
+
+  createdAt: Time!
+}
+
+input FollowInput {
+  "The user to follow. Following yourself is refused."
+  userId: ID!
+}
+
+input UnfollowInput {
+  userId: ID!
+}
+
+input ActivityVisibilityInput {
+  """
+  Whose grant is being set: the follower.
+
+  The current user is always the AUTHOR of the activity, never this side, whatever is passed here.
+  A follower who could set their own access would make the private default decoration, so this
+  field names the one person whose feed is affected rather than the person deciding.
+  """
+  followerId: ID!
+
+  visibility: ActivityVisibility!
+}
+
+extend type Mutation {
+  "Follow a user. Idempotent: following twice is one relationship, and it grants NO visibility."
+  followUser(input: FollowInput!): Boolean! @hasRole(role: READ)
+
+  "Stop following. False means you were not following them, which is not an error."
+  unfollowUser(input: UnfollowInput!): Boolean! @hasRole(role: READ)
+
+  """
+  Publish, restrict or withdraw one follower's access to YOUR activity.
+
+  Only your own activity: the current user is the author. A follower cannot widen their own access,
+  which is the difference between a permission and a claim.
+  """
+  setActivityVisibility(input: ActivityVisibilityInput!): Boolean! @hasRole(role: READ)
+}
+
+extend type Query {
+  """
+  What the people you follow have been doing, newest first.
+
+  Empty is a real answer: you follow nobody, or nobody you follow has published anything.
+  """
+  activityFeed(input: ActivityFeedInput): [ActivityItem!]! @hasRole(role: READ)
+
+  "Who you follow, newest first."
+  following: [Follow!]! @hasRole(role: READ)
+
+  "Who follows you, newest first. The read behind the visibility editor."
+  followers: [Follow!]! @hasRole(role: READ)
+}

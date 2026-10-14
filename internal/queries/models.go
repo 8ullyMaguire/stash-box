@@ -731,6 +731,15 @@ type SceneUrl struct {
 	SiteID  uuid.UUID `db:"site_id" json:"site_id"`
 }
 
+type SessionState struct {
+	UserID    uuid.UUID          `db:"user_id" json:"user_id"`
+	Kind      string             `db:"kind" json:"kind"`
+	Key       string             `db:"key" json:"key"`
+	Cursor    []byte             `db:"cursor" json:"cursor"`
+	Storage   string             `db:"storage" json:"storage"`
+	UpdatedAt pgtype.Timestamptz `db:"updated_at" json:"updated_at"`
+}
+
 type Site struct {
 	ID          uuid.UUID `db:"id" json:"id"`
 	Name        string    `db:"name" json:"name"`
@@ -896,6 +905,13 @@ type User struct {
 	UpdatedAt    time.Time     `db:"updated_at" json:"updated_at"`
 	InvitedBy    uuid.NullUUID `db:"invited_by" json:"invited_by"`
 	InviteTokens int           `db:"invite_tokens" json:"invite_tokens"`
+}
+
+type UserFollow struct {
+	FollowerID         uuid.UUID          `db:"follower_id" json:"follower_id"`
+	FollowedID         uuid.UUID          `db:"followed_id" json:"followed_id"`
+	CreatedAt          pgtype.Timestamptz `db:"created_at" json:"created_at"`
+	ActivityVisibility string             `db:"activity_visibility" json:"activity_visibility"`
 }
 
 type UserImageTypeGroupPreference struct {

@@ -28,6 +28,7 @@ import (
 	"github.com/stashapp/stash-box/internal/email"
 	"github.com/stashapp/stash-box/internal/image/croptemplate"
 	"github.com/stashapp/stash-box/internal/queries"
+	"github.com/stashapp/stash-box/internal/service/activity"
 	"github.com/stashapp/stash-box/internal/service/authored"
 	"github.com/stashapp/stash-box/internal/service/award"
 	"github.com/stashapp/stash-box/internal/service/badge"
@@ -39,6 +40,7 @@ import (
 	"github.com/stashapp/stash-box/internal/service/elo"
 	"github.com/stashapp/stash-box/internal/service/federation"
 	"github.com/stashapp/stash-box/internal/service/fingerprint"
+	"github.com/stashapp/stash-box/internal/service/follow"
 	"github.com/stashapp/stash-box/internal/service/identification"
 	"github.com/stashapp/stash-box/internal/service/image"
 	"github.com/stashapp/stash-box/internal/service/imagetype"
@@ -53,6 +55,7 @@ import (
 	"github.com/stashapp/stash-box/internal/service/review"
 	"github.com/stashapp/stash-box/internal/service/savedsearch"
 	"github.com/stashapp/stash-box/internal/service/scene"
+	"github.com/stashapp/stash-box/internal/service/sessionstate"
 	"github.com/stashapp/stash-box/internal/service/similar"
 	"github.com/stashapp/stash-box/internal/service/site"
 	"github.com/stashapp/stash-box/internal/service/streak"
@@ -116,6 +119,28 @@ func (f *Factory) Similar() *similar.Service {
 // could be stale between calls.
 func (f *Factory) Taste() *taste.Service {
 	return taste.New(queries.New(f.db), f.Scene())
+}
+
+// Follow returns the follows service.
+//
+// Takes withTxn even though the writes here are single statements today: a follow has no second
+// write to keep together, and passing it anyway is what makes adding one (an audit row, a
+// notification) a change to the service rather than to its constructor.
+func (f *Factory) Follow() *follow.Service {
+	return follow.New(queries.New(f.db), f.withTxn)
+}
+
+// Activity returns the chronological activity feed.
+func (f *Factory) Activity() *activity.Service {
+	return activity.New(queries.New(f.db), f.Scene())
+}
+
+// SessionState returns the opt-in "where I left off" service.
+//
+// No store to build and no configuration: whether a cursor is stored is a per-request argument
+// (the client's `storage`), not an instance-wide setting.
+func (f *Factory) SessionState() *sessionstate.Service {
+	return sessionstate.New(queries.New(f.db))
 }
 
 // newVectorStore turns the configured name into an implementation, once per factory.
