@@ -149,6 +149,9 @@ type Querier interface {
 	// nothing behind the catalogue entry -- and tags are weighted above it because an
 	// item nobody can find is the failure the discovery surfaces exist to prevent.
 	ContentItemCompletionInputs(ctx context.Context, id uuid.UUID) (ContentItemCompletionInputsRow, error)
+	// The cap's instrument. Counts exactly what the list above returns, so a refusal
+	// and a displayed list cannot disagree about how full a target is.
+	CountActiveVouchesForTarget(ctx context.Context, arg CountActiveVouchesForTargetParams) (int64, error)
 	// Archive-wide counts (SPEC §7.7, growth item 9 "State of the Archive").
 	//
 	// One query, five rows. A page whose entire job is "how much is catalogued"
@@ -1733,6 +1736,8 @@ type Querier interface {
 	InviteKeyUsed(ctx context.Context, id uuid.UUID) (*int, error)
 	IsImageUnused(ctx context.Context, id uuid.UUID) (bool, error)
 	LinkContentItemTag(ctx context.Context, arg LinkContentItemTagParams) error
+	// A target's vouches that are neither withdrawn nor expired, newest first.
+	ListActiveVouchesForTarget(ctx context.Context, arg ListActiveVouchesForTargetParams) ([]MemberVouch, error)
 	// The frames of a collage, in playback order.
 	//
 	// The read path for rendering, covered by a partial index on
@@ -2016,6 +2021,9 @@ type Querier interface {
 	// One user's history, newest first. Used by the audit view and by tests that
 	// assert the event log is the source of truth.
 	ListUserTrustEvents(ctx context.Context, userID uuid.UUID) ([]TrustEvent, error)
+	// Every vouch a target has ever held, active or not, newest first. The audit view:
+	// withdrawn vouches are part of the record, not noise.
+	ListVouchesForTarget(ctx context.Context, targetID uuid.UUID) ([]MemberVouch, error)
 	// A user's delivery history for one endpoint, newest first.
 	ListWebhookDeliveriesForEndpoint(ctx context.Context, arg ListWebhookDeliveriesForEndpointParams) ([]WebhookDelivery, error)
 	ListWebhookEndpoints(ctx context.Context, arg ListWebhookEndpointsParams) ([]WebhookEndpoint, error)
@@ -2027,6 +2035,15 @@ type Querier interface {
 	ListWebhookEndpointsForEvent(ctx context.Context, dollar_1 []string) ([]WebhookEndpoint, error)
 	LoadClusterSubmissions(ctx context.Context, fingerprintIds []int) ([]LoadClusterSubmissionsRow, error)
 	LoadLinkedOshashSubmissions(ctx context.Context, phashFingerprintIds []int) ([]LoadLinkedOshashSubmissionsRow, error)
+	// Takes a row lock on the member being vouched for, for the length of the
+	// transaction that checks and records a vouch.
+	//
+	// The cap is "at most three ACTIVE", and a count-then-insert without a lock can be
+	// raced by two simultaneous vouches, each seeing two and both inserting. A unique
+	// index cannot express "at most three", so the serialisation has to come from
+	// somewhere: this is the somewhere, and it is a single row lock rather than a
+	// table lock because the contention is per member by construction.
+	LockUserForVouch(ctx context.Context, id uuid.UUID) (uuid.UUID, error)
 	MarkAllNotificationsRead(ctx context.Context, userID uuid.UUID) error
 	MarkNotificationRead(ctx context.Context, arg MarkNotificationReadParams) error
 	MarkWebhookDelivered(ctx context.Context, id uuid.UUID) (WebhookDelivery, error)
@@ -2183,6 +2200,10 @@ type Querier interface {
 	// Returning the row means a duplicate insert reports no rows, which the
 	// service treats as "already recorded" rather than as an error.
 	RecordTrustEvent(ctx context.Context, arg RecordTrustEventParams) (TrustEvent, error)
+	// Records an accepted vouch. ON CONFLICT DO NOTHING makes a second attempt against
+	// the partial unique index report no rows, which the service reads as "already
+	// vouched" rather than as an error -- the same idiom RecordTrustEvent uses.
+	RecordVouch(ctx context.Context, arg RecordVouchParams) (MemberVouch, error)
 	// A refusal, which is not a failure and gets its own status because of what the two mean.
 	//
 	// A `rejected` row says the pipeline DECLINED the URL before asking the network anything: a
@@ -2602,6 +2623,11 @@ type Querier interface {
 	// One vote. The composite primary key on the vote table is the rule: a second
 	// vote is a constraint violation rather than a silently doubled tally.
 	VoteForIdentificationCandidate(ctx context.Context, arg VoteForIdentificationCandidateParams) error
+	// The voucher ends their own vouch, which frees the slot it occupied.
+	//
+	// Scoped to the voucher's own row: withdrawing somebody else's vouch is not a
+	// thing a member can do, and a query that took only the vouch id would make it one.
+	WithdrawVouch(ctx context.Context, arg WithdrawVouchParams) (MemberVouch, error)
 }
 
 var _ Querier = (*Queries)(nil)

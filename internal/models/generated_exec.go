@@ -72,6 +72,7 @@ type ResolverRoot interface {
 	UnderSnapshottedScene() UnderSnapshottedSceneResolver
 	UnorganizedImage() UnorganizedImageResolver
 	User() UserResolver
+	Vouch() VouchResolver
 }
 
 type DirectiveRoot struct {
@@ -754,6 +755,8 @@ type ComplexityRoot struct {
 		ValidateChangeEmail               func(childComplexity int, token uuid.UUID, email string) int
 		VoteElo                           func(childComplexity int, input EloVoteInput) int
 		VoteIdentificationCandidate       func(childComplexity int, candidateID uuid.UUID) int
+		VouchForUser                      func(childComplexity int, userID uuid.UUID) int
+		WithdrawVouch                     func(childComplexity int, userID uuid.UUID) int
 	}
 
 	Notification struct {
@@ -1431,6 +1434,7 @@ type ComplexityRoot struct {
 		Trust                     func(childComplexity int) int
 		TrustLevel                func(childComplexity int) int
 		VoteCount                 func(childComplexity int) int
+		Vouches                   func(childComplexity int) int
 	}
 
 	UserEditCount struct {
@@ -1474,6 +1478,15 @@ type ComplexityRoot struct {
 		BuildType func(childComplexity int) int
 		Hash      func(childComplexity int) int
 		Version   func(childComplexity int) int
+	}
+
+	Vouch struct {
+		Active    func(childComplexity int) int
+		CreatedAt func(childComplexity int) int
+		ExpiresAt func(childComplexity int) int
+		ID        func(childComplexity int) int
+		Voucher   func(childComplexity int) int
+		VoucherID func(childComplexity int) int
 	}
 }
 
@@ -1680,6 +1693,8 @@ type MutationResolver interface {
 	SaveSessionState(ctx context.Context, input SessionStateInput) (*SessionState, error)
 	ClearSessionState(ctx context.Context, input ClearSessionStateInput) (bool, error)
 	SpendStreakFreeze(ctx context.Context) (*Streak, error)
+	VouchForUser(ctx context.Context, userID uuid.UUID) (*Vouch, error)
+	WithdrawVouch(ctx context.Context, userID uuid.UUID) (bool, error)
 }
 type NotificationResolver interface {
 	Created(ctx context.Context, obj *Notification) (*time.Time, error)
@@ -2004,6 +2019,10 @@ type UserResolver interface {
 	InviteCodes(ctx context.Context, obj *User) ([]InviteKey, error)
 	Trust(ctx context.Context, obj *User) (*UserTrust, error)
 	TrustLevel(ctx context.Context, obj *User) (int, error)
+	Vouches(ctx context.Context, obj *User) ([]Vouch, error)
+}
+type VouchResolver interface {
+	Voucher(ctx context.Context, obj *Vouch) (*User, error)
 }
 
 // endregion ************************** generated!.gotpl **************************
@@ -5320,6 +5339,28 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.VoteIdentificationCandidate(childComplexity, args["candidateId"].(uuid.UUID)), true
+	case "Mutation.vouchForUser":
+		if e.ComplexityRoot.Mutation.VouchForUser == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_vouchForUser_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.VouchForUser(childComplexity, args["userId"].(uuid.UUID)), true
+	case "Mutation.withdrawVouch":
+		if e.ComplexityRoot.Mutation.WithdrawVouch == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_withdrawVouch_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.WithdrawVouch(childComplexity, args["userId"].(uuid.UUID)), true
 
 	case "Notification.created":
 		if e.ComplexityRoot.Notification.Created == nil {
@@ -8736,6 +8777,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.User.VoteCount(childComplexity), true
+	case "User.vouches":
+		if e.ComplexityRoot.User.Vouches == nil {
+			break
+		}
+
+		return e.ComplexityRoot.User.Vouches(childComplexity), true
 
 	case "UserEditCount.accepted":
 		if e.ComplexityRoot.UserEditCount.Accepted == nil {
@@ -8926,6 +8973,43 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Version.Version(childComplexity), true
+
+	case "Vouch.active":
+		if e.ComplexityRoot.Vouch.Active == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Vouch.Active(childComplexity), true
+	case "Vouch.createdAt":
+		if e.ComplexityRoot.Vouch.CreatedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Vouch.CreatedAt(childComplexity), true
+	case "Vouch.expiresAt":
+		if e.ComplexityRoot.Vouch.ExpiresAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Vouch.ExpiresAt(childComplexity), true
+	case "Vouch.id":
+		if e.ComplexityRoot.Vouch.ID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Vouch.ID(childComplexity), true
+	case "Vouch.voucher":
+		if e.ComplexityRoot.Vouch.Voucher == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Vouch.Voucher(childComplexity), true
+	case "Vouch.voucherId":
+		if e.ComplexityRoot.Vouch.VoucherID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Vouch.VoucherID(childComplexity), true
 
 	}
 	return 0, false
@@ -14510,6 +14594,96 @@ enum UserChangeEmailStatus {
   version: String!
 }
 `, BuiltIn: false},
+	{Name: "../../graphql/schema/types/vouch.graphql", Input: `# Member vouches (plan phase 6 slice 6d).
+#
+# A vouch is one member attesting to another's standing: the LOCAL counterpart of
+# the signed cross-instance attestations in SPEC §7.17, and deliberately not the
+# same thing. Those travel between instances and are weighted by the receiving
+# operator; this is one account saying "I know this one" inside one instance.
+#
+# THE CAP IS THE FEATURE, and it is not visible in this schema at all: a member may
+# hold at most three ACTIVE vouches and the fourth is refused. The refusal is an
+# error, not a field, because it is a thing that happens rather than a thing that is.
+#
+# ACTIVE IS DERIVED. A vouch ends when it is withdrawn or when it expires, and
+# ` + "`" + `active` + "`" + ` is computed from those two facts at read time -- there is no stored
+# status to go stale, which is the same shape the streak and the trust level have.
+
+type Vouch {
+  id: ID!
+
+  """
+  The member giving the vouch.
+  """
+  voucher: User!
+
+  """
+  The same member's id, so a client that only needs to point at them does not have
+  to resolve a user to find out who it already knew.
+  """
+  voucherId: ID!
+
+  createdAt: DateTime!
+
+  """
+  When this vouch stops counting without being renewed.
+
+  Vouches expire because SPEC §7.17 says attestation weight DECAYS and requires
+  re-signing: a vouch is a claim its author still makes, so half a year later it has
+  to be given again by somebody who still means it.
+  """
+  expiresAt: DateTime!
+
+  """
+  Whether this vouch still counts. False once withdrawn or expired.
+  """
+  active: Boolean!
+}
+
+extend type User {
+  """
+  The ACTIVE vouches this member holds, newest first.
+
+  Owner-gated, like ` + "`" + `trust` + "`" + ` and for the same reason: who vouches for whom is a
+  statement about a member's standing, and a public list would make it a target --
+  a set of names to work on. Withdrawn and expired vouches are not exposed here;
+  they stay in the record for the operator view, not for a reader.
+
+  Empty rather than null when the member holds none: "nobody has vouched for this
+  member yet" is the ordinary state of every new account, not an absence.
+  """
+  vouches: [Vouch!]! @isUserOwner
+}
+
+extend type Mutation {
+  """
+  Vouches for a member, and returns the vouch.
+
+  Returns the VOUCH rather than a confirmation because the useful thing to show
+  afterwards is when it expires -- the member has just made a statement with a
+  deadline, and a boolean would hide the deadline.
+
+  Fails when: the target is the caller (nobody vouches for themselves); the caller
+  has not earned the standing to vouch (a contribution level, so a fresh account
+  cannot vouch for anybody); the caller already has an active vouch for this member;
+  or the member already holds three active vouches.
+  """
+  vouchForUser(userId: ID!): Vouch!
+
+  """
+  Ends the caller's own vouch for a member, freeing the slot it held.
+
+  THE ONE MUTATION HERE THAT RETURNS A BOOLEAN, and it is not an inconsistency: the
+  thing a member wants after withdrawing a vouch is the absence of it, and there is
+  no object left to return. It returns true rather than nothing so that a client can
+  tell "withdrawn" from "there was nothing to withdraw", which is an error here.
+
+  Scoped to the caller's own vouch. Withdrawing somebody else's is not a thing a
+  member can do, and the query is written so that it cannot be.
+  """
+  withdrawVouch(userId: ID!): Boolean!
+}
+`, BuiltIn: false},
 	{Name: "../../graphql/schema/schema.graphql", Input: `"""The query root for this schema"""
 type Query {
   "The tiers the CALLER has opted into. Self-only: another user's consent is not a query."
@@ -16821,6 +16995,8 @@ func (ec *executionContext) childFields_User(ctx context.Context, field graphql.
 		return ec.fieldContext_User_trust(ctx, field)
 	case "trust_level":
 		return ec.fieldContext_User_trust_level(ctx, field)
+	case "vouches":
+		return ec.fieldContext_User_vouches(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type User", field.Name)
 }
@@ -16909,6 +17085,24 @@ func (ec *executionContext) childFields_Version(ctx context.Context, field graph
 		return ec.fieldContext_Version_version(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type Version", field.Name)
+}
+
+func (ec *executionContext) childFields_Vouch(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "id":
+		return ec.fieldContext_Vouch_id(ctx, field)
+	case "voucher":
+		return ec.fieldContext_Vouch_voucher(ctx, field)
+	case "voucherId":
+		return ec.fieldContext_Vouch_voucherId(ctx, field)
+	case "createdAt":
+		return ec.fieldContext_Vouch_createdAt(ctx, field)
+	case "expiresAt":
+		return ec.fieldContext_Vouch_expiresAt(ctx, field)
+	case "active":
+		return ec.fieldContext_Vouch_active(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type Vouch", field.Name)
 }
 
 func (ec *executionContext) childFields___Directive(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -18682,6 +18876,34 @@ func (ec *executionContext) field_Mutation_voteIdentificationCandidate_args(ctx 
 		return nil, err
 	}
 	args["candidateId"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_vouchForUser_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "userId",
+		func(ctx context.Context, v any) (uuid.UUID, error) {
+			return ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["userId"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_withdrawVouch_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "userId",
+		func(ctx context.Context, v any) (uuid.UUID, error) {
+			return ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["userId"] = arg0
 	return args, nil
 }
 
@@ -35243,6 +35465,94 @@ func (ec *executionContext) fieldContext_Mutation_spendStreakFreeze(_ context.Co
 	return fc, nil
 }
 
+func (ec *executionContext) _Mutation_vouchForUser(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_vouchForUser(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().VouchForUser(ctx, fc.Args["userId"].(uuid.UUID))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *Vouch) graphql.Marshaler {
+			return ec.marshalNVouch2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐVouch(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_vouchForUser(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_Vouch(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_vouchForUser_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_withdrawVouch(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_withdrawVouch(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().WithdrawVouch(ctx, fc.Args["userId"].(uuid.UUID))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_withdrawVouch(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_withdrawVouch_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Notification_created(ctx context.Context, field graphql.CollectedField, obj *Notification) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -51364,6 +51674,51 @@ func (ec *executionContext) fieldContext_User_trust_level(_ context.Context, fie
 	return graphql.NewScalarFieldContext("User", field, true, true, errors.New("field of type Int does not have child fields"))
 }
 
+func (ec *executionContext) _User_vouches(ctx context.Context, field graphql.CollectedField, obj *User) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_User_vouches(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.User().Vouches(ctx, obj)
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				if ec.Directives.IsUserOwner == nil {
+					var zeroVal []Vouch
+					return zeroVal, errors.New("directive isUserOwner is not implemented")
+				}
+				return ec.Directives.IsUserOwner(ctx, obj, directive0)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v []Vouch) graphql.Marshaler {
+			return ec.marshalNVouch2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐVouchᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_User_vouches(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "User",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_Vouch(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _UserEditCount_accepted(ctx context.Context, field graphql.CollectedField, obj *UserEditCount) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -52075,6 +52430,153 @@ func (ec *executionContext) _Version_version(ctx context.Context, field graphql.
 }
 func (ec *executionContext) fieldContext_Version_version(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("Version", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _Vouch_id(ctx context.Context, field graphql.CollectedField, obj *Vouch) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Vouch_id(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v uuid.UUID) graphql.Marshaler {
+			return ec.marshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Vouch_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Vouch", field, false, false, errors.New("field of type ID does not have child fields"))
+}
+
+func (ec *executionContext) _Vouch_voucher(ctx context.Context, field graphql.CollectedField, obj *Vouch) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Vouch_voucher(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Vouch().Voucher(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *User) graphql.Marshaler {
+			return ec.marshalNUser2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐUser(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Vouch_voucher(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Vouch",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_User(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Vouch_voucherId(ctx context.Context, field graphql.CollectedField, obj *Vouch) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Vouch_voucherId(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.VoucherID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v uuid.UUID) graphql.Marshaler {
+			return ec.marshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Vouch_voucherId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Vouch", field, false, false, errors.New("field of type ID does not have child fields"))
+}
+
+func (ec *executionContext) _Vouch_createdAt(ctx context.Context, field graphql.CollectedField, obj *Vouch) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Vouch_createdAt(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.CreatedAt, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNDateTime2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Vouch_createdAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Vouch", field, false, false, errors.New("field of type DateTime does not have child fields"))
+}
+
+func (ec *executionContext) _Vouch_expiresAt(ctx context.Context, field graphql.CollectedField, obj *Vouch) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Vouch_expiresAt(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ExpiresAt, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNDateTime2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Vouch_expiresAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Vouch", field, false, false, errors.New("field of type DateTime does not have child fields"))
+}
+
+func (ec *executionContext) _Vouch_active(ctx context.Context, field graphql.CollectedField, obj *Vouch) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Vouch_active(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Active, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Vouch_active(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Vouch", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
 func (ec *executionContext) ___Directive_name(ctx context.Context, field graphql.CollectedField, obj *introspection.Directive) (ret graphql.Marshaler) {
@@ -67181,6 +67683,20 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "vouchForUser":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_vouchForUser(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "withdrawVouch":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_withdrawVouch(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -78263,6 +78779,44 @@ func (ec *executionContext) _User(ctx context.Context, sel ast.SelectionSet, obj
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "vouches":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._User_vouches(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -78549,6 +79103,102 @@ func (ec *executionContext) _Version(ctx context.Context, sel ast.SelectionSet, 
 			out.Values[i] = ec._Version_version(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var vouchImplementors = []string{"Vouch"}
+
+func (ec *executionContext) _Vouch(ctx context.Context, sel ast.SelectionSet, obj *Vouch) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, vouchImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("Vouch")
+		case "id":
+			out.Values[i] = ec._Vouch_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "voucher":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Vouch_voucher(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "voucherId":
+			out.Values[i] = ec._Vouch_voucherId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "createdAt":
+			out.Values[i] = ec._Vouch_createdAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "expiresAt":
+			out.Values[i] = ec._Vouch_expiresAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "active":
+			out.Values[i] = ec._Vouch_active(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
@@ -82545,6 +83195,36 @@ func (ec *executionContext) unmarshalNVoteTypeEnum2githubᚗcomᚋstashappᚋsta
 
 func (ec *executionContext) marshalNVoteTypeEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐVoteTypeEnum(ctx context.Context, sel ast.SelectionSet, v VoteTypeEnum) graphql.Marshaler {
 	return v
+}
+
+func (ec *executionContext) marshalNVouch2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐVouch(ctx context.Context, sel ast.SelectionSet, v Vouch) graphql.Marshaler {
+	return ec._Vouch(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNVouch2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐVouchᚄ(ctx context.Context, sel ast.SelectionSet, v []Vouch) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNVouch2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐVouch(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNVouch2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐVouch(ctx context.Context, sel ast.SelectionSet, v *Vouch) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._Vouch(ctx, sel, v)
 }
 
 func (ec *executionContext) marshalN__Directive2githubᚗcomᚋ99designsᚋgqlgenᚋgraphqlᚋintrospectionᚐDirective(ctx context.Context, sel ast.SelectionSet, v introspection.Directive) graphql.Marshaler {

@@ -1210,6 +1210,85 @@ Six probes, all killed: the runs ignoring the covered days; a covered day counti
 activity; an empty cover window; a single active day earning a freeze; today being
 coverable; and the allowance not being checked before a spend.
 
+### Slice 6d — vouching, at most three active (BUILT)
+
+**THE CAP IS THE FEATURE.** A member may hold at most three ACTIVE vouches and the
+next one is refused, which is what stops a new account being vouched into standing by
+five friends in an afternoon. Everything else here exists to make "active" mean
+something a reader can check.
+
+**A vouch grants no points.** It is a record, not an input to the level curve. The
+curve's inputs are contributions, and a path from "somebody said so" to a level would
+be a brigading vector with a friendly name. What a vouch buys its holder is a
+statement somebody was willing to make in public and sign.
+
+**Active is derived, from three facts:** not withdrawn, not expired, and one per pair.
+Nothing runs to enforce the expiry -- it is read-time, the same shape the streak and
+the trust level have -- and the expiry itself follows SPEC §7.17's rule that
+attestation weight **decays and requires re-signing**: half a year later a vouch has to
+be given again by somebody who still means it.
+
+**Who may vouch is the other half of the anti-brigading story.** The voucher needs
+`LevelContributor` (fifty points), so a fresh account cannot vouch for anybody. The cap
+limits how many vouches a target can hold; this limits who can give them at all.
+
+**The cap needs a LOCK, not an index.** "At most three" is not a constraint a unique
+index can express, and the implementation is a count followed by an insert, so two
+simultaneous vouches can each see two and both land. The transaction therefore takes a
+row lock on the **target** -- where the contention is, by construction -- and the
+decision is made against the count that the write will act on.
+
+**Withdrawn vouches stay in the record.** "Three members vouched for this one and all
+three took it back" is a fact an operator looking at a vouching ring needs, and
+deleting the row is how a pattern of drive-by vouching becomes invisible. The partial
+unique index over active pairs is what lets the same member vouch again afterwards, so
+withdrawing is not a life sentence.
+
+**Only ACTIVE vouches are exposed over GraphQL**, owner-gated like `trust` and for the
+same reason: who vouches for whom is a statement about a member's standing, and a
+public list would be a set of names to work on. The unbounded history is an operator's
+view, and it is not exposed -- which is also why the one lookup per vouch in the
+`voucher` field is correct here and would be wrong for an unbounded list: the N in that
+N+1 is bounded by the cap itself.
+
+`withdrawVouch` is the one mutation in this feature that returns a `Boolean`. That is
+not an inconsistency: the thing a member wants after withdrawing is the ABSENCE of the
+vouch, so there is no object left to return, and `true` rather than nothing is what lets
+a client tell "withdrawn" from "there was nothing to withdraw" -- which is an error.
+
+**Verification (DONE).** Pure: `active` at the boundary is `expires_at > now` and not
+`>=`, so a vouch expiring at this instant has expired; a withdrawn vouch cannot be
+rescued by a later expiry; and the four decisions (self, standing, cap, and the
+over-full target that a LOWERED cap can leave behind).
+
+Against a database: three vouches are accepted and the fourth refused **with no partial
+write left behind**; a member cannot vouch for themselves; a fresh account is refused
+with the standing error and nothing is recorded; the same member cannot vouch twice and
+the second attempt adds no row; withdrawing frees the slot **and the member who withdrew
+can vouch again**; an expired vouch holds no slot while the history keeps it; a member
+cannot withdraw **somebody else's** vouch; and the database refuses a self-vouch written
+directly, because a check is only a rule if the thing underneath also has it.
+
+Six probes, all killed: the cap unchecked; the cap off by one (`>` instead of `>=`,
+which accepts the fourth); the standing requirement unchecked; the self-vouch check
+removed; expiry ignored by the count; and withdrawal not scoped to the voucher.
+
+**TWO THINGS THE PROBES TAUGHT, and neither was in the plan.**
+
+**A probe that kills far more than its own claim is a signal, not a win.** Removing the
+expiry from the count reddened seven tests, including ones that have nothing to do with
+expiry -- and the reason was an ordering defect the probe had exposed: the whole decision
+ran inside the transaction, so a self-vouch took a row lock and, with the count broken,
+"you cannot vouch for yourself" came back as a DATABASE error. The decision is now split
+into the half that needs no query (`decideVoucher`: self and standing, refused before the
+transaction opens) and the half that needs the count (`decideCap`, inside the lock). Same
+rules, same tests, and the query-free refusals no longer depend on the database being
+reachable.
+
+**Designing the probes found a missing test.** The withdrawal-scope probe had nothing to
+kill it, so the test came first and the probe was re-run to prove the test kills it. A
+probe list is a test plan as well as a verification plan.
+
 ## Slice 6b-2 — the policy wired up: on the write path, and swept (BUILT)
 
 **The policy is on the WRITE PATH, not only in the sweep**, and that is the whole

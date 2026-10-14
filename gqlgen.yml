@@ -22,6 +22,13 @@ models:
       # is the other one: a field that binds to something plausible and answers with it.
       trust_level:
         resolver: true
+  # A vouch's giver is a User the database row does not carry -- the row holds an id --
+  # so the field is resolved externally rather than bound to a struct field that
+  # would have to be filled in by hand at every construction site.
+  Vouch:
+    fields:
+      voucher:
+        resolver: true
   ContentItem:
     fields:
       # `chapters` and `media` are per-item lists read on demand, and this type is

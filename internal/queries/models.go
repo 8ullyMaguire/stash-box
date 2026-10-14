@@ -533,6 +533,15 @@ type ListItem struct {
 	CreatedAt  pgtype.Timestamptz `db:"created_at" json:"created_at"`
 }
 
+type MemberVouch struct {
+	ID          uuid.UUID          `db:"id" json:"id"`
+	VoucherID   uuid.UUID          `db:"voucher_id" json:"voucher_id"`
+	TargetID    uuid.UUID          `db:"target_id" json:"target_id"`
+	CreatedAt   pgtype.Timestamptz `db:"created_at" json:"created_at"`
+	ExpiresAt   pgtype.Timestamptz `db:"expires_at" json:"expires_at"`
+	WithdrawnAt pgtype.Timestamptz `db:"withdrawn_at" json:"withdrawn_at"`
+}
+
 type ModAudit struct {
 	ID         uuid.UUID       `db:"id" json:"id"`
 	Action     ModAuditAction  `db:"action" json:"action"`

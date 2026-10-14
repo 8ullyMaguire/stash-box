@@ -9,7 +9,27 @@ import (
 	"context"
 
 	"github.com/gofrs/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
+
+const countActiveVouchesForTarget = `-- name: CountActiveVouchesForTarget :one
+SELECT count(*) FROM member_vouches
+WHERE target_id = $1 AND withdrawn_at IS NULL AND expires_at > $2
+`
+
+type CountActiveVouchesForTargetParams struct {
+	TargetID  uuid.UUID          `db:"target_id" json:"target_id"`
+	ExpiresAt pgtype.Timestamptz `db:"expires_at" json:"expires_at"`
+}
+
+// The cap's instrument. Counts exactly what the list above returns, so a refusal
+// and a displayed list cannot disagree about how full a target is.
+func (q *Queries) CountActiveVouchesForTarget(ctx context.Context, arg CountActiveVouchesForTargetParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countActiveVouchesForTarget, arg.TargetID, arg.ExpiresAt)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
 
 const countUserEditsByStatus = `-- name: CountUserEditsByStatus :many
 SELECT status, bot, COUNT(*) as count FROM edits WHERE user_id = $1 GROUP BY status, bot
@@ -359,6 +379,132 @@ func (q *Queries) GetUsers(ctx context.Context, dollar_1 []uuid.UUID) ([]User, e
 	return items, nil
 }
 
+const listActiveVouchesForTarget = `-- name: ListActiveVouchesForTarget :many
+SELECT id, voucher_id, target_id, created_at, expires_at, withdrawn_at FROM member_vouches
+WHERE target_id = $1 AND withdrawn_at IS NULL AND expires_at > $2
+ORDER BY created_at DESC
+`
+
+type ListActiveVouchesForTargetParams struct {
+	TargetID  uuid.UUID          `db:"target_id" json:"target_id"`
+	ExpiresAt pgtype.Timestamptz `db:"expires_at" json:"expires_at"`
+}
+
+// A target's vouches that are neither withdrawn nor expired, newest first.
+func (q *Queries) ListActiveVouchesForTarget(ctx context.Context, arg ListActiveVouchesForTargetParams) ([]MemberVouch, error) {
+	rows, err := q.db.Query(ctx, listActiveVouchesForTarget, arg.TargetID, arg.ExpiresAt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []MemberVouch{}
+	for rows.Next() {
+		var i MemberVouch
+		if err := rows.Scan(
+			&i.ID,
+			&i.VoucherID,
+			&i.TargetID,
+			&i.CreatedAt,
+			&i.ExpiresAt,
+			&i.WithdrawnAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listVouchesForTarget = `-- name: ListVouchesForTarget :many
+SELECT id, voucher_id, target_id, created_at, expires_at, withdrawn_at FROM member_vouches WHERE target_id = $1 ORDER BY created_at DESC
+`
+
+// Every vouch a target has ever held, active or not, newest first. The audit view:
+// withdrawn vouches are part of the record, not noise.
+func (q *Queries) ListVouchesForTarget(ctx context.Context, targetID uuid.UUID) ([]MemberVouch, error) {
+	rows, err := q.db.Query(ctx, listVouchesForTarget, targetID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []MemberVouch{}
+	for rows.Next() {
+		var i MemberVouch
+		if err := rows.Scan(
+			&i.ID,
+			&i.VoucherID,
+			&i.TargetID,
+			&i.CreatedAt,
+			&i.ExpiresAt,
+			&i.WithdrawnAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockUserForVouch = `-- name: LockUserForVouch :one
+SELECT id FROM users WHERE id = $1 FOR UPDATE
+`
+
+// Takes a row lock on the member being vouched for, for the length of the
+// transaction that checks and records a vouch.
+//
+// The cap is "at most three ACTIVE", and a count-then-insert without a lock can be
+// raced by two simultaneous vouches, each seeing two and both inserting. A unique
+// index cannot express "at most three", so the serialisation has to come from
+// somewhere: this is the somewhere, and it is a single row lock rather than a
+// table lock because the contention is per member by construction.
+func (q *Queries) LockUserForVouch(ctx context.Context, id uuid.UUID) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, lockUserForVouch, id)
+	err := row.Scan(&id)
+	return id, err
+}
+
+const recordVouch = `-- name: RecordVouch :one
+INSERT INTO member_vouches (id, voucher_id, target_id, expires_at)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT DO NOTHING
+RETURNING id, voucher_id, target_id, created_at, expires_at, withdrawn_at
+`
+
+type RecordVouchParams struct {
+	ID        uuid.UUID          `db:"id" json:"id"`
+	VoucherID uuid.UUID          `db:"voucher_id" json:"voucher_id"`
+	TargetID  uuid.UUID          `db:"target_id" json:"target_id"`
+	ExpiresAt pgtype.Timestamptz `db:"expires_at" json:"expires_at"`
+}
+
+// Records an accepted vouch. ON CONFLICT DO NOTHING makes a second attempt against
+// the partial unique index report no rows, which the service reads as "already
+// vouched" rather than as an error -- the same idiom RecordTrustEvent uses.
+func (q *Queries) RecordVouch(ctx context.Context, arg RecordVouchParams) (MemberVouch, error) {
+	row := q.db.QueryRow(ctx, recordVouch,
+		arg.ID,
+		arg.VoucherID,
+		arg.TargetID,
+		arg.ExpiresAt,
+	)
+	var i MemberVouch
+	err := row.Scan(
+		&i.ID,
+		&i.VoucherID,
+		&i.TargetID,
+		&i.CreatedAt,
+		&i.ExpiresAt,
+		&i.WithdrawnAt,
+	)
+	return i, err
+}
+
 const updateUser = `-- name: UpdateUser :one
 UPDATE users 
 SET name = $2, password_hash = $3, email = $4, updated_at = NOW()
@@ -459,4 +605,35 @@ type UpdateUserPasswordParams struct {
 func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error {
 	_, err := q.db.Exec(ctx, updateUserPassword, arg.ID, arg.PasswordHash)
 	return err
+}
+
+const withdrawVouch = `-- name: WithdrawVouch :one
+UPDATE member_vouches
+SET withdrawn_at = $3
+WHERE voucher_id = $1 AND target_id = $2 AND withdrawn_at IS NULL
+RETURNING id, voucher_id, target_id, created_at, expires_at, withdrawn_at
+`
+
+type WithdrawVouchParams struct {
+	VoucherID   uuid.UUID          `db:"voucher_id" json:"voucher_id"`
+	TargetID    uuid.UUID          `db:"target_id" json:"target_id"`
+	WithdrawnAt pgtype.Timestamptz `db:"withdrawn_at" json:"withdrawn_at"`
+}
+
+// The voucher ends their own vouch, which frees the slot it occupied.
+//
+// Scoped to the voucher's own row: withdrawing somebody else's vouch is not a
+// thing a member can do, and a query that took only the vouch id would make it one.
+func (q *Queries) WithdrawVouch(ctx context.Context, arg WithdrawVouchParams) (MemberVouch, error) {
+	row := q.db.QueryRow(ctx, withdrawVouch, arg.VoucherID, arg.TargetID, arg.WithdrawnAt)
+	var i MemberVouch
+	err := row.Scan(
+		&i.ID,
+		&i.VoucherID,
+		&i.TargetID,
+		&i.CreatedAt,
+		&i.ExpiresAt,
+		&i.WithdrawnAt,
+	)
+	return i, err
 }

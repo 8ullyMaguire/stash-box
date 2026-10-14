@@ -86,6 +86,12 @@ func (r *Resolver) URL() models.URLResolver {
 func (r *Resolver) ContentSource() models.ContentSourceResolver {
 	return &contentSourceResolver{r}
 }
+
+// Vouch returns the resolver for a vouch's own fields.
+func (r *Resolver) Vouch() models.VouchResolver {
+	return &vouchResolver{r}
+}
+
 func (r *Resolver) User() models.UserResolver {
 	return &userResolver{r}
 }

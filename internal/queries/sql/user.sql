@@ -76,3 +76,50 @@ SELECT status, bot, COUNT(*) as count FROM edits WHERE user_id = $1 GROUP BY sta
 
 -- name: GetUserNotificationSubscriptions :many
 SELECT type FROM user_notifications WHERE user_id = $1;
+
+-- name: RecordVouch :one
+-- Records an accepted vouch. ON CONFLICT DO NOTHING makes a second attempt against
+-- the partial unique index report no rows, which the service reads as "already
+-- vouched" rather than as an error -- the same idiom RecordTrustEvent uses.
+INSERT INTO member_vouches (id, voucher_id, target_id, expires_at)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT DO NOTHING
+RETURNING *;
+
+-- name: ListActiveVouchesForTarget :many
+-- A target's vouches that are neither withdrawn nor expired, newest first.
+SELECT * FROM member_vouches
+WHERE target_id = $1 AND withdrawn_at IS NULL AND expires_at > $2
+ORDER BY created_at DESC;
+
+-- name: CountActiveVouchesForTarget :one
+-- The cap's instrument. Counts exactly what the list above returns, so a refusal
+-- and a displayed list cannot disagree about how full a target is.
+SELECT count(*) FROM member_vouches
+WHERE target_id = $1 AND withdrawn_at IS NULL AND expires_at > $2;
+
+-- name: ListVouchesForTarget :many
+-- Every vouch a target has ever held, active or not, newest first. The audit view:
+-- withdrawn vouches are part of the record, not noise.
+SELECT * FROM member_vouches WHERE target_id = $1 ORDER BY created_at DESC;
+
+-- name: WithdrawVouch :one
+-- The voucher ends their own vouch, which frees the slot it occupied.
+--
+-- Scoped to the voucher's own row: withdrawing somebody else's vouch is not a
+-- thing a member can do, and a query that took only the vouch id would make it one.
+UPDATE member_vouches
+SET withdrawn_at = $3
+WHERE voucher_id = $1 AND target_id = $2 AND withdrawn_at IS NULL
+RETURNING *;
+
+-- name: LockUserForVouch :one
+-- Takes a row lock on the member being vouched for, for the length of the
+-- transaction that checks and records a vouch.
+--
+-- The cap is "at most three ACTIVE", and a count-then-insert without a lock can be
+-- raced by two simultaneous vouches, each seeing two and both inserting. A unique
+-- index cannot express "at most three", so the serialisation has to come from
+-- somewhere: this is the somewhere, and it is a single row lock rather than a
+-- table lock because the contention is per member by construction.
+SELECT id FROM users WHERE id = $1 FOR UPDATE;

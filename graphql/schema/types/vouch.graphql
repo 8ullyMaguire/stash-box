@@ -1,0 +1,89 @@
+# Member vouches (plan phase 6 slice 6d).
+#
+# A vouch is one member attesting to another's standing: the LOCAL counterpart of
+# the signed cross-instance attestations in SPEC §7.17, and deliberately not the
+# same thing. Those travel between instances and are weighted by the receiving
+# operator; this is one account saying "I know this one" inside one instance.
+#
+# THE CAP IS THE FEATURE, and it is not visible in this schema at all: a member may
+# hold at most three ACTIVE vouches and the fourth is refused. The refusal is an
+# error, not a field, because it is a thing that happens rather than a thing that is.
+#
+# ACTIVE IS DERIVED. A vouch ends when it is withdrawn or when it expires, and
+# `active` is computed from those two facts at read time -- there is no stored
+# status to go stale, which is the same shape the streak and the trust level have.
+
+type Vouch {
+  id: ID!
+
+  """
+  The member giving the vouch.
+  """
+  voucher: User!
+
+  """
+  The same member's id, so a client that only needs to point at them does not have
+  to resolve a user to find out who it already knew.
+  """
+  voucherId: ID!
+
+  createdAt: DateTime!
+
+  """
+  When this vouch stops counting without being renewed.
+
+  Vouches expire because SPEC §7.17 says attestation weight DECAYS and requires
+  re-signing: a vouch is a claim its author still makes, so half a year later it has
+  to be given again by somebody who still means it.
+  """
+  expiresAt: DateTime!
+
+  """
+  Whether this vouch still counts. False once withdrawn or expired.
+  """
+  active: Boolean!
+}
+
+extend type User {
+  """
+  The ACTIVE vouches this member holds, newest first.
+
+  Owner-gated, like `trust` and for the same reason: who vouches for whom is a
+  statement about a member's standing, and a public list would make it a target --
+  a set of names to work on. Withdrawn and expired vouches are not exposed here;
+  they stay in the record for the operator view, not for a reader.
+
+  Empty rather than null when the member holds none: "nobody has vouched for this
+  member yet" is the ordinary state of every new account, not an absence.
+  """
+  vouches: [Vouch!]! @isUserOwner
+}
+
+extend type Mutation {
+  """
+  Vouches for a member, and returns the vouch.
+
+  Returns the VOUCH rather than a confirmation because the useful thing to show
+  afterwards is when it expires -- the member has just made a statement with a
+  deadline, and a boolean would hide the deadline.
+
+  Fails when: the target is the caller (nobody vouches for themselves); the caller
+  has not earned the standing to vouch (a contribution level, so a fresh account
+  cannot vouch for anybody); the caller already has an active vouch for this member;
+  or the member already holds three active vouches.
+  """
+  vouchForUser(userId: ID!): Vouch!
+
+  """
+  Ends the caller's own vouch for a member, freeing the slot it held.
+
+  THE ONE MUTATION HERE THAT RETURNS A BOOLEAN, and it is not an inconsistency: the
+  thing a member wants after withdrawing a vouch is the absence of it, and there is
+  no object left to return. It returns true rather than nothing so that a client can
+  tell "withdrawn" from "there was nothing to withdraw", which is an error here.
+
+  Scoped to the caller's own vouch. Withdrawing somebody else's is not a thing a
+  member can do, and the query is written so that it cannot be.
+  """
+  withdrawVouch(userId: ID!): Boolean!
+}

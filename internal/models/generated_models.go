@@ -2528,6 +2528,24 @@ type Version struct {
 	Version   string `json:"version"`
 }
 
+type Vouch struct {
+	ID uuid.UUID `json:"id"`
+	// The member giving the vouch.
+	Voucher *User `json:"voucher"`
+	// The same member's id, so a client that only needs to point at them does not have
+	// to resolve a user to find out who it already knew.
+	VoucherID uuid.UUID `json:"voucherId"`
+	CreatedAt string    `json:"createdAt"`
+	// When this vouch stops counting without being renewed.
+	//
+	// Vouches expire because SPEC §7.17 says attestation weight DECAYS and requires
+	// re-signing: a vouch is a claim its author still makes, so half a year later it has
+	// to be given again by somebody who still means it.
+	ExpiresAt string `json:"expiresAt"`
+	// Whether this vouch still counts. False once withdrawn or expired.
+	Active bool `json:"active"`
+}
+
 // Which kind of activity a feed row reports.
 type ActivityKind string
 

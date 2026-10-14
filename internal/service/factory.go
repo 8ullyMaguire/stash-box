@@ -68,6 +68,7 @@ import (
 	"github.com/stashapp/stash-box/internal/service/trust"
 	"github.com/stashapp/stash-box/internal/service/user"
 	"github.com/stashapp/stash-box/internal/service/usertoken"
+	"github.com/stashapp/stash-box/internal/service/vouch"
 )
 
 // Factory provides access to all services with centralized database connection management
@@ -385,6 +386,11 @@ func (f *Factory) List() *listsvc.Service {
 // Streak returns a user's activity streak service.
 func (f *Factory) Streak() *streak.Service {
 	return streak.NewService(queries.New(f.db))
+}
+
+// Vouches returns the member-vouch service.
+func (f *Factory) Vouches() *vouch.Service {
+	return vouch.NewService(queries.New(f.db), f.withTxn, f.Trust())
 }
 
 // Badges returns a user's derived badges.
