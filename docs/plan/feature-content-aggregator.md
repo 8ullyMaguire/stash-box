@@ -640,6 +640,14 @@ completion score drops; restore, assert resurrection.
 
 ## Phase 10 — media plane
 
+**Placed elsewhere (2026-10-14):** the local models this phase wants — a face matcher
+(StashFace ONNX / MegaFace) and image taggers (WD14 / pixai) — are specified as
+*identification sources* in `docs/spec/feature-04-identification-federation.md` §8 (F7–F12),
+with their build steps in that feature's plan (step 7c/7d). Read those before designing this
+phase: two decisions there are not negotiable here — a model's output is a SUGGESTION (for tags,
+an edit draft, because the edit system is the only path that writes a tag), and face detection
+serves face-centred crops (complaint #84) as well as the identification board.
+
 **Goal:** NexusXXX §7.5, §13.1–§13.5. **This phase is gated on Phase 14's policy
 text.** Hosting (MinIO/S3 via the existing `storage` abstraction), variant ladder,
 transcoding (ffmpeg — a new dependency, so a decision record and a fallback plan),
@@ -677,6 +685,13 @@ against a core tag; a hash lookup returns mirrors; an instance that declares cor
 v1 is refused a v2-only field rather than silently mis-mapping.
 
 ## Phase 13 — API, interoperability, exports
+
+**Placed elsewhere (2026-10-14):** exposing stash-box as an **MCP server** (search scenes and
+performers, read records, identify files by fingerprint) is the cheapest interop in the
+programme, because every surface it needs already exists. Consuming an external MCP source
+(ThePornDB, desaira) is NOT a second ingestion pipeline: it is an identification *provider*
+in the sense of `docs/spec/feature-04-identification-federation.md` §8 — evidence with
+provenance, never a vote.
 
 **Goal:** NexusXXX §15. **Verified:** GraphQL only; `internal/webhook` exists;
 no REST, no RSS, no data export.
