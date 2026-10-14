@@ -1,0 +1,90 @@
+# Content access setup (aggregator phase 5 slice 5i; NexusXXX section 10).
+#
+# THE ONBOARDING QUERY: what stands between this member and the content. It exists because the gate's
+# refusals are a list of REASONS, and a reason a member cannot act on is a wall -- the terms condition
+# had no column, no query and no mutation behind it until this slice, so it was a refusal with no way
+# out.
+#
+# COMPUTED FROM THE GATE'S OWN INPUTS, not from a parallel idea of them: the contribution floor the
+# gate is handed and the `required` a client is shown are the same Go constant, and an assertion holds
+# this query's fields against the gate's own verdict for the same member. That assertion is the point --
+# a wizard that drifts from the gate tells people to satisfy conditions that will not let them in.
+#
+# THE TIER LADDER IS REPORTED AS A LADDER, because the gate's tier condition depends on which entity is
+# being looked at. What a member controls is the ceiling, so the ceiling is what is shown -- with the
+# cooling period as `availableAt` rather than hidden.
+
+"A member's standing against the content-viewing gate."
+type ContentAccessSetup {
+  "Whether this member has accepted the content-viewing terms. Until they have, the gate refuses."
+  termsAccepted: Boolean!
+
+  """
+  Whether this member has opted in to content viewing at all.
+
+  Distinct from `tiers`: this is the member's own switch (gate condition 3), which decides whether
+  content is served to them at all, while `tiers` is how far up the ladder they have agreed to go.
+  """
+  optedIn: Boolean!
+
+  "This member's contribution standing against the instance's floor."
+  contributionScore: ContributionStanding!
+
+  """
+  Every tier the model defines, in order, with whether this member has opted into it.
+
+  A ladder rather than a ceiling, because the member's ceiling is the part they control and a list
+  cannot hide which rungs are missing. `availableAt` is set only while a consent is cooling.
+  """
+  tiers: [TierStanding!]!
+}
+
+"A member's contribution standing."
+type ContributionStanding {
+  "The member's contribution score."
+  current: Int!
+
+  "The instance's floor. Both the gate and this field read one Go constant."
+  required: Int!
+
+  "Whether the floor is met, compared here rather than left to the client to re-implement."
+  met: Boolean!
+}
+
+"Whether one tier is opted into, and when it takes effect if it is still cooling."
+type TierStanding {
+  "The tier number, from 0 (always visible) to the model's maximum."
+  tier: Int!
+
+  "Whether this member has opted into this tier. The consent is recorded immediately."
+  optedIn: Boolean!
+
+  """
+  When this consent becomes effective, or null when it already is.
+
+  Only ever a non-null value for a tier under the cooling period (tier 3): the consent is recorded at
+  once and the gate does not honour it until the period has passed, so a client that showed only
+  `optedIn` would tell a member to do what they had just done.
+  """
+  availableAt: Time
+}
+
+extend type Query {
+  """
+  What stands between the current member and the content, per condition of the gate.
+
+  READ rather than an admin role: this is a member's own standing, and an anonymous caller has no
+  standing to report -- the gate refuses them for being anonymous, which is not a step they can take.
+  """
+  contentAccessSetup: ContentAccessSetup! @hasRole(role: READ)
+}
+
+extend type Mutation {
+  """
+  Record this member's acceptance of the content-viewing terms, or leave the existing acceptance alone.
+
+  Returns the member's standing afterwards rather than a bare boolean: the caller is the onboarding
+  wizard, whose next screen is this object.
+  """
+  userAcceptContentTerms: ContentAccessSetup! @hasRole(role: READ)
+}

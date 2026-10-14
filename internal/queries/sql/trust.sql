@@ -236,3 +236,36 @@ UNION ALL
 SELECT 'performer'::text, COALESCE(dp."reason", '')::text
 FROM "scene_performers" sp JOIN "content_denylist_performer" dp ON dp."performer_id" = sp."performer_id"
 WHERE sp."scene_id" = @scene_id AND dp."mode" = 'warn';
+
+-- name: UserAccessSetup :one
+-- Everything contentAccessSetup reports about ONE viewer, in one row, so the fields cannot disagree
+-- with each other. The LEFT JOIN against a one-row default is UserVisibleTier's shape and for the same
+-- reason: a member with no user_trust row must answer "nothing consented" rather than not answer.
+--
+-- THE CONTRIBUTION TOTAL IS A COPY OF elo.sql's EXPRESSION, deliberately and with a test holding it
+-- there (TestAccessSetupAgreesWithTheGate compares this against the elo query for one fixture). Two
+-- copies with an assertion that they agree is what makes it one definition; extracting a SQL function
+-- would hide the terms in a third place, and the four terms are the definition, not the arithmetic.
+--
+-- NULLABLE t3_consented_at is returned rather than a computed "effective at" because the CALLER owns
+-- the cooling period (trust.T3CoolingHours, the same constant UserVisibleTier is given), and a second
+-- copy of that policy inside SQL is how the two would drift.
+SELECT COALESCE(ut."content_viewing_opt_in", false)::bool AS "opted_in",
+       COALESCE(ut."content_terms_accepted_at" IS NOT NULL, false)::bool AS "terms_accepted",
+       (COALESCE(ut."approved_edits", 0)
+        + COALESCE(ut."identification_solves", 0)
+        + COALESCE(ut."quests_completed", 0)
+        + COALESCE(ut."replicas_hosted", 0))::bigint AS "contribution_score",
+       COALESCE(ut."visible_tiers", '{}')::int[] AS "visible_tiers",
+       ut."t3_consented_at"
+FROM "users" u
+         LEFT JOIN "user_trust" ut ON ut."user_id" = u."id"
+WHERE u."id" = @user_id;
+
+-- name: AcceptContentTerms :exec
+-- The FIRST acceptance stands: COALESCE makes a second call a no-op rather than a rewrite, and the
+-- upsert covers a member who has no user_trust row yet (every column in that table has a default).
+INSERT INTO "user_trust" ("user_id", "content_terms_accepted_at")
+VALUES (@user_id, now())
+ON CONFLICT ("user_id") DO UPDATE
+    SET "content_terms_accepted_at" = COALESCE("user_trust"."content_terms_accepted_at", now());

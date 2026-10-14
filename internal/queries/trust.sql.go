@@ -9,7 +9,22 @@ import (
 	"context"
 
 	"github.com/gofrs/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
+
+const acceptContentTerms = `-- name: AcceptContentTerms :exec
+INSERT INTO "user_trust" ("user_id", "content_terms_accepted_at")
+VALUES ($1, now())
+ON CONFLICT ("user_id") DO UPDATE
+    SET "content_terms_accepted_at" = COALESCE("user_trust"."content_terms_accepted_at", now())
+`
+
+// The FIRST acceptance stands: COALESCE makes a second call a no-op rather than a rewrite, and the
+// upsert covers a member who has no user_trust row yet (every column in that table has a default).
+func (q *Queries) AcceptContentTerms(ctx context.Context, userID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, acceptContentTerms, userID)
+	return err
+}
 
 const applyTrustEvent = `-- name: ApplyTrustEvent :one
 INSERT INTO user_trust (user_id, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, bonus_points, updated_at)
@@ -34,7 +49,7 @@ ON CONFLICT (user_id) DO UPDATE SET
     replicas_hosted = user_trust.replicas_hosted + EXCLUDED.replicas_hosted,
     bonus_points = user_trust.bonus_points + EXCLUDED.bonus_points,
     updated_at = NOW()
-RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers
+RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at
 `
 
 type ApplyTrustEventParams struct {
@@ -78,6 +93,8 @@ func (q *Queries) ApplyTrustEvent(ctx context.Context, arg ApplyTrustEventParams
 		&i.BonusPoints,
 		&i.IsVanguard,
 		&i.VisibleTiers,
+		&i.T3ConsentedAt,
+		&i.ContentTermsAcceptedAt,
 	)
 	return i, err
 }
@@ -143,7 +160,7 @@ func (q *Queries) DeniedSceneIDs(ctx context.Context, sceneIds []uuid.UUID) ([]u
 }
 
 const getAllUserTrust = `-- name: GetAllUserTrust :many
-SELECT user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers FROM user_trust
+SELECT user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at FROM user_trust
 `
 
 // Every rollup row. Used when a threshold changes and every level must be
@@ -170,6 +187,8 @@ func (q *Queries) GetAllUserTrust(ctx context.Context) ([]UserTrust, error) {
 			&i.BonusPoints,
 			&i.IsVanguard,
 			&i.VisibleTiers,
+			&i.T3ConsentedAt,
+			&i.ContentTermsAcceptedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -183,7 +202,7 @@ func (q *Queries) GetAllUserTrust(ctx context.Context) ([]UserTrust, error) {
 
 const getUserTrust = `-- name: GetUserTrust :one
 
-SELECT user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers FROM user_trust WHERE user_id = $1
+SELECT user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at FROM user_trust WHERE user_id = $1
 `
 
 // Trust level queries (SPEC §6, migration 76).
@@ -208,12 +227,14 @@ func (q *Queries) GetUserTrust(ctx context.Context, userID uuid.UUID) (UserTrust
 		&i.BonusPoints,
 		&i.IsVanguard,
 		&i.VisibleTiers,
+		&i.T3ConsentedAt,
+		&i.ContentTermsAcceptedAt,
 	)
 	return i, err
 }
 
 const getUserTrustByUserIDs = `-- name: GetUserTrustByUserIDs :many
-SELECT user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers FROM user_trust WHERE user_id = ANY($1::UUID[])
+SELECT user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at FROM user_trust WHERE user_id = ANY($1::UUID[])
 `
 
 func (q *Queries) GetUserTrustByUserIDs(ctx context.Context, dollar_1 []uuid.UUID) ([]UserTrust, error) {
@@ -238,6 +259,8 @@ func (q *Queries) GetUserTrustByUserIDs(ctx context.Context, dollar_1 []uuid.UUI
 			&i.BonusPoints,
 			&i.IsVanguard,
 			&i.VisibleTiers,
+			&i.T3ConsentedAt,
+			&i.ContentTermsAcceptedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -306,7 +329,7 @@ ON CONFLICT (user_id) DO UPDATE SET
     replicas_hosted = EXCLUDED.replicas_hosted,
     bonus_points = EXCLUDED.bonus_points,
     updated_at = NOW()
-RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers
+RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at
 `
 
 // Rebuilds the totals from the event log.
@@ -336,6 +359,8 @@ func (q *Queries) RecomputeUserTrustTotals(ctx context.Context, userID uuid.UUID
 		&i.BonusPoints,
 		&i.IsVanguard,
 		&i.VisibleTiers,
+		&i.T3ConsentedAt,
+		&i.ContentTermsAcceptedAt,
 	)
 	return i, err
 }
@@ -466,7 +491,7 @@ const setContentViewingOptIn = `-- name: SetContentViewingOptIn :one
 UPDATE user_trust
 SET content_viewing_opt_in = $2, updated_at = NOW()
 WHERE user_id = $1
-RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers
+RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at
 `
 
 type SetContentViewingOptInParams struct {
@@ -497,6 +522,8 @@ func (q *Queries) SetContentViewingOptIn(ctx context.Context, arg SetContentView
 		&i.BonusPoints,
 		&i.IsVanguard,
 		&i.VisibleTiers,
+		&i.T3ConsentedAt,
+		&i.ContentTermsAcceptedAt,
 	)
 	return i, err
 }
@@ -537,7 +564,7 @@ const setUserTrustLevel = `-- name: SetUserTrustLevel :one
 UPDATE user_trust
 SET level = $2, updated_at = NOW()
 WHERE user_id = $1
-RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers
+RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at
 `
 
 type SetUserTrustLevelParams struct {
@@ -564,6 +591,8 @@ func (q *Queries) SetUserTrustLevel(ctx context.Context, arg SetUserTrustLevelPa
 		&i.BonusPoints,
 		&i.IsVanguard,
 		&i.VisibleTiers,
+		&i.T3ConsentedAt,
+		&i.ContentTermsAcceptedAt,
 	)
 	return i, err
 }
@@ -578,7 +607,7 @@ SET "visible_tiers" = $1,
     END,
     "updated_at" = NOW()
 WHERE "user_id" = $2
-RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers
+RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at
 `
 
 type SetVisibleTiersParams struct {
@@ -609,6 +638,55 @@ func (q *Queries) SetVisibleTiers(ctx context.Context, arg SetVisibleTiersParams
 		&i.BonusPoints,
 		&i.IsVanguard,
 		&i.VisibleTiers,
+		&i.T3ConsentedAt,
+		&i.ContentTermsAcceptedAt,
+	)
+	return i, err
+}
+
+const userAccessSetup = `-- name: UserAccessSetup :one
+SELECT COALESCE(ut."content_viewing_opt_in", false)::bool AS "opted_in",
+       COALESCE(ut."content_terms_accepted_at" IS NOT NULL, false)::bool AS "terms_accepted",
+       (COALESCE(ut."approved_edits", 0)
+        + COALESCE(ut."identification_solves", 0)
+        + COALESCE(ut."quests_completed", 0)
+        + COALESCE(ut."replicas_hosted", 0))::bigint AS "contribution_score",
+       COALESCE(ut."visible_tiers", '{}')::int[] AS "visible_tiers",
+       ut."t3_consented_at"
+FROM "users" u
+         LEFT JOIN "user_trust" ut ON ut."user_id" = u."id"
+WHERE u."id" = $1
+`
+
+type UserAccessSetupRow struct {
+	OptedIn           bool               `db:"opted_in" json:"opted_in"`
+	TermsAccepted     bool               `db:"terms_accepted" json:"terms_accepted"`
+	ContributionScore int64              `db:"contribution_score" json:"contribution_score"`
+	VisibleTiers      []int              `db:"visible_tiers" json:"visible_tiers"`
+	T3ConsentedAt     pgtype.Timestamptz `db:"t3_consented_at" json:"t3_consented_at"`
+}
+
+// Everything contentAccessSetup reports about ONE viewer, in one row, so the fields cannot disagree
+// with each other. The LEFT JOIN against a one-row default is UserVisibleTier's shape and for the same
+// reason: a member with no user_trust row must answer "nothing consented" rather than not answer.
+//
+// THE CONTRIBUTION TOTAL IS A COPY OF elo.sql's EXPRESSION, deliberately and with a test holding it
+// there (TestAccessSetupAgreesWithTheGate compares this against the elo query for one fixture). Two
+// copies with an assertion that they agree is what makes it one definition; extracting a SQL function
+// would hide the terms in a third place, and the four terms are the definition, not the arithmetic.
+//
+// NULLABLE t3_consented_at is returned rather than a computed "effective at" because the CALLER owns
+// the cooling period (trust.T3CoolingHours, the same constant UserVisibleTier is given), and a second
+// copy of that policy inside SQL is how the two would drift.
+func (q *Queries) UserAccessSetup(ctx context.Context, userID uuid.UUID) (UserAccessSetupRow, error) {
+	row := q.db.QueryRow(ctx, userAccessSetup, userID)
+	var i UserAccessSetupRow
+	err := row.Scan(
+		&i.OptedIn,
+		&i.TermsAccepted,
+		&i.ContributionScore,
+		&i.VisibleTiers,
+		&i.T3ConsentedAt,
 	)
 	return i, err
 }

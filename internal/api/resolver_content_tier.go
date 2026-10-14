@@ -99,3 +99,43 @@ func int16sToInts(values []int16) []int {
 	}
 	return out
 }
+
+// ContentAccessSetup answers the onboarding query, computing every field from the gate's own inputs.
+//
+// The account check is the gate's condition 1 restated as an API rule: an anonymous caller HAS no
+// standing, and "you are anonymous" is not a step a wizard can offer.
+func (r *queryResolver) ContentAccessSetup(ctx context.Context) (*models.ContentAccessSetup, error) {
+	user := auth.GetCurrentUser(ctx)
+	if user == nil {
+		return nil, fmt.Errorf("content access setup requires an account")
+	}
+
+	setup, err := r.services.Trust().Setup(ctx, user.ID)
+	if err != nil {
+		return nil, err
+	}
+	return &setup, nil
+}
+
+// UserAcceptContentTerms records the member's acceptance and returns their standing afterwards.
+//
+// The standing is re-read rather than assembled from the parts, because the point of returning it is
+// that it is what the gate will see -- a response built from the local variables of this mutation would
+// be the mutation's opinion of the member, which is exactly the drift the access setup query exists to
+// prevent.
+func (r *mutationResolver) UserAcceptContentTerms(ctx context.Context) (*models.ContentAccessSetup, error) {
+	user := auth.GetCurrentUser(ctx)
+	if user == nil {
+		return nil, fmt.Errorf("content terms acceptance requires an account")
+	}
+
+	if err := r.services.Trust().AcceptContentTerms(ctx, user.ID); err != nil {
+		return nil, err
+	}
+
+	setup, err := r.services.Trust().Setup(ctx, user.ID)
+	if err != nil {
+		return nil, err
+	}
+	return &setup, nil
+}

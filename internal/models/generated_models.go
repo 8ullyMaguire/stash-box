@@ -273,6 +273,24 @@ type Completion struct {
 	Earned int `json:"earned"`
 }
 
+// A member's standing against the content-viewing gate.
+type ContentAccessSetup struct {
+	// Whether this member has accepted the content-viewing terms. Until they have, the gate refuses.
+	TermsAccepted bool `json:"termsAccepted"`
+	// Whether this member has opted in to content viewing at all.
+	//
+	// Distinct from `tiers`: this is the member's own switch (gate condition 3), which decides whether
+	// content is served to them at all, while `tiers` is how far up the ladder they have agreed to go.
+	OptedIn bool `json:"optedIn"`
+	// This member's contribution standing against the instance's floor.
+	ContributionScore *ContributionStanding `json:"contributionScore"`
+	// Every tier the model defines, in order, with whether this member has opted into it.
+	//
+	// A ladder rather than a ceiling, because the member's ceiling is the part they control and a list
+	// cannot hide which rungs are missing. `availableAt` is set only while a consent is cooling.
+	Tiers []TierStanding `json:"tiers"`
+}
+
 // A content item: one of the five content kinds that are not video (aggregator phase 3).
 //
 // Video is still a `Scene`, here and everywhere else: the split is by what the content
@@ -365,6 +383,16 @@ type ContentWarning struct {
 	Reason string `json:"reason"`
 	// Which entity the note came from: `tag`, `studio` or `performer`.
 	Source string `json:"source"`
+}
+
+// A member's contribution standing.
+type ContributionStanding struct {
+	// The member's contribution score.
+	Current int `json:"current"`
+	// The instance's floor. Both the gate and this field read one Go constant.
+	Required int `json:"required"`
+	// Whether the floor is met, compared here rather than left to the client to re-implement.
+	Met bool `json:"met"`
 }
 
 // One guide line of a crop template
@@ -2244,6 +2272,20 @@ type TagUpdateInput struct {
 	Description *string    `json:"description,omitempty"`
 	Aliases     []string   `json:"aliases,omitempty"`
 	CategoryID  *uuid.UUID `json:"category_id,omitempty"`
+}
+
+// Whether one tier is opted into, and when it takes effect if it is still cooling.
+type TierStanding struct {
+	// The tier number, from 0 (always visible) to the model's maximum.
+	Tier int `json:"tier"`
+	// Whether this member has opted into this tier. The consent is recorded immediately.
+	OptedIn bool `json:"optedIn"`
+	// When this consent becomes effective, or null when it already is.
+	//
+	// Only ever a non-null value for a tier under the cooling period (tier 3): the consent is recorded at
+	// once and the gate does not honour it until the period has passed, so a client that showed only
+	// `optedIn` would tell a member to do what they had just done.
+	AvailableAt *time.Time `json:"availableAt,omitempty"`
 }
 
 type UnfollowInput struct {

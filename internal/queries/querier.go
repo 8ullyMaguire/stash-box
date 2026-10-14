@@ -21,6 +21,9 @@ type Querier interface {
 	// failed four times and was abandoned" is the answer to the question a user asks
 	// when their integration silently stopped working.
 	AbandonWebhookDelivery(ctx context.Context, arg AbandonWebhookDeliveryParams) error
+	// The FIRST acceptance stands: COALESCE makes a second call a no-op rather than a rewrite, and the
+	// upsert covers a member who has no user_trust row yet (every column in that table has a default).
+	AcceptContentTerms(ctx context.Context, userID uuid.UUID) error
 	AddAuthoredQuestItem(ctx context.Context, arg AddAuthoredQuestItemParams) (AuthoredQuestItem, error)
 	// Proposes a candidate.
 	//
@@ -2465,6 +2468,19 @@ type Querier interface {
 	// touched" answers the question an operator actually asks.
 	UpsertSiteDetails(ctx context.Context, arg UpsertSiteDetailsParams) (SiteDetail, error)
 	UpsertTasteVector(ctx context.Context, arg UpsertTasteVectorParams) (TasteVector, error)
+	// Everything contentAccessSetup reports about ONE viewer, in one row, so the fields cannot disagree
+	// with each other. The LEFT JOIN against a one-row default is UserVisibleTier's shape and for the same
+	// reason: a member with no user_trust row must answer "nothing consented" rather than not answer.
+	//
+	// THE CONTRIBUTION TOTAL IS A COPY OF elo.sql's EXPRESSION, deliberately and with a test holding it
+	// there (TestAccessSetupAgreesWithTheGate compares this against the elo query for one fixture). Two
+	// copies with an assertion that they agree is what makes it one definition; extracting a SQL function
+	// would hide the terms in a third place, and the four terms are the definition, not the arithmetic.
+	//
+	// NULLABLE t3_consented_at is returned rather than a computed "effective at" because the CALLER owns
+	// the cooling period (trust.T3CoolingHours, the same constant UserVisibleTier is given), and a second
+	// copy of that policy inside SQL is how the two would drift.
+	UserAccessSetup(ctx context.Context, userID uuid.UUID) (UserAccessSetupRow, error)
 	// The viewer's ceiling: the MAXIMUM tier they have opted into, or 0 for a user
 	// with no preference, no user_trust row at all, or an empty array. The LEFT JOIN
 	// against a one-row default is what lets a member with no row answer 0 rather

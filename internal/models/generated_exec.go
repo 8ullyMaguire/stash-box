@@ -179,6 +179,13 @@ type ComplexityRoot struct {
 		Total      func(childComplexity int) int
 	}
 
+	ContentAccessSetup struct {
+		ContributionScore func(childComplexity int) int
+		OptedIn           func(childComplexity int) int
+		TermsAccepted     func(childComplexity int) int
+		Tiers             func(childComplexity int) int
+	}
+
 	ContentItem struct {
 		Chapters    func(childComplexity int) int
 		Completion  func(childComplexity int) int
@@ -233,6 +240,12 @@ type ComplexityRoot struct {
 	ContentWarning struct {
 		Reason func(childComplexity int) int
 		Source func(childComplexity int) int
+	}
+
+	ContributionStanding struct {
+		Current  func(childComplexity int) int
+		Met      func(childComplexity int) int
+		Required func(childComplexity int) int
 	}
 
 	CropGuide struct {
@@ -711,6 +724,7 @@ type ComplexityRoot struct {
 		UpdateImageTypePreferences        func(childComplexity int, input ImageTypePreferencesInput) int
 		UpdateNotificationSubscriptions   func(childComplexity int, subscriptions []NotificationEnum) int
 		UpdateSavedSearch                 func(childComplexity int, input SavedSearchUpdateInput) int
+		UserAcceptContentTerms            func(childComplexity int) int
 		UserCreate                        func(childComplexity int, input UserCreateInput) int
 		UserDestroy                       func(childComplexity int, input UserDestroyInput) int
 		UserSetVisibleTiers               func(childComplexity int, tiers []int) int
@@ -882,6 +896,7 @@ type ComplexityRoot struct {
 		AccessRules                    func(childComplexity int) int
 		ActivityFeed                   func(childComplexity int, input *ActivityFeedInput) int
 		ArchiveEntityCounts            func(childComplexity int) int
+		ContentAccessSetup             func(childComplexity int) int
 		ContentItem                    func(childComplexity int, id uuid.UUID) int
 		CountIncompleteEntities        func(childComplexity int, entityType EntityType, below int) int
 		EloLeaderboard                 func(childComplexity int, entityType EloEntityType, limit *int) int
@@ -1339,6 +1354,12 @@ type ComplexityRoot struct {
 		TagName      func(childComplexity int) int
 	}
 
+	TierStanding struct {
+		AvailableAt func(childComplexity int) int
+		OptedIn     func(childComplexity int) int
+		Tier        func(childComplexity int) int
+	}
+
 	URL struct {
 		Site func(childComplexity int) int
 		Type func(childComplexity int) int
@@ -1605,6 +1626,7 @@ type MutationResolver interface {
 	AddSnapshot(ctx context.Context, sceneID uuid.UUID, timestamp int) (*CollageSnapshot, error)
 	GenerateCollage(ctx context.Context, sceneID uuid.UUID, frameCount *int) (*Collage, error)
 	SubmitContentURL(ctx context.Context, url string, sceneID *uuid.UUID) (*IngestSubmission, error)
+	UserAcceptContentTerms(ctx context.Context) (*ContentAccessSetup, error)
 	VoteElo(ctx context.Context, input EloVoteInput) (*EloVoteResult, error)
 	FederationPeerCreate(ctx context.Context, input FederationPeerCreateInput) (*FederationPeer, error)
 	FederationPeerUpdate(ctx context.Context, input FederationPeerUpdateInput) (*FederationPeer, error)
@@ -1756,6 +1778,7 @@ type QueryResolver interface {
 	SceneCollage(ctx context.Context, sceneID uuid.UUID) (*Collage, error)
 	UnderSnapshottedScenes(ctx context.Context, minimum *int, limit *int) ([]UnderSnapshottedScene, error)
 	CountIncompleteEntities(ctx context.Context, entityType EntityType, below int) (int, error)
+	ContentAccessSetup(ctx context.Context) (*ContentAccessSetup, error)
 	ContentItem(ctx context.Context, id uuid.UUID) (*ContentItem, error)
 	QueryContentItems(ctx context.Context, kind *ContentItemKind, limit *int) ([]ContentItem, error)
 	EloMatchup(ctx context.Context, entityType EloEntityType) (*EloMatchup, error)
@@ -2289,6 +2312,31 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.Completion.Total(childComplexity), true
 
+	case "ContentAccessSetup.contributionScore":
+		if e.ComplexityRoot.ContentAccessSetup.ContributionScore == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentAccessSetup.ContributionScore(childComplexity), true
+	case "ContentAccessSetup.optedIn":
+		if e.ComplexityRoot.ContentAccessSetup.OptedIn == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentAccessSetup.OptedIn(childComplexity), true
+	case "ContentAccessSetup.termsAccepted":
+		if e.ComplexityRoot.ContentAccessSetup.TermsAccepted == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentAccessSetup.TermsAccepted(childComplexity), true
+	case "ContentAccessSetup.tiers":
+		if e.ComplexityRoot.ContentAccessSetup.Tiers == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentAccessSetup.Tiers(childComplexity), true
+
 	case "ContentItem.chapters":
 		if e.ComplexityRoot.ContentItem.Chapters == nil {
 			break
@@ -2522,6 +2570,25 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.ContentWarning.Source(childComplexity), true
+
+	case "ContributionStanding.current":
+		if e.ComplexityRoot.ContributionStanding.Current == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContributionStanding.Current(childComplexity), true
+	case "ContributionStanding.met":
+		if e.ComplexityRoot.ContributionStanding.Met == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContributionStanding.Met(childComplexity), true
+	case "ContributionStanding.required":
+		if e.ComplexityRoot.ContributionStanding.Required == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContributionStanding.Required(childComplexity), true
 
 	case "CropGuide.axis":
 		if e.ComplexityRoot.CropGuide.Axis == nil {
@@ -5038,6 +5105,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.UpdateSavedSearch(childComplexity, args["input"].(SavedSearchUpdateInput)), true
+	case "Mutation.userAcceptContentTerms":
+		if e.ComplexityRoot.Mutation.UserAcceptContentTerms == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Mutation.UserAcceptContentTerms(childComplexity), true
 	case "Mutation.userCreate":
 		if e.ComplexityRoot.Mutation.UserCreate == nil {
 			break
@@ -5930,6 +6003,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.ArchiveEntityCounts(childComplexity), true
+	case "Query.contentAccessSetup":
+		if e.ComplexityRoot.Query.ContentAccessSetup == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Query.ContentAccessSetup(childComplexity), true
 	case "Query.contentItem":
 		if e.ComplexityRoot.Query.ContentItem == nil {
 			break
@@ -8298,6 +8377,25 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.TagImplication.TagName(childComplexity), true
 
+	case "TierStanding.availableAt":
+		if e.ComplexityRoot.TierStanding.AvailableAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.TierStanding.AvailableAt(childComplexity), true
+	case "TierStanding.optedIn":
+		if e.ComplexityRoot.TierStanding.OptedIn == nil {
+			break
+		}
+
+		return e.ComplexityRoot.TierStanding.OptedIn(childComplexity), true
+	case "TierStanding.tier":
+		if e.ComplexityRoot.TierStanding.Tier == nil {
+			break
+		}
+
+		return e.ComplexityRoot.TierStanding.Tier(childComplexity), true
+
 	case "URL.site":
 		if e.ComplexityRoot.URL.Site == nil {
 			break
@@ -9498,6 +9596,97 @@ extend type Mutation {
     @hasRole(role: EDIT)
 }
 
+`, BuiltIn: false},
+	{Name: "../../graphql/schema/types/content_access_setup.graphql", Input: `# Content access setup (aggregator phase 5 slice 5i; NexusXXX section 10).
+#
+# THE ONBOARDING QUERY: what stands between this member and the content. It exists because the gate's
+# refusals are a list of REASONS, and a reason a member cannot act on is a wall -- the terms condition
+# had no column, no query and no mutation behind it until this slice, so it was a refusal with no way
+# out.
+#
+# COMPUTED FROM THE GATE'S OWN INPUTS, not from a parallel idea of them: the contribution floor the
+# gate is handed and the ` + "`" + `required` + "`" + ` a client is shown are the same Go constant, and an assertion holds
+# this query's fields against the gate's own verdict for the same member. That assertion is the point --
+# a wizard that drifts from the gate tells people to satisfy conditions that will not let them in.
+#
+# THE TIER LADDER IS REPORTED AS A LADDER, because the gate's tier condition depends on which entity is
+# being looked at. What a member controls is the ceiling, so the ceiling is what is shown -- with the
+# cooling period as ` + "`" + `availableAt` + "`" + ` rather than hidden.
+
+"A member's standing against the content-viewing gate."
+type ContentAccessSetup {
+  "Whether this member has accepted the content-viewing terms. Until they have, the gate refuses."
+  termsAccepted: Boolean!
+
+  """
+  Whether this member has opted in to content viewing at all.
+
+  Distinct from ` + "`" + `tiers` + "`" + `: this is the member's own switch (gate condition 3), which decides whether
+  content is served to them at all, while ` + "`" + `tiers` + "`" + ` is how far up the ladder they have agreed to go.
+  """
+  optedIn: Boolean!
+
+  "This member's contribution standing against the instance's floor."
+  contributionScore: ContributionStanding!
+
+  """
+  Every tier the model defines, in order, with whether this member has opted into it.
+
+  A ladder rather than a ceiling, because the member's ceiling is the part they control and a list
+  cannot hide which rungs are missing. ` + "`" + `availableAt` + "`" + ` is set only while a consent is cooling.
+  """
+  tiers: [TierStanding!]!
+}
+
+"A member's contribution standing."
+type ContributionStanding {
+  "The member's contribution score."
+  current: Int!
+
+  "The instance's floor. Both the gate and this field read one Go constant."
+  required: Int!
+
+  "Whether the floor is met, compared here rather than left to the client to re-implement."
+  met: Boolean!
+}
+
+"Whether one tier is opted into, and when it takes effect if it is still cooling."
+type TierStanding {
+  "The tier number, from 0 (always visible) to the model's maximum."
+  tier: Int!
+
+  "Whether this member has opted into this tier. The consent is recorded immediately."
+  optedIn: Boolean!
+
+  """
+  When this consent becomes effective, or null when it already is.
+
+  Only ever a non-null value for a tier under the cooling period (tier 3): the consent is recorded at
+  once and the gate does not honour it until the period has passed, so a client that showed only
+  ` + "`" + `optedIn` + "`" + ` would tell a member to do what they had just done.
+  """
+  availableAt: Time
+}
+
+extend type Query {
+  """
+  What stands between the current member and the content, per condition of the gate.
+
+  READ rather than an admin role: this is a member's own standing, and an anonymous caller has no
+  standing to report -- the gate refuses them for being anonymous, which is not a step they can take.
+  """
+  contentAccessSetup: ContentAccessSetup! @hasRole(role: READ)
+}
+
+extend type Mutation {
+  """
+  Record this member's acceptance of the content-viewing terms, or leave the existing acceptance alone.
+
+  Returns the member's standing afterwards rather than a bare boolean: the caller is the onboarding
+  wizard, whose next screen is this object.
+  """
+  userAcceptContentTerms: ContentAccessSetup! @hasRole(role: READ)
+}
 `, BuiltIn: false},
 	{Name: "../../graphql/schema/types/content_item.graphql", Input: `"""
 A content item: one of the five content kinds that are not video (aggregator phase 3).
@@ -14489,6 +14678,20 @@ func (ec *executionContext) childFields_Completion(ctx context.Context, field gr
 	return nil, fmt.Errorf("no field named %q was found under type Completion", field.Name)
 }
 
+func (ec *executionContext) childFields_ContentAccessSetup(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "termsAccepted":
+		return ec.fieldContext_ContentAccessSetup_termsAccepted(ctx, field)
+	case "optedIn":
+		return ec.fieldContext_ContentAccessSetup_optedIn(ctx, field)
+	case "contributionScore":
+		return ec.fieldContext_ContentAccessSetup_contributionScore(ctx, field)
+	case "tiers":
+		return ec.fieldContext_ContentAccessSetup_tiers(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type ContentAccessSetup", field.Name)
+}
+
 func (ec *executionContext) childFields_ContentItem(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 	switch field.Name {
 	case "id":
@@ -14583,6 +14786,18 @@ func (ec *executionContext) childFields_ContentWarning(ctx context.Context, fiel
 		return ec.fieldContext_ContentWarning_source(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type ContentWarning", field.Name)
+}
+
+func (ec *executionContext) childFields_ContributionStanding(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "current":
+		return ec.fieldContext_ContributionStanding_current(ctx, field)
+	case "required":
+		return ec.fieldContext_ContributionStanding_required(ctx, field)
+	case "met":
+		return ec.fieldContext_ContributionStanding_met(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type ContributionStanding", field.Name)
 }
 
 func (ec *executionContext) childFields_CropGuide(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -16041,6 +16256,18 @@ func (ec *executionContext) childFields_TagImplication(ctx context.Context, fiel
 		return ec.fieldContext_TagImplication_created_at(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type TagImplication", field.Name)
+}
+
+func (ec *executionContext) childFields_TierStanding(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "tier":
+		return ec.fieldContext_TierStanding_tier(ctx, field)
+	case "optedIn":
+		return ec.fieldContext_TierStanding_optedIn(ctx, field)
+	case "availableAt":
+		return ec.fieldContext_TierStanding_availableAt(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type TierStanding", field.Name)
 }
 
 func (ec *executionContext) childFields_URL(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -20764,6 +20991,116 @@ func (ec *executionContext) fieldContext_Completion_earned(_ context.Context, fi
 	return graphql.NewScalarFieldContext("Completion", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
+func (ec *executionContext) _ContentAccessSetup_termsAccepted(ctx context.Context, field graphql.CollectedField, obj *ContentAccessSetup) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentAccessSetup_termsAccepted(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.TermsAccepted, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ContentAccessSetup_termsAccepted(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContentAccessSetup", field, false, false, errors.New("field of type Boolean does not have child fields"))
+}
+
+func (ec *executionContext) _ContentAccessSetup_optedIn(ctx context.Context, field graphql.CollectedField, obj *ContentAccessSetup) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentAccessSetup_optedIn(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.OptedIn, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ContentAccessSetup_optedIn(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContentAccessSetup", field, false, false, errors.New("field of type Boolean does not have child fields"))
+}
+
+func (ec *executionContext) _ContentAccessSetup_contributionScore(ctx context.Context, field graphql.CollectedField, obj *ContentAccessSetup) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentAccessSetup_contributionScore(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ContributionScore, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *ContributionStanding) graphql.Marshaler {
+			return ec.marshalNContributionStanding2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContributionStanding(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ContentAccessSetup_contributionScore(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ContentAccessSetup",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ContributionStanding(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ContentAccessSetup_tiers(ctx context.Context, field graphql.CollectedField, obj *ContentAccessSetup) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentAccessSetup_tiers(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Tiers, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []TierStanding) graphql.Marshaler {
+			return ec.marshalNTierStanding2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTierStandingᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ContentAccessSetup_tiers(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ContentAccessSetup",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_TierStanding(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _ContentItem_id(ctx context.Context, field graphql.CollectedField, obj *ContentItem) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -21672,6 +22009,75 @@ func (ec *executionContext) _ContentWarning_source(ctx context.Context, field gr
 }
 func (ec *executionContext) fieldContext_ContentWarning_source(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("ContentWarning", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _ContributionStanding_current(ctx context.Context, field graphql.CollectedField, obj *ContributionStanding) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContributionStanding_current(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Current, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ContributionStanding_current(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContributionStanding", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _ContributionStanding_required(ctx context.Context, field graphql.CollectedField, obj *ContributionStanding) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContributionStanding_required(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Required, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ContributionStanding_required(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContributionStanding", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _ContributionStanding_met(ctx context.Context, field graphql.CollectedField, obj *ContributionStanding) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContributionStanding_met(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Met, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ContributionStanding_met(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContributionStanding", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
 func (ec *executionContext) _CropGuide_axis(ctx context.Context, field graphql.CollectedField, obj *CropGuide) (ret graphql.Marshaler) {
@@ -32523,6 +32929,56 @@ func (ec *executionContext) fieldContext_Mutation_submitContentUrl(ctx context.C
 	return fc, nil
 }
 
+func (ec *executionContext) _Mutation_userAcceptContentTerms(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_userAcceptContentTerms(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Mutation().UserAcceptContentTerms(ctx)
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal *ContentAccessSetup
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *ContentAccessSetup
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *ContentAccessSetup) graphql.Marshaler {
+			return ec.marshalNContentAccessSetup2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentAccessSetup(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_userAcceptContentTerms(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ContentAccessSetup(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Mutation_voteElo(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -40866,6 +41322,56 @@ func (ec *executionContext) fieldContext_Query_countIncompleteEntities(ctx conte
 	return fc, nil
 }
 
+func (ec *executionContext) _Query_contentAccessSetup(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_contentAccessSetup(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Query().ContentAccessSetup(ctx)
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal *ContentAccessSetup
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *ContentAccessSetup
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *ContentAccessSetup) graphql.Marshaler {
+			return ec.marshalNContentAccessSetup2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentAccessSetup(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_contentAccessSetup(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ContentAccessSetup(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Query_contentItem(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -48834,6 +49340,75 @@ func (ec *executionContext) _TagImplication_created_at(ctx context.Context, fiel
 }
 func (ec *executionContext) fieldContext_TagImplication_created_at(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("TagImplication", field, false, false, errors.New("field of type Time does not have child fields"))
+}
+
+func (ec *executionContext) _TierStanding_tier(ctx context.Context, field graphql.CollectedField, obj *TierStanding) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_TierStanding_tier(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Tier, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_TierStanding_tier(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("TierStanding", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _TierStanding_optedIn(ctx context.Context, field graphql.CollectedField, obj *TierStanding) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_TierStanding_optedIn(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.OptedIn, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_TierStanding_optedIn(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("TierStanding", field, false, false, errors.New("field of type Boolean does not have child fields"))
+}
+
+func (ec *executionContext) _TierStanding_availableAt(ctx context.Context, field graphql.CollectedField, obj *TierStanding) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_TierStanding_availableAt(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.AvailableAt, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *time.Time) graphql.Marshaler {
+			return ec.marshalOTime2ᚖtimeᚐTime(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_TierStanding_availableAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("TierStanding", field, false, false, errors.New("field of type Time does not have child fields"))
 }
 
 func (ec *executionContext) _URL_url(ctx context.Context, field graphql.CollectedField, obj *URL) (ret graphql.Marshaler) {
@@ -59874,6 +60449,59 @@ func (ec *executionContext) _Completion(ctx context.Context, sel ast.SelectionSe
 	return out
 }
 
+var contentAccessSetupImplementors = []string{"ContentAccessSetup"}
+
+func (ec *executionContext) _ContentAccessSetup(ctx context.Context, sel ast.SelectionSet, obj *ContentAccessSetup) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, contentAccessSetupImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ContentAccessSetup")
+		case "termsAccepted":
+			out.Values[i] = ec._ContentAccessSetup_termsAccepted(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "optedIn":
+			out.Values[i] = ec._ContentAccessSetup_optedIn(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "contributionScore":
+			out.Values[i] = ec._ContentAccessSetup_contributionScore(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "tiers":
+			out.Values[i] = ec._ContentAccessSetup_tiers(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
 var contentItemImplementors = []string{"ContentItem", "EditTarget"}
 
 func (ec *executionContext) _ContentItem(ctx context.Context, sel ast.SelectionSet, obj *ContentItem) graphql.Marshaler {
@@ -60403,6 +61031,54 @@ func (ec *executionContext) _ContentWarning(ctx context.Context, sel ast.Selecti
 			}
 		case "source":
 			out.Values[i] = ec._ContentWarning_source(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var contributionStandingImplementors = []string{"ContributionStanding"}
+
+func (ec *executionContext) _ContributionStanding(ctx context.Context, sel ast.SelectionSet, obj *ContributionStanding) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, contributionStandingImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ContributionStanding")
+		case "current":
+			out.Values[i] = ec._ContributionStanding_current(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "required":
+			out.Values[i] = ec._ContributionStanding_required(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "met":
+			out.Values[i] = ec._ContributionStanding_met(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -65077,6 +65753,13 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "userAcceptContentTerms":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_userAcceptContentTerms(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "voteElo":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_voteElo(ctx, field)
@@ -69020,6 +69703,28 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 					}
 				}()
 				res = ec._Query_countIncompleteEntities(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "contentAccessSetup":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_contentAccessSetup(ctx, field)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -75323,6 +76028,54 @@ func (ec *executionContext) _TagImplication(ctx context.Context, sel ast.Selecti
 	return out
 }
 
+var tierStandingImplementors = []string{"TierStanding"}
+
+func (ec *executionContext) _TierStanding(ctx context.Context, sel ast.SelectionSet, obj *TierStanding) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, tierStandingImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("TierStanding")
+		case "tier":
+			out.Values[i] = ec._TierStanding_tier(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "optedIn":
+			out.Values[i] = ec._TierStanding_optedIn(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "availableAt":
+			out.Values[i] = ec._TierStanding_availableAt(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
 var uRLImplementors = []string{"URL"}
 
 func (ec *executionContext) _URL(ctx context.Context, sel ast.SelectionSet, obj *URL) graphql.Marshaler {
@@ -77106,6 +77859,16 @@ func (ec *executionContext) marshalNCollageFrame2ᚕgithubᚗcomᚋstashappᚋst
 	return ret
 }
 
+func (ec *executionContext) marshalNContentAccessSetup2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentAccessSetup(ctx context.Context, sel ast.SelectionSet, v *ContentAccessSetup) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._ContentAccessSetup(ctx, sel, v)
+}
+
 func (ec *executionContext) marshalNContentItem2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentItem(ctx context.Context, sel ast.SelectionSet, v ContentItem) graphql.Marshaler {
 	return ec._ContentItem(ctx, sel, &v)
 }
@@ -77229,6 +77992,16 @@ func (ec *executionContext) marshalNContentWarning2ᚕgithubᚗcomᚋstashappᚋ
 	}
 
 	return ret
+}
+
+func (ec *executionContext) marshalNContributionStanding2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContributionStanding(ctx context.Context, sel ast.SelectionSet, v *ContributionStanding) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._ContributionStanding(ctx, sel, v)
 }
 
 func (ec *executionContext) unmarshalNCriterionModifier2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐCriterionModifier(ctx context.Context, v any) (CriterionModifier, error) {
@@ -80039,6 +80812,26 @@ func (ec *executionContext) unmarshalNTargetTypeEnum2githubᚗcomᚋstashappᚋs
 
 func (ec *executionContext) marshalNTargetTypeEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTargetTypeEnum(ctx context.Context, sel ast.SelectionSet, v TargetTypeEnum) graphql.Marshaler {
 	return v
+}
+
+func (ec *executionContext) marshalNTierStanding2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTierStanding(ctx context.Context, sel ast.SelectionSet, v TierStanding) graphql.Marshaler {
+	return ec._TierStanding(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNTierStanding2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTierStandingᚄ(ctx context.Context, sel ast.SelectionSet, v []TierStanding) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNTierStanding2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTierStanding(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
 }
 
 func (ec *executionContext) unmarshalNTime2timeᚐTime(ctx context.Context, v any) (time.Time, error) {

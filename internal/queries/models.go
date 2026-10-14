@@ -160,12 +160,14 @@ type ContentDenylistPerformer struct {
 	PerformerID uuid.UUID          `db:"performer_id" json:"performer_id"`
 	Reason      *string            `db:"reason" json:"reason"`
 	CreatedAt   pgtype.Timestamptz `db:"created_at" json:"created_at"`
+	Mode        string             `db:"mode" json:"mode"`
 }
 
 type ContentDenylistStudio struct {
 	StudioID  uuid.UUID          `db:"studio_id" json:"studio_id"`
 	Reason    *string            `db:"reason" json:"reason"`
 	CreatedAt pgtype.Timestamptz `db:"created_at" json:"created_at"`
+	Mode      string             `db:"mode" json:"mode"`
 }
 
 // Entities whose content access is denied by this instance. Can only remove access, never grant it.
@@ -174,6 +176,8 @@ type ContentDenylistTag struct {
 	// Why this entity is denied. Nullable: an operator may deny without stating why.
 	Reason    *string            `db:"reason" json:"reason"`
 	CreatedAt pgtype.Timestamptz `db:"created_at" json:"created_at"`
+	// gate: the entity is not served. warn: the entity is served and the reason is reported to the reader. Warnings never change visibility.
+	Mode string `db:"mode" json:"mode"`
 }
 
 type ContentItem struct {
@@ -1013,6 +1017,10 @@ type UserTrust struct {
 	IsVanguard bool `db:"is_vanguard" json:"is_vanguard"`
 	// Tiers the user has explicitly opted into. The gate uses MAX(visible_tiers) as a ceiling; the array itself is the record of consent.
 	VisibleTiers []int16 `db:"visible_tiers" json:"visible_tiers"`
+	// When the member's consent first included tier 3, or NULL if it never has. The gate uses a ceiling of 2 until T3CoolingHours have passed; NULL means no cooling (a consent that predates this column cannot be aged, and is not aged).
+	T3ConsentedAt pgtype.Timestamptz `db:"t3_consented_at" json:"t3_consented_at"`
+	// When the member first accepted the content-viewing terms (gate condition 5). NULL = never accepted. Kept on first acceptance.
+	ContentTermsAcceptedAt pgtype.Timestamptz `db:"content_terms_accepted_at" json:"content_terms_accepted_at"`
 }
 
 type WebhookDelivery struct {
