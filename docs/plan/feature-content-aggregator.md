@@ -288,6 +288,87 @@ MIGRATION itself (the harness re-runs migrations, so a schema mutation is genuin
 applied on the next run).
 
 
+### Slice 3d — chapters and media — DONE (`63a9f1de`)
+
+`ContentItem.chapters` and `.media`, with `ContentItemChapter`, `ContentItemMedia` and a
+`ContentItemMediaKind` enum. Media is ordered by **what the URL is**, not alphabetically:
+`original` is the item itself and a client renders it as the item, while alphabetical order
+puts `archive` first. Ties break on the url so the order is total — an order that depends on
+the plan is an order that reorders itself between requests.
+
+Both fields are declared external in `gqlgen.yml`, and the wire test creates a chapter and a
+media row **for the item it queries**, so the `[]` that a dead resolver produces cannot pass.
+That is slice 3c's trap, applied deliberately.
+
+### Slice 3e — the polymorphic surfaces accept the kind — DONE (`63a9f1de`)
+
+Phase 3's acceptance criterion — *a text item takes tags, a review, an elo matchup and a list
+entry with no new plumbing* — is now a test rather than an assumption.
+
+- `CONTENT_ITEM` in `review`'s validator and its GraphQL enum; `CONTENT_ITEM` in `list`'s
+  `validEntityType` and its enum; `content_item` in `elo`'s `EntityType`/`AllEntityTypes` and
+  its enum. Tags needed **nothing**: migration 117's link table and statements already existed.
+- reviews and list_items store UPPERCASE `entity_type` while elo_ratings stores lowercase, so
+  a content item has **two** stored spellings depending on which surface wrote it. That is
+  pre-existing for every other kind; unifying it is a data migration across four tables and
+  their indexes, which is not this slice. The constants are asserted, so a third spelling
+  cannot be introduced quietly.
+
+**The plan predicted the compiler would catch a missed switch. It does not.** Go has no
+exhaustiveness, and these three vocabularies refuse an unknown type at *runtime* — so a missed
+case reads as "the caller did something wrong" rather than as a broken build. The acceptance
+test therefore asserts each claim as a **pair**: a bogus type produces the vocabulary's refusal
+(proving the refusal exists and that the test would see it) and the content-item type does not.
+An assertion that only checked "no error" would pass against a vocabulary that refused nothing.
+
+**Known limitation, recorded rather than left to be discovered:** elo's matchup *pool*
+(`QueryMatchupCandidates`) is hard-coded to `FROM performers` **for every entity type**, not
+just this one, so `eloMatchup(entityType: content_item)` has no candidates to offer. The
+vocabulary accepts the type and ratings for it can be recorded and read; sourcing a matchup
+pool for non-performers is its own slice.
+
+### Slice 3f — the write path's data layer — DONE (`9169b625`)
+
+Migration 118 (`content_item_edits`, the edit → item join, mirroring `tag_edits`), the
+`CONTENT_ITEM` arm of `GetEditTargetID`, `CreateContentItemEdit`,
+`FindContentItemEditsForItem` (newest first, scoped to its item) and `UpdateContentItem`.
+
+**`edits.target_type` was varchar(10)** — enough for SCENE, STUDIO, PERFORMER and TAG, not for
+CONTENT_ITEM (12). Migration 05 chose the width for the four types it knew about, and this is
+the first type to exceed it. **Found by writing the row**: every vocabulary test passed,
+because a closed vocabulary in Go and a varchar width in Postgres are different things. Every
+other `entity_type` column is wide enough (reviews TEXT, list_items 50, elo_ratings 32,
+expected_totals 20, content_sources 20), which is why the narrow one looked like all the
+others. Widening is non-destructive: every existing value is 9 characters or fewer.
+
+**The acceptance test now writes.** Slice 3e's version stopped at "the vocabulary did not refuse
+the type" and used an author id that could not exist, so it could not see a column refuse the
+row. It now submits a real review and a real list entry and reads both back through the
+statements.
+
+**A suite interaction, found by the full run and not by the isolated test:** a PENDING edit of a
+type whose processor does not exist yet is a row the vote sweeps try to apply, and they fail in
+packages unrelated to content items. The fixture edit is created CLOSED, with the reason in the
+test. The rule generalises: **a slice that lands an edit type's data layer before its processor
+must not leave an applyable row behind.**
+
+#### What the edit TYPE itself still needs — 7 sites, measured
+
+1. `graphql/schema/types/content_item.graphql` — `ContentItemEditDetailsInput`,
+   `ContentItemEditInput`, `type ContentItemEdit`.
+2. `graphql/schema/types/edit.graphql` — the `EditDetails` union member, `TargetTypeEnum`
+   `CONTENT_ITEM`, the `EditTarget` union member.
+3. `graphql/schema/schema.graphql` — `contentItemEdit` and `contentItemEditUpdate` mutations.
+4. `internal/models/extension_edit_details.go` — `ContentItemEdit`/`ContentItemEditData`,
+   `FromDiff`/`FromCreate` (+ Checked), `CopyFromContentItemEdit`, and `GetContentItemData` in
+   `model_edit.go`.
+5. `internal/service/edit/contentitem.go` — the processor (create/modify/destroy; MERGE has no
+   meaning for these kinds and must be refused by name).
+6. `internal/service/edit/service.go` — `CreateContentItemEdit`/`UpdateContentItemEdit`, the two
+   dispatch blocks, and the apply dispatch case.
+7. `internal/api` — the two mutation resolvers and `editResolver.ToContentItemEdit`.
+
+
 ### Slice 3c — the read surface and the enum member — DONE (`529b81da`)
 
 `contentItem(id:)` and `queryContentItems(kind:, limit:)`, the `ContentItem` type with
