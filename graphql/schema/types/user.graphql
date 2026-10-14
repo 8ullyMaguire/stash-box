@@ -58,6 +58,27 @@ type User {
   primitive -- it records what the user has done, not what they may do.
   """
   trust: UserTrust @isUserOwner
+
+  """
+  This user's trust LEVEL, and nothing else (SPEC §5.2, plan phase 6).
+
+  THE DECISION THIS FIELD IS: level public, counters private.
+
+  The draft made the whole sub-score set public; `trust` above says a user's
+  standing is not other users' business. Both are right about different things.
+  A level is what a member's peers already see in what they contribute, and what
+  a client needs to render a badge or decide whether to show a quest's worth --
+  while approved and rejected edits together are an ERROR RATE, which is a
+  performance review rather than a badge. The curve's weights are private too:
+  publishing the thresholds turns "earn trust" into "clear a bar", and the bar is
+  the one thing an operator must be able to move without a negotiation.
+
+  Deliberately NOT the owner-gated `trust` object with its directive removed:
+  that object carries the counters, so publishing it to ask "is the level
+  visible?" would publish the rejection count with it. A separate field is the
+  only shape in which this rule can hold.
+  """
+  trust_level: Int!
 }
 
 """

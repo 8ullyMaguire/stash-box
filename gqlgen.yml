@@ -14,6 +14,14 @@ autobind:
   - "github.com/stashapp/stash-box/internal/models"
 
 models:
+  User:
+    fields:
+      # `models.User` is hand-written (this repo's User is a database row, not a generated
+      # type), so a schema field with no counterpart in the struct has to be resolved
+      # externally. Left bound, gqlgen fails to bind it -- and the failure mode worth avoiding
+      # is the other one: a field that binds to something plausible and answers with it.
+      trust_level:
+        resolver: true
   ContentItem:
     fields:
       # `chapters` and `media` are per-item lists read on demand, and this type is

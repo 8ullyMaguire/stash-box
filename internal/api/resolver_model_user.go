@@ -94,6 +94,28 @@ func (r *userResolver) NotificationSubscriptions(ctx context.Context, user *mode
 	return r.services.User().GetNotificationSubscriptions(ctx, user.ID)
 }
 
+// TrustLevel returns a user's trust LEVEL, and nothing else (SPEC §5.2, plan phase 6).
+//
+// THE DECISION THIS IMPLEMENTS: level public, counters private. The draft made every sub-score
+// public; the owner-gated `trust` object below says a member's standing is their own business. Both
+// are right about different things -- a level is what their peers already see in what they
+// contribute, while approved and rejected edits together are an ERROR RATE.
+//
+// It is a SEPARATE field rather than `trust` with its directive removed, because that object carries
+// the counters: publishing it to make the level visible would publish the rejection count with it.
+// There is no shape in which one field holds both answers.
+//
+// No visibility check here, unlike the gated fields: this is the field that is SUPPOSED to be
+// readable by anybody who can see the user at all, and a second check would be a rule to keep in
+// sync for no reader's benefit.
+func (r *userResolver) TrustLevel(ctx context.Context, obj *models.User) (int, error) {
+	level, err := r.services.Trust().Level(ctx, obj.ID)
+	if err != nil {
+		return 0, err
+	}
+	return int(level), nil
+}
+
 // Trust returns a user's trust standing (SPEC section 6).
 //
 // The field is @isUserOwner in the schema, so the directive has already

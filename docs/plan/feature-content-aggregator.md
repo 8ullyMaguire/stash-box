@@ -1095,6 +1095,65 @@ opt-out, seasonal events.
 regains it in 14 days; a fourth vouch is refused; a member who opts out of
 leaderboards keeps every capability.
 
+**Slicing.** Phase 6 is six behaviours and one decision, and the decision is first
+because five of the six have to read it: 6a the visibility rule, 6b decay with
+grace and recovery, 6c streak freeze, 6d vouching, 6e the contribution heatmap,
+6f leaderboards with filters and opt-out, 6g seasonal events. Each is its own
+commit with its own verification, as phase 9 was.
+
+### Slice 6a — the public level, and what stays private (BUILT)
+
+**The decision, made and implemented in the place a reader is standing when it
+matters.** The draft publishes every sub-score (§5.2, §20.2); `user.graphql` says
+a user's standing is not other users' business. Both are right about different
+things, so the resolution is not a compromise between them but a distinction:
+
+- **The LEVEL is public.** It is what a member's peers already see in what they
+  contribute, and what a client needs to render a badge.
+- **The COUNTERS are private.** `approved_edits` and `rejected_edits` together
+  are an error RATE -- a performance review, not a badge. `identification_solves`
+  and `quests_completed` sit on the same side for a duller reason: they are only
+  meaningful next to the whole set, and a client that wants to show one of them
+  wants the set.
+- **The CURVE'S WEIGHTS are private too**, and this is the part that is a
+  decision rather than a copy of one. Publishing the thresholds turns "earn
+  trust" into "clear a bar", and the bar is the one thing an operator must be
+  able to move without renegotiating a public promise.
+
+**The shape is a separate field, `User.trust_level: Int!`** -- deliberately NOT
+the owner-gated `trust` object with its directive removed. That object carries
+the counters, so publishing it in order to make the level visible would publish
+the rejection count with it; there is no shape in which one field holds both
+answers. The rule is stated in the schema comment, where a reader is standing
+when it matters, following `list.graphql`.
+
+`models.User` is hand-written, so `gqlgen.yml` declares the field resolved
+externally. Left bound, gqlgen fails to bind it; the failure worth avoiding is
+the other one, where a field binds to something plausible and answers with it.
+
+**Verification (DONE).** A stranger reads the subject's level -- the number the
+service computes, not the viewer's and not a constant -- while a query for the
+counters FAILS with the directive's refusal by name, and the subject reads their
+own standing with its counters intact. Three users at three different levels, each
+fixture created for this test and each asserted to be DIFFERENT from the others,
+because a hard-coded answer and "the viewer's own level" are otherwise
+indistinguishable from a correct one; and the counters are compared to a named
+constant so the fixture's count and the assertion cannot drift.
+
+Two traps the test itself paid for, both already documented by the test above it:
+`findUser` is `@hasRole(role: READ)`, so a reader with no roles is refused BEFORE
+any visibility rule is reached -- an absence assertion built on that passes for
+the wrong reason, which is a broken test asserting a working rule; and
+`@isUserOwner` REJECTS with a GraphQL error rather than nulling the field, so
+"the counters are hidden" is a FAILED QUERY, and asking for both fields in one
+query proves nothing about the level.
+
+Four probes, all killed: the level of the requester instead of the subject, a
+constant level, a level read for nobody (a nil id answering 0 for everyone, which
+reads as a working public field), and the public field accidentally gated by
+`@isUserOwner` -- that last one run through `gqlgen generate`, because a directive
+lives in the generated code and the harness alone would leave it inert.
+
 ## Phase 7 — discovery
 
 **Goal:** NexusXXX §8. **Spec:** `docs/spec/feature-discovery.md` (the eight modes, the language

@@ -1425,6 +1425,7 @@ type ComplexityRoot struct {
 		NotificationSubscriptions func(childComplexity int) int
 		Roles                     func(childComplexity int) int
 		Trust                     func(childComplexity int) int
+		TrustLevel                func(childComplexity int) int
 		VoteCount                 func(childComplexity int) int
 	}
 
@@ -1997,6 +1998,7 @@ type UserResolver interface {
 	ActiveInviteCodes(ctx context.Context, obj *User) ([]string, error)
 	InviteCodes(ctx context.Context, obj *User) ([]InviteKey, error)
 	Trust(ctx context.Context, obj *User) (*UserTrust, error)
+	TrustLevel(ctx context.Context, obj *User) (int, error)
 }
 
 // endregion ************************** generated!.gotpl **************************
@@ -8693,6 +8695,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.User.Trust(childComplexity), true
+	case "User.trust_level":
+		if e.ComplexityRoot.User.TrustLevel == nil {
+			break
+		}
+
+		return e.ComplexityRoot.User.TrustLevel(childComplexity), true
 	case "User.vote_count":
 		if e.ComplexityRoot.User.VoteCount == nil {
 			break
@@ -14237,6 +14245,27 @@ type User {
   primitive -- it records what the user has done, not what they may do.
   """
   trust: UserTrust @isUserOwner
+
+  """
+  This user's trust LEVEL, and nothing else (SPEC §5.2, plan phase 6).
+
+  THE DECISION THIS FIELD IS: level public, counters private.
+
+  The draft made the whole sub-score set public; ` + "`" + `trust` + "`" + ` above says a user's
+  standing is not other users' business. Both are right about different things.
+  A level is what a member's peers already see in what they contribute, and what
+  a client needs to render a badge or decide whether to show a quest's worth --
+  while approved and rejected edits together are an ERROR RATE, which is a
+  performance review rather than a badge. The curve's weights are private too:
+  publishing the thresholds turns "earn trust" into "clear a bar", and the bar is
+  the one thing an operator must be able to move without a negotiation.
+
+  Deliberately NOT the owner-gated ` + "`" + `trust` + "`" + ` object with its directive removed:
+  that object carries the counters, so publishing it to ask "is the level
+  visible?" would publish the rejection count with it. A separate field is the
+  only shape in which this rule can hold.
+  """
+  trust_level: Int!
 }
 
 """
@@ -16718,6 +16747,8 @@ func (ec *executionContext) childFields_User(ctx context.Context, field graphql.
 		return ec.fieldContext_User_invite_codes(ctx, field)
 	case "trust":
 		return ec.fieldContext_User_trust(ctx, field)
+	case "trust_level":
+		return ec.fieldContext_User_trust_level(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type User", field.Name)
 }
@@ -51119,6 +51150,29 @@ func (ec *executionContext) fieldContext_User_trust(_ context.Context, field gra
 	return fc, nil
 }
 
+func (ec *executionContext) _User_trust_level(ctx context.Context, field graphql.CollectedField, obj *User) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_User_trust_level(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.User().TrustLevel(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_User_trust_level(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("User", field, true, true, errors.New("field of type Int does not have child fields"))
+}
+
 func (ec *executionContext) _UserEditCount_accepted(ctx context.Context, field graphql.CollectedField, obj *UserEditCount) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -77931,6 +77985,44 @@ func (ec *executionContext) _User(ctx context.Context, sel ast.SelectionSet, obj
 				}()
 				res = ec._User_trust(ctx, field, obj)
 				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "trust_level":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._User_trust_level(ctx, field, obj)
+				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
 				return res
