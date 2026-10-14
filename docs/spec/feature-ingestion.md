@@ -14,20 +14,21 @@ One URL in, one of four outcomes out. The stages are ordered because each one ca
 the process early, and doing the cheap ones last is how a queue spends its budget on
 duplicates:
 
-1. **Normalise.** Strip tracking parameters, lowercase the host, drop the fragment,
-   resolve a shortened URL's final destination. Two URLs that differ only by a
-   tracking parameter are the same URL, and if normalisation misses one, dedup misses
-   it too — so this is a pure function with a table-driven test, not a step inside a
-   network call where it cannot be tested.
+1. **Normalise.** Strip tracking parameters, lowercase the host, drop the fragment, sort
+   the query and remove the default port. Pure and total: no I/O, so its rules are a
+   table in a test rather than a comment in a fetch path. `internal/service/ingest/
+   normalize.go`.
 2. **Reject.** Refuse early and loudly: a scheme that is not http(s), a host on the
    denylist, a URL already recorded as `dmca`. This is the cheapest possible check and
    the only one whose refusal a submitter must be told about.
 3. **Dedup on the URL.** If any entity already claims this URL, attach nothing and
    return the existing entity. Outcome `attached`.
-4. **Extract.** Ask the extractor interface for metadata. **This is the only stage
-   that touches the network**, and it is behind an interface with a fake
-   implementation used by every test, because a pipeline whose tests need a live tube
-   site is a pipeline that is tested only when someone remembers to.
+4. **Extract.** Ask the extractor interface for metadata. **This is the only stage that
+   touches the network**, and it is behind an interface with a fake implementation used
+   by every test, because a pipeline whose tests need a live tube site is a pipeline that
+   is tested only when someone remembers to. It is also the stage that learns a shortened
+   URL's final destination — resolving a redirect is an act of asking, so it belongs here
+   and not in stage 1, whose whole value is being testable without a network.
 5. **Dedup on the fingerprint.** If the extracted duration/size/oshash matches an
    existing scene's, the content is the same content at a second source: attach a
    source to the existing scene rather than creating a second one. Outcome `merged`.
@@ -116,8 +117,13 @@ fact.
 ## 6. Verification
 
 - **Pure functions, table-driven**: normalisation (trailing slash, case, tracking
-  params, fragment, port, shortener), and the dedup decision (attach / merge / create
-  / reject, as a function of what is already known).
+  params, fragment, port, default-port removal, the http/https non-fold) and the dedup
+  decision (attach / merge / create / reject, as a function of what is already known),
+  plus the backoff's clamp. Each rule is a named subtest, so a failure names the rule.
+  `internal/service/ingest/{normalize,dedup}_test.go`; five mutations run against them
+  (attach/merge precedence swapped, denial precedence removed, query sorting dropped,
+  trailing-slash trim dropped, backoff clamp removed), each reddening only its own
+  assertions.
 - **Migration 109's constraints and the claim query** at the SQL level, in
   `scripts/verify-109.sh` — the same harness shape as verify-108, including: a second
   claim returns no row while the first is running; a `done` URL cannot be re-queued; a

@@ -85,6 +85,7 @@ type Querier interface {
 	// claimed by the SAME curator returns the row, so claiming twice is idempotent --
 	// a retried request must not tell a curator they lost a race they won.
 	ClaimAuthoredQuestItem(ctx context.Context, arg ClaimAuthoredQuestItemParams) (AuthoredQuestItem, error)
+	ClaimIngestJob(ctx context.Context) (IngestQueue, error)
 	// Demote without promoting a replacement: the case where the canonical source is
 	// known to be dead and no other source has been chosen yet. An entity with no
 	// canonical source is a legitimate state and must be reachable, or the only way to
@@ -600,6 +601,25 @@ type Querier interface {
 	DeleteWebhookEndpoint(ctx context.Context, arg DeleteWebhookEndpointParams) (WebhookEndpoint, error)
 	DestroyExpiredInvites(ctx context.Context) error
 	DestroyExpiredNotifications(ctx context.Context) error
+	// The ingest queue's statements (migration 109, spec §3).
+	//
+	// WHY THE CLAIM IS ONE STATEMENT. `SELECT ... FOR UPDATE SKIP LOCKED` followed by an
+	// `UPDATE` is the shape that has two workers claim one row: the lock is released at the
+	// end of the statement, so the window between the read and the write is exactly where the
+	// second worker looks. The CTE below holds the lock INTO the update, so the race does not
+	// exist rather than being made unlikely. scripts/verify-109.sh extracts this statement by
+	// name and asserts the two-claim behaviour against the real database, so the text here is
+	// not a claim about what some other copy does.
+	// The predicate is REQUIRED and it is the index's own: for a partial unique index,
+	// `ON CONFLICT (url_normalized)` alone does not match any index and Postgres reports
+	// "there is no unique or exclusion constraint matching the ON CONFLICT specification" --
+	// an error that names the conflict clause rather than the predicate it is missing.
+	//
+	// DO NOTHING plus RETURNING reports the conflict as NO ROWS RETURNED, not as an error, so
+	// the caller distinguishes "queued" (a row) from "already queued" (pgx.ErrNoRows) by
+	// absence. That is deliberate: a duplicate submission is not a failure and must not be
+	// reported as one (spec §5), so this is the one place where ErrNoRows is a success.
+	EnqueueIngest(ctx context.Context, arg EnqueueIngestParams) (IngestQueue, error)
 	// The pg-spgist_hamming custom-scan hook turns this UNNEST + <@ into a single
 	// batch BK-tree traversal when ≤64 hashes are supplied; caller must chunk.
 	// The scene_id join is intentionally NOT here: the planner overestimates the
@@ -612,6 +632,18 @@ type Querier interface {
 	// Scoped by AGE as well as by the cutoff so it cannot strand a recent claim
 	// because the batch ran slowly.
 	ExpireStaleQuestClaims(ctx context.Context, dollar_1 interface{}) ([]AuthoredQuestItem, error)
+	// A failure, transient or permanent, and the column that says which.
+	//
+	// A TRANSIENT failure returns the row to 'pending' with a future next_attempt_at instead
+	// of burning it: a host that timed out is not a host that refused, and marking it failed
+	// permanently is how a queue accumulates rows nobody will retry. The attempt count is the
+	// guard against retrying forever; deciding that count's ceiling is phase 9's sweep, and
+	// this statement only records the fact.
+	//
+	// The cast on @permanent is not decoration: Postgres cannot infer a type for a parameter
+	// used only as a CASE condition, and answers "could not determine data type of parameter"
+	// rather than guessing boolean.
+	FailIngestJob(ctx context.Context, arg FailIngestJobParams) (IngestQueue, error)
 	// The quest board. Active quests only, because an expired quest is not a quest
 	// anybody acts on, and the count of expired ones grows forever.
 	//
@@ -920,6 +952,10 @@ type Querier interface {
 	// is a way to read another user's webhook configuration -- including the target
 	// URL, which is often an internal address.
 	FindWebhookEndpointByUser(ctx context.Context, arg FindWebhookEndpointByUserParams) (WebhookEndpoint, error)
+	// The terminal success. `last_error` is cleared rather than left behind: a row that
+	// succeeded after two failures must not carry the text of a failure it recovered from,
+	// because every reader of last_error is asking "what is wrong with this row NOW".
+	FinishIngestJob(ctx context.Context, arg FinishIngestJobParams) (IngestQueue, error)
 	// Get all fingerprints for multiple scenes with aggregated vote data
 	// When onlySubmitted is true, pass the actual user ID, when false pass NULL
 	GetAllFingerprints(ctx context.Context, arg GetAllFingerprintsParams) ([]GetAllFingerprintsRow, error)

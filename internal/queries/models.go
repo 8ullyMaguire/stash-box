@@ -406,6 +406,26 @@ type ImageTypeGroup struct {
 	Enabled     bool    `db:"enabled" json:"enabled"`
 }
 
+// Aggregation intake queue: one row per submitted URL, claimed with FOR UPDATE SKIP LOCKED. See docs/spec/feature-ingestion.md.
+type IngestQueue struct {
+	ID            uuid.UUID          `db:"id" json:"id"`
+	Url           string             `db:"url" json:"url"`
+	UrlNormalized string             `db:"url_normalized" json:"url_normalized"`
+	Status        string             `db:"status" json:"status"`
+	Outcome       *string            `db:"outcome" json:"outcome"`
+	Attempts      int                `db:"attempts" json:"attempts"`
+	Confidence    pgtype.Float4      `db:"confidence" json:"confidence"`
+	ResultSceneID uuid.NullUUID      `db:"result_scene_id" json:"result_scene_id"`
+	SubmittedBy   uuid.NullUUID      `db:"submitted_by" json:"submitted_by"`
+	Reason        *string            `db:"reason" json:"reason"`
+	LastError     *string            `db:"last_error" json:"last_error"`
+	NextAttemptAt pgtype.Timestamptz `db:"next_attempt_at" json:"next_attempt_at"`
+	ClaimedAt     pgtype.Timestamptz `db:"claimed_at" json:"claimed_at"`
+	StartedAt     pgtype.Timestamptz `db:"started_at" json:"started_at"`
+	FinishedAt    pgtype.Timestamptz `db:"finished_at" json:"finished_at"`
+	CreatedAt     pgtype.Timestamptz `db:"created_at" json:"created_at"`
+}
+
 type InviteKey struct {
 	ID          uuid.UUID  `db:"id" json:"id"`
 	GeneratedBy uuid.UUID  `db:"generated_by" json:"generated_by"`
@@ -584,6 +604,7 @@ type Scene struct {
 	Code           *string       `db:"code" json:"code"`
 	Date           *string       `db:"date" json:"date"`
 	ProductionDate *string       `db:"production_date" json:"production_date"`
+	Origin         string        `db:"origin" json:"origin"`
 }
 
 type SceneEdit struct {
