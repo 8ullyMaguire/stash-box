@@ -264,12 +264,15 @@ completion, elo, lists, expected_totals, denylist) works unchanged.
 release_date, created_at, updated_at)` plus `content_item_chapters` for text/comic
 progress and `content_item_media` for variant URLs (Phase 10 fills it).
 
-**Verified:** adding an `EntityType` member touches `graphql/schema/types/
-completion.graphql:57`, `internal/models`, and any `switch` over the enum — `rg
-'EntityType' internal/` before writing, and every switch must gain an explicit case
-or the compiler says so (Go exhaustiveness is manual; the plan requires a test that
-enumerates the type list and asserts each has a completion mapping, which is how
-`internal/api/completion_weight_parity_test.go:143` already guards weights).
+**Verified, and corrected after doing it:** adding an `EntityType` member touches the
+completion vocabulary (four places, three of them SQL), the read surface, and every
+CLOSED VOCABULARY in Go — `rg 'EntityType' internal/` before writing. The prediction
+that "the compiler says so" was wrong: Go has no exhaustiveness, and the vocabularies
+that matter (`review.validate`, `list.validEntityType`, `elo.AllEntityTypes`) refuse an
+unknown type at RUNTIME, so a missed case is silent. What replaces the compiler is a
+test that enumerates the type list and asserts each member has a mapping
+(`completion_weight_parity_test.go:143` guards the weights), plus slice 3e's pair
+assertions at each vocabulary's boundary.
 
 **Verification:** integration test that a text item takes tags, a review, an elo
 matchup and a list entry with no new plumbing.
