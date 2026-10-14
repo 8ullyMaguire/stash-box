@@ -298,6 +298,15 @@ type Mutation {
   """Propose a new tag or modification to a tag"""
   tagEdit(input: TagEditInput!): Edit! @hasRole(role: EDIT)
 
+  """
+  Propose a new content item (aggregator phase 3).
+
+  The item is written when the edit APPLIES, not when it is proposed, so a rejected
+  proposal leaves no row behind. Tags, chapters and media are link operations and belong to
+  their own surfaces, not to this input.
+  """
+  contentItemEdit(input: ContentItemEditInput!): Edit! @hasRole(role: EDIT)
+
   """Update a pending scene edit"""
   sceneEditUpdate(id: ID!, input: SceneEditInput!): Edit! @hasRole(role: EDIT)
   """Update a pending performer edit"""
@@ -306,6 +315,7 @@ type Mutation {
   studioEditUpdate(id: ID!, input: StudioEditInput!): Edit! @hasRole(role: EDIT)
   """Update a pending tag edit"""
   tagEditUpdate(id: ID!, input: TagEditInput!): Edit! @hasRole(role: EDIT)
+  contentItemEditUpdate(id: ID!, input: ContentItemEditInput!): Edit! @hasRole(role: EDIT)
 
   """Vote to accept/reject an edit"""
   editVote(input: EditVoteInput!): Edit! @hasRole(role: VOTE)

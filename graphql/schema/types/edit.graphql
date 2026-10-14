@@ -43,16 +43,18 @@ type EditComment {
     edit: Edit!
 }
 
-union EditDetails = PerformerEdit | SceneEdit | StudioEdit | TagEdit
+union EditDetails = PerformerEdit | SceneEdit | StudioEdit | TagEdit | ContentItemEdit
 
 enum TargetTypeEnum {
     SCENE
     STUDIO
     PERFORMER
     TAG
+    "The five non-video content kinds (aggregator phase 3). One member, not six."
+    CONTENT_ITEM
 }
 
-union EditTarget = Performer | Scene | Studio | Tag
+union EditTarget = Performer | Scene | Studio | Tag | ContentItem
 
 type Edit {
     id: ID!

@@ -23,6 +23,7 @@ func (q *Queries) CancelUserEdits(ctx context.Context, userID uuid.NullUUID) err
 
 const createContentItemEdit = `-- name: CreateContentItemEdit :exec
 INSERT INTO content_item_edits (edit_id, content_item_id) VALUES ($1, $2)
+ON CONFLICT DO NOTHING
 `
 
 type CreateContentItemEditParams struct {
@@ -30,6 +31,9 @@ type CreateContentItemEditParams struct {
 	ContentItemID uuid.UUID `db:"content_item_id" json:"content_item_id"`
 }
 
+// ON CONFLICT: linking is idempotent. A modify calls CreateJoin and the create path's apply
+// writes its own row, so the same pair can legitimately arrive twice; without this the second
+// arrival is a unique-violation error rather than a no-op.
 func (q *Queries) CreateContentItemEdit(ctx context.Context, arg CreateContentItemEditParams) error {
 	_, err := q.db.Exec(ctx, createContentItemEdit, arg.EditID, arg.ContentItemID)
 	return err

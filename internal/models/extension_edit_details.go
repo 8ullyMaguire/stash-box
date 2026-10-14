@@ -1,6 +1,10 @@
 package models
 
 import (
+	"fmt"
+	"strings"
+	"time"
+
 	"github.com/gofrs/uuid"
 	"github.com/stashapp/stash-box/internal/models/validator"
 	"github.com/stashapp/stash-box/pkg/utils"
@@ -321,4 +325,110 @@ func (e SceneEditDetailsInput) SceneEditFromCreate(inputArgs utils.ArgumentsQuer
 	return &SceneEditData{
 		New: ret.New,
 	}, nil
+}
+
+// validateContentItemEdit checks the values at submit time rather than at apply time.
+//
+// The database refuses all four of these eventually (a blank title violates the CHECK, a bad
+// date violates the DATE column, an unknown kind violates the enum CHECK), but those arrive
+// from a background apply as `pq: ...`, hours later, far from the contributor who typed them
+// -- the same reason TagEditDetailsInput validates lengths.
+func (e ContentItemEditDetailsInput) validateContentItemEdit() error {
+	if e.Title != nil {
+		if err := validator.MaxLength("title", e.Title); err != nil {
+			return err
+		}
+		if strings.TrimSpace(*e.Title) == "" {
+			// Refused here and not only at the CHECK: NOT NULL does not stop a blank
+			// string, and a title of spaces renders as an untitled item.
+			return fmt.Errorf("title cannot be blank")
+		}
+	}
+	if e.Kind != nil {
+		if !e.Kind.IsValid() {
+			return fmt.Errorf("cannot create a content item of kind %q", string(*e.Kind))
+		}
+	}
+	if e.ReleaseDate != nil && *e.ReleaseDate != "" {
+		if _, err := time.Parse("2006-01-02", *e.ReleaseDate); err != nil {
+			return fmt.Errorf("release_date must be YYYY-MM-DD: %w", err)
+		}
+	}
+	return nil
+}
+
+// ContentItemEditFromDiffChecked is ContentItemEditFromDiff with submit-time validation.
+func (e ContentItemEditDetailsInput) ContentItemEditFromDiffChecked(orig ContentItem, inputArgs utils.ArgumentsQuery) (ContentItemEditData, error) {
+	if err := e.validateContentItemEdit(); err != nil {
+		return ContentItemEditData{}, err
+	}
+	return e.ContentItemEditFromDiff(orig, inputArgs), nil
+}
+
+func (e ContentItemEditDetailsInput) ContentItemEditFromDiff(orig ContentItem, inputArgs utils.ArgumentsQuery) ContentItemEditData {
+	newData := &ContentItemEdit{}
+	oldData := &ContentItemEdit{}
+	ed := editDiff{}
+
+	// The kind is an enum on both sides, so it is diffed directly rather than through
+	// editDiff.string: there is no "clear the kind" -- a content item always has one, and the
+	// column is NOT NULL.
+	if e.Kind != nil {
+		oldKind := orig.Kind
+		oldData.Kind, newData.Kind = &oldKind, e.Kind
+	}
+	if e.Title != nil || inputArgs.Field("title").IsNull() {
+		oldData.Title, newData.Title = ed.string(&orig.Title, e.Title)
+	}
+	if e.Details != nil || inputArgs.Field("details").IsNull() {
+		oldData.Details, newData.Details = ed.string(orig.Details, e.Details)
+	}
+	if e.ReleaseDate != nil || inputArgs.Field("release_date").IsNull() {
+		oldData.ReleaseDate, newData.ReleaseDate = ed.string(orig.ReleaseDate, e.ReleaseDate)
+	}
+
+	return ContentItemEditData{New: newData, Old: oldData}
+}
+
+// ContentItemEditFromCreateChecked is ContentItemEditFromCreate with submit-time validation.
+func (e ContentItemEditDetailsInput) ContentItemEditFromCreateChecked(inputArgs utils.ArgumentsQuery) (ContentItemEditData, error) {
+	if err := e.validateContentItemEdit(); err != nil {
+		return ContentItemEditData{}, err
+	}
+	return e.ContentItemEditFromCreate(inputArgs), nil
+}
+
+func (e ContentItemEditDetailsInput) ContentItemEditFromCreate(inputArgs utils.ArgumentsQuery) ContentItemEditData {
+	ret := e.ContentItemEditFromDiff(ContentItem{}, inputArgs)
+	return ContentItemEditData{New: ret.New}
+}
+
+// CopyFromContentItemEdit merges an edit's new values into the item, leaving the fields the
+// edit did not name as they are.
+//
+// A field present as the EMPTY STRING clears the column rather than writing an empty value:
+// that is how a client says "no release date", since null means "leave it alone" everywhere
+// in this edit system.
+func (c *ContentItem) CopyFromContentItemEdit(newData ContentItemEdit) error {
+	if newData.Kind != nil {
+		c.Kind = *newData.Kind
+	}
+	if newData.Title != nil {
+		c.Title = *newData.Title
+	}
+	if newData.Details != nil {
+		if *newData.Details == "" {
+			c.Details = nil
+		} else {
+			c.Details = newData.Details
+		}
+	}
+	if newData.ReleaseDate != nil {
+		if *newData.ReleaseDate == "" {
+			c.ReleaseDate = nil
+		} else {
+			c.ReleaseDate = newData.ReleaseDate
+		}
+	}
+	return nil
 }

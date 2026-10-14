@@ -130,3 +130,39 @@ extend type Query {
   queryContentItems(kind: ContentItemKind, limit: Int): [ContentItem!]!
     @hasRole(role: READ)
 }
+
+"""
+A proposed change to a content item.
+
+Field-level like every other edit type: a null field means "leave it alone". The service
+turns the pair (what the client sent, what the row holds) into an old/new diff before the
+edit is stored, so a client cannot express "clear this field" by sending null -- the same
+trade every other type here makes.
+"""
+input ContentItemEditDetailsInput {
+  "Which of the six kinds. Required for create."
+  kind: ContentItemKind
+
+  "What the item is called. Non-blank: the table's CHECK refuses a blank one."
+  title: String
+
+  details: String
+
+  "When it was released, as YYYY-MM-DD. Validated at submit, not left to the DATE column."
+  release_date: String
+}
+
+input ContentItemEditInput {
+  edit: EditInput!
+
+  "Not required for destroy type"
+  details: ContentItemEditDetailsInput
+}
+
+type ContentItemEdit {
+  edit_id: ID!
+  kind: ContentItemKind
+  title: String
+  details: String
+  release_date: String
+}

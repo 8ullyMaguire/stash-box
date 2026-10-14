@@ -501,7 +501,11 @@ UNION ALL
 SELECT id, 'TAG'::TEXT FROM tags WHERE id = ANY(sqlc.arg(ids)::UUID[]);
 
 -- name: CreateContentItemEdit :exec
-INSERT INTO content_item_edits (edit_id, content_item_id) VALUES ($1, $2);
+-- ON CONFLICT: linking is idempotent. A modify calls CreateJoin and the create path's apply
+-- writes its own row, so the same pair can legitimately arrive twice; without this the second
+-- arrival is a unique-violation error rather than a no-op.
+INSERT INTO content_item_edits (edit_id, content_item_id) VALUES ($1, $2)
+ON CONFLICT DO NOTHING;
 
 -- name: FindContentItemEditsForItem :many
 -- Every edit that touched this item, newest first. Ordered by creation and not by update:

@@ -538,6 +538,12 @@ func (s *Edit) GetEditTarget(ctx context.Context, id uuid.UUID) (models.EditTarg
 			return nil, err
 		}
 		return converter.TagToModelPtr(tag), nil
+	case models.TargetTypeEnumContentItem.String():
+		item, err := s.queries.GetContentItem(ctx, res.ID)
+		if err != nil {
+			return nil, err
+		}
+		return converter.ContentItemToModelPtr(item), nil
 	case models.TargetTypeEnumPerformer.String():
 		performer, err := s.queries.FindPerformer(ctx, res.ID)
 		if err != nil {
@@ -993,6 +999,84 @@ func (s *Edit) UpdateTagEdit(ctx context.Context, id uuid.UUID, input models.Tag
 	return edit, err
 }
 
+func (s *Edit) CreateContentItemEdit(ctx context.Context, input models.ContentItemEditInput) (*models.Edit, error) {
+	UUID, err := uuid.NewV7()
+	if err != nil {
+		return nil, err
+	}
+
+	currentUser := auth.GetCurrentUser(ctx)
+	if err := validateBotEdit(ctx, input.Edit); err != nil {
+		return nil, err
+	}
+
+	newEdit := models.NewEdit(UUID, currentUser.ID, models.TargetTypeEnumContentItem, input.Edit)
+
+	err = s.withTxn(func(tx *queries.Queries) error {
+		p := ContentItem(ctx, tx, newEdit)
+		inputArgs := utils.Arguments(ctx).Field("input")
+		if err := p.Edit(input, inputArgs); err != nil {
+			return err
+		}
+
+		newEdit, err = p.CreateEdit()
+		if err != nil {
+			return err
+		}
+
+		if err := p.CreateJoin(input); err != nil {
+			return err
+		}
+
+		return p.CreateComment(currentUser.ID, input.Edit.Comment)
+	})
+
+	return newEdit, err
+}
+
+func (s *Edit) UpdateContentItemEdit(ctx context.Context, id uuid.UUID, input models.ContentItemEditInput) (*models.Edit, error) {
+	currentUser := auth.GetCurrentUser(ctx)
+
+	var edit *models.Edit
+	err := s.withTxn(func(tx *queries.Queries) error {
+		dbEdit, err := tx.FindEdit(ctx, id)
+		if err != nil {
+			return err
+		}
+
+		edit = converter.EditToModelPtr(dbEdit)
+		if err = validateEditUpdate(ctx, s, *edit, currentUser.ID); err != nil {
+			return err
+		}
+		if err = validateEditTargetID(edit, input.Edit); err != nil {
+			return err
+		}
+
+		p := ContentItem(ctx, tx, edit)
+		inputArgs := utils.Arguments(ctx).Field("input")
+		if err := p.Edit(input, inputArgs); err != nil {
+			return err
+		}
+
+		edit, err = p.UpdateEdit()
+		if err != nil {
+			return err
+		}
+
+		// Re-linked here as well as at creation: an update may be the first time the edit
+		// names its target (a modify submitted without an id, then corrected), and the
+		// statement is idempotent, so the common case of an unchanged target is a no-op
+		// rather than a unique violation.
+		if err := p.CreateJoin(input); err != nil {
+			return err
+		}
+
+		return p.CreateComment(currentUser.ID, input.Edit.Comment)
+	})
+
+	return edit, err
+}
+
 func (s *Edit) CreatePerformerEdit(ctx context.Context, input models.PerformerEditInput) (*models.Edit, error) {
 	UUID, err := uuid.NewV7()
 	if err != nil {
@@ -1342,6 +1426,14 @@ func (s *Edit) ApplyEdit(ctx context.Context, editID uuid.UUID, immediate bool) 
 			applyer = Studio(ctx, tx, edit)
 		case models.TargetTypeEnumScene:
 			applyer = Scene(ctx, tx, edit)
+		case models.TargetTypeEnumContentItem:
+			applyer = ContentItem(ctx, tx, edit)
+		default:
+			// A target type with no applier used to fall through this switch and then be
+			// dereferenced, so an edit of an unimplemented type panicked the vote sweep --
+			// taking down whatever else that sweep was doing. Refused by name instead; a
+			// PENDING edit of a type this build cannot apply is a data problem, not a crash.
+			return fmt.Errorf("no applier for target type %q", edit.TargetType)
 		}
 
 		return applyer.apply()

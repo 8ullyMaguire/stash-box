@@ -473,6 +473,60 @@ must not leave an applyable row behind.**
 7. `internal/api` — the two mutation resolvers and `editResolver.ToContentItemEdit`.
 
 
+### Slice 3g — the edit type itself, which closes phase 3 — DONE
+
+The 7 sites the last slice measured are now implemented: the schema (the input pair and the
+edit type), the unions (`EditDetails`, `EditTarget`), `TargetTypeEnum.CONTENT_ITEM`, the two
+mutations, the models (hand-written like every edit type: `EditID` is not a schema field), the
+processor, the two service methods with their dispatch blocks, and the two mutation resolvers.
+
+**Content items are created by an edit.** That is the whole point of this phase's write path:
+this repository has exactly one route for shared metadata -- propose, vote, apply -- and before
+this slice the aggregator's only writer was ingestion, so a curator could not add an item at all.
+
+Two decisions worth the ink:
+
+- **MERGE is refused by name** (`content items cannot be merged: their kind is a media type, not
+  an identity`). A merge needs two rows that are the same thing, which is an identity question --
+  two performers with one name, two studios that turned out to be one. Two text items are two
+  text items however alike they look. Refusing generically would tell the moderator nothing.
+- **Details are required for create and modify and NOT for destroy.** A destroy names its target
+  and carries no fields. My first version checked `input.Details == nil` once at the top of
+  `Edit()` and the destroy test failed by name: *content item edits need details*.
+- **Clearing a date is spelled as the empty string**, because null means "leave it alone"
+  everywhere in this edit system; the test walks it (a modify that names only `release_date: ""`
+  clears the column and leaves the details alone).
+
+**`models.ContentItem.IsEditTarget` already existed** -- gqlgen generates the union marker for a
+schema type, so the hand-written one I added was a duplicate declaration rather than a missing
+method. Found by the generator, not by reading.
+
+**A nil applier used to panic the vote sweep.** The apply dispatch builds an `editApplyer` from
+the target type and dereferences it; an unimplemented type fell through the switch and panicked
+inside whatever else the sweep was doing. That is how the PENDING-fixture interaction in slice 3f
+presented itself from the other side. The switch now has a `default` that returns a named error.
+
+**The join gets a primary key (migration 119).** Migration 118 mirrored `tag_edits`, which has
+none, which leaves an item's edit history able to list the same edit twice -- and a duplicate in
+a history says an item was changed twice when it was changed once. `CreateContentItemEdit` is
+`ON CONFLICT DO NOTHING`, and the update path re-links through it, so re-proposing an edit is
+idempotent rather than a unique violation. The update path is what exercises it.
+
+#### Evidence
+
+Both tests are end-to-end through the resolvers: create (proposed, applied through the vote path,
+target resolved, item read back), modify (old and new diffs asserted, update-the-proposal
+included, unnamed fields asserted untouched, date cleared), destroy (gone from the read surface),
+and five refusals by name (merge, no kind, blank title, unparseable date, no changes).
+
+Three mutation probes, all killed: the union's `Details()` case removed, the apply switch's
+applier removed, and `CopyFromContentItemEdit` clobbering fields the edit did not name.
+
+**My probe harness had a bug that mattered:** its restore moved every file's backup after every
+probe, so the second restore crashed and left the third probe's mutation in the tree while the
+run reported on it. Caught it by checking whether the applier was still there. Restore ONE file
+per probe.
+
 ## Phase 4 — the tag ontology — **DONE**
 
 **Goal:** NexusXXX §4.1–§4.6. **Verified:** `tags` has `name, description, aliases,

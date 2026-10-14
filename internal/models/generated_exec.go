@@ -199,6 +199,14 @@ type ComplexityRoot struct {
 		Title           func(childComplexity int) int
 	}
 
+	ContentItemEdit struct {
+		Details     func(childComplexity int) int
+		EditID      func(childComplexity int) int
+		Kind        func(childComplexity int) int
+		ReleaseDate func(childComplexity int) int
+		Title       func(childComplexity int) int
+	}
+
 	ContentItemMedia struct {
 		DurationSeconds func(childComplexity int) int
 		Height          func(childComplexity int) int
@@ -604,6 +612,8 @@ type ComplexityRoot struct {
 		ChangePassword                    func(childComplexity int, input UserChangePasswordInput) int
 		ClearSessionState                 func(childComplexity int, input ClearSessionStateInput) int
 		ConfirmChangeEmail                func(childComplexity int, token uuid.UUID) int
+		ContentItemEdit                   func(childComplexity int, input ContentItemEditInput) int
+		ContentItemEditUpdate             func(childComplexity int, id uuid.UUID, input ContentItemEditInput) int
 		CreateSavedSearch                 func(childComplexity int, input SavedSearchInput) int
 		DeleteEdit                        func(childComplexity int, input DeleteEditInput) int
 		DeleteSavedSearch                 func(childComplexity int, id uuid.UUID) int
@@ -1547,10 +1557,12 @@ type MutationResolver interface {
 	PerformerEdit(ctx context.Context, input PerformerEditInput) (*Edit, error)
 	StudioEdit(ctx context.Context, input StudioEditInput) (*Edit, error)
 	TagEdit(ctx context.Context, input TagEditInput) (*Edit, error)
+	ContentItemEdit(ctx context.Context, input ContentItemEditInput) (*Edit, error)
 	SceneEditUpdate(ctx context.Context, id uuid.UUID, input SceneEditInput) (*Edit, error)
 	PerformerEditUpdate(ctx context.Context, id uuid.UUID, input PerformerEditInput) (*Edit, error)
 	StudioEditUpdate(ctx context.Context, id uuid.UUID, input StudioEditInput) (*Edit, error)
 	TagEditUpdate(ctx context.Context, id uuid.UUID, input TagEditInput) (*Edit, error)
+	ContentItemEditUpdate(ctx context.Context, id uuid.UUID, input ContentItemEditInput) (*Edit, error)
 	EditVote(ctx context.Context, input EditVoteInput) (*Edit, error)
 	EditComment(ctx context.Context, input EditCommentInput) (*Edit, error)
 	UpdateEditComment(ctx context.Context, input UpdateEditCommentInput) (*EditComment, error)
@@ -2347,6 +2359,37 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.ContentItemChapter.Title(childComplexity), true
+
+	case "ContentItemEdit.details":
+		if e.ComplexityRoot.ContentItemEdit.Details == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentItemEdit.Details(childComplexity), true
+	case "ContentItemEdit.edit_id":
+		if e.ComplexityRoot.ContentItemEdit.EditID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentItemEdit.EditID(childComplexity), true
+	case "ContentItemEdit.kind":
+		if e.ComplexityRoot.ContentItemEdit.Kind == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentItemEdit.Kind(childComplexity), true
+	case "ContentItemEdit.release_date":
+		if e.ComplexityRoot.ContentItemEdit.ReleaseDate == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentItemEdit.ReleaseDate(childComplexity), true
+	case "ContentItemEdit.title":
+		if e.ComplexityRoot.ContentItemEdit.Title == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentItemEdit.Title(childComplexity), true
 
 	case "ContentItemMedia.durationSeconds":
 		if e.ComplexityRoot.ContentItemMedia.DurationSeconds == nil {
@@ -3943,6 +3986,28 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.ConfirmChangeEmail(childComplexity, args["token"].(uuid.UUID)), true
+	case "Mutation.contentItemEdit":
+		if e.ComplexityRoot.Mutation.ContentItemEdit == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_contentItemEdit_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.ContentItemEdit(childComplexity, args["input"].(ContentItemEditInput)), true
+	case "Mutation.contentItemEditUpdate":
+		if e.ComplexityRoot.Mutation.ContentItemEditUpdate == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_contentItemEditUpdate_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.ContentItemEditUpdate(childComplexity, args["id"].(uuid.UUID), args["input"].(ContentItemEditInput)), true
 	case "Mutation.createSavedSearch":
 		if e.ComplexityRoot.Mutation.CreateSavedSearch == nil {
 			break
@@ -8536,6 +8601,8 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputBreastTypeCriterionInput,
 		ec.unmarshalInputCancelEditInput,
 		ec.unmarshalInputClearSessionStateInput,
+		ec.unmarshalInputContentItemEditDetailsInput,
+		ec.unmarshalInputContentItemEditInput,
 		ec.unmarshalInputDateCriterionInput,
 		ec.unmarshalInputDeleteEditInput,
 		ec.unmarshalInputDeleteFingerprintSubmissionsInput,
@@ -9489,6 +9556,42 @@ extend type Query {
   queryContentItems(kind: ContentItemKind, limit: Int): [ContentItem!]!
     @hasRole(role: READ)
 }
+
+"""
+A proposed change to a content item.
+
+Field-level like every other edit type: a null field means "leave it alone". The service
+turns the pair (what the client sent, what the row holds) into an old/new diff before the
+edit is stored, so a client cannot express "clear this field" by sending null -- the same
+trade every other type here makes.
+"""
+input ContentItemEditDetailsInput {
+  "Which of the six kinds. Required for create."
+  kind: ContentItemKind
+
+  "What the item is called. Non-blank: the table's CHECK refuses a blank one."
+  title: String
+
+  details: String
+
+  "When it was released, as YYYY-MM-DD. Validated at submit, not left to the DATE column."
+  release_date: String
+}
+
+input ContentItemEditInput {
+  edit: EditInput!
+
+  "Not required for destroy type"
+  details: ContentItemEditDetailsInput
+}
+
+type ContentItemEdit {
+  edit_id: ID!
+  kind: ContentItemKind
+  title: String
+  details: String
+  release_date: String
+}
 `, BuiltIn: false},
 	{Name: "../../graphql/schema/types/draft.graphql", Input: `type DraftSubmissionStatus {
   id: ID
@@ -9558,16 +9661,18 @@ type EditComment {
     edit: Edit!
 }
 
-union EditDetails = PerformerEdit | SceneEdit | StudioEdit | TagEdit
+union EditDetails = PerformerEdit | SceneEdit | StudioEdit | TagEdit | ContentItemEdit
 
 enum TargetTypeEnum {
     SCENE
     STUDIO
     PERFORMER
     TAG
+    "The five non-video content kinds (aggregator phase 3). One member, not six."
+    CONTENT_ITEM
 }
 
-union EditTarget = Performer | Scene | Studio | Tag
+union EditTarget = Performer | Scene | Studio | Tag | ContentItem
 
 type Edit {
     id: ID!
@@ -13963,6 +14068,15 @@ type Mutation {
   """Propose a new tag or modification to a tag"""
   tagEdit(input: TagEditInput!): Edit! @hasRole(role: EDIT)
 
+  """
+  Propose a new content item (aggregator phase 3).
+
+  The item is written when the edit APPLIES, not when it is proposed, so a rejected
+  proposal leaves no row behind. Tags, chapters and media are link operations and belong to
+  their own surfaces, not to this input.
+  """
+  contentItemEdit(input: ContentItemEditInput!): Edit! @hasRole(role: EDIT)
+
   """Update a pending scene edit"""
   sceneEditUpdate(id: ID!, input: SceneEditInput!): Edit! @hasRole(role: EDIT)
   """Update a pending performer edit"""
@@ -13971,6 +14085,7 @@ type Mutation {
   studioEditUpdate(id: ID!, input: StudioEditInput!): Edit! @hasRole(role: EDIT)
   """Update a pending tag edit"""
   tagEditUpdate(id: ID!, input: TagEditInput!): Edit! @hasRole(role: EDIT)
+  contentItemEditUpdate(id: ID!, input: ContentItemEditInput!): Edit! @hasRole(role: EDIT)
 
   """Vote to accept/reject an edit"""
   editVote(input: EditVoteInput!): Edit! @hasRole(role: VOTE)
@@ -16224,6 +16339,42 @@ func (ec *executionContext) field_Mutation_confirmChangeEmail_args(ctx context.C
 		return nil, err
 	}
 	args["token"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_contentItemEditUpdate_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (uuid.UUID, error) {
+			return ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "input",
+		func(ctx context.Context, v any) (ContentItemEditInput, error) {
+			return ec.unmarshalNContentItemEditInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentItemEditInput(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg1
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_contentItemEdit_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
+		func(ctx context.Context, v any) (ContentItemEditInput, error) {
+			return ec.unmarshalNContentItemEditInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentItemEditInput(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
 	return args, nil
 }
 
@@ -20763,6 +20914,121 @@ func (ec *executionContext) _ContentItemChapter_durationSeconds(ctx context.Cont
 }
 func (ec *executionContext) fieldContext_ContentItemChapter_durationSeconds(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("ContentItemChapter", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _ContentItemEdit_edit_id(ctx context.Context, field graphql.CollectedField, obj *ContentItemEdit) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentItemEdit_edit_id(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.EditID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v uuid.UUID) graphql.Marshaler {
+			return ec.marshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ContentItemEdit_edit_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContentItemEdit", field, false, false, errors.New("field of type ID does not have child fields"))
+}
+
+func (ec *executionContext) _ContentItemEdit_kind(ctx context.Context, field graphql.CollectedField, obj *ContentItemEdit) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentItemEdit_kind(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Kind, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *ContentItemKind) graphql.Marshaler {
+			return ec.marshalOContentItemKind2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentItemKind(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_ContentItemEdit_kind(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContentItemEdit", field, false, false, errors.New("field of type ContentItemKind does not have child fields"))
+}
+
+func (ec *executionContext) _ContentItemEdit_title(ctx context.Context, field graphql.CollectedField, obj *ContentItemEdit) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentItemEdit_title(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Title, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
+			return ec.marshalOString2ᚖstring(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_ContentItemEdit_title(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContentItemEdit", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _ContentItemEdit_details(ctx context.Context, field graphql.CollectedField, obj *ContentItemEdit) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentItemEdit_details(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Details, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
+			return ec.marshalOString2ᚖstring(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_ContentItemEdit_details(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContentItemEdit", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _ContentItemEdit_release_date(ctx context.Context, field graphql.CollectedField, obj *ContentItemEdit) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentItemEdit_release_date(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ReleaseDate, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
+			return ec.marshalOString2ᚖstring(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_ContentItemEdit_release_date(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContentItemEdit", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
 func (ec *executionContext) _ContentItemMedia_id(ctx context.Context, field graphql.CollectedField, obj *ContentItemMedia) (ret graphql.Marshaler) {
@@ -29738,6 +30004,68 @@ func (ec *executionContext) fieldContext_Mutation_tagEdit(ctx context.Context, f
 	return fc, nil
 }
 
+func (ec *executionContext) _Mutation_contentItemEdit(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_contentItemEdit(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().ContentItemEdit(ctx, fc.Args["input"].(ContentItemEditInput))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "EDIT")
+				if err != nil {
+					var zeroVal *Edit
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *Edit
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *Edit) graphql.Marshaler {
+			return ec.marshalNEdit2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEdit(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_contentItemEdit(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_Edit(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_contentItemEdit_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Mutation_sceneEditUpdate(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -29980,6 +30308,68 @@ func (ec *executionContext) fieldContext_Mutation_tagEditUpdate(ctx context.Cont
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Mutation_tagEditUpdate_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_contentItemEditUpdate(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_contentItemEditUpdate(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().ContentItemEditUpdate(ctx, fc.Args["id"].(uuid.UUID), fc.Args["input"].(ContentItemEditInput))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "EDIT")
+				if err != nil {
+					var zeroVal *Edit
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *Edit
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *Edit) graphql.Marshaler {
+			return ec.marshalNEdit2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEdit(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_contentItemEditUpdate(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_Edit(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_contentItemEditUpdate_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -51067,6 +51457,94 @@ func (ec *executionContext) unmarshalInputClearSessionStateInput(ctx context.Con
 	return it, nil
 }
 
+func (ec *executionContext) unmarshalInputContentItemEditDetailsInput(ctx context.Context, obj any) (ContentItemEditDetailsInput, error) {
+	var it ContentItemEditDetailsInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"kind", "title", "details", "release_date"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "kind":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("kind"))
+			data, err := ec.unmarshalOContentItemKind2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentItemKind(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Kind = data
+		case "title":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("title"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Title = data
+		case "details":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("details"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Details = data
+		case "release_date":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("release_date"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ReleaseDate = data
+		}
+	}
+	return it, nil
+}
+
+func (ec *executionContext) unmarshalInputContentItemEditInput(ctx context.Context, obj any) (ContentItemEditInput, error) {
+	var it ContentItemEditInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"edit", "details"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "edit":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("edit"))
+			data, err := ec.unmarshalNEditInput2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEditInput(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Edit = data
+		case "details":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("details"))
+			data, err := ec.unmarshalOContentItemEditDetailsInput2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentItemEditDetailsInput(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Details = data
+		}
+	}
+	return it, nil
+}
+
 func (ec *executionContext) unmarshalInputDateCriterionInput(ctx context.Context, obj any) (DateCriterionInput, error) {
 	var it DateCriterionInput
 	if obj == nil {
@@ -57577,6 +58055,13 @@ func (ec *executionContext) _EditDetails(ctx context.Context, sel ast.SelectionS
 			return graphql.Null
 		}
 		return ec._PerformerEdit(ctx, sel, obj)
+	case ContentItemEdit:
+		return ec._ContentItemEdit(ctx, sel, &obj)
+	case *ContentItemEdit:
+		if obj == nil {
+			return graphql.Null
+		}
+		return ec._ContentItemEdit(ctx, sel, obj)
 	default:
 		if typedObj, ok := obj.(graphql.Marshaler); ok {
 			return typedObj
@@ -57610,6 +58095,13 @@ func (ec *executionContext) _EditTarget(ctx context.Context, sel ast.SelectionSe
 			return graphql.Null
 		}
 		return ec._Performer(ctx, sel, obj)
+	case ContentItem:
+		return ec._ContentItem(ctx, sel, &obj)
+	case *ContentItem:
+		if obj == nil {
+			return graphql.Null
+		}
+		return ec._ContentItem(ctx, sel, obj)
 	default:
 		if typedObj, ok := obj.(graphql.Marshaler); ok {
 			return typedObj
@@ -58888,7 +59380,7 @@ func (ec *executionContext) _Completion(ctx context.Context, sel ast.SelectionSe
 	return out
 }
 
-var contentItemImplementors = []string{"ContentItem"}
+var contentItemImplementors = []string{"ContentItem", "EditTarget"}
 
 func (ec *executionContext) _ContentItem(ctx context.Context, sel ast.SelectionSet, obj *ContentItem) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, contentItemImplementors)
@@ -59099,6 +59591,64 @@ func (ec *executionContext) _ContentItemChapter(ctx context.Context, sel ast.Sel
 			}
 		case "durationSeconds":
 			out.Values[i] = ec._ContentItemChapter_durationSeconds(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var contentItemEditImplementors = []string{"ContentItemEdit", "EditDetails"}
+
+func (ec *executionContext) _ContentItemEdit(ctx context.Context, sel ast.SelectionSet, obj *ContentItemEdit) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, contentItemEditImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ContentItemEdit")
+		case "edit_id":
+			out.Values[i] = ec._ContentItemEdit_edit_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "kind":
+			out.Values[i] = ec._ContentItemEdit_kind(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		case "title":
+			out.Values[i] = ec._ContentItemEdit_title(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		case "details":
+			out.Values[i] = ec._ContentItemEdit_details(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		case "release_date":
+			out.Values[i] = ec._ContentItemEdit_release_date(ctx, field, obj)
 			if out.Values[i] == graphql.RequiredNull {
 				out.Invalids++
 			}
@@ -63731,6 +64281,13 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "contentItemEdit":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_contentItemEdit(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "sceneEditUpdate":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_sceneEditUpdate(ctx, field)
@@ -63755,6 +64312,13 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 		case "tagEditUpdate":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_tagEditUpdate(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "contentItemEditUpdate":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_contentItemEditUpdate(ctx, field)
 			})
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
@@ -75961,6 +76525,11 @@ func (ec *executionContext) marshalNContentItemChapter2ᚕgithubᚗcomᚋstashap
 	return ret
 }
 
+func (ec *executionContext) unmarshalNContentItemEditInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentItemEditInput(ctx context.Context, v any) (ContentItemEditInput, error) {
+	res, err := ec.unmarshalInputContentItemEditInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
 func (ec *executionContext) unmarshalNContentItemKind2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentItemKind(ctx context.Context, v any) (ContentItemKind, error) {
 	var res ContentItemKind
 	err := res.UnmarshalGQL(v)
@@ -79401,6 +79970,14 @@ func (ec *executionContext) marshalOContentItem2ᚖgithubᚗcomᚋstashappᚋsta
 		return graphql.Null
 	}
 	return ec._ContentItem(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalOContentItemEditDetailsInput2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentItemEditDetailsInput(ctx context.Context, v any) (*ContentItemEditDetailsInput, error) {
+	if v == nil {
+		return nil, nil
+	}
+	res, err := ec.unmarshalInputContentItemEditDetailsInput(ctx, v)
+	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
 func (ec *executionContext) unmarshalOContentItemKind2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentItemKind(ctx context.Context, v any) (*ContentItemKind, error) {

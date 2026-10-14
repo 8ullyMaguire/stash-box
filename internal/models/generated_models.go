@@ -308,6 +308,8 @@ type ContentItem struct {
 	Media []ContentItemMedia `json:"media"`
 }
 
+func (ContentItem) IsEditTarget() {}
+
 type ContentItemChapter struct {
 	ID uuid.UUID `json:"id"`
 	// Position in the item, ascending from 1. Unique per item.
@@ -318,6 +320,28 @@ type ContentItemChapter struct {
 	PageCount *int `json:"pageCount,omitempty"`
 	// How long, for an episode. Null for kinds that count pages instead.
 	DurationSeconds *int `json:"durationSeconds,omitempty"`
+}
+
+// A proposed change to a content item.
+//
+// Field-level like every other edit type: a null field means "leave it alone". The service
+// turns the pair (what the client sent, what the row holds) into an old/new diff before the
+// edit is stored, so a client cannot express "clear this field" by sending null -- the same
+// trade every other type here makes.
+type ContentItemEditDetailsInput struct {
+	// Which of the six kinds. Required for create.
+	Kind *ContentItemKind `json:"kind,omitempty"`
+	// What the item is called. Non-blank: the table's CHECK refuses a blank one.
+	Title   *string `json:"title,omitempty"`
+	Details *string `json:"details,omitempty"`
+	// When it was released, as YYYY-MM-DD. Validated at submit, not left to the DATE column.
+	ReleaseDate *string `json:"release_date,omitempty"`
+}
+
+type ContentItemEditInput struct {
+	Edit *EditInput `json:"edit"`
+	// Not required for destroy type
+	Details *ContentItemEditDetailsInput `json:"details,omitempty"`
 }
 
 type ContentItemMedia struct {
@@ -5243,6 +5267,8 @@ const (
 	TargetTypeEnumStudio    TargetTypeEnum = "STUDIO"
 	TargetTypeEnumPerformer TargetTypeEnum = "PERFORMER"
 	TargetTypeEnumTag       TargetTypeEnum = "TAG"
+	// The five non-video content kinds (aggregator phase 3). One member, not six.
+	TargetTypeEnumContentItem TargetTypeEnum = "CONTENT_ITEM"
 )
 
 var AllTargetTypeEnum = []TargetTypeEnum{
@@ -5250,11 +5276,12 @@ var AllTargetTypeEnum = []TargetTypeEnum{
 	TargetTypeEnumStudio,
 	TargetTypeEnumPerformer,
 	TargetTypeEnumTag,
+	TargetTypeEnumContentItem,
 }
 
 func (e TargetTypeEnum) IsValid() bool {
 	switch e {
-	case TargetTypeEnumScene, TargetTypeEnumStudio, TargetTypeEnumPerformer, TargetTypeEnumTag:
+	case TargetTypeEnumScene, TargetTypeEnumStudio, TargetTypeEnumPerformer, TargetTypeEnumTag, TargetTypeEnumContentItem:
 		return true
 	}
 	return false

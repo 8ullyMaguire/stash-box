@@ -365,6 +365,9 @@ type Querier interface {
 	// adding it later.
 	CreateContentItem(ctx context.Context, arg CreateContentItemParams) (ContentItem, error)
 	CreateContentItemChapter(ctx context.Context, arg CreateContentItemChapterParams) (ContentItemChapter, error)
+	// ON CONFLICT: linking is idempotent. A modify calls CreateJoin and the create path's apply
+	// writes its own row, so the same pair can legitimately arrive twice; without this the second
+	// arrival is a unique-violation error rather than a no-op.
 	CreateContentItemEdit(ctx context.Context, arg CreateContentItemEditParams) error
 	CreateContentItemMedia(ctx context.Context, arg CreateContentItemMediaParams) (ContentItemMedium, error)
 	// Draft queries

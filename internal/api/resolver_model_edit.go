@@ -148,6 +148,15 @@ func (r *editResolver) Details(ctx context.Context, obj *models.Edit) (models.Ed
 			sceneData.New.EditID = obj.ID
 		}
 		ret = sceneData.New
+	case models.TargetTypeEnumContentItem:
+		contentItemData, err := obj.GetContentItemData()
+		if err != nil {
+			return nil, err
+		}
+		if contentItemData.New != nil {
+			contentItemData.New.EditID = obj.ID
+		}
+		ret = contentItemData.New
 	}
 
 	return ret, nil
@@ -183,6 +192,12 @@ func (r *editResolver) OldDetails(ctx context.Context, obj *models.Edit) (models
 			return nil, err
 		}
 		ret = sceneData.Old
+	case models.TargetTypeEnumContentItem:
+		contentItemData, err := obj.GetContentItemData()
+		if err != nil {
+			return nil, err
+		}
+		ret = contentItemData.Old
 	}
 
 	return ret, nil

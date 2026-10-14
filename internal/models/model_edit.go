@@ -193,6 +193,37 @@ type TagEdit struct {
 	RemovedImplications []uuid.UUID `json:"removed_implications,omitempty"`
 }
 
+// ContentItemEdit is the stored shape of a content-item edit.
+//
+// Hand-written rather than generated, like every other edit type here: `EditID` is not a
+// schema field (`json:"-"`), it is the id of the edit this payload belongs to, set by the
+// resolver on the way out.
+//
+// `Kind` is typed as the generated enum rather than a string so the schema can expose it as
+// `ContentItemKind` directly -- the alternative, as TagEdit.category shows, is a field
+// resolver whose only job is to translate between two representations of one value.
+type ContentItemEdit struct {
+	EditID      uuid.UUID        `json:"-"`
+	Kind        *ContentItemKind `json:"kind,omitempty"`
+	Title       *string          `json:"title,omitempty"`
+	Details     *string          `json:"details,omitempty"`
+	ReleaseDate *string          `json:"release_date,omitempty"`
+}
+
+func (ContentItemEdit) IsEditDetails() {}
+
+// ContentItemEditData is what an edit to a content item stores.
+type ContentItemEditData struct {
+	New *ContentItemEdit `json:"new,omitempty"`
+	Old *ContentItemEdit `json:"old,omitempty"`
+}
+
+func (e *Edit) GetContentItemData() (*ContentItemEditData, error) {
+	data := ContentItemEditData{}
+	_ = json.Unmarshal(e.Data, &data)
+	return &data, nil
+}
+
 func (TagEdit) IsEditDetails() {}
 
 type TagEditData struct {

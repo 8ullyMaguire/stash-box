@@ -72,6 +72,23 @@ func (r *mutationResolver) TagEditUpdate(ctx context.Context, id uuid.UUID, inpu
 	return edit, err
 }
 
+func (r *mutationResolver) ContentItemEdit(ctx context.Context, input models.ContentItemEditInput) (*models.Edit, error) {
+	edit, err := r.services.Edit().CreateContentItemEdit(ctx, input)
+	if err == nil {
+		go r.services.Notification().OnCreateEdit(context.Background(), edit)
+	}
+	return edit, err
+}
+
+func (r *mutationResolver) ContentItemEditUpdate(ctx context.Context, id uuid.UUID, input models.ContentItemEditInput) (*models.Edit, error) {
+	edit, err := r.services.Edit().UpdateContentItemEdit(ctx, id, input)
+	if err == nil {
+		clearEditVotes(ctx, id)
+		go r.services.Notification().OnUpdateEdit(context.Background(), edit)
+	}
+	return edit, err
+}
+
 func (r *mutationResolver) PerformerEdit(ctx context.Context, input models.PerformerEditInput) (*models.Edit, error) {
 	edit, err := r.services.Edit().CreatePerformerEdit(ctx, input)
 	if err == nil {

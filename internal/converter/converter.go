@@ -108,6 +108,30 @@ func TagToModel(t queries.Tag) models.Tag {
 	return modelConverter.ConvertTag(t)
 }
 
+// ContentItemToModel converts a stored content item to its API shape.
+//
+// The date is formatted as a calendar date, not a timestamp: the column is a real DATE, so
+// the time-of-day half never existed and formatting it would invent one.
+func ContentItemToModel(row queries.ContentItem) models.ContentItem {
+	item := models.ContentItem{
+		ID:        row.ID,
+		Kind:      models.ContentItemKind(row.Kind),
+		Title:     row.Title,
+		Details:   row.Details,
+		CreatedAt: row.CreatedAt,
+	}
+	if row.ReleaseDate.Valid {
+		date := row.ReleaseDate.Time.Format("2006-01-02")
+		item.ReleaseDate = &date
+	}
+	return item
+}
+
+func ContentItemToModelPtr(row queries.ContentItem) *models.ContentItem {
+	item := ContentItemToModel(row)
+	return &item
+}
+
 func TagToModelPtr(t queries.Tag) *models.Tag {
 	tag := TagToModel(t)
 	return &tag
