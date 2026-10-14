@@ -647,6 +647,14 @@ type SceneFingerprint struct {
 	Vote          int16     `db:"vote" json:"vote"`
 }
 
+type SceneFreshness struct {
+	SceneID      uuid.UUID   `db:"scene_id" json:"scene_id"`
+	Score        int64       `db:"score" json:"score"`
+	RecentScore  interface{} `db:"recent_score" json:"recent_score"`
+	EarlierScore interface{} `db:"earlier_score" json:"earlier_score"`
+	ComputedAt   interface{} `db:"computed_at" json:"computed_at"`
+}
+
 type SceneImage struct {
 	SceneID uuid.UUID `db:"scene_id" json:"scene_id"`
 	ImageID uuid.UUID `db:"image_id" json:"image_id"`

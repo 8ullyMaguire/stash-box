@@ -1671,6 +1671,47 @@ type SimilarPerformer struct {
 	Score float64 `json:"score"`
 }
 
+// One recommended scene, with the evidence that recommended it.
+//
+// Ordered by `score` descending, with ties broken by id so two identical reads return the same
+// page.
+type SimilarScene struct {
+	// The recommendation.
+	Scene *Scene `json:"scene"`
+	// The ranking value, roughly 0-1 and above 1 for a rich candidate against a narrow subject.
+	//
+	// Exposed for ordering and debugging, NOT for display. Render the reasons.
+	Score float64 `json:"score"`
+	// What the two scenes have in common, strongest kind first.
+	Reasons []SimilarityReason `json:"reasons"`
+	// The embedding similarity of the two scenes, when the vector store knows both.
+	//
+	// Absent on every instance whose store holds nothing -- which is the default, because no
+	// embedding model produces vectors here yet. It is NOT a reason: it is a number, and it
+	// answers "why are these two in this order" when their evidence is equal. It never
+	// contributes to `score`, and a negative similarity is not reported at all: a claim that two
+	// scenes are unlike is not evidence that the structured match is wrong.
+	SemanticScore *float64 `json:"semanticScore,omitempty"`
+}
+
+// One thing two scenes have in common.
+//
+// `weight` is this reason's contribution to the score, so a client can reconstruct the number
+// it is showing beside the reasons it is showing.
+type SimilarityReason struct {
+	// What kind of common ground this is.
+	Kind SimilarityReasonKind `json:"kind"`
+	// The thing itself, in the words a reader would use: a tag, a performer or a studio name. Never a number.
+	Label string `json:"label"`
+	// The subject's item that makes a TAG reason true, for the two ontology kinds: the subject's
+	// tag that the candidate's tag is a kind of, or the subject's tag that implies the
+	// candidate's. Absent for an exact tag match and for the other kinds, where there is nothing
+	// in between.
+	Via *string `json:"via,omitempty"`
+	// This reason's contribution to `score`.
+	Weight float64 `json:"weight"`
+}
+
 type SiteCategoryCreateInput struct {
 	Name        string  `json:"name"`
 	Description *string `json:"description,omitempty"`
@@ -4243,6 +4284,84 @@ func (e *SceneSortEnum) UnmarshalJSON(b []byte) error {
 }
 
 func (e SceneSortEnum) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+// What kind of thing two scenes have in common.
+//
+// A closed set, because the point of a reason is that a reader can check it. Three of the six
+// are about tags and they are not interchangeable: see the note above the file.
+type SimilarityReasonKind string
+
+const (
+	// Both scenes carry this tag.
+	SimilarityReasonKindSameTag SimilarityReasonKind = "SAME_TAG"
+	// The candidate carries a tag that is a KIND of one of the subject's tags
+	// (`cowgirl_position` for `woman_on_top`): a specific instance of a claim the subject makes.
+	// A claim in one direction only, so it weighs half of the same tag.
+	SimilarityReasonKindNarrowerTag SimilarityReasonKind = "NARROWER_TAG"
+	// The candidate carries a tag one of the subject's tags implies (the subject is tagged
+	// `cowgirl_position`, the candidate `woman_on_top`): a family relative rather than an
+	// instance. The weakest tag evidence there is, and named rather than hidden, because a
+	// reader who disagrees can see exactly what was claimed.
+	SimilarityReasonKindBroaderTag SimilarityReasonKind = "BROADER_TAG"
+	// The same person appears in both scenes. The strongest single fact the archive records.
+	SimilarityReasonKindSharedPerformer SimilarityReasonKind = "SHARED_PERFORMER"
+	// Both scenes belong to the same studio. Weak on its own -- a studio publishes hundreds of scenes -- but it is what a reader would guess first, so it is named rather than folded into a score.
+	SimilarityReasonKindSameStudio SimilarityReasonKind = "SAME_STUDIO"
+	// The two run for about the same length of time. A tiebreak, never a reason on its own: a runtime is not content.
+	SimilarityReasonKindSimilarDuration SimilarityReasonKind = "SIMILAR_DURATION"
+)
+
+var AllSimilarityReasonKind = []SimilarityReasonKind{
+	SimilarityReasonKindSameTag,
+	SimilarityReasonKindNarrowerTag,
+	SimilarityReasonKindBroaderTag,
+	SimilarityReasonKindSharedPerformer,
+	SimilarityReasonKindSameStudio,
+	SimilarityReasonKindSimilarDuration,
+}
+
+func (e SimilarityReasonKind) IsValid() bool {
+	switch e {
+	case SimilarityReasonKindSameTag, SimilarityReasonKindNarrowerTag, SimilarityReasonKindBroaderTag, SimilarityReasonKindSharedPerformer, SimilarityReasonKindSameStudio, SimilarityReasonKindSimilarDuration:
+		return true
+	}
+	return false
+}
+
+func (e SimilarityReasonKind) String() string {
+	return string(e)
+}
+
+func (e *SimilarityReasonKind) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = SimilarityReasonKind(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid SimilarityReasonKind", str)
+	}
+	return nil
+}
+
+func (e SimilarityReasonKind) MarshalGQL(w io.Writer) {
+	_, _ = fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *SimilarityReasonKind) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e SimilarityReasonKind) MarshalJSON() ([]byte, error) {
 	var buf bytes.Buffer
 	e.MarshalGQL(&buf)
 	return buf.Bytes(), nil

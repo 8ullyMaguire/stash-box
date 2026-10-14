@@ -19,9 +19,12 @@ package service
 
 import (
 	"context"
+	"log"
+	"strings"
 
 	"github.com/gofrs/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/stashapp/stash-box/internal/config"
 	"github.com/stashapp/stash-box/internal/email"
 	"github.com/stashapp/stash-box/internal/image/croptemplate"
 	"github.com/stashapp/stash-box/internal/queries"
@@ -50,6 +53,7 @@ import (
 	"github.com/stashapp/stash-box/internal/service/review"
 	"github.com/stashapp/stash-box/internal/service/savedsearch"
 	"github.com/stashapp/stash-box/internal/service/scene"
+	"github.com/stashapp/stash-box/internal/service/similar"
 	"github.com/stashapp/stash-box/internal/service/site"
 	"github.com/stashapp/stash-box/internal/service/streak"
 	"github.com/stashapp/stash-box/internal/service/studio"
@@ -67,6 +71,13 @@ type Factory struct {
 	emailMgr *email.Manager
 
 	cropTemplates *croptemplate.Loader
+
+	// vectorStore is built ONCE, not per accessor call, because it is a STORE: this is
+	// where embeddings live, and a store rebuilt on every request would be empty on every
+	// request -- the vector half of scene similarity could never reorder anything, however
+	// many vectors were put into the previous instance. It is a connection, and a
+	// connection is not per-call state.
+	vectorStore similar.VectorStore
 }
 
 // NewFactory creates a new service factory with the given database pool and email manager
@@ -76,12 +87,42 @@ func NewFactory(pool *pgxpool.Pool, emailMgr *email.Manager) *Factory {
 		withTxn:       createWithTxnFunc(pool),
 		emailMgr:      emailMgr,
 		cropTemplates: croptemplate.NewLoader(),
+		vectorStore:   newVectorStore(),
 	}
 }
 
 // Completion returns a CompletionService instance
 func (f *Factory) Completion() *completion.Service {
 	return completion.NewService(queries.New(f.db))
+}
+
+// Similar returns a scene-similarity service.
+//
+// The vector store is built HERE and nowhere else, because this is the one place that knows
+// both the configuration and the implementations: `similar_vector_store` names one, and an
+// unknown name is a configuration error an operator must see rather than a silent fallback
+// to the no-op store. The no-op store is the default and a legitimate choice -- no embedding
+// model produces vectors on this instance yet -- but it has to be CHOSEN, not arrived at by
+// a typo.
+func (f *Factory) Similar() *similar.Service {
+	return similar.New(queries.New(f.db), f.Scene(), f.vectorStore)
+}
+
+// newVectorStore turns the configured name into an implementation, once per factory.
+func newVectorStore() similar.VectorStore {
+	switch strings.ToLower(config.GetSimilarVectorStore()) {
+	case "", "noop":
+		return similar.Noop{}
+	case "inmemory":
+		return similar.NewInMemory(config.GetSimilarVectorDimensions())
+	default:
+		// Logged and defaulted rather than fatal: a bad value here must not stop a server
+		// from serving scenes, and the healthy-looking alternative -- refusing to start --
+		// turns a typo into an outage. The warning is what an operator needs.
+		log.Printf("unknown similar_vector_store %q: using the no-op store, so scene similarity will not re-rank",
+			config.GetSimilarVectorStore())
+		return similar.Noop{}
+	}
 }
 
 // Quest returns a QuestService instance.

@@ -979,6 +979,7 @@ type ComplexityRoot struct {
 		Performers     func(childComplexity int) int
 		ProductionDate func(childComplexity int) int
 		ReleaseDate    func(childComplexity int) int
+		SimilarScenes  func(childComplexity int, limit *int) int
 		Sources        func(childComplexity int) int
 		Studio         func(childComplexity int) int
 		Tags           func(childComplexity int) int
@@ -1043,6 +1044,20 @@ type ComplexityRoot struct {
 		ScenesShared func(childComplexity int) int
 		Score        func(childComplexity int) int
 		TargetScenes func(childComplexity int) int
+	}
+
+	SimilarScene struct {
+		Reasons       func(childComplexity int) int
+		Scene         func(childComplexity int) int
+		Score         func(childComplexity int) int
+		SemanticScore func(childComplexity int) int
+	}
+
+	SimilarityReason struct {
+		Kind   func(childComplexity int) int
+		Label  func(childComplexity int) int
+		Via    func(childComplexity int) int
+		Weight func(childComplexity int) int
 	}
 
 	Site struct {
@@ -1668,6 +1683,7 @@ type SceneResolver interface {
 	Created(ctx context.Context, obj *Scene) (*time.Time, error)
 	Updated(ctx context.Context, obj *Scene) (*time.Time, error)
 	Completion(ctx context.Context, obj *Scene) (*Completion, error)
+	SimilarScenes(ctx context.Context, obj *Scene, limit *int) ([]SimilarScene, error)
 }
 type SceneDraftResolver interface {
 	Studio(ctx context.Context, obj *SceneDraft) (SceneDraftStudio, error)
@@ -6491,6 +6507,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Scene.ReleaseDate(childComplexity), true
+	case "Scene.similarScenes":
+		if e.ComplexityRoot.Scene.SimilarScenes == nil {
+			break
+		}
+
+		args, err := ec.field_Scene_similarScenes_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Scene.SimilarScenes(childComplexity, args["limit"].(*int)), true
 	case "Scene.sources":
 		if e.ComplexityRoot.Scene.Sources == nil {
 			break
@@ -6807,6 +6834,56 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.SimilarPerformer.TargetScenes(childComplexity), true
+
+	case "SimilarScene.reasons":
+		if e.ComplexityRoot.SimilarScene.Reasons == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimilarScene.Reasons(childComplexity), true
+	case "SimilarScene.scene":
+		if e.ComplexityRoot.SimilarScene.Scene == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimilarScene.Scene(childComplexity), true
+	case "SimilarScene.score":
+		if e.ComplexityRoot.SimilarScene.Score == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimilarScene.Score(childComplexity), true
+	case "SimilarScene.semanticScore":
+		if e.ComplexityRoot.SimilarScene.SemanticScore == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimilarScene.SemanticScore(childComplexity), true
+
+	case "SimilarityReason.kind":
+		if e.ComplexityRoot.SimilarityReason.Kind == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimilarityReason.Kind(childComplexity), true
+	case "SimilarityReason.label":
+		if e.ComplexityRoot.SimilarityReason.Label == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimilarityReason.Label(childComplexity), true
+	case "SimilarityReason.via":
+		if e.ComplexityRoot.SimilarityReason.Via == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimilarityReason.Via(childComplexity), true
+	case "SimilarityReason.weight":
+		if e.ComplexityRoot.SimilarityReason.Weight == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimilarityReason.Weight(childComplexity), true
 
 	case "Site.category":
 		if e.ComplexityRoot.Site.Category == nil {
@@ -11459,6 +11536,140 @@ type QueryExistingSceneResult {
   scenes: [Scene!]!
 }
 `, BuiltIn: false},
+	{Name: "../../graphql/schema/types/scene_similar.graphql", Input: `# Scene similarity (feature-discovery SPEC section 8, aggregator phase 7 slice 5).
+#
+# THE EVIDENCE IS THE DESIGN, again, and here it is the whole feature.
+#
+# A scene recommends a scene through facts a reader can open: the same tag, a tag that is
+# a KIND of a tag the subject has, a tag the subject's tag IMPLIES, the same performer, the
+# same studio, a similar runtime. Every one of those is a link the reader can follow and a
+# claim they can check, which is what separates a recommendation from a number.
+#
+# THE THREE TAG KINDS ARE NOT ONE KIND. ` + "`" + `cowgirl_position` + "`" + ` implies ` + "`" + `woman_on_top` + "`" + `, so two
+# scenes carrying ` + "`" + `woman_on_top` + "`" + ` share a fact, while a scene carrying ` + "`" + `woman_on_top` + "`" + ` and one
+# carrying ` + "`" + `cowgirl_position` + "`" + ` share a claim in ONE direction: the specific one is an
+# instance of the general one. Reporting both as "shared tag" would make the count disagree
+# with the ontology the rest of the app reads -- the bug the tag explorer already shipped
+# once, where a facet count did not match what clicking it returned.
+#
+# NOTHING IS A PERCENTAGE. ` + "`" + `score` + "`" + ` is the ranking value (weighted evidence over what the
+# subject offers, roughly 0-1) and is exposed for ordering and debugging, not for display:
+# rendering "87% match" from it invents a precision this heuristic does not have. Render
+# ` + "`" + `reasons` + "`" + ` instead.
+
+"""
+What kind of thing two scenes have in common.
+
+A closed set, because the point of a reason is that a reader can check it. Three of the six
+are about tags and they are not interchangeable: see the note above the file.
+"""
+enum SimilarityReasonKind {
+  "Both scenes carry this tag."
+  SAME_TAG
+  """
+  The candidate carries a tag that is a KIND of one of the subject's tags
+  (` + "`" + `cowgirl_position` + "`" + ` for ` + "`" + `woman_on_top` + "`" + `): a specific instance of a claim the subject makes.
+  A claim in one direction only, so it weighs half of the same tag.
+  """
+  NARROWER_TAG
+  """
+  The candidate carries a tag one of the subject's tags implies (the subject is tagged
+  ` + "`" + `cowgirl_position` + "`" + `, the candidate ` + "`" + `woman_on_top` + "`" + `): a family relative rather than an
+  instance. The weakest tag evidence there is, and named rather than hidden, because a
+  reader who disagrees can see exactly what was claimed.
+  """
+  BROADER_TAG
+  "The same person appears in both scenes. The strongest single fact the archive records."
+  SHARED_PERFORMER
+  "Both scenes belong to the same studio. Weak on its own -- a studio publishes hundreds of scenes -- but it is what a reader would guess first, so it is named rather than folded into a score."
+  SAME_STUDIO
+  "The two run for about the same length of time. A tiebreak, never a reason on its own: a runtime is not content."
+  SIMILAR_DURATION
+}
+
+"""
+One thing two scenes have in common.
+
+` + "`" + `weight` + "`" + ` is this reason's contribution to the score, so a client can reconstruct the number
+it is showing beside the reasons it is showing.
+"""
+type SimilarityReason {
+  "What kind of common ground this is."
+  kind: SimilarityReasonKind!
+
+  "The thing itself, in the words a reader would use: a tag, a performer or a studio name. Never a number."
+  label: String!
+
+  """
+  The subject's item that makes a TAG reason true, for the two ontology kinds: the subject's
+  tag that the candidate's tag is a kind of, or the subject's tag that implies the
+  candidate's. Absent for an exact tag match and for the other kinds, where there is nothing
+  in between.
+  """
+  via: String
+
+  "This reason's contribution to ` + "`" + `score` + "`" + `."
+  weight: Float!
+}
+
+"""
+One recommended scene, with the evidence that recommended it.
+
+Ordered by ` + "`" + `score` + "`" + ` descending, with ties broken by id so two identical reads return the same
+page.
+"""
+type SimilarScene {
+  "The recommendation."
+  scene: Scene!
+
+  """
+  The ranking value, roughly 0-1 and above 1 for a rich candidate against a narrow subject.
+
+  Exposed for ordering and debugging, NOT for display. Render the reasons.
+  """
+  score: Float!
+
+  "What the two scenes have in common, strongest kind first."
+  reasons: [SimilarityReason!]!
+
+  """
+  The embedding similarity of the two scenes, when the vector store knows both.
+
+  Absent on every instance whose store holds nothing -- which is the default, because no
+  embedding model produces vectors here yet. It is NOT a reason: it is a number, and it
+  answers "why are these two in this order" when their evidence is equal. It never
+  contributes to ` + "`" + `score` + "`" + `, and a negative similarity is not reported at all: a claim that two
+  scenes are unlike is not evidence that the structured match is wrong.
+  """
+  semanticScore: Float
+}
+
+extend type Scene {
+  """
+  Scenes related to this one, best first.
+
+  An empty list is normal and not an error: a scene with no tags, no performers, no studio
+  and no duration has nothing in common with anything, and one whose only neighbours share
+  a single weak fact may rank below the page. That is a fact about the archive, not a
+  failure.
+
+  Excludes this scene and soft-deleted scenes, and never returns a scene unless it shares at
+  least one fact -- a tag through the ontology, a performer, or its studio.
+
+  There is NO minimum-evidence parameter, unlike ` + "`" + `similarPerformers` + "`" + `' ` + "`" + `minShared` + "`" + `. A floor
+  there filters coincidence out of a short list of people; here the weak matches sink to the
+  bottom of a list a client paginates, and a floor would silently hide a strong match with
+  little shared vocabulary. ` + "`" + `score` + "`" + ` and ` + "`" + `reasons` + "`" + ` are both returned, so a client can filter
+  on what it can see.
+
+  There is no count field either, and for a different reason: the candidate pool is bounded
+  (see ` + "`" + `candidatePoolSize` + "`" + `), so a count would be a count of the pool rather than of the
+  archive. "There are 500" would be a lie with a number on it.
+  """
+  similarScenes(limit: Int = 10): [SimilarScene!]!
+    @hasRole(role: READ)
+}
+`, BuiltIn: false},
 	{Name: "../../graphql/schema/types/site.graphql", Input: `type Site {
   id: ID!
   name: String!
@@ -13874,6 +14085,8 @@ func (ec *executionContext) childFields_Scene(ctx context.Context, field graphql
 		return ec.fieldContext_Scene_updated(ctx, field)
 	case "completion":
 		return ec.fieldContext_Scene_completion(ctx, field)
+	case "similarScenes":
+		return ec.fieldContext_Scene_similarScenes(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type Scene", field.Name)
 }
@@ -13906,6 +14119,34 @@ func (ec *executionContext) childFields_SimilarPerformer(ctx context.Context, fi
 		return ec.fieldContext_SimilarPerformer_score(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type SimilarPerformer", field.Name)
+}
+
+func (ec *executionContext) childFields_SimilarScene(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "scene":
+		return ec.fieldContext_SimilarScene_scene(ctx, field)
+	case "score":
+		return ec.fieldContext_SimilarScene_score(ctx, field)
+	case "reasons":
+		return ec.fieldContext_SimilarScene_reasons(ctx, field)
+	case "semanticScore":
+		return ec.fieldContext_SimilarScene_semanticScore(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type SimilarScene", field.Name)
+}
+
+func (ec *executionContext) childFields_SimilarityReason(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "kind":
+		return ec.fieldContext_SimilarityReason_kind(ctx, field)
+	case "label":
+		return ec.fieldContext_SimilarityReason_label(ctx, field)
+	case "via":
+		return ec.fieldContext_SimilarityReason_via(ctx, field)
+	case "weight":
+		return ec.fieldContext_SimilarityReason_weight(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type SimilarityReason", field.Name)
 }
 
 func (ec *executionContext) childFields_Site(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -17223,6 +17464,20 @@ func (ec *executionContext) field_Scene_fingerprints_args(ctx context.Context, r
 		return nil, err
 	}
 	args["is_submitted"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Scene_similarScenes_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "limit",
+		func(ctx context.Context, v any) (*int, error) {
+			return ec.unmarshalOInt2ᚖint(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["limit"] = arg0
 	return args, nil
 }
 
@@ -39689,6 +39944,68 @@ func (ec *executionContext) fieldContext_Scene_completion(_ context.Context, fie
 	return fc, nil
 }
 
+func (ec *executionContext) _Scene_similarScenes(ctx context.Context, field graphql.CollectedField, obj *Scene) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Scene_similarScenes(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Scene().SimilarScenes(ctx, obj, fc.Args["limit"].(*int))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal []SimilarScene
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal []SimilarScene
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, obj, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v []SimilarScene) graphql.Marshaler {
+			return ec.marshalNSimilarScene2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSimilarSceneᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Scene_similarScenes(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Scene",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_SimilarScene(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Scene_similarScenes_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _SceneDraft_id(ctx context.Context, field graphql.CollectedField, obj *SceneDraft) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -40916,6 +41233,208 @@ func (ec *executionContext) _SimilarPerformer_score(ctx context.Context, field g
 }
 func (ec *executionContext) fieldContext_SimilarPerformer_score(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("SimilarPerformer", field, false, false, errors.New("field of type Float does not have child fields"))
+}
+
+func (ec *executionContext) _SimilarScene_scene(ctx context.Context, field graphql.CollectedField, obj *SimilarScene) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SimilarScene_scene(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Scene, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *Scene) graphql.Marshaler {
+			return ec.marshalNScene2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐScene(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SimilarScene_scene(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimilarScene",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_Scene(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimilarScene_score(ctx context.Context, field graphql.CollectedField, obj *SimilarScene) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SimilarScene_score(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Score, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v float64) graphql.Marshaler {
+			return ec.marshalNFloat2float64(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SimilarScene_score(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SimilarScene", field, false, false, errors.New("field of type Float does not have child fields"))
+}
+
+func (ec *executionContext) _SimilarScene_reasons(ctx context.Context, field graphql.CollectedField, obj *SimilarScene) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SimilarScene_reasons(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Reasons, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []SimilarityReason) graphql.Marshaler {
+			return ec.marshalNSimilarityReason2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSimilarityReasonᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SimilarScene_reasons(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimilarScene",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_SimilarityReason(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimilarScene_semanticScore(ctx context.Context, field graphql.CollectedField, obj *SimilarScene) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SimilarScene_semanticScore(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.SemanticScore, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *float64) graphql.Marshaler {
+			return ec.marshalOFloat2ᚖfloat64(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_SimilarScene_semanticScore(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SimilarScene", field, false, false, errors.New("field of type Float does not have child fields"))
+}
+
+func (ec *executionContext) _SimilarityReason_kind(ctx context.Context, field graphql.CollectedField, obj *SimilarityReason) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SimilarityReason_kind(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Kind, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v SimilarityReasonKind) graphql.Marshaler {
+			return ec.marshalNSimilarityReasonKind2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSimilarityReasonKind(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SimilarityReason_kind(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SimilarityReason", field, false, false, errors.New("field of type SimilarityReasonKind does not have child fields"))
+}
+
+func (ec *executionContext) _SimilarityReason_label(ctx context.Context, field graphql.CollectedField, obj *SimilarityReason) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SimilarityReason_label(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Label, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SimilarityReason_label(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SimilarityReason", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _SimilarityReason_via(ctx context.Context, field graphql.CollectedField, obj *SimilarityReason) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SimilarityReason_via(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Via, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
+			return ec.marshalOString2ᚖstring(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_SimilarityReason_via(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SimilarityReason", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _SimilarityReason_weight(ctx context.Context, field graphql.CollectedField, obj *SimilarityReason) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SimilarityReason_weight(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Weight, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v float64) graphql.Marshaler {
+			return ec.marshalNFloat2float64(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SimilarityReason_weight(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SimilarityReason", field, false, false, errors.New("field of type Float does not have child fields"))
 }
 
 func (ec *executionContext) _Site_id(ctx context.Context, field graphql.CollectedField, obj *Site) (ret graphql.Marshaler) {
@@ -65064,6 +65583,44 @@ func (ec *executionContext) _Scene(ctx context.Context, sel ast.SelectionSet, ob
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "similarScenes":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Scene_similarScenes(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -66017,6 +66574,112 @@ func (ec *executionContext) _SimilarPerformer(ctx context.Context, sel ast.Selec
 			}
 		case "score":
 			out.Values[i] = ec._SimilarPerformer_score(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var similarSceneImplementors = []string{"SimilarScene"}
+
+func (ec *executionContext) _SimilarScene(ctx context.Context, sel ast.SelectionSet, obj *SimilarScene) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, similarSceneImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("SimilarScene")
+		case "scene":
+			out.Values[i] = ec._SimilarScene_scene(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "score":
+			out.Values[i] = ec._SimilarScene_score(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "reasons":
+			out.Values[i] = ec._SimilarScene_reasons(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "semanticScore":
+			out.Values[i] = ec._SimilarScene_semanticScore(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var similarityReasonImplementors = []string{"SimilarityReason"}
+
+func (ec *executionContext) _SimilarityReason(ctx context.Context, sel ast.SelectionSet, obj *SimilarityReason) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, similarityReasonImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("SimilarityReason")
+		case "kind":
+			out.Values[i] = ec._SimilarityReason_kind(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "label":
+			out.Values[i] = ec._SimilarityReason_label(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "via":
+			out.Values[i] = ec._SimilarityReason_via(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		case "weight":
+			out.Values[i] = ec._SimilarityReason_weight(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -72392,6 +73055,56 @@ func (ec *executionContext) marshalNSimilarPerformer2ᚕgithubᚗcomᚋstashapp�
 	}
 
 	return ret
+}
+
+func (ec *executionContext) marshalNSimilarScene2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSimilarScene(ctx context.Context, sel ast.SelectionSet, v SimilarScene) graphql.Marshaler {
+	return ec._SimilarScene(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNSimilarScene2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSimilarSceneᚄ(ctx context.Context, sel ast.SelectionSet, v []SimilarScene) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNSimilarScene2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSimilarScene(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNSimilarityReason2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSimilarityReason(ctx context.Context, sel ast.SelectionSet, v SimilarityReason) graphql.Marshaler {
+	return ec._SimilarityReason(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNSimilarityReason2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSimilarityReasonᚄ(ctx context.Context, sel ast.SelectionSet, v []SimilarityReason) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNSimilarityReason2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSimilarityReason(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) unmarshalNSimilarityReasonKind2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSimilarityReasonKind(ctx context.Context, v any) (SimilarityReasonKind, error) {
+	var res SimilarityReasonKind
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNSimilarityReasonKind2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSimilarityReasonKind(ctx context.Context, sel ast.SelectionSet, v SimilarityReasonKind) graphql.Marshaler {
+	return v
 }
 
 func (ec *executionContext) marshalNSite2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSite(ctx context.Context, sel ast.SelectionSet, v Site) graphql.Marshaler {

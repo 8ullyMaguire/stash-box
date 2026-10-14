@@ -141,7 +141,6 @@ func (s *Performer) FindSimilar(ctx context.Context, input SimilarPerformerInput
 			return nil, fmt.Errorf("loading similar performers: %w", err)
 		}
 	}
-	fmt.Printf("PROBE rows=%d ids=%v loaded=%d errs=%v\n", len(rows), ids, len(performers), errs)
 	byID := make(map[uuid.UUID]models.Performer, len(performers))
 	for _, p := range performers {
 		if p != nil {

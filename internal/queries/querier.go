@@ -1020,6 +1020,78 @@ type Querier interface {
 	// GROUP BY"), and nothing caught that until the shipped SQL was extracted from the
 	// generated Go and executed -- sqlc only type-checks, it never runs.
 	FindSimilarPerformers(ctx context.Context, arg FindSimilarPerformersParams) ([]FindSimilarPerformersRow, error)
+	// Scene similarity (feature-discovery SPEC section 8, aggregator phase 7 slice 5).
+	//
+	// THE EVIDENCE IS THE QUERY, THE SCORE IS THE SERVICE.
+	//
+	// These three queries answer "which scenes has this one got anything to do with, and what
+	// exactly do they have in common". They deliberately do NOT answer "how similar, on a scale
+	// of nought to one": the score weights the evidence in ONE place --
+	// `internal/service/similar/scene.go` -- so that the number and the reasons printed beside it
+	// cannot disagree. A SQL score would be a second opinion the labels could contradict.
+	//
+	// What SQL does own is the CANDIDATE SET, which is the part that has to be a query: the axes
+	// are three different joins and a closure walk over the tag DAG, and the set is ranked by a
+	// count of shared facts so the caller can ask for a bounded page.
+	// Candidates to consider, plus the two subject-side counts the score needs as a denominator.
+	//
+	// THE PRE-RANK IS A FILTER, NOT THE SCORE, and it is deliberately UNWEIGHTED: `shared_facts`
+	// counts shared tags (in either direction of the ontology), shared performers and a shared
+	// studio, each as one. A weighted pre-rank would be a second copy of the scorer's weights
+	// living in a file the scorer does not read, and the two would drift. Counting facts cannot
+	// drift from anything -- it is not an opinion about importance -- and its only job is to
+	// choose which rows the exact scorer gets to see. A candidate that loses on tags can still
+	// outrank a tag-heavy one in the final order, which is why `candidate_limit` is wider than
+	// the page the caller asked for (see `candidateSlack` in the service).
+	//
+	// EXCLUDES the subject itself (every scene is trivially identical to itself), soft-deleted
+	// scenes (a recommendation that links to a deleted scene is worse than one fewer
+	// suggestion), and scenes that share NOTHING -- the candidate predicate is the same axes as
+	// the rank, so a scene with no tag, performer or studio in common is not a candidate at all
+	// rather than a candidate with a score of zero.
+	//
+	// TAGS ARE READ THROUGH THE ONTOLOGY, both ways, because migration 111 does not write an
+	// implied tag to `scene_tags`: a scene tagged `cowgirl_position` carries one row, and a
+	// reader asking for `woman_on_top` finds it by walking the DAG. Similarity has to walk the
+	// same graph or it will call two scenes unrelated because nobody typed the general tag
+	// twice. Direction matters and is scored differently downstream -- a candidate carrying a
+	// tag that SATISFIES one of the subject's tags is a specific instance of a claim the subject
+	// makes (a strong match), while a candidate carrying a tag the subject's tag IMPLIES is a
+	// family relative (a weak one) -- so the evidence query reports the direction.
+	//
+	// The walks are depth-bounded, not size-bounded, and they are TOP-LEVEL rather than nested
+	// inside another CTE: a recursive CTE may not reference itself from a subquery, and sqlc
+	// resolves a nested `WITH RECURSIVE` as a missing relation rather than as invalid SQL.
+	// A tag the subject's tags SATISFY: a specific instance of what the subject claims.
+	// `cowgirl_position` implies `woman_on_top`, so a subject tagged `woman_on_top` is satisfied
+	// by a candidate tagged `cowgirl_position`. The same walk, and the same depth bound, as
+	// ExpandTagIDsByImplications -- there is one DAG and one way to read it. A tag reachable from
+	// two of the subject's tags appears twice, which is harmless: every use below is a membership
+	// test (`IN`), which cannot double-count.
+	// A tag the subject's tags IMPLY: a broader claim the subject belongs to.
+	FindSimilarSceneCandidates(ctx context.Context, arg FindSimilarSceneCandidatesParams) ([]FindSimilarSceneCandidatesRow, error)
+	// Performers who appear in both scenes, by name, so the reason can name someone.
+	//
+	// Soft-deleted performers are excluded on BOTH sides -- here and in the candidate counts --
+	// because two counts that disagree is the bug this schema keeps producing: the reason list
+	// would name four people while the count said five, and a client showing both is showing a
+	// contradiction.
+	FindSimilarSceneSharedPerformers(ctx context.Context, arg FindSimilarSceneSharedPerformersParams) ([]FindSimilarSceneSharedPerformersRow, error)
+	// Which tags two scenes have in common, through the ontology, and HOW they are in common.
+	//
+	// One row per (candidate, a tag the candidate carries, the subject tag it relates to). The
+	// service turns these into reasons, so the label a client renders names something a reader
+	// can open -- which is the whole point of an explained recommendation.
+	//
+	// BOTH DIRECTIONS, as one union, with `depth` and `direction` kept so the service can tell an
+	// exact match (depth 0, 'down') from an instance (depth >= 1, 'down') from a family relative
+	// ('up'). `up` starts at depth 1 on purpose: a tag must not arrive twice with two different
+	// explanations, and depth 0 is the subject's own tag, which the `down` arm already reports.
+	// A cycle cannot occur -- migration 111 refuses one at the database -- so a tag cannot be both
+	// directions of the same pair.
+	// Deterministic, so a reason list is stable between two identical reads: the service picks the
+	// shallowest explanation for a tag, and ties are broken by direction and then by name.
+	FindSimilarSceneTagEvidence(ctx context.Context, arg FindSimilarSceneTagEvidenceParams) ([]FindSimilarSceneTagEvidenceRow, error)
 	FindSiteCategory(ctx context.Context, id int) (SiteCategory, error)
 	// Resolve a URL to a directory entry, so an ingested source carries its site.
 	//

@@ -504,11 +504,35 @@ part of the commit message.
    which is what its bktree index needs), so a fixture hash is an integer; and the package's scene
    fixture submits a fingerprint as part of creating a scene, so every score it makes carries a real
    +3 that the test must remove before it can assert a known number.
-5. **Similarity and its explanation.** `internal/service/similar/` with the `VectorStore`
-   interface, `Noop` and `InMemory`, and the explanation built from shared tags, performer,
-   studio and duration — explanation first, vector second (§8 of the spec).
-   **Verification:** `Noop` returns nothing and does not panic; `InMemory` ranks a constructed
-   pair above a constructed non-pair; every reason names something checkable in the fixture.
+5. **Similarity and its explanation. DONE.**
+   `internal/service/similar/`: `store.go` (the `VectorStore` interface with `Noop` and
+   `InMemory` — cosine, deterministic tie-break, refusals for a wrong width and a zero vector),
+   `explain.go` (the weights and the reason builder, pure), `scene.go` (candidate selection, the
+   ontology walk, the score, the vector re-rank), `internal/queries/sql/scene_similar.sql` (the
+   three queries), the `Scene.similarScenes` field with `SimilarScene`/`SimilarityReason`, the
+   `SimilarityReasonKind` enum and `internal/api/resolver_scene_similar.go`, and
+   `similar_vector_store` in the config read by the factory.
+   **Verification:** `go test ./internal/service/similar/` (cosine against known angles; the
+   refusals; ranking and tie stability; the weights, the three tag kinds, the duration falloff
+   and the absent-runtime case; the capacity denominator and its zero guard) and
+   `POSTGRES_DB=... go test -tags=integration -count=1 -p 1 ./internal/api/ -run TestSimilarScene`
+   → 6 tests green, each reconstructing the score from the reasons it was sent and asserting the
+   ontology in BOTH directions on independent tag pairs. Two real defects were found by those
+   tests rather than by review: `sameStudio` was never set, so the candidate was selected on the
+   studio and no reason was ever emitted (the score read lower than its own reasons could
+   explain); and the vector bonus was added into `score`, contradicting the schema.
+   **Mutation-checked** by `scripts/mutate-scene-similar.py` — 7/7 caught and restored: the
+   performer weight, the duration half-width, the studio reason, the score/ranking separation,
+   the two ontology directions, and two candidate-predicate cases that had to mutate the
+   GENERATED `scene_similar.sql.go` because sqlc compiles the statement into Go (mutating the
+   `.sql` changed nothing that runs, and the case reported NOT CAUGHT until that was fixed).
+   **Measured** (`SIMILAR_BENCH=1`, 512 dims, 200 samples): 1.3 ms at 1,000 vectors, 16.4 ms at
+   10,000, 187 ms at 100,000 — recorded in spec §8.4 with the conclusion that an ANN index is
+   justified for a whole-archive nearest-neighbour surface above ~10,000 vectors and not for
+   this feature, which only ever asks the store about a bounded candidate pool.
+   **Not here, deliberately:** no `minShared` floor, no count field (the pool is bounded, so a
+   count would be a lie with a number on it), and no embedding producer — nothing on this
+   instance turns a scene into a vector.
 6. **Taste profile, For You, serendipity.** Affinity derived at read time from the signal
    tables §2 measured; the hierarchy propagation; the feed assembly; the parameter.
    **Verification:** the degenerate-output test — two contrasting settings over the same seed

@@ -84,6 +84,11 @@ type config struct {
 	// How often subscribed saved searches are run and their owners notified. One query per
 	// subscribed search per tick, so the cost is proportional to how many exist.
 	SavedSearchNotifyInterval string `mapstructure:"saved_search_notify_interval"`
+	// Which vector store scene similarity re-ranks with: "noop" (the default) or
+	// "inmemory". See GetSimilarVectorStore.
+	SimilarVectorStore string `mapstructure:"similar_vector_store"`
+	// Dimensions of the stored vectors. Ignored by the no-op store.
+	SimilarVectorDimensions int `mapstructure:"similar_vector_dimensions"`
 	// Number of times an edit can be updated by the creator
 	EditUpdateLimit int `mapstructure:"edit_update_limit"`
 	// Minimum trust level at which a user may update another user's edit.
@@ -177,17 +182,22 @@ const (
 
 var defaultUserRoles = []string{"READ", "VOTE", "EDIT"}
 var C = &config{
-	RequireInvite:              true,
-	RequireActivation:          false,
-	ActivationExpiry:           2 * 60 * 60,
-	EmailCooldown:              5 * 60,
-	EmailPort:                  25,
-	ImageBackend:               string(FileBackend),
-	PHashDistance:              0,
-	VoteApplicationThreshold:   3,
-	VotePromotionThreshold:     10,
-	VoteCronInterval:           "5m",
-	SavedSearchNotifyInterval:  "15m",
+	RequireInvite:             true,
+	RequireActivation:         false,
+	ActivationExpiry:          2 * 60 * 60,
+	EmailCooldown:             5 * 60,
+	EmailPort:                 25,
+	ImageBackend:              string(FileBackend),
+	PHashDistance:             0,
+	VoteApplicationThreshold:  3,
+	VotePromotionThreshold:    10,
+	VoteCronInterval:          "5m",
+	SavedSearchNotifyInterval: "15m",
+	// No embedding model produces vectors on this instance, so the default store holds
+	// nothing and the re-ranker provably does nothing -- rather than a half-wired store
+	// whose emptiness would be indistinguishable from a bug.
+	SimilarVectorStore:         "noop",
+	SimilarVectorDimensions:    512,
 	VotingPeriod:               345600,
 	MinDestructiveVotingPeriod: 172800,
 	DraftTimeLimit:             86400,
@@ -712,4 +722,29 @@ func GetConnMaxLifetime() int {
 
 func GetCSP() string {
 	return C.CSP
+}
+
+// GetSimilarVectorStore returns which vector store scene similarity re-ranks with.
+//
+// "noop" (the default) keeps nothing and returns nothing, so the similarity order is the
+// structured evidence's order alone. "inmemory" holds a []float32 per scene and compares
+// them by cosine, brute force, over the candidate set the structured queries already
+// narrowed.
+//
+// A NAME is returned rather than a constructed store because the config package builds no
+// services: the factory turns this string into an implementation in one place, so an
+// unknown value is refused there with the service's own error rather than silently becoming
+// the default here.
+func GetSimilarVectorStore() string {
+	return C.SimilarVectorStore
+}
+
+// GetSimilarVectorDimensions returns the width of a stored vector.
+//
+// 512 because that is what the embedding models this feature is aimed at produce, and
+// because a wrong width has to be REFUSED rather than padded: two vectors of different
+// lengths come from different models, and comparing them up to the shorter one would produce
+// a number. See similar.ErrDimension.
+func GetSimilarVectorDimensions() int {
+	return C.SimilarVectorDimensions
 }

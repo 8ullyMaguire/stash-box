@@ -1,0 +1,133 @@
+# Scene similarity (feature-discovery SPEC section 8, aggregator phase 7 slice 5).
+#
+# THE EVIDENCE IS THE DESIGN, again, and here it is the whole feature.
+#
+# A scene recommends a scene through facts a reader can open: the same tag, a tag that is
+# a KIND of a tag the subject has, a tag the subject's tag IMPLIES, the same performer, the
+# same studio, a similar runtime. Every one of those is a link the reader can follow and a
+# claim they can check, which is what separates a recommendation from a number.
+#
+# THE THREE TAG KINDS ARE NOT ONE KIND. `cowgirl_position` implies `woman_on_top`, so two
+# scenes carrying `woman_on_top` share a fact, while a scene carrying `woman_on_top` and one
+# carrying `cowgirl_position` share a claim in ONE direction: the specific one is an
+# instance of the general one. Reporting both as "shared tag" would make the count disagree
+# with the ontology the rest of the app reads -- the bug the tag explorer already shipped
+# once, where a facet count did not match what clicking it returned.
+#
+# NOTHING IS A PERCENTAGE. `score` is the ranking value (weighted evidence over what the
+# subject offers, roughly 0-1) and is exposed for ordering and debugging, not for display:
+# rendering "87% match" from it invents a precision this heuristic does not have. Render
+# `reasons` instead.
+
+"""
+What kind of thing two scenes have in common.
+
+A closed set, because the point of a reason is that a reader can check it. Three of the six
+are about tags and they are not interchangeable: see the note above the file.
+"""
+enum SimilarityReasonKind {
+  "Both scenes carry this tag."
+  SAME_TAG
+  """
+  The candidate carries a tag that is a KIND of one of the subject's tags
+  (`cowgirl_position` for `woman_on_top`): a specific instance of a claim the subject makes.
+  A claim in one direction only, so it weighs half of the same tag.
+  """
+  NARROWER_TAG
+  """
+  The candidate carries a tag one of the subject's tags implies (the subject is tagged
+  `cowgirl_position`, the candidate `woman_on_top`): a family relative rather than an
+  instance. The weakest tag evidence there is, and named rather than hidden, because a
+  reader who disagrees can see exactly what was claimed.
+  """
+  BROADER_TAG
+  "The same person appears in both scenes. The strongest single fact the archive records."
+  SHARED_PERFORMER
+  "Both scenes belong to the same studio. Weak on its own -- a studio publishes hundreds of scenes -- but it is what a reader would guess first, so it is named rather than folded into a score."
+  SAME_STUDIO
+  "The two run for about the same length of time. A tiebreak, never a reason on its own: a runtime is not content."
+  SIMILAR_DURATION
+}
+
+"""
+One thing two scenes have in common.
+
+`weight` is this reason's contribution to the score, so a client can reconstruct the number
+it is showing beside the reasons it is showing.
+"""
+type SimilarityReason {
+  "What kind of common ground this is."
+  kind: SimilarityReasonKind!
+
+  "The thing itself, in the words a reader would use: a tag, a performer or a studio name. Never a number."
+  label: String!
+
+  """
+  The subject's item that makes a TAG reason true, for the two ontology kinds: the subject's
+  tag that the candidate's tag is a kind of, or the subject's tag that implies the
+  candidate's. Absent for an exact tag match and for the other kinds, where there is nothing
+  in between.
+  """
+  via: String
+
+  "This reason's contribution to `score`."
+  weight: Float!
+}
+
+"""
+One recommended scene, with the evidence that recommended it.
+
+Ordered by `score` descending, with ties broken by id so two identical reads return the same
+page.
+"""
+type SimilarScene {
+  "The recommendation."
+  scene: Scene!
+
+  """
+  The ranking value, roughly 0-1 and above 1 for a rich candidate against a narrow subject.
+
+  Exposed for ordering and debugging, NOT for display. Render the reasons.
+  """
+  score: Float!
+
+  "What the two scenes have in common, strongest kind first."
+  reasons: [SimilarityReason!]!
+
+  """
+  The embedding similarity of the two scenes, when the vector store knows both.
+
+  Absent on every instance whose store holds nothing -- which is the default, because no
+  embedding model produces vectors here yet. It is NOT a reason: it is a number, and it
+  answers "why are these two in this order" when their evidence is equal. It never
+  contributes to `score`, and a negative similarity is not reported at all: a claim that two
+  scenes are unlike is not evidence that the structured match is wrong.
+  """
+  semanticScore: Float
+}
+
+extend type Scene {
+  """
+  Scenes related to this one, best first.
+
+  An empty list is normal and not an error: a scene with no tags, no performers, no studio
+  and no duration has nothing in common with anything, and one whose only neighbours share
+  a single weak fact may rank below the page. That is a fact about the archive, not a
+  failure.
+
+  Excludes this scene and soft-deleted scenes, and never returns a scene unless it shares at
+  least one fact -- a tag through the ontology, a performer, or its studio.
+
+  There is NO minimum-evidence parameter, unlike `similarPerformers`' `minShared`. A floor
+  there filters coincidence out of a short list of people; here the weak matches sink to the
+  bottom of a list a client paginates, and a floor would silently hide a strong match with
+  little shared vocabulary. `score` and `reasons` are both returned, so a client can filter
+  on what it can see.
+
+  There is no count field either, and for a different reason: the candidate pool is bounded
+  (see `candidatePoolSize`), so a count would be a count of the pool rather than of the
+  archive. "There are 500" would be a lie with a number on it.
+  """
+  similarScenes(limit: Int = 10): [SimilarScene!]!
+    @hasRole(role: READ)
+}

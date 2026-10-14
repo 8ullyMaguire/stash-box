@@ -390,7 +390,7 @@ a signal — `rating IS NULL` contributes nothing.
   `Date` criterion plus `FRESH`. A period parameter on the SORT would be a field that silently does
   nothing when paired with another sort, which is the class of input this spec keeps removing.
 
-## 8. Content DNA and similarity (slice 5)
+## 8. Content DNA and similarity (slice 5, DONE)
 
 `VectorStore` is an interface with two implementations: `Noop` (returns no neighbours, the
 default) and `InMemory` (a `[]float32` per item, cosine, brute force over a candidate set the
@@ -398,13 +398,114 @@ structured filters already narrowed). §2's measurement is why: **pgvector is no
 this instance**, so the "cheap first implementation" the plan assumed is not available either,
 and `cube` cannot hold 512 dimensions.
 
-The explanation half (§8.5's `similar_because`) lands BEFORE the vector half, because it is the
-part that is honest today: shared tags (weighted by the ontology distance), the same performer,
-the same studio, similar duration. Similarity without an explanation is the recommendation
-nobody can act on, and an explanation built from tags is correct at any scale.
+The explanation half lands BEFORE the vector half, because it is the part that is honest today
+and the part a reader can check. Similarity without an explanation is the recommendation nobody
+can act on, and an explanation built from tags is correct at any scale.
 
-The threshold that justifies an ANN store is **measured, not guessed**, and recorded here when
-it is measured: candidate-set size and p95 latency at which `InMemory` stops being enough.
+### 8.1 The evidence, the weights, and what the score is for
+
+| Evidence | Weight | Source |
+|---|---|---|
+| both carry the same tag | 3.0 | `scene_tags` |
+| the candidate carries a tag that is a KIND of one of the subject's | 1.5 | `tag_implications`, walked specific-wards |
+| the candidate carries a tag one of the subject's tags IMPLIES | 1.0 | `tag_implications`, walked general-wards |
+| the same performer appears in both | 5.0 | `scene_performers` |
+| both belong to the same studio | 2.0 | `scenes.studio_id` |
+| runtimes within half an hour, linearly | up to 2.0 | `scenes.duration`, in seconds |
+
+`score = earned / capacity`, where capacity is what the SUBJECT offers: `3 × its tags + 5 × its
+performers + 2 if it has a studio + 2 if it has a duration`. A scene with no runtime offers
+nothing for the runtime term, so the term is neither earned against it nor counted in the
+denominator. This is the same asymmetric denominator `similarPerformers` uses, for the same
+reason: a scene with forty tags shares *something* with everything, and dividing by the shared
+count's own total lets it outrank a genuine match against a scene with three.
+
+**The score is for ordering and debugging; the reasons are what a client renders.** It is not
+clamped to 1.0: a candidate can carry many tags that are kinds of a single tag the subject has,
+so a narrow subject can be exceeded by a rich candidate, and clamping would collapse all of
+those onto one number. Every reason carries its own `weight`, so a client can reconstruct the
+score it was shown from the reasons it was shown.
+
+An unrated review, an unknown runtime and a soft-deleted performer are all NOT evidence of
+likeness: none of them is a fact about content, and each is excluded on both sides so that the
+counts and the names cannot disagree.
+
+### 8.2 The ontology is read in BOTH directions, and the directions are not the same claim
+
+Migration 111 does not write an implied tag onto `scene_tags`, so a scene tagged
+`cowgirl_position` carries one row and a reader asking for `woman_on_top` finds it by walking
+the DAG. Similarity walks the same graph twice:
+
+- **Downwards** (`reach_down`): the candidate carries a tag that SATISFIES one of the subject's
+  tags — a specific instance of a claim the subject makes. 1.5.
+- **Upwards** (`reach_up`): the candidate carries a tag one of the subject's tags IMPLIES — a
+  more general claim, a family relative. 1.0.
+
+Both directions matter and neither is a stricter version of the other: the first is a claim the
+archive recorded (`cowgirl_position` implies `woman_on_top`), the second only shares a family.
+A one-directional rule would work for exactly half the archive, silently, depending on whether
+the subject happened to be tagged the general way — which is invisible on a single-tag fixture
+and obvious on a real one. A tag reachable by several of the subject's tags, or in both
+directions, produces ONE reason: the shallowest explanation wins, then the downward direction,
+then the name.
+
+### 8.3 The vector half REORDERS and never scores
+
+`ranking = score + max(0, semantic)`; `semantic` is the cosine of the two embeddings, exposed as
+`semanticScore` and nil when the store holds nothing for the pair. A NEGATIVE cosine is reported
+and not used: it is a claim from a different system that the structured match is wrong, and
+acting on it would let an unexplained number push a chosen recommendation DOWN. A candidate is
+only ever promoted.
+
+**Nothing about the vector half touches `score`**, which is the sum of things a reader can
+check. The first implementation added the bonus into `score` and the integration test caught it
+by reading `1.307` where the evidence said `0.6` — the number a client was shown had stopped
+being traceable from the reasons beside it.
+
+The store is built ONCE per service factory and not per call. A store constructed per request is
+always empty, so embeddings put into it could never reorder anything, however many there were —
+the vector half would look wired and behave exactly like the no-op store. `similar_vector_store`
+(`noop` by default, `inmemory`) is read there; an unknown value logs and degrades to the no-op
+rather than refusing to serve scenes.
+
+### 8.4 The threshold that justifies an approximate index: measured, and recorded here
+
+`go test ./internal/service/similar/ -run TestNearestLatencyReport -v` with `SIMILAR_BENCH=1`,
+512 dimensions, 200 samples per size, in-memory cosine over every stored vector:
+
+| stored vectors | p50 | p95 | mean |
+|---|---|---|---|
+| 1,000 | 1.17 ms | 1.69 ms | 1.27 ms |
+| 10,000 | 16.1 ms | 18.3 ms | 16.4 ms |
+| 100,000 | 186.7 ms | 195.6 ms | 187.4 ms |
+
+The scaling is linear at ~1.8 µs per vector, and the distribution is tight — a brute-force scan
+does the same work per vector every time — so the mean is representative and the p95 is not
+hiding a tail.
+
+**The conclusion, which is not the obvious one:** no approximate index is needed for this
+feature at any scale, because the store is never asked about the archive. It is asked about the
+candidate pool (`candidatePoolSize`, at most 500 ids), and `Scores` costs one map lookup and one
+cosine per id in that pool — 500 × 1.8 µs ≈ 0.9 ms, independent of how many vectors are stored
+beyond it. **A whole-archive nearest-neighbour surface is a different question, and that is where
+10,000 is the threshold**: at 10,000 × 512 a page of neighbours already costs 16 ms, and at
+100,000 it costs 187 ms, which is over any interactive budget. So an ANN store is justified when
+something asks "the nearest scenes to this vector" over everything, and not before — and the
+number that says so is the one above rather than a guess.
+
+### 8.5 What is deliberately absent
+
+- **No `minShared` floor**, unlike `similarPerformers`. A floor there removes coincidence from a
+  short list of people; here a weak match sinks to the bottom of a page the client paginates,
+  and a floor would silently hide a strong match with little shared vocabulary. Both `score` and
+  `reasons` are returned, so a client filters on what it can see.
+- **No count field**, for the opposite reason: the candidate pool is bounded, so any count would
+  be a count of the pool rather than of the archive. "There are 500" would be a lie with a number
+  on it.
+- **No embedding producer.** Nothing on this instance turns a scene into a vector, so the vector
+  half's candidate-selection value is unproven at scale, and the explanation carries the feature
+  until something does. `Noop.Put` returns an error rather than succeeding quietly: a seeding
+  pipeline that stored nothing must not report itself healthy.
 
 ## 9. Taste profile, For You, and the serendipity parameter (slice 6)
 
@@ -572,3 +673,26 @@ continue; nothing reads it unless the user turned it on.
     Both this section's earlier text and §10 claimed 114. The earlier slice wins the number
     because a migration that has been applied cannot be renumbered, and a plan's slice order is
     the order they are written in.
+17. **The score is for ordering and the reasons are for reading** (§8.1). The weights are a
+    named convention, not a measurement, so every one of them is exposed beside the number it
+    produced and a reader who disagrees can still see the facts. The score is NOT clamped to
+    1.0 and NOT a percentage: a narrow subject can be exceeded by a rich candidate, and clamping
+    would collapse those onto one value.
+18. **The vector half reorders and never scores** (§8.3), which is a reversal of the first
+    implementation. The bonus was added into `score`, so the number a client was shown stopped
+    being the sum of the reasons beside it — caught by an integration test reading `1.307` where
+    the evidence said `0.6`. The ranking value and the evidence score are now separate, and the
+    store is built once per factory: a store constructed per call is a store that is always
+    empty, which would have made the vector half look wired while behaving exactly like the
+    no-op store.
+19. **The ANN threshold is recorded as a measurement, and it says an ANN index is not needed
+    here** (§8.4). Brute force is 16 ms at 10,000 × 512 and 187 ms at 100,000; this feature only
+    ever asks the store about a bounded candidate pool, so the numbers justify an approximate
+    index for a whole-archive nearest-neighbour surface and nothing sooner. The promise in the
+    previous draft of this section — that the threshold would be measured rather than guessed —
+    is kept with numbers.
+20. **The candidate query is the feature; the score is the explanation** (§8.1, §8.2). A scene
+    the predicate does not select cannot be scored, so the ontology walk lives in SQL (both
+    directions, with the depth bound `ExpandTagIDsByImplications` already uses) and the SQL
+    pre-rank is deliberately UNWEIGHTED: a weighted pre-rank would be a second copy of the
+    scorer's weights in a file the scorer does not read, and the two would drift.

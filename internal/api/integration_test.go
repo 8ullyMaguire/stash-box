@@ -222,8 +222,18 @@ func (s *testRunner) createTestImage(width, height int, types ...models.ImageTyp
 	})
 }
 
-func createTestRunner(t *testing.T, u *models.User, roles []models.RoleEnum) *testRunner {
-	resolver := api.NewResolver(*dbtest.Factory())
+// createTestRunner builds a runner over the package's shared factory.
+//
+// The variadic factory is for the ONE test that has to prove configuration reaches
+// behaviour: a factory is built once with the store its configuration named, so a test that
+// changes the configuration has to build its own rather than mutate a singleton that other
+// tests are already holding. Absent, this is the shared factory every other test uses.
+func createTestRunner(t *testing.T, u *models.User, roles []models.RoleEnum, factories ...*service.Factory) *testRunner {
+	factory := dbtest.Factory()
+	if len(factories) > 0 && factories[0] != nil {
+		factory = factories[0]
+	}
+	resolver := api.NewResolver(*factory)
 
 	au := auth.FromUser(u)
 
