@@ -65,3 +65,11 @@ func (r *tagResolver) ImpliesTransitive(ctx context.Context, obj *models.Tag) ([
 func (r *tagResolver) ImpliedByTransitive(ctx context.Context, obj *models.Tag) ([]models.TagAtDepth, error) {
 	return r.services.TagOntology().ImpliedByTransitive(ctx, obj.ID)
 }
+
+// SceneCount is how much is under this tag: what a filter on it returns, through the
+// implications below it. Deliberately NOT a stored counter -- the ontology changes by edit, and
+// a materialised count would be wrong the moment an implication is added, with nothing to tell
+// a reader that the number they are looking at is stale.
+func (r *tagResolver) SceneCount(ctx context.Context, obj *models.Tag) (int, error) {
+	return r.services.Tag().SceneCount(ctx, obj.ID)
+}

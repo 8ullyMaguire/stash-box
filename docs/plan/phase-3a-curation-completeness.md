@@ -2,7 +2,7 @@
 
 **Spec:** `docs/SPEC.md` §7.24 · **Intake review:** `docs/track/INTAKE-2026-10-01-curation-completeness.md`
 **Written:** 2026-10-01 · **Amended:** 2026-10-05
-**Status:** in progress — §7.24.1 schema built, §7.24.1 service and gates outstanding
+Status: **in progress** — §7.24.1 schema built, §7.24.1 service and gates outstanding
 
 > **This document is the source of truth for what is NOT built.** `docs/goal-check.py` clause
 > C3 requires every plan document to read `Status: Built`, and it will keep failing until the

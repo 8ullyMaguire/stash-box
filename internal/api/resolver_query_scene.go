@@ -73,6 +73,26 @@ func (r *querySceneResolver) Diagnostics(ctx context.Context, obj *models.SceneQ
 	return out, nil
 }
 
+// Facets is the tags the result set is made of. Resolved only when asked for: it is one grouped
+// query over the result set plus one over the instance, not a field to send by accident.
+//
+// The filter is passed through UNCHANGED -- the same struct the results were resolved from -- so
+// a facet cannot describe a different set of scenes than the one it sits beside. The `query`
+// text inside it is lowered again inside Facets, by the same code the results used.
+func (r *querySceneResolver) Facets(ctx context.Context, obj *models.SceneQuery, limit *int, minCount *int) (*models.TagFacets, error) {
+	facetLimit := 25
+	if limit != nil {
+		facetLimit = *limit
+	}
+
+	minimum := 1
+	if minCount != nil {
+		minimum = *minCount
+	}
+
+	return r.services.Scene().Facets(ctx, obj.Filter, facetLimit, minimum)
+}
+
 func (r *queryResolver) QueryExistingScene(ctx context.Context, input models.QueryExistingSceneInput) (*models.QueryExistingSceneResult, error) {
 	input.Fingerprints = filterMD5FingerprintInputs(input.Fingerprints)
 	return &models.QueryExistingSceneResult{

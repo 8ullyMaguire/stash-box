@@ -234,6 +234,22 @@ type QueryScenesResultType {
   duration term would return more than was asked for and present it as the answer.
   """
   diagnostics: [SearchDiagnostic!]!
+  """
+  The tags this result set is made of, most-used first (docs/spec/feature-discovery.md section 6).
+
+  Scoped by the same filter the results are scoped by, because it is the same builder: a facet
+  cannot describe a different set of scenes than the one it sits beside. A facet's `count` is
+  what filtering by that tag returns, through the implication closure.
+
+  Resolved only when it is asked for -- it is one grouped query over the result set, not a field
+  to send by accident.
+  """
+  facets(
+    """Maximum number of tags to return."""
+    limit: Int = 25
+    """Leave out tags on fewer than this many result scenes."""
+    min_count: Int = 1
+  ): TagFacets!
 }
 
 enum SceneSortEnum {

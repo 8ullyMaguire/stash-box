@@ -254,19 +254,80 @@ subscription, so the notification is written directly rather than through
 `user_notifications` — requiring a second opt-in in a settings page would mean a search that
 silently never notifies.
 
-## 6. The tag explorer (slice 3)
+## 6. The tag explorer (slice 3, DONE)
 
-Two read surfaces over the phase 4 graph, both derived rather than stored:
+Two read surfaces over the phase 4 graph, both derived rather than stored.
 
-- **Facets for a query**: for the tags that co-occur with the current result set, the count of
-  items carrying each. One grouped query over `scene_tags`, scoped by the same filter the
-  results use, so "related tags" cannot disagree with the results.
-- **The hierarchy view**: `Tag.implies_transitive` / `implied_by_transitive` (phase 4) plus
-  per-tag item counts. The depth-bearing fields exist so the client does not walk the graph.
+### 6.1 Facets for a query
 
-Co-occurrence **strength** (§8.2's `riding (87%)`) is `count(together) / count(one)`, computed
-in the query, and it is a display figure — it must never become a filter, because then two
-instances with different corpora answer the same query differently.
+`QueryScenesResultType.facets(limit: Int = 25, min_count: Int = 1): TagFacets!` — resolved only
+when a client selects it, so a facet list is never computed for a page that does not show one.
+
+```graphql
+type TagFacets { tags: [TagFacet!]! tagged_count: Int! }
+type TagFacet  { tag: Tag! count: Int! strength: Float! }
+```
+
+**A count is what clicking it returns.** The count comes through the implication closure, in the
+direction the filter walks it (specific → general, migration 111), so a scene tagged only
+`cowgirl_position` counts under `woman_on_top`, because filtering by `woman_on_top` finds it. A
+direct-row `COUNT(*)` over `scene_tags` would be the same number only on a flat tag vocabulary —
+on a hierarchy most items carry the SPECIFIC tag, so the general tags, the ones a reader browses
+by, would report nearly nothing. The test asserts the agreement the way a reader checks it: the
+facet's count equals `queryScenes` with that tag added to the filter under
+`CriterionModifierIncludesAll`.
+
+**The modifier is part of the contract.** `Includes` is a UNION: `{marker, general}` with
+`Includes` matches scenes carrying either, so the same fixture returns 4 where the facet says 3
+and the facet looks wrong while being right. A facet is applied ON TOP of what the reader
+already has, which is `IncludesAll` — "this tag AMONG these results", not "everything with this
+tag".
+
+**The list is about the result set.** The seed of the statement is `buildSceneQuery`, the same
+builder the results came from, so the scope cannot drift — a copy of the WHERE clause could.
+Then: the tags the filter already REQUIRES are not offered back (a facet list offers what a
+reader has not decided yet); a tag no result scene carries is not listed; a tag that only
+IMPLIES a filtered tag stays, and is usually the most useful row (filtering `woman_on_top` and
+being told `cowgirl_position` is what people actually tagged answers the question the hierarchy
+creates); EXCLUDED tags stay listed too, because "the thing you just ruled out is how 40% of
+these are tagged" is a fact and hiding it would make the list quietly editorial; deleted tags
+are never listed.
+
+**`strength` is a display figure and never a filter** (the draft's §8.2 `riding (87%)`): the
+facet's count divided by every scene in the INSTANCE a filter on that tag would return, so 1.0
+means this result set already holds everything that tag has, and two instances holding different
+corpora give the same query different numbers.
+
+**`tagged_count`** is how many result scenes carry at least one tag — the denominator for "40%
+of these". It is deliberately not the sum of the counts above: a scene carrying two tags is in
+two of them.
+
+Cost per facet request: the result set's own query once (that is what "scoped by the same
+filter" costs), one grouped statement over `scene_tags` for the whole list, one instance-wide
+aggregation for every facet's denominator (`CountScenesForTagsThroughImplications`, seeded with
+the whole list so it is one statement and not one per tag), one count for `tagged_count`, and
+one tag lookup. It is a hand-built statement rather than a sqlc query, because the seed is
+dynamic and squirrel v1.5 cannot express a recursive CTE; it carries its own `-- name:` so
+traces still label it.
+
+### 6.2 The hierarchy view
+
+`Tag.implies_transitive` / `implied_by_transitive` (phase 4) carry depth, so a client does not
+walk the graph, and `Tag.scene_count` is what a filter on this tag returns — the same closure
+question, seeded with one tag. Derived at read time, never stored: an ontology edit creates an
+implication, and a materialised counter would be wrong the moment one lands with nothing to tell
+a reader the number is stale.
+
+The three numbers close on each other: a facet's `count` for a tag, the count of a query
+filtered by that tag WITHIN the result set, and `Tag.scene_count` restricted to the same set are
+the same question asked three ways.
+
+Deferred in this slice: nothing that reads as a gap — the surfaces are complete for a client to
+render (list, strength, counts, hierarchy with depth). What is NOT here is the UI (§16's
+programme) and any cross-kind facet (performers, studios, sites as facets). Cross-kind facets are
+deferred rather than half-built: their counts are questions about other join tables, and one
+generic facet mechanism would be a query builder over builders. The tag facet is where the
+hierarchy makes the number non-obvious, which is why it went first.
 
 ## 7. Trending and freshness (slice 4)
 
@@ -371,9 +432,22 @@ continue; nothing reads it unless the user turned it on.
   deleting the search takes its notifications. Four mutations (cursor filtering dropped, paging
   arguments ignored, the no-cursor rule removed, ownership unchecked in delete) each redden
   exactly the test that names that behaviour and restore green.
-- **Slice 3** — facets: the counts a query returns for a fixture whose co-occurrence is known
-  by construction; and the scope test, that a facet count agrees with the result set it sits
-  next to.
+- **Slice 3** — `scripts/mutate-scene-facets.py` plus
+  `internal/api/scene_facets_integration_test.go`, on a fixture whose co-occurrence is known BY
+  CONSTRUCTION and built so the hierarchy case and the flat case differ: `specific` implies
+  `general`, two scenes carry only `specific`, one carries `general` directly, one outside the
+  result set carries `general` alone. Then: the facet's count for `general` is 3 and NOT the 1 a
+  direct-row count gives; the same number is compared against `queryScenes` filtered by
+  `{marker, general}` under `IncludesAll`, so a facet is checked against the result a reader
+  gets by clicking it; `specific` is 2 and every number is asserted before any absence is; the
+  filter's own tag and a tag no result scene carries are both absent from the list, after the
+  list is asserted non-empty and the fixture asserted visible; strength is 0.75 for `general`
+  (3 of the instance's 4 scenes) and 1.0 for `specific`, with every strength in (0, 1];
+  `tagged_count` is 3; `limit: 1` returns the single most-used tag and `min_count: 3` drops the
+  tag with 2; and `Tag.scene_count` is 4 for `general`, 2 for `specific`, 0 for a tag nothing
+  carries. Four mutations (the recursive arm of the closure removed, the applied-tag exclusion
+  removed, strength reported as a raw count, and `limit`/`min_count` never reaching the
+  statement) each redden exactly the test that names that behaviour and restore green.
 - **Slice 4** — the freshness score against hand-computed values for a fixture with known
   ages; and the ordering test, that a scene with older but more numerous signals sorts below a
   newer one.
@@ -411,3 +485,17 @@ continue; nothing reads it unless the user turned it on.
 9. **The search's `notify` flag IS the subscription** (§5), so the notification bypasses
    `user_notifications` on purpose: a second opt-in would produce a search that silently never
    notifies.
+10. **A facet's count is a number the reader can check, so it agrees with the click** (§6.1).
+    Counting the direct rows of `scene_tags` is the obvious implementation and the wrong one on a
+    hierarchy: the general tags would report nearly nothing, and the number beside a tag would
+    disagree with the page it opens. The count walks the closure, and the integration test
+    compares it against the filtered query rather than against itself.
+11. **`Tag.scene_count` is computed, never stored** (§6.2). An ontology edit adds an implication
+    that changes the count of every tag above it; a materialised counter would be stale from that
+    moment with nothing to tell a reader. The count is also the same question the facet asks, so
+    one closure query answers both.
+12. **Cross-kind facets are deferred, not stubbed** (§6.1). Performers, studios and sites as
+    facets are counts over different join tables each with their own hierarchy rules (a performer
+    alias, a studio parent); one generic mechanism would be a query builder over builders, and the
+    tag facet is the one where the hierarchy makes the number non-obvious — which is why it is
+    the one that shipped.

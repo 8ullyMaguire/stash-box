@@ -1,5 +1,9 @@
 # PLAN — the content aggregator programme (NexusXXX parity)
 
+Status: **in progress** — phases 1, 2 and 4 done; phase 7 in progress (slices 1, 2a, 2b and 3
+done; 4–7 outstanding); phases 3 and 5–17 not started. The state table is
+`docs/track/TRACK-content-aggregator.md`, which `docs/goal-check.py` clause C8 reads.
+
 Implements `docs/spec/feature-content-aggregator.md`. Phase-level, because that is
 the only level at which the ordering is decidable: each phase's code depends on the
 previous phase's landed schema, and this repo's own commit log records what happens
@@ -446,10 +450,34 @@ part of the commit message.
    found nothing, silently — the cursor now comes from `SavedSearchNow`), and the job ran with no
    current user in its context, which the query path dereferences (it now runs as the search's
    owner, which is also the only correct reading of `favorites:`).
-3. **The tag explorer.** `internal/queries/sql/tag_facets.sql` (co-occurrence counts scoped by
-   the same filter as the results) and the `Tag.facets`/`TagExplorer` surface.
-   **Verification:** the facet count equals the result-set count for a fixture built to make
-   them differ if the scope is wrong.
+3. **The tag explorer. DONE.**
+   `internal/service/scene/facets.go` (the facet statement: a hand-built `WITH RECURSIVE` whose
+   seed IS `buildSceneQuery`, so the counts are scoped by the same builder the results came from;
+   the closure arm that makes a count equal what a filter on that tag returns; the exclusion of
+   the tags the filter already applies; strength against the instance), the sqlc query
+   `CountScenesForTagsThroughImplications` (the same closure seeded with a SET, so one statement
+   answers every facet's denominator — and `Tag.scene_count` reuses it with a single seed),
+   `internal/models/model_tag_facets.go`, `TagFacets`/`TagFacet` and
+   `QueryScenesResultType.facets(limit, min_count)` in `graphql/schema/types/{tag,scene}.graphql`,
+   the `querySceneResolver.Facets` and `tagResolver.SceneCount` resolvers, and
+   `internal/api/scene_facets_integration_test.go`.
+   **Verification:** `POSTGRES_DB=... go test -tags integration -count=1 -p 1 -run 'Facet|TagSceneCount' ./internal/api/` → ok, on a fixture where `specific` implies `general` and the
+   counts differ from the naive ones by construction: the facet for `general` is 3 (one direct
+   plus two through the hierarchy) and the same number is compared against `queryScenes` with
+   `{marker, general}` under `IncludesAll`; `specific` is 2; the filter's own tag and a tag no
+   result scene carries are absent; strength is 0.75 for `general` (3 of the instance's 4) and
+   1.0 for `specific`, every strength in (0, 1]; `tagged_count` is 3; `limit: 1` returns the
+   most-used tag alone and `min_count: 3` drops the tag with 2; `Tag.scene_count` is 4, 2 and 0.
+   **Mutation-checked** by `scripts/mutate-scene-facets.py` — 4/4 caught and restored: removing
+   the closure's recursive arm (counts become the plausible-looking direct ones), removing the
+   applied-tag exclusion, reporting strength as a raw count, and hardcoding `limit`/`min_count`
+   so the arguments never reach the statement.
+   **One test bug found by the test itself:** the agreement check was first written with
+   `CriterionModifierIncludes`, which is a UNION — `{marker, general}` matched the scene outside
+   the result set too, returning 4 against the facet's 3. The facet was right and the comparison
+   was wrong; `IncludesAll` is the modifier that means "this tag among these results", and the
+   spec records why the distinction is part of the contract rather than an implementation
+   detail.
 4. **Trending and freshness.** Migration **114** (`scene_freshness`), the refresh in
    `internal/cron`, `SceneSortEnumFresh`, the Rising and Best-of windows.
    **Verification:** hand-computed scores for a fixture with known ages; an older-but-bigger

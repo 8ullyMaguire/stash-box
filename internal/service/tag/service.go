@@ -33,6 +33,25 @@ func (s *Tag) WithTxn(fn func(*queries.Queries) error) error {
 	return s.withTxn(fn)
 }
 
+// SceneCount is how many scenes a filter on this tag would return: the scenes carrying it, plus
+// the scenes carrying anything that IMPLIES it, because that is what filtering by it finds
+// (migration 111's direction is specific -> general). Zero is a real answer and not an error --
+// it is the state every new tag starts in.
+func (s *Tag) SceneCount(ctx context.Context, tagID uuid.UUID) (int, error) {
+	rows, err := s.queries.CountScenesForTagsThroughImplications(ctx, []uuid.UUID{tagID})
+	if err != nil {
+		return 0, err
+	}
+
+	for _, row := range rows {
+		if row.TagID == tagID {
+			return int(row.Count), nil
+		}
+	}
+
+	return 0, nil
+}
+
 // Queries
 
 func (s *Tag) FindByID(ctx context.Context, id uuid.UUID) (*models.Tag, error) {

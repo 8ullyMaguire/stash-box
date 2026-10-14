@@ -143,3 +143,34 @@ LEFT JOIN tag_redirects R ON R.source_id = T.id
 WHERE (T.updated_at, T.id) > (sqlc.arg('since')::timestamp, sqlc.arg('after_id')::uuid)
 ORDER BY T.updated_at, T.id
 LIMIT sqlc.arg('limit');
+
+-- name: CountScenesForTagsThroughImplications :many
+-- How many scenes a filter on each of these tags would return, walking the implication graph
+-- DOWNWARD: a scene counts for `woman_on_top` if it carries `woman_on_top` OR anything that
+-- implies it (migration 111's direction is specific -> general, so the walk follows
+-- implied_tag_id back towards the tag being asked about).
+--
+-- This is the denominator of a facet's strength (spec section 6) and the item count the
+-- hierarchy view shows, and it is the SAME question a filter asks -- which is why it must not
+-- be a plain `COUNT(*) ... WHERE tag_id = ANY(ids)`: that counts only what carries the tag
+-- directly, and on an ontology where most items carry a specific tag it would report almost
+-- nothing under the general ones.
+--
+-- The recursion is the same closure `FindTransitiveImpliedByTagID` computes for one tag; here
+-- it is seeded with a SET, so a facet list costs one query instead of one per tag. The
+-- ON DELETE CASCADE on tag_implications plus the cycle trigger (migration 111) are what make
+-- this terminate.
+WITH RECURSIVE down AS (
+    SELECT t.id::uuid AS root_id, t.id::uuid AS tag_id
+    FROM unnest(sqlc.arg('tag_ids')::uuid[]) AS t(id)
+
+    UNION
+
+    SELECT d.root_id, ti.tag_id
+    FROM down d
+    JOIN tag_implications ti ON ti.implied_tag_id = d.tag_id
+)
+SELECT (d.root_id)::uuid AS tag_id, COUNT(DISTINCT st.scene_id)::bigint AS count
+FROM down d
+JOIN scene_tags st ON st.tag_id = d.tag_id
+GROUP BY d.root_id;

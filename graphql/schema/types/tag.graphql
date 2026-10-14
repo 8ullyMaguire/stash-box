@@ -37,6 +37,46 @@ type Tag {
 
   "Everything above this tag: every tag a reader could filter by and still find this one."
   implied_by_transitive: [TagAtDepth!]!
+
+  """
+  How many scenes a filter on this tag would return, through the implications below it.
+
+  Not `COUNT(scene_tags)`: a scene tagged only `cowgirl_position` is found by a filter on
+  `woman_on_top`, so it counts here too. That is the number a reader sees when they click the
+  tag, and the two must not disagree.
+  """
+  scene_count: Int!
+}
+
+"""
+The tags a result set is made of, most-used first (docs/spec/feature-discovery.md section 6).
+
+Scoped by exactly the filter the results were scoped by -- the same query builder, not a copy --
+so a facet cannot describe a different set of scenes than the one it sits beside.
+"""
+type TagFacets {
+  tags: [TagFacet!]!
+  """
+  How many of the result scenes carry at least one tag. The denominator a client needs to render
+  "40% of these" honestly.
+  """
+  tagged_count: Int!
+}
+
+type TagFacet {
+  tag: Tag!
+  """
+  Result scenes carrying this tag or anything implying it: exactly what filtering by it returns.
+  """
+  count: Int!
+  """
+  `count` divided by every scene in this INSTANCE a filter on this tag would return.
+
+  1.0 means this query's result set already holds everything that tag has. It is a display
+  figure and never a filter: it is computed against this instance's corpus, so two instances
+  holding different scenes give the same query different numbers.
+  """
+  strength: Float!
 }
 
 """

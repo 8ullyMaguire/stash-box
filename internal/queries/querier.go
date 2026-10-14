@@ -240,6 +240,22 @@ type Querier interface {
 	CountSceneSnapshots(ctx context.Context, sceneID uuid.UUID) (int64, error)
 	CountScenesByPerformer(ctx context.Context, performerID uuid.UUID) (int64, error)
 	CountScenesByPerformerIds(ctx context.Context, dollar_1 []uuid.UUID) ([]CountScenesByPerformerIdsRow, error)
+	// How many scenes a filter on each of these tags would return, walking the implication graph
+	// DOWNWARD: a scene counts for `woman_on_top` if it carries `woman_on_top` OR anything that
+	// implies it (migration 111's direction is specific -> general, so the walk follows
+	// implied_tag_id back towards the tag being asked about).
+	//
+	// This is the denominator of a facet's strength (spec section 6) and the item count the
+	// hierarchy view shows, and it is the SAME question a filter asks -- which is why it must not
+	// be a plain `COUNT(*) ... WHERE tag_id = ANY(ids)`: that counts only what carries the tag
+	// directly, and on an ontology where most items carry a specific tag it would report almost
+	// nothing under the general ones.
+	//
+	// The recursion is the same closure `FindTransitiveImpliedByTagID` computes for one tag; here
+	// it is seeded with a SET, so a facet list costs one query instead of one per tag. The
+	// ON DELETE CASCADE on tag_implications plus the cycle trigger (migration 111) are what make
+	// this terminate.
+	CountScenesForTagsThroughImplications(ctx context.Context, tagIds []uuid.UUID) ([]CountScenesForTagsThroughImplicationsRow, error)
 	// How many performers clear the shared-scene floor for a subject.
 	//
 	// Separate from FindSimilarPerformers on purpose: the list is limited to a page,

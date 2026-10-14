@@ -889,6 +889,7 @@ type ComplexityRoot struct {
 	QueryScenesResultType struct {
 		Count       func(childComplexity int) int
 		Diagnostics func(childComplexity int) int
+		Facets      func(childComplexity int, limit *int, minCount *int) int
 		Scenes      func(childComplexity int) int
 	}
 
@@ -1147,6 +1148,7 @@ type ComplexityRoot struct {
 		Implies             func(childComplexity int) int
 		ImpliesTransitive   func(childComplexity int) int
 		Name                func(childComplexity int) int
+		SceneCount          func(childComplexity int) int
 		Updated             func(childComplexity int) int
 	}
 
@@ -1180,6 +1182,17 @@ type ComplexityRoot struct {
 		Name                func(childComplexity int) int
 		RemovedAliases      func(childComplexity int) int
 		RemovedImplications func(childComplexity int) int
+	}
+
+	TagFacet struct {
+		Count    func(childComplexity int) int
+		Strength func(childComplexity int) int
+		Tag      func(childComplexity int) int
+	}
+
+	TagFacets struct {
+		TaggedCount func(childComplexity int) int
+		Tags        func(childComplexity int) int
 	}
 
 	TagImplication struct {
@@ -1631,6 +1644,7 @@ type QueryScenesResultTypeResolver interface {
 	Count(ctx context.Context, obj *SceneQuery) (int, error)
 	Scenes(ctx context.Context, obj *SceneQuery) ([]Scene, error)
 	Diagnostics(ctx context.Context, obj *SceneQuery) ([]SearchDiagnostic, error)
+	Facets(ctx context.Context, obj *SceneQuery, limit *int, minCount *int) (*TagFacets, error)
 }
 type QueryUnorganizedImagesResultTypeResolver interface {
 	Count(ctx context.Context, obj *UnorganizedImagesQuery) (int, error)
@@ -1725,6 +1739,7 @@ type TagResolver interface {
 	ImpliedBy(ctx context.Context, obj *Tag) ([]Tag, error)
 	ImpliesTransitive(ctx context.Context, obj *Tag) ([]TagAtDepth, error)
 	ImpliedByTransitive(ctx context.Context, obj *Tag) ([]TagAtDepth, error)
+	SceneCount(ctx context.Context, obj *Tag) (int, error)
 	Completion(ctx context.Context, obj *Tag) (*Completion, error)
 }
 type TagCategoryResolver interface {
@@ -6125,6 +6140,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.QueryScenesResultType.Diagnostics(childComplexity), true
+	case "QueryScenesResultType.facets":
+		if e.ComplexityRoot.QueryScenesResultType.Facets == nil {
+			break
+		}
+
+		args, err := ec.field_QueryScenesResultType_facets_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.QueryScenesResultType.Facets(childComplexity, args["limit"].(*int), args["min_count"].(*int)), true
 	case "QueryScenesResultType.scenes":
 		if e.ComplexityRoot.QueryScenesResultType.Scenes == nil {
 			break
@@ -7273,6 +7299,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Tag.Name(childComplexity), true
+	case "Tag.scene_count":
+		if e.ComplexityRoot.Tag.SceneCount == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Tag.SceneCount(childComplexity), true
 	case "Tag.updated":
 		if e.ComplexityRoot.Tag.Updated == nil {
 			break
@@ -7403,6 +7435,38 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.TagEdit.RemovedImplications(childComplexity), true
+
+	case "TagFacet.count":
+		if e.ComplexityRoot.TagFacet.Count == nil {
+			break
+		}
+
+		return e.ComplexityRoot.TagFacet.Count(childComplexity), true
+	case "TagFacet.strength":
+		if e.ComplexityRoot.TagFacet.Strength == nil {
+			break
+		}
+
+		return e.ComplexityRoot.TagFacet.Strength(childComplexity), true
+	case "TagFacet.tag":
+		if e.ComplexityRoot.TagFacet.Tag == nil {
+			break
+		}
+
+		return e.ComplexityRoot.TagFacet.Tag(childComplexity), true
+
+	case "TagFacets.tagged_count":
+		if e.ComplexityRoot.TagFacets.TaggedCount == nil {
+			break
+		}
+
+		return e.ComplexityRoot.TagFacets.TaggedCount(childComplexity), true
+	case "TagFacets.tags":
+		if e.ComplexityRoot.TagFacets.Tags == nil {
+			break
+		}
+
+		return e.ComplexityRoot.TagFacets.Tags(childComplexity), true
 
 	case "TagImplication.created_at":
 		if e.ComplexityRoot.TagImplication.CreatedAt == nil {
@@ -11237,6 +11301,22 @@ type QueryScenesResultType {
   duration term would return more than was asked for and present it as the answer.
   """
   diagnostics: [SearchDiagnostic!]!
+  """
+  The tags this result set is made of, most-used first (docs/spec/feature-discovery.md section 6).
+
+  Scoped by the same filter the results are scoped by, because it is the same builder: a facet
+  cannot describe a different set of scenes than the one it sits beside. A facet's ` + "`" + `count` + "`" + ` is
+  what filtering by that tag returns, through the implication closure.
+
+  Resolved only when it is asked for -- it is one grouped query over the result set, not a field
+  to send by accident.
+  """
+  facets(
+    """Maximum number of tags to return."""
+    limit: Int = 25
+    """Leave out tags on fewer than this many result scenes."""
+    min_count: Int = 1
+  ): TagFacets!
 }
 
 enum SceneSortEnum {
@@ -11662,6 +11742,46 @@ type Tag {
 
   "Everything above this tag: every tag a reader could filter by and still find this one."
   implied_by_transitive: [TagAtDepth!]!
+
+  """
+  How many scenes a filter on this tag would return, through the implications below it.
+
+  Not ` + "`" + `COUNT(scene_tags)` + "`" + `: a scene tagged only ` + "`" + `cowgirl_position` + "`" + ` is found by a filter on
+  ` + "`" + `woman_on_top` + "`" + `, so it counts here too. That is the number a reader sees when they click the
+  tag, and the two must not disagree.
+  """
+  scene_count: Int!
+}
+
+"""
+The tags a result set is made of, most-used first (docs/spec/feature-discovery.md section 6).
+
+Scoped by exactly the filter the results were scoped by -- the same query builder, not a copy --
+so a facet cannot describe a different set of scenes than the one it sits beside.
+"""
+type TagFacets {
+  tags: [TagFacet!]!
+  """
+  How many of the result scenes carry at least one tag. The denominator a client needs to render
+  "40% of these" honestly.
+  """
+  tagged_count: Int!
+}
+
+type TagFacet {
+  tag: Tag!
+  """
+  Result scenes carrying this tag or anything implying it: exactly what filtering by it returns.
+  """
+  count: Int!
+  """
+  ` + "`" + `count` + "`" + ` divided by every scene in this INSTANCE a filter on this tag would return.
+
+  1.0 means this query's result set already holds everything that tag has. It is a display
+  figure and never a filter: it is computed against this instance's corpus, so two instances
+  holding different scenes give the same query different numbers.
+  """
+  strength: Float!
 }
 
 """
@@ -13566,6 +13686,8 @@ func (ec *executionContext) childFields_QueryScenesResultType(ctx context.Contex
 		return ec.fieldContext_QueryScenesResultType_scenes(ctx, field)
 	case "diagnostics":
 		return ec.fieldContext_QueryScenesResultType_diagnostics(ctx, field)
+	case "facets":
+		return ec.fieldContext_QueryScenesResultType_facets(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type QueryScenesResultType", field.Name)
 }
@@ -13958,6 +14080,8 @@ func (ec *executionContext) childFields_Tag(ctx context.Context, field graphql.C
 		return ec.fieldContext_Tag_implies_transitive(ctx, field)
 	case "implied_by_transitive":
 		return ec.fieldContext_Tag_implied_by_transitive(ctx, field)
+	case "scene_count":
+		return ec.fieldContext_Tag_scene_count(ctx, field)
 	case "completion":
 		return ec.fieldContext_Tag_completion(ctx, field)
 	}
@@ -14004,6 +14128,28 @@ func (ec *executionContext) childFields_TagCategoryTreeNode(ctx context.Context,
 		return ec.fieldContext_TagCategoryTreeNode_depth(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type TagCategoryTreeNode", field.Name)
+}
+
+func (ec *executionContext) childFields_TagFacet(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "tag":
+		return ec.fieldContext_TagFacet_tag(ctx, field)
+	case "count":
+		return ec.fieldContext_TagFacet_count(ctx, field)
+	case "strength":
+		return ec.fieldContext_TagFacet_strength(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type TagFacet", field.Name)
+}
+
+func (ec *executionContext) childFields_TagFacets(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "tags":
+		return ec.fieldContext_TagFacets_tags(ctx, field)
+	case "tagged_count":
+		return ec.fieldContext_TagFacets_tagged_count(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type TagFacets", field.Name)
 }
 
 func (ec *executionContext) childFields_TagImplication(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -15913,6 +16059,28 @@ func (ec *executionContext) field_Performer_studios_args(ctx context.Context, ra
 		return nil, err
 	}
 	args["studio_id"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_QueryScenesResultType_facets_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "limit",
+		func(ctx context.Context, v any) (*int, error) {
+			return ec.unmarshalOInt2ᚖint(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["limit"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "min_count",
+		func(ctx context.Context, v any) (*int, error) {
+			return ec.unmarshalOInt2ᚖint(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["min_count"] = arg1
 	return args, nil
 }
 
@@ -37940,6 +38108,50 @@ func (ec *executionContext) fieldContext_QueryScenesResultType_diagnostics(_ con
 	return fc, nil
 }
 
+func (ec *executionContext) _QueryScenesResultType_facets(ctx context.Context, field graphql.CollectedField, obj *SceneQuery) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_QueryScenesResultType_facets(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.QueryScenesResultType().Facets(ctx, obj, fc.Args["limit"].(*int), fc.Args["min_count"].(*int))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *TagFacets) graphql.Marshaler {
+			return ec.marshalNTagFacets2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTagFacets(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_QueryScenesResultType_facets(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "QueryScenesResultType",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_TagFacets(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_QueryScenesResultType_facets_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _QuerySiteCategoriesResultType_count(ctx context.Context, field graphql.CollectedField, obj *QuerySiteCategoriesResultType) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -42780,6 +42992,29 @@ func (ec *executionContext) fieldContext_Tag_implied_by_transitive(_ context.Con
 	return fc, nil
 }
 
+func (ec *executionContext) _Tag_scene_count(ctx context.Context, field graphql.CollectedField, obj *Tag) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Tag_scene_count(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Tag().SceneCount(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Tag_scene_count(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Tag", field, true, true, errors.New("field of type Int does not have child fields"))
+}
+
 func (ec *executionContext) _Tag_completion(ctx context.Context, field graphql.CollectedField, obj *Tag) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -43351,6 +43586,139 @@ func (ec *executionContext) _TagEdit_aliases(ctx context.Context, field graphql.
 }
 func (ec *executionContext) fieldContext_TagEdit_aliases(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("TagEdit", field, true, true, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _TagFacet_tag(ctx context.Context, field graphql.CollectedField, obj *TagFacet) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_TagFacet_tag(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Tag, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v Tag) graphql.Marshaler {
+			return ec.marshalNTag2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTag(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_TagFacet_tag(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "TagFacet",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_Tag(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _TagFacet_count(ctx context.Context, field graphql.CollectedField, obj *TagFacet) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_TagFacet_count(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Count, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_TagFacet_count(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("TagFacet", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _TagFacet_strength(ctx context.Context, field graphql.CollectedField, obj *TagFacet) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_TagFacet_strength(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Strength, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v float64) graphql.Marshaler {
+			return ec.marshalNFloat2float64(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_TagFacet_strength(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("TagFacet", field, false, false, errors.New("field of type Float does not have child fields"))
+}
+
+func (ec *executionContext) _TagFacets_tags(ctx context.Context, field graphql.CollectedField, obj *TagFacets) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_TagFacets_tags(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Tags, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []TagFacet) graphql.Marshaler {
+			return ec.marshalNTagFacet2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTagFacetᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_TagFacets_tags(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "TagFacets",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_TagFacet(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _TagFacets_tagged_count(ctx context.Context, field graphql.CollectedField, obj *TagFacets) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_TagFacets_tagged_count(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.TaggedCount, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_TagFacets_tagged_count(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("TagFacets", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
 func (ec *executionContext) _TagImplication_tag_id(ctx context.Context, field graphql.CollectedField, obj *TagImplication) (ret graphql.Marshaler) {
@@ -63469,6 +63837,44 @@ func (ec *executionContext) _QueryScenesResultType(ctx context.Context, sel ast.
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "facets":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._QueryScenesResultType_facets(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -67382,6 +67788,44 @@ func (ec *executionContext) _Tag(ctx context.Context, sel ast.SelectionSet, obj 
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "scene_count":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Tag_scene_count(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "completion":
 			field := field
 
@@ -67949,6 +68393,97 @@ func (ec *executionContext) _TagEdit(ctx context.Context, sel ast.SelectionSet, 
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var tagFacetImplementors = []string{"TagFacet"}
+
+func (ec *executionContext) _TagFacet(ctx context.Context, sel ast.SelectionSet, obj *TagFacet) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, tagFacetImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("TagFacet")
+		case "tag":
+			out.Values[i] = ec._TagFacet_tag(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "count":
+			out.Values[i] = ec._TagFacet_count(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "strength":
+			out.Values[i] = ec._TagFacet_strength(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var tagFacetsImplementors = []string{"TagFacets"}
+
+func (ec *executionContext) _TagFacets(ctx context.Context, sel ast.SelectionSet, obj *TagFacets) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, tagFacetsImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("TagFacets")
+		case "tags":
+			out.Values[i] = ec._TagFacets_tags(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "tagged_count":
+			out.Values[i] = ec._TagFacets_tagged_count(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -72264,6 +72799,36 @@ func (ec *executionContext) unmarshalNTagDestroyInput2githubᚗcomᚋstashappᚋ
 func (ec *executionContext) unmarshalNTagEditInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTagEditInput(ctx context.Context, v any) (TagEditInput, error) {
 	res, err := ec.unmarshalInputTagEditInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNTagFacet2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTagFacet(ctx context.Context, sel ast.SelectionSet, v TagFacet) graphql.Marshaler {
+	return ec._TagFacet(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNTagFacet2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTagFacetᚄ(ctx context.Context, sel ast.SelectionSet, v []TagFacet) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNTagFacet2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTagFacet(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNTagFacets2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTagFacets(ctx context.Context, sel ast.SelectionSet, v *TagFacets) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._TagFacets(ctx, sel, v)
 }
 
 func (ec *executionContext) unmarshalNTagGroupEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTagGroupEnum(ctx context.Context, v any) (TagGroupEnum, error) {

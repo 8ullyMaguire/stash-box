@@ -12,6 +12,63 @@ import (
 	"github.com/gofrs/uuid"
 )
 
+const countScenesForTagsThroughImplications = `-- name: CountScenesForTagsThroughImplications :many
+WITH RECURSIVE down AS (
+    SELECT t.id::uuid AS root_id, t.id::uuid AS tag_id
+    FROM unnest($1::uuid[]) AS t(id)
+
+    UNION
+
+    SELECT d.root_id, ti.tag_id
+    FROM down d
+    JOIN tag_implications ti ON ti.implied_tag_id = d.tag_id
+)
+SELECT (d.root_id)::uuid AS tag_id, COUNT(DISTINCT st.scene_id)::bigint AS count
+FROM down d
+JOIN scene_tags st ON st.tag_id = d.tag_id
+GROUP BY d.root_id
+`
+
+type CountScenesForTagsThroughImplicationsRow struct {
+	TagID uuid.UUID `db:"tag_id" json:"tag_id"`
+	Count int64     `db:"count" json:"count"`
+}
+
+// How many scenes a filter on each of these tags would return, walking the implication graph
+// DOWNWARD: a scene counts for `woman_on_top` if it carries `woman_on_top` OR anything that
+// implies it (migration 111's direction is specific -> general, so the walk follows
+// implied_tag_id back towards the tag being asked about).
+//
+// This is the denominator of a facet's strength (spec section 6) and the item count the
+// hierarchy view shows, and it is the SAME question a filter asks -- which is why it must not
+// be a plain `COUNT(*) ... WHERE tag_id = ANY(ids)`: that counts only what carries the tag
+// directly, and on an ontology where most items carry a specific tag it would report almost
+// nothing under the general ones.
+//
+// The recursion is the same closure `FindTransitiveImpliedByTagID` computes for one tag; here
+// it is seeded with a SET, so a facet list costs one query instead of one per tag. The
+// ON DELETE CASCADE on tag_implications plus the cycle trigger (migration 111) are what make
+// this terminate.
+func (q *Queries) CountScenesForTagsThroughImplications(ctx context.Context, tagIds []uuid.UUID) ([]CountScenesForTagsThroughImplicationsRow, error) {
+	rows, err := q.db.Query(ctx, countScenesForTagsThroughImplications, tagIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CountScenesForTagsThroughImplicationsRow{}
+	for rows.Next() {
+		var i CountScenesForTagsThroughImplicationsRow
+		if err := rows.Scan(&i.TagID, &i.Count); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 type CreateSceneTagsParams struct {
 	SceneID uuid.UUID `db:"scene_id" json:"scene_id"`
 	TagID   uuid.UUID `db:"tag_id" json:"tag_id"`
