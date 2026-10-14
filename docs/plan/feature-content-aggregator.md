@@ -1,10 +1,11 @@
 # PLAN — the content aggregator programme (NexusXXX parity)
 
-Status: **in progress** — phases 1, 2, 4 and 7 done; phases 3 and 5–17 not started. Phase 7's seven
-slices are all complete, so the discovery programme this phase exists for is finished: the query
-language, the tag explorer, freshness and trending, similarity, the taste profile and For You, the
-social feed and "where I left off". The state table is
-`docs/track/TRACK-content-aggregator.md`, which `docs/goal-check.py` clause C8 reads.
+Status: **in progress** — phases 1, 2, 3, 4 and 7 done; 5, 6 and 8–17 open. Phase 3 (the
+five non-video content kinds) closed on 2026-10-14 with slice 3g: they are stored, scoped,
+scored, tagged, reviewed, rated, listed, and now creatable through the edit system, which is
+the repository’s one route for shared metadata. This doc is deliberately NOT marked Built
+while any phase is open — the predicate that reads this line is a goal predicate, and a plan
+that claims to be built is a gate that has stopped measuring.
 
 Implements `docs/spec/feature-content-aggregator.md`. Phase-level, because that is
 the only level at which the ordering is decidable: each phase's code depends on the
