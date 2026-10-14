@@ -175,6 +175,24 @@ type ContentDenylistTag struct {
 	CreatedAt pgtype.Timestamptz `db:"created_at" json:"created_at"`
 }
 
+type ContentSource struct {
+	ID            uuid.UUID          `db:"id" json:"id"`
+	EntityType    string             `db:"entity_type" json:"entity_type"`
+	EntityID      uuid.UUID          `db:"entity_id" json:"entity_id"`
+	Url           string             `db:"url" json:"url"`
+	SiteID        uuid.NullUUID      `db:"site_id" json:"site_id"`
+	Platform      *string            `db:"platform" json:"platform"`
+	Status        string             `db:"status" json:"status"`
+	Canonical     bool               `db:"canonical" json:"canonical"`
+	FirstSeen     pgtype.Timestamptz `db:"first_seen" json:"first_seen"`
+	LastChecked   pgtype.Timestamptz `db:"last_checked" json:"last_checked"`
+	LastOk        pgtype.Timestamptz `db:"last_ok" json:"last_ok"`
+	CheckFailures int                `db:"check_failures" json:"check_failures"`
+	ArchivedUrl   *string            `db:"archived_url" json:"archived_url"`
+	ArchivedAt    pgtype.Timestamptz `db:"archived_at" json:"archived_at"`
+	CreatedBy     uuid.NullUUID      `db:"created_by" json:"created_by"`
+}
+
 type Draft struct {
 	ID        uuid.UUID       `db:"id" json:"id"`
 	UserID    uuid.UUID       `db:"user_id" json:"user_id"`
@@ -425,12 +443,6 @@ type ListAudit struct {
 	ActorID   uuid.NullUUID      `db:"actor_id" json:"actor_id"`
 	Action    string             `db:"action" json:"action"`
 	CreatedAt pgtype.Timestamptz `db:"created_at" json:"created_at"`
-
-	// Actor is not a column. It is filled in by the resolver, which already has the
-	// user service, so the audit query does not join users -- one extra lookup per row
-	// here would mean an N+1 on every list page, and the owner path already resolves the
-	// owner separately anyway.
-	Actor *models.User `db:"-" json:"actor,omitempty"`
 }
 
 type ListItem struct {
@@ -636,6 +648,21 @@ type SceneSnapshot struct {
 	CollageID   uuid.NullUUID `db:"collage_id" json:"collage_id"`
 	CreatedBy   uuid.NullUUID `db:"created_by" json:"created_by"`
 	CreatedAt   time.Time     `db:"created_at" json:"created_at"`
+}
+
+type SceneSource struct {
+	SceneID       uuid.UUID          `db:"scene_id" json:"scene_id"`
+	Url           string             `db:"url" json:"url"`
+	SiteID        uuid.UUID          `db:"site_id" json:"site_id"`
+	Status        string             `db:"status" json:"status"`
+	Canonical     bool               `db:"canonical" json:"canonical"`
+	Platform      *string            `db:"platform" json:"platform"`
+	FirstSeen     pgtype.Timestamptz `db:"first_seen" json:"first_seen"`
+	LastChecked   pgtype.Timestamptz `db:"last_checked" json:"last_checked"`
+	LastOk        pgtype.Timestamptz `db:"last_ok" json:"last_ok"`
+	CheckFailures int                `db:"check_failures" json:"check_failures"`
+	ArchivedUrl   *string            `db:"archived_url" json:"archived_url"`
+	SourceID      uuid.NullUUID      `db:"source_id" json:"source_id"`
 }
 
 type SceneTag struct {

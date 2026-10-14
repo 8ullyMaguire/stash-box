@@ -138,7 +138,7 @@ func listAuditToModel(row *queries.ListAudit) *models.ListAudit {
 	}
 }
 
-// fillAuditActors resolves the actor for each audit row.
+// fillAuditActors resolves the actor for each audit row, keyed by actor id.
 //
 // This function existing at all is a bug that survived a green test suite: listAuditToModel
 // built the model without an Actor, the field was declared nullable ("or null if that
@@ -146,12 +146,27 @@ func listAuditToModel(row *queries.ListAudit) *models.ListAudit {
 // with the broken behaviour. Only a live query against a row with a real actor showed
 // `actor: null` on a publication that demonstrably had one.
 //
-// A NULL actor_id is left as nil. That is the signal the frontend renders as "a former
-// member", and it is deliberately distinct from a lookup failure: a missing account and an
-// unresolvable one must not look the same.
-func (r *Resolver) fillAuditActors(ctx context.Context, audit []queries.ListAudit) error {
+// WHY IT RETURNS A MAP AND DOES NOT WRITE ONTO THE ROW. It used to set the actor on the
+// generated `queries.ListAudit` itself, which meant hand-adding a non-column field to
+// internal/queries/models.go -- a tool-written file. Regenerating it with `sqlc generate`
+// silently deleted the field and broke the build (measured: two `undefined: Actor` errors
+// in this file). Anything that is not a column belongs in a hand-written file; models.ListAudit
+// is the hand-written one and it already carries the field.
+//
+// The map also removes the N+1 that the per-row lookup had: one repeat publisher used to
+// be one FindByID per audit row.
+//
+// A NULL actor_id is simply absent from the map, and the caller leaves the model's actor
+// nil. That is the signal the frontend renders as "a former member", and it is deliberately
+// distinct from a lookup failure: a missing account and an unresolvable one must not look
+// the same.
+func (r *Resolver) fillAuditActors(ctx context.Context, audit []queries.ListAudit) (map[uuid.UUID]*models.User, error) {
+	actors := make(map[uuid.UUID]*models.User, len(audit))
 	for i := range audit {
 		if !audit[i].ActorID.Valid || audit[i].ActorID.UUID == uuid.Nil {
+			continue
+		}
+		if _, done := actors[audit[i].ActorID.UUID]; done {
 			continue
 		}
 		actor, err := r.services.User().FindByID(ctx, audit[i].ActorID.UUID)
@@ -161,11 +176,11 @@ func (r *Resolver) fillAuditActors(ctx context.Context, audit []queries.ListAudi
 			if errors.Is(err, sql.ErrNoRows) {
 				continue
 			}
-			return err
+			return nil, err
 		}
-		audit[i].Actor = actor
+		actors[audit[i].ActorID.UUID] = actor
 	}
-	return nil
+	return actors, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -293,13 +308,15 @@ func (r *Resolver) hydrate(ctx context.Context, m *models.List) error {
 		// list already resolved.
 		m.AuditTrail = []models.ListAudit{}
 	} else {
-		if err := r.fillAuditActors(ctx, audit); err != nil {
+		actors, err := r.fillAuditActors(ctx, audit)
+		if err != nil {
 			return mapListError(err)
 		}
 		m.AuditTrail = make([]models.ListAudit, 0, len(audit))
 		for i := range audit {
 			entry := listAuditToModel(&audit[i])
-			entry.Actor = audit[i].Actor
+			// Absent from the map is the "former member" case, and leaves the nil.
+			entry.Actor = actors[audit[i].ActorID.UUID]
 			m.AuditTrail = append(m.AuditTrail, *entry)
 		}
 	}
