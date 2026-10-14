@@ -30,6 +30,67 @@ type ContentItem {
   the discovery surfaces exist to prevent.
   """
   completion: Completion
+
+  """
+  The item's chapters, in reading order.
+
+  Empty for kinds that have no chapters; a text item with chapters is a serial, a comic
+  item's chapters are chapters, an animation's are episodes.
+  """
+  chapters: [ContentItemChapter!]!
+
+  """
+  The item's URLs, the item itself first and its renditions after it.
+
+  Empty until phase 10 fills the storage plane, and empty is a real answer: an item with
+  no URL has been catalogued and not yet fetched.
+  """
+  media: [ContentItemMedia!]!
+}
+
+type ContentItemChapter {
+  id: ID!
+
+  "Position in the item, ascending from 1. Unique per item."
+  number: Int!
+
+  "What the chapter is called, if it has a name."
+  title: String
+
+  "How many pages, for a comic. Null for kinds that count seconds instead."
+  pageCount: Int
+
+  "How long, for an episode. Null for kinds that count pages instead."
+  durationSeconds: Int
+}
+
+type ContentItemMedia {
+  id: ID!
+
+  "Where it can be fetched from."
+  url: String!
+
+  "What the URL is: the item itself, or a rendition of it."
+  kind: ContentItemMediaKind!
+
+  width: Int
+  height: Int
+  durationSeconds: Int
+}
+
+"""
+What a media URL is.
+
+A closed set, enforced by the column's CHECK as well: `original` is the item itself and
+the rest are derived or alternate renditions, so a client that wants "the thing" and not
+"a version of the thing" has a member to ask for.
+"""
+enum ContentItemMediaKind {
+  original
+  preview
+  stream
+  download
+  archive
 }
 
 """

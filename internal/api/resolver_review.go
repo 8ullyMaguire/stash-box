@@ -66,6 +66,8 @@ func entityTypeString(t models.ReviewEntityTypeEnum) string {
 		return review.EntityStudio
 	case models.ReviewEntityTypeEnumSite:
 		return review.EntitySite
+	case models.ReviewEntityTypeEnumContentItem:
+		return review.EntityContentItem
 	}
 	// Unreachable: the enum has three members and gqlgen validates before here.
 	return review.EntitySite

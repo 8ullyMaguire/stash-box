@@ -63,6 +63,7 @@ enum ReviewEntityTypeEnum {
   PERFORMER
   STUDIO
   SITE
+  CONTENT_ITEM
 }
 
 enum ReviewStatusEnum {

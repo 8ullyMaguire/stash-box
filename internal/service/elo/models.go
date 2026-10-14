@@ -29,6 +29,9 @@ const (
 	EntityTag EntityType = "tag"
 	// EntityList is a ranked list. SPEC §9.
 	EntityList EntityType = "list"
+	// EntityContentItem is a ranked content item (phase 3). Lowercase to match this
+	// vocabulary's own spelling.
+	EntityContentItem EntityType = "content_item"
 	// EntityInstance is a ranked instance, which is what makes taste-based
 	// peering (SPEC §2) computable. Phase 4, when instances have identity here.
 	EntityInstance EntityType = "instance"
@@ -45,6 +48,7 @@ var AllEntityTypes = []EntityType{
 	EntityStudio,
 	EntitySite,
 	EntityTag,
+	EntityContentItem,
 	EntityList,
 	EntityInstance,
 }

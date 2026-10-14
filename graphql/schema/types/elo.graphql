@@ -13,6 +13,7 @@ enum EloEntityType {
   tag
   list
   instance
+  content_item
 }
 
 """

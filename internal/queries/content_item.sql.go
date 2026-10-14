@@ -229,9 +229,20 @@ func (q *Queries) ListContentItemChapters(ctx context.Context, contentItemID uui
 const listContentItemMedia = `-- name: ListContentItemMedia :many
 SELECT id, content_item_id, url, kind, width, height, duration_seconds, created_at FROM "content_item_media"
 WHERE "content_item_id" = $1
-ORDER BY "kind", "url"
+ORDER BY CASE "kind"
+    WHEN 'original' THEN 0
+    WHEN 'preview' THEN 1
+    WHEN 'stream' THEN 2
+    WHEN 'download' THEN 3
+    WHEN 'archive' THEN 4
+    ELSE 5
+  END, "url"
 `
 
+// Ordered by what the URL IS, not alphabetically: the `original` is the item itself and
+// a client renders it as the item, so it has to come first, and alphabetical order puts
+// `archive` there instead. Ties break on the url so the order is total -- a page whose
+// order depends on the plan is a page that reorders itself between requests.
 func (q *Queries) ListContentItemMedia(ctx context.Context, contentItemID uuid.UUID) ([]ContentItemMedium, error) {
 	rows, err := q.db.Query(ctx, listContentItemMedia, contentItemID)
 	if err != nil {

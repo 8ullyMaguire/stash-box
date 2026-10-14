@@ -180,13 +180,32 @@ type ComplexityRoot struct {
 	}
 
 	ContentItem struct {
+		Chapters    func(childComplexity int) int
 		Completion  func(childComplexity int) int
 		CreatedAt   func(childComplexity int) int
 		Details     func(childComplexity int) int
 		ID          func(childComplexity int) int
 		Kind        func(childComplexity int) int
+		Media       func(childComplexity int) int
 		ReleaseDate func(childComplexity int) int
 		Title       func(childComplexity int) int
+	}
+
+	ContentItemChapter struct {
+		DurationSeconds func(childComplexity int) int
+		ID              func(childComplexity int) int
+		Number          func(childComplexity int) int
+		PageCount       func(childComplexity int) int
+		Title           func(childComplexity int) int
+	}
+
+	ContentItemMedia struct {
+		DurationSeconds func(childComplexity int) int
+		Height          func(childComplexity int) int
+		ID              func(childComplexity int) int
+		Kind            func(childComplexity int) int
+		URL             func(childComplexity int) int
+		Width           func(childComplexity int) int
 	}
 
 	ContentSource struct {
@@ -1409,6 +1428,8 @@ type CollageFrameResolver interface {
 }
 type ContentItemResolver interface {
 	Completion(ctx context.Context, obj *ContentItem) (*Completion, error)
+	Chapters(ctx context.Context, obj *ContentItem) ([]ContentItemChapter, error)
+	Media(ctx context.Context, obj *ContentItem) ([]ContentItemMedia, error)
 }
 type ContentSourceResolver interface {
 	ID(ctx context.Context, obj *ContentSource) (*uuid.UUID, error)
@@ -2241,6 +2262,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.Completion.Total(childComplexity), true
 
+	case "ContentItem.chapters":
+		if e.ComplexityRoot.ContentItem.Chapters == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentItem.Chapters(childComplexity), true
 	case "ContentItem.completion":
 		if e.ComplexityRoot.ContentItem.Completion == nil {
 			break
@@ -2271,6 +2298,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.ContentItem.Kind(childComplexity), true
+	case "ContentItem.media":
+		if e.ComplexityRoot.ContentItem.Media == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentItem.Media(childComplexity), true
 	case "ContentItem.releaseDate":
 		if e.ComplexityRoot.ContentItem.ReleaseDate == nil {
 			break
@@ -2283,6 +2316,74 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.ContentItem.Title(childComplexity), true
+
+	case "ContentItemChapter.durationSeconds":
+		if e.ComplexityRoot.ContentItemChapter.DurationSeconds == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentItemChapter.DurationSeconds(childComplexity), true
+	case "ContentItemChapter.id":
+		if e.ComplexityRoot.ContentItemChapter.ID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentItemChapter.ID(childComplexity), true
+	case "ContentItemChapter.number":
+		if e.ComplexityRoot.ContentItemChapter.Number == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentItemChapter.Number(childComplexity), true
+	case "ContentItemChapter.pageCount":
+		if e.ComplexityRoot.ContentItemChapter.PageCount == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentItemChapter.PageCount(childComplexity), true
+	case "ContentItemChapter.title":
+		if e.ComplexityRoot.ContentItemChapter.Title == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentItemChapter.Title(childComplexity), true
+
+	case "ContentItemMedia.durationSeconds":
+		if e.ComplexityRoot.ContentItemMedia.DurationSeconds == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentItemMedia.DurationSeconds(childComplexity), true
+	case "ContentItemMedia.height":
+		if e.ComplexityRoot.ContentItemMedia.Height == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentItemMedia.Height(childComplexity), true
+	case "ContentItemMedia.id":
+		if e.ComplexityRoot.ContentItemMedia.ID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentItemMedia.ID(childComplexity), true
+	case "ContentItemMedia.kind":
+		if e.ComplexityRoot.ContentItemMedia.Kind == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentItemMedia.Kind(childComplexity), true
+	case "ContentItemMedia.url":
+		if e.ComplexityRoot.ContentItemMedia.URL == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentItemMedia.URL(childComplexity), true
+	case "ContentItemMedia.width":
+		if e.ComplexityRoot.ContentItemMedia.Width == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentItemMedia.Width(childComplexity), true
 
 	case "ContentSource.archived_url":
 		if e.ComplexityRoot.ContentSource.ArchivedURL == nil {
@@ -9288,6 +9389,67 @@ type ContentItem {
   the discovery surfaces exist to prevent.
   """
   completion: Completion
+
+  """
+  The item's chapters, in reading order.
+
+  Empty for kinds that have no chapters; a text item with chapters is a serial, a comic
+  item's chapters are chapters, an animation's are episodes.
+  """
+  chapters: [ContentItemChapter!]!
+
+  """
+  The item's URLs, the item itself first and its renditions after it.
+
+  Empty until phase 10 fills the storage plane, and empty is a real answer: an item with
+  no URL has been catalogued and not yet fetched.
+  """
+  media: [ContentItemMedia!]!
+}
+
+type ContentItemChapter {
+  id: ID!
+
+  "Position in the item, ascending from 1. Unique per item."
+  number: Int!
+
+  "What the chapter is called, if it has a name."
+  title: String
+
+  "How many pages, for a comic. Null for kinds that count seconds instead."
+  pageCount: Int
+
+  "How long, for an episode. Null for kinds that count pages instead."
+  durationSeconds: Int
+}
+
+type ContentItemMedia {
+  id: ID!
+
+  "Where it can be fetched from."
+  url: String!
+
+  "What the URL is: the item itself, or a rendition of it."
+  kind: ContentItemMediaKind!
+
+  width: Int
+  height: Int
+  durationSeconds: Int
+}
+
+"""
+What a media URL is.
+
+A closed set, enforced by the column's CHECK as well: ` + "`" + `original` + "`" + ` is the item itself and
+the rest are derived or alternate renditions, so a client that wants "the thing" and not
+"a version of the thing" has a member to ask for.
+"""
+enum ContentItemMediaKind {
+  original
+  preview
+  stream
+  download
+  archive
 }
 
 """
@@ -9569,6 +9731,7 @@ enum EloEntityType {
   tag
   list
   instance
+  content_item
 }
 
 """
@@ -10748,6 +10911,7 @@ enum ListEntityTypeEnum {
   SCENE
   STUDIO
   SITE
+  CONTENT_ITEM
 }
 
 enum ListAuditActionEnum {
@@ -11761,6 +11925,7 @@ enum ReviewEntityTypeEnum {
   PERFORMER
   STUDIO
   SITE
+  CONTENT_ITEM
 }
 
 enum ReviewStatusEnum {
@@ -14072,8 +14237,46 @@ func (ec *executionContext) childFields_ContentItem(ctx context.Context, field g
 		return ec.fieldContext_ContentItem_createdAt(ctx, field)
 	case "completion":
 		return ec.fieldContext_ContentItem_completion(ctx, field)
+	case "chapters":
+		return ec.fieldContext_ContentItem_chapters(ctx, field)
+	case "media":
+		return ec.fieldContext_ContentItem_media(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type ContentItem", field.Name)
+}
+
+func (ec *executionContext) childFields_ContentItemChapter(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "id":
+		return ec.fieldContext_ContentItemChapter_id(ctx, field)
+	case "number":
+		return ec.fieldContext_ContentItemChapter_number(ctx, field)
+	case "title":
+		return ec.fieldContext_ContentItemChapter_title(ctx, field)
+	case "pageCount":
+		return ec.fieldContext_ContentItemChapter_pageCount(ctx, field)
+	case "durationSeconds":
+		return ec.fieldContext_ContentItemChapter_durationSeconds(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type ContentItemChapter", field.Name)
+}
+
+func (ec *executionContext) childFields_ContentItemMedia(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "id":
+		return ec.fieldContext_ContentItemMedia_id(ctx, field)
+	case "url":
+		return ec.fieldContext_ContentItemMedia_url(ctx, field)
+	case "kind":
+		return ec.fieldContext_ContentItemMedia_kind(ctx, field)
+	case "width":
+		return ec.fieldContext_ContentItemMedia_width(ctx, field)
+	case "height":
+		return ec.fieldContext_ContentItemMedia_height(ctx, field)
+	case "durationSeconds":
+		return ec.fieldContext_ContentItemMedia_durationSeconds(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type ContentItemMedia", field.Name)
 }
 
 func (ec *executionContext) childFields_ContentSource(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -20381,6 +20584,323 @@ func (ec *executionContext) fieldContext_ContentItem_completion(_ context.Contex
 		},
 	}
 	return fc, nil
+}
+
+func (ec *executionContext) _ContentItem_chapters(ctx context.Context, field graphql.CollectedField, obj *ContentItem) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentItem_chapters(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.ContentItem().Chapters(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []ContentItemChapter) graphql.Marshaler {
+			return ec.marshalNContentItemChapter2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentItemChapterᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ContentItem_chapters(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ContentItem",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ContentItemChapter(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ContentItem_media(ctx context.Context, field graphql.CollectedField, obj *ContentItem) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentItem_media(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.ContentItem().Media(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []ContentItemMedia) graphql.Marshaler {
+			return ec.marshalNContentItemMedia2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentItemMediaᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ContentItem_media(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ContentItem",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ContentItemMedia(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ContentItemChapter_id(ctx context.Context, field graphql.CollectedField, obj *ContentItemChapter) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentItemChapter_id(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v uuid.UUID) graphql.Marshaler {
+			return ec.marshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ContentItemChapter_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContentItemChapter", field, false, false, errors.New("field of type ID does not have child fields"))
+}
+
+func (ec *executionContext) _ContentItemChapter_number(ctx context.Context, field graphql.CollectedField, obj *ContentItemChapter) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentItemChapter_number(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Number, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ContentItemChapter_number(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContentItemChapter", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _ContentItemChapter_title(ctx context.Context, field graphql.CollectedField, obj *ContentItemChapter) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentItemChapter_title(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Title, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
+			return ec.marshalOString2ᚖstring(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_ContentItemChapter_title(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContentItemChapter", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _ContentItemChapter_pageCount(ctx context.Context, field graphql.CollectedField, obj *ContentItemChapter) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentItemChapter_pageCount(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.PageCount, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *int) graphql.Marshaler {
+			return ec.marshalOInt2ᚖint(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_ContentItemChapter_pageCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContentItemChapter", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _ContentItemChapter_durationSeconds(ctx context.Context, field graphql.CollectedField, obj *ContentItemChapter) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentItemChapter_durationSeconds(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.DurationSeconds, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *int) graphql.Marshaler {
+			return ec.marshalOInt2ᚖint(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_ContentItemChapter_durationSeconds(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContentItemChapter", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _ContentItemMedia_id(ctx context.Context, field graphql.CollectedField, obj *ContentItemMedia) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentItemMedia_id(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v uuid.UUID) graphql.Marshaler {
+			return ec.marshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ContentItemMedia_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContentItemMedia", field, false, false, errors.New("field of type ID does not have child fields"))
+}
+
+func (ec *executionContext) _ContentItemMedia_url(ctx context.Context, field graphql.CollectedField, obj *ContentItemMedia) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentItemMedia_url(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.URL, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ContentItemMedia_url(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContentItemMedia", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _ContentItemMedia_kind(ctx context.Context, field graphql.CollectedField, obj *ContentItemMedia) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentItemMedia_kind(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Kind, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v ContentItemMediaKind) graphql.Marshaler {
+			return ec.marshalNContentItemMediaKind2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentItemMediaKind(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ContentItemMedia_kind(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContentItemMedia", field, false, false, errors.New("field of type ContentItemMediaKind does not have child fields"))
+}
+
+func (ec *executionContext) _ContentItemMedia_width(ctx context.Context, field graphql.CollectedField, obj *ContentItemMedia) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentItemMedia_width(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Width, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *int) graphql.Marshaler {
+			return ec.marshalOInt2ᚖint(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_ContentItemMedia_width(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContentItemMedia", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _ContentItemMedia_height(ctx context.Context, field graphql.CollectedField, obj *ContentItemMedia) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentItemMedia_height(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Height, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *int) graphql.Marshaler {
+			return ec.marshalOInt2ᚖint(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_ContentItemMedia_height(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContentItemMedia", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _ContentItemMedia_durationSeconds(ctx context.Context, field graphql.CollectedField, obj *ContentItemMedia) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentItemMedia_durationSeconds(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.DurationSeconds, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *int) graphql.Marshaler {
+			return ec.marshalOInt2ᚖint(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_ContentItemMedia_durationSeconds(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContentItemMedia", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
 func (ec *executionContext) _ContentSource_id(ctx context.Context, field graphql.CollectedField, obj *ContentSource) (ret graphql.Marshaler) {
@@ -58448,6 +58968,203 @@ func (ec *executionContext) _ContentItem(ctx context.Context, sel ast.SelectionS
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "chapters":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._ContentItem_chapters(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "media":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._ContentItem_media(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var contentItemChapterImplementors = []string{"ContentItemChapter"}
+
+func (ec *executionContext) _ContentItemChapter(ctx context.Context, sel ast.SelectionSet, obj *ContentItemChapter) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, contentItemChapterImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ContentItemChapter")
+		case "id":
+			out.Values[i] = ec._ContentItemChapter_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "number":
+			out.Values[i] = ec._ContentItemChapter_number(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "title":
+			out.Values[i] = ec._ContentItemChapter_title(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		case "pageCount":
+			out.Values[i] = ec._ContentItemChapter_pageCount(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		case "durationSeconds":
+			out.Values[i] = ec._ContentItemChapter_durationSeconds(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var contentItemMediaImplementors = []string{"ContentItemMedia"}
+
+func (ec *executionContext) _ContentItemMedia(ctx context.Context, sel ast.SelectionSet, obj *ContentItemMedia) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, contentItemMediaImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ContentItemMedia")
+		case "id":
+			out.Values[i] = ec._ContentItemMedia_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "url":
+			out.Values[i] = ec._ContentItemMedia_url(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "kind":
+			out.Values[i] = ec._ContentItemMedia_kind(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "width":
+			out.Values[i] = ec._ContentItemMedia_width(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		case "height":
+			out.Values[i] = ec._ContentItemMedia_height(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		case "durationSeconds":
+			out.Values[i] = ec._ContentItemMedia_durationSeconds(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -75224,6 +75941,26 @@ func (ec *executionContext) marshalNContentItem2ᚕgithubᚗcomᚋstashappᚋsta
 	return ret
 }
 
+func (ec *executionContext) marshalNContentItemChapter2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentItemChapter(ctx context.Context, sel ast.SelectionSet, v ContentItemChapter) graphql.Marshaler {
+	return ec._ContentItemChapter(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNContentItemChapter2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentItemChapterᚄ(ctx context.Context, sel ast.SelectionSet, v []ContentItemChapter) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNContentItemChapter2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentItemChapter(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
 func (ec *executionContext) unmarshalNContentItemKind2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentItemKind(ctx context.Context, v any) (ContentItemKind, error) {
 	var res ContentItemKind
 	err := res.UnmarshalGQL(v)
@@ -75231,6 +75968,36 @@ func (ec *executionContext) unmarshalNContentItemKind2githubᚗcomᚋstashappᚋ
 }
 
 func (ec *executionContext) marshalNContentItemKind2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentItemKind(ctx context.Context, sel ast.SelectionSet, v ContentItemKind) graphql.Marshaler {
+	return v
+}
+
+func (ec *executionContext) marshalNContentItemMedia2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentItemMedia(ctx context.Context, sel ast.SelectionSet, v ContentItemMedia) graphql.Marshaler {
+	return ec._ContentItemMedia(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNContentItemMedia2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentItemMediaᚄ(ctx context.Context, sel ast.SelectionSet, v []ContentItemMedia) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNContentItemMedia2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentItemMedia(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) unmarshalNContentItemMediaKind2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentItemMediaKind(ctx context.Context, v any) (ContentItemMediaKind, error) {
+	var res ContentItemMediaKind
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNContentItemMediaKind2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentItemMediaKind(ctx context.Context, sel ast.SelectionSet, v ContentItemMediaKind) graphql.Marshaler {
 	return v
 }
 

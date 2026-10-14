@@ -84,9 +84,13 @@ const maxDescriptionLength = 5000
 // product decision force a migration in the other.
 const (
 	EntityPerformer = "PERFORMER"
-	EntityScene     = "SCENE"
-	EntityStudio    = "STUDIO"
-	EntitySite      = "SITE"
+	// EntityContentItem is one of the five non-video content kinds (phase 3). Uppercase to
+	// match this vocabulary's own spelling; see review.EntityContentItem for why the
+	// spellings differ between surfaces.
+	EntityContentItem = "CONTENT_ITEM"
+	EntityScene       = "SCENE"
+	EntityStudio      = "STUDIO"
+	EntitySite        = "SITE"
 )
 
 // nullableString converts an empty string to SQL NULL.
@@ -105,7 +109,7 @@ func nullableString(s string) *string {
 
 func validEntityType(t string) bool {
 	switch t {
-	case EntityPerformer, EntityScene, EntityStudio, EntitySite:
+	case EntityPerformer, EntityScene, EntityStudio, EntitySite, EntityContentItem:
 		return true
 	}
 	return false

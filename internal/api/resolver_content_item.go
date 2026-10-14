@@ -115,6 +115,58 @@ func (r *queryResolver) QueryContentItems(ctx context.Context, kind *models.Cont
 	return out, nil
 }
 
+// mediaKindEnum maps the column's spelling to the enum member.
+func mediaKindEnum(kind contentitem.MediaKind) (models.ContentItemMediaKind, error) {
+	candidate := models.ContentItemMediaKind(strings.ToLower(string(kind)))
+	if !candidate.IsValid() {
+		return "", fmt.Errorf("%w: media kind %q reached the schema from the database", contentitem.ErrUnknownKind, string(kind))
+	}
+	return candidate, nil
+}
+
+// Chapters resolves the item's chapters in reading order.
+func (r *contentItemResolver) Chapters(ctx context.Context, obj *models.ContentItem) ([]models.ContentItemChapter, error) {
+	chapters, err := r.services.ContentItem().Chapters(ctx, obj.ID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]models.ContentItemChapter, 0, len(chapters))
+	for _, chapter := range chapters {
+		out = append(out, models.ContentItemChapter{
+			ID:              chapter.ID,
+			Number:          chapter.Number,
+			Title:           chapter.Title,
+			PageCount:       chapter.PageCount,
+			DurationSeconds: chapter.DurationSeconds,
+		})
+	}
+	return out, nil
+}
+
+// Media resolves the item's URLs, the item itself first.
+func (r *contentItemResolver) Media(ctx context.Context, obj *models.ContentItem) ([]models.ContentItemMedia, error) {
+	media, err := r.services.ContentItem().Media(ctx, obj.ID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]models.ContentItemMedia, 0, len(media))
+	for _, item := range media {
+		kind, err := mediaKindEnum(item.Kind)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, models.ContentItemMedia{
+			ID:              item.ID,
+			URL:             item.URL,
+			Kind:            kind,
+			Width:           item.Width,
+			Height:          item.Height,
+			DurationSeconds: item.DurationSeconds,
+		})
+	}
+	return out, nil
+}
+
 // ContentItem is the per-type resolver accessor that models.ResolverRoot requires.
 func (r *Resolver) ContentItem() models.ContentItemResolver {
 	return &contentItemResolver{r}

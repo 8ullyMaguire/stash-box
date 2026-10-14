@@ -72,4 +72,15 @@ RETURNING *;
 -- name: ListContentItemMedia :many
 SELECT * FROM "content_item_media"
 WHERE "content_item_id" = @content_item_id
-ORDER BY "kind", "url";
+-- Ordered by what the URL IS, not alphabetically: the `original` is the item itself and
+-- a client renders it as the item, so it has to come first, and alphabetical order puts
+-- `archive` there instead. Ties break on the url so the order is total -- a page whose
+-- order depends on the plan is a page that reorders itself between requests.
+ORDER BY CASE "kind"
+    WHEN 'original' THEN 0
+    WHEN 'preview' THEN 1
+    WHEN 'stream' THEN 2
+    WHEN 'download' THEN 3
+    WHEN 'archive' THEN 4
+    ELSE 5
+  END, "url";

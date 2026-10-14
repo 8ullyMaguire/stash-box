@@ -1655,6 +1655,10 @@ type Querier interface {
 	// scene's entire snapshot set.
 	ListCollageSnapshots(ctx context.Context, sceneID uuid.UUID) ([]SceneSnapshot, error)
 	ListContentItemChapters(ctx context.Context, contentItemID uuid.UUID) ([]ContentItemChapter, error)
+	// Ordered by what the URL IS, not alphabetically: the `original` is the item itself and
+	// a client renders it as the item, so it has to come first, and alphabetical order puts
+	// `archive` there instead. Ties break on the url so the order is total -- a page whose
+	// order depends on the plan is a page that reorders itself between requests.
 	ListContentItemMedia(ctx context.Context, contentItemID uuid.UUID) ([]ContentItemMedium, error)
 	ListContentItemTags(ctx context.Context, contentItemID uuid.UUID) ([]Tag, error)
 	// Newest first, and `created_at` rather than `release_date` for the reason phase 7 slice 6

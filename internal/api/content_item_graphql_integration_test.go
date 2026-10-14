@@ -3,9 +3,12 @@
 package api_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/99designs/gqlgen/client"
+
+	"github.com/stashapp/stash-box/internal/queries"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -111,6 +114,11 @@ func TestAContentItemRoundTripsThroughTheResolvers(t *testing.T) {
 
 func ptrKind(kind models.ContentItemKind) *models.ContentItemKind { return &kind }
 
+// ctxForFixtures is the request context the fixtures are written with. The harness's own
+// context lives on the runner, and it is built for reading: reusing it here would tie a
+// write to a request that has already been served.
+func ctxForFixtures() context.Context { return context.Background() }
+
 // The same surface over the wire, through the GraphQL handler the server builds.
 //
 // This is the test that can see a NULL where a score belongs. gqlgen binds a schema
@@ -128,7 +136,16 @@ func TestContentItemCompletionIsResolvedOverTheWire(t *testing.T) {
 			Title       string  `json:"title"`
 			Kind        string  `json:"kind"`
 			ReleaseDate *string `json:"releaseDate"`
-			Completion  *struct {
+			Chapters    []struct {
+				Number int     `json:"number"`
+				Title  *string `json:"title"`
+			} `json:"chapters"`
+			Media []struct {
+				URL   string `json:"url"`
+				Kind  string `json:"kind"`
+				Width *int   `json:"width"`
+			} `json:"media"`
+			Completion *struct {
 				EntityType string   `json:"entityType"`
 				Score      int      `json:"score"`
 				Missing    []string `json:"missing"`
@@ -137,7 +154,7 @@ func TestContentItemCompletionIsResolvedOverTheWire(t *testing.T) {
 	}
 
 	runner.client.MustPost(
-		`query($id: ID!) { contentItem(id: $id) { title kind releaseDate completion { entityType score missing } } }`,
+		`query($id: ID!) { contentItem(id: $id) { title kind releaseDate completion { entityType score missing } chapters { number title } media { url kind width } } }`,
 		&resp, client.Var("id", item.ID.String()))
 
 	require.NotNil(t, resp.ContentItem, "an existing item must resolve by id")
@@ -153,6 +170,30 @@ func TestContentItemCompletionIsResolvedOverTheWire(t *testing.T) {
 	assert.Less(t, resp.ContentItem.Completion.Score, 100)
 
 	// The list query with a kind argument, and the count with the new enum member.
+	// chapters and media are generated FIELDS unless gqlgen.yml declares them external, and
+	// an unpopulated generated list is `[]` -- which reads exactly like "this item has no
+	// chapters". Fixtures go on the same item so an empty list cannot pass.
+	chapterQ := contentItemQ()
+	_, err := chapterQ.CreateContentItemChapter(ctxForFixtures(), queries.CreateContentItemChapterParams{
+		ID: newUUID(t), ContentItemID: item.ID, Number: 1, Title: ptrString("Over the wire chapter"),
+	})
+	require.NoError(t, err)
+	_, err = chapterQ.CreateContentItemMedia(ctxForFixtures(), queries.CreateContentItemMediaParams{
+		ID: newUUID(t), ContentItemID: item.ID, Url: "https://example.invalid/wire.jpg", Kind: "original",
+	})
+	require.NoError(t, err)
+
+	runner.client.MustPost(
+		`query($id: ID!) { contentItem(id: $id) { chapters { number title } media { url kind } } }`,
+		&resp, client.Var("id", item.ID.String()))
+	require.Len(t, resp.ContentItem.Chapters, 1,
+		"a chapter was created for this item, so an empty list means the field is bound to the generated struct instead of resolved")
+	assert.Equal(t, "Over the wire chapter", *resp.ContentItem.Chapters[0].Title)
+	require.Len(t, resp.ContentItem.Media, 1,
+		"a media row was created for this item, so an empty list means the field is bound to the generated struct instead of resolved")
+	assert.Equal(t, "https://example.invalid/wire.jpg", resp.ContentItem.Media[0].URL)
+	assert.Equal(t, "original", resp.ContentItem.Media[0].Kind)
+
 	var listResp struct {
 		QueryContentItems []struct {
 			ID   string `json:"id"`

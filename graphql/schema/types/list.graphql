@@ -107,6 +107,7 @@ enum ListEntityTypeEnum {
   SCENE
   STUDIO
   SITE
+  CONTENT_ITEM
 }
 
 enum ListAuditActionEnum {

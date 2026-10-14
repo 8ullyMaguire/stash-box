@@ -16,6 +16,15 @@ autobind:
 models:
   ContentItem:
     fields:
+      # `chapters` and `media` are per-item lists read on demand, and this type is
+      # generated FROM the schema -- so without these lines gqlgen would generate both
+      # fields into the struct, the resolvers would never run, and every client would read
+      # `[]`. The empty list is the trap: an item with no chapters and an item whose
+      # chapters were never fetched look identical.
+      chapters:
+        resolver: true
+      media:
+        resolver: true
       # The schema generates this type, so unlike the hand-written models the field
       # WOULD be generated into the struct, and the resolver in
       # internal/api/resolver_content_item.go would never be called -- the schema

@@ -391,6 +391,13 @@ export type Completion = {
 export type ContentItem = {
   __typename: 'ContentItem';
   /**
+   * The item's chapters, in reading order.
+   *
+   * Empty for kinds that have no chapters; a text item with chapters is a serial, a comic
+   * item's chapters are chapters, an animation's are episodes.
+   */
+  chapters: Array<ContentItemChapter>;
+  /**
    * How complete this item is.
    *
    * Reads the database on demand rather than being stored, so it is correct the moment
@@ -405,10 +412,30 @@ export type ContentItem = {
   details?: Maybe<Scalars['String']['output']>;
   id: Scalars['ID']['output'];
   kind: ContentItemKind;
+  /**
+   * The item's URLs, the item itself first and its renditions after it.
+   *
+   * Empty until phase 10 fills the storage plane, and empty is a real answer: an item with
+   * no URL has been catalogued and not yet fetched.
+   */
+  media: Array<ContentItemMedia>;
   /** When it was released, if that is known. Nullable: undated items are normal here. */
   releaseDate?: Maybe<Scalars['Date']['output']>;
   /** What the item is called. Non-blank by the table's own CHECK. */
   title: Scalars['String']['output'];
+};
+
+export type ContentItemChapter = {
+  __typename: 'ContentItemChapter';
+  /** How long, for an episode. Null for kinds that count pages instead. */
+  durationSeconds?: Maybe<Scalars['Int']['output']>;
+  id: Scalars['ID']['output'];
+  /** Position in the item, ascending from 1. Unique per item. */
+  number: Scalars['Int']['output'];
+  /** How many pages, for a comic. Null for kinds that count seconds instead. */
+  pageCount?: Maybe<Scalars['Int']['output']>;
+  /** What the chapter is called, if it has a name. */
+  title?: Maybe<Scalars['String']['output']>;
 };
 
 /**
@@ -424,6 +451,33 @@ export enum ContentItemKind {
   GALLERY = 'gallery',
   IMAGE = 'image',
   TEXT = 'text'
+}
+
+export type ContentItemMedia = {
+  __typename: 'ContentItemMedia';
+  durationSeconds?: Maybe<Scalars['Int']['output']>;
+  height?: Maybe<Scalars['Int']['output']>;
+  id: Scalars['ID']['output'];
+  /** What the URL is: the item itself, or a rendition of it. */
+  kind: ContentItemMediaKind;
+  /** Where it can be fetched from. */
+  url: Scalars['String']['output'];
+  width?: Maybe<Scalars['Int']['output']>;
+};
+
+/**
+ * What a media URL is.
+ *
+ * A closed set, enforced by the column's CHECK as well: `original` is the item itself and
+ * the rest are derived or alternate renditions, so a client that wants "the thing" and not
+ * "a version of the thing" has a member to ask for.
+ */
+export enum ContentItemMediaKind {
+  ARCHIVE = 'archive',
+  DOWNLOAD = 'download',
+  ORIGINAL = 'original',
+  PREVIEW = 'preview',
+  STREAM = 'stream'
 }
 
 /**
@@ -765,6 +819,7 @@ export type EditVoteInput = {
 
 /** What kind of entity a rating is for. */
 export enum EloEntityType {
+  CONTENT_ITEM = 'content_item',
   INSTANCE = 'instance',
   LIST = 'list',
   PERFORMER = 'performer',
@@ -1909,6 +1964,7 @@ export type ListCreateInput = {
 };
 
 export enum ListEntityTypeEnum {
+  CONTENT_ITEM = 'CONTENT_ITEM',
   PERFORMER = 'PERFORMER',
   SCENE = 'SCENE',
   SITE = 'SITE',
@@ -4371,6 +4427,7 @@ export type Review = {
 };
 
 export enum ReviewEntityTypeEnum {
+  CONTENT_ITEM = 'CONTENT_ITEM',
   PERFORMER = 'PERFORMER',
   SITE = 'SITE',
   STUDIO = 'STUDIO'

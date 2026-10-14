@@ -44,9 +44,18 @@ const (
 // ever query. The schema cannot know this list without becoming the thing that has
 // to change when the product changes.
 const (
-	EntitySite      = "SITE"
-	EntityStudio    = "STUDIO"
-	EntityPerformer = "PERFORMER"
+	EntitySite = "SITE"
+	// EntityContentItem is a review of one of the five non-video content kinds (phase 3).
+	//
+	// UPPERCASE, because that is what this vocabulary already stores: reviews.entity_type
+	// holds "PERFORMER"/"STUDIO"/"SITE" while elo_ratings.entity_type holds the lowercase
+	// spellings. The two mismatched vocabularies are pre-existing and this slice does not
+	// unify them -- changing one would need a data migration, and a slice that silently
+	// rewrote review rows is not the slice that adds a new kind. What it does do is make
+	// the mismatch visible in every surface's constants rather than in one of them.
+	EntityContentItem = "CONTENT_ITEM"
+	EntityStudio      = "STUDIO"
+	EntityPerformer   = "PERFORMER"
 )
 
 // ErrNotFound is returned when a review id does not resolve.
@@ -216,7 +225,7 @@ func validate(in SubmitInput) error {
 		return ErrInvalidRating
 	}
 	switch in.EntityType {
-	case EntitySite, EntityStudio, EntityPerformer:
+	case EntitySite, EntityStudio, EntityPerformer, EntityContentItem:
 	default:
 		return fmt.Errorf("cannot review entity type %q", in.EntityType)
 	}

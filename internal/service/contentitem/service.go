@@ -79,6 +79,62 @@ type Item struct {
 	UpdatedAt   time.Time
 }
 
+// MediaKind is what a media row IS. The values are the COLUMN's spellings, and the
+// column's CHECK lists exactly these five.
+type MediaKind string
+
+const (
+	MediaKindOriginal MediaKind = "original"
+	MediaKindPreview  MediaKind = "preview"
+	MediaKindStream   MediaKind = "stream"
+	MediaKindDownload MediaKind = "download"
+	MediaKindArchive  MediaKind = "archive"
+)
+
+// AllMediaKinds is every media kind, in migration 117's CHECK order.
+var AllMediaKinds = []MediaKind{MediaKindOriginal, MediaKindPreview, MediaKindStream, MediaKindDownload, MediaKindArchive}
+
+// Valid reports whether k is one of the five.
+func (k MediaKind) Valid() bool {
+	for _, known := range AllMediaKinds {
+		if k == known {
+			return true
+		}
+	}
+	return false
+}
+
+// ParseMediaKind converts a stored spelling to a MediaKind.
+func ParseMediaKind(s string) (MediaKind, error) {
+	k := MediaKind(s)
+	if !k.Valid() {
+		return "", fmt.Errorf("%w: %q", ErrUnknownKind, s)
+	}
+	return k, nil
+}
+
+// Chapter is one chapter of an item: a comic chapter's pages, or an episode's seconds.
+//
+// Both counts are optional because a chapter row that records only "chapter 5 exists" is
+// still progress a reader can keep, and the completion vocabulary does not score them.
+type Chapter struct {
+	ID              uuid.UUID
+	Number          int
+	Title           *string
+	PageCount       *int
+	DurationSeconds *int
+}
+
+// Media is one fetchable URL of an item, and what the URL is.
+type Media struct {
+	ID              uuid.UUID
+	URL             string
+	Kind            MediaKind
+	Width           *int
+	Height          *int
+	DurationSeconds *int
+}
+
 // Service reads content items.
 type Service struct {
 	queries *queries.Queries
@@ -142,6 +198,49 @@ func (s *Service) List(ctx context.Context, kind *Kind, limit int) ([]*Item, err
 	out := make([]*Item, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, fromRow(r))
+	}
+	return out, nil
+}
+
+// Chapters returns an item's chapters in reading order (ascending number).
+//
+// Reading order rather than insertion order on purpose: a chapter list is a table of
+// contents, and a table of contents sorted by when someone typed it in is not one.
+func (s *Service) Chapters(ctx context.Context, itemID uuid.UUID) ([]*Chapter, error) {
+	rows, err := s.queries.ListContentItemChapters(ctx, itemID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*Chapter, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, &Chapter{
+			ID:              r.ID,
+			Number:          r.Number,
+			Title:           r.Title,
+			PageCount:       r.PageCount,
+			DurationSeconds: r.DurationSeconds,
+		})
+	}
+	return out, nil
+}
+
+// Media returns an item's URLs, the item itself first, then the renditions in the order a
+// client would try them (the order is the statement's; see content_item.sql).
+func (s *Service) Media(ctx context.Context, itemID uuid.UUID) ([]*Media, error) {
+	rows, err := s.queries.ListContentItemMedia(ctx, itemID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*Media, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, &Media{
+			ID:              r.ID,
+			URL:             r.Url,
+			Kind:            MediaKind(r.Kind),
+			Width:           r.Width,
+			Height:          r.Height,
+			DurationSeconds: r.DurationSeconds,
+		})
 	}
 	return out, nil
 }

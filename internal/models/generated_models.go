@@ -296,6 +296,39 @@ type ContentItem struct {
 	// media dominate, because an item nobody can find and nothing can fetch is the failure
 	// the discovery surfaces exist to prevent.
 	Completion *Completion `json:"completion,omitempty"`
+	// The item's chapters, in reading order.
+	//
+	// Empty for kinds that have no chapters; a text item with chapters is a serial, a comic
+	// item's chapters are chapters, an animation's are episodes.
+	Chapters []ContentItemChapter `json:"chapters"`
+	// The item's URLs, the item itself first and its renditions after it.
+	//
+	// Empty until phase 10 fills the storage plane, and empty is a real answer: an item with
+	// no URL has been catalogued and not yet fetched.
+	Media []ContentItemMedia `json:"media"`
+}
+
+type ContentItemChapter struct {
+	ID uuid.UUID `json:"id"`
+	// Position in the item, ascending from 1. Unique per item.
+	Number int `json:"number"`
+	// What the chapter is called, if it has a name.
+	Title *string `json:"title,omitempty"`
+	// How many pages, for a comic. Null for kinds that count seconds instead.
+	PageCount *int `json:"pageCount,omitempty"`
+	// How long, for an episode. Null for kinds that count pages instead.
+	DurationSeconds *int `json:"durationSeconds,omitempty"`
+}
+
+type ContentItemMedia struct {
+	ID uuid.UUID `json:"id"`
+	// Where it can be fetched from.
+	URL string `json:"url"`
+	// What the URL is: the item itself, or a rendition of it.
+	Kind            ContentItemMediaKind `json:"kind"`
+	Width           *int                 `json:"width,omitempty"`
+	Height          *int                 `json:"height,omitempty"`
+	DurationSeconds *int                 `json:"durationSeconds,omitempty"`
 }
 
 // One guide line of a crop template
@@ -2561,6 +2594,72 @@ func (e ContentItemKind) MarshalJSON() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// What a media URL is.
+//
+// A closed set, enforced by the column's CHECK as well: `original` is the item itself and
+// the rest are derived or alternate renditions, so a client that wants "the thing" and not
+// "a version of the thing" has a member to ask for.
+type ContentItemMediaKind string
+
+const (
+	ContentItemMediaKindOriginal ContentItemMediaKind = "original"
+	ContentItemMediaKindPreview  ContentItemMediaKind = "preview"
+	ContentItemMediaKindStream   ContentItemMediaKind = "stream"
+	ContentItemMediaKindDownload ContentItemMediaKind = "download"
+	ContentItemMediaKindArchive  ContentItemMediaKind = "archive"
+)
+
+var AllContentItemMediaKind = []ContentItemMediaKind{
+	ContentItemMediaKindOriginal,
+	ContentItemMediaKindPreview,
+	ContentItemMediaKindStream,
+	ContentItemMediaKindDownload,
+	ContentItemMediaKindArchive,
+}
+
+func (e ContentItemMediaKind) IsValid() bool {
+	switch e {
+	case ContentItemMediaKindOriginal, ContentItemMediaKindPreview, ContentItemMediaKindStream, ContentItemMediaKindDownload, ContentItemMediaKindArchive:
+		return true
+	}
+	return false
+}
+
+func (e ContentItemMediaKind) String() string {
+	return string(e)
+}
+
+func (e *ContentItemMediaKind) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = ContentItemMediaKind(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid ContentItemMediaKind", str)
+	}
+	return nil
+}
+
+func (e ContentItemMediaKind) MarshalGQL(w io.Writer) {
+	_, _ = fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *ContentItemMediaKind) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e ContentItemMediaKind) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
 type CriterionModifier string
 
 const (
@@ -2869,13 +2968,14 @@ func (e EditSortEnum) MarshalJSON() ([]byte, error) {
 type EloEntityType string
 
 const (
-	EloEntityTypePerformer EloEntityType = "performer"
-	EloEntityTypeScene     EloEntityType = "scene"
-	EloEntityTypeStudio    EloEntityType = "studio"
-	EloEntityTypeSite      EloEntityType = "site"
-	EloEntityTypeTag       EloEntityType = "tag"
-	EloEntityTypeList      EloEntityType = "list"
-	EloEntityTypeInstance  EloEntityType = "instance"
+	EloEntityTypePerformer   EloEntityType = "performer"
+	EloEntityTypeScene       EloEntityType = "scene"
+	EloEntityTypeStudio      EloEntityType = "studio"
+	EloEntityTypeSite        EloEntityType = "site"
+	EloEntityTypeTag         EloEntityType = "tag"
+	EloEntityTypeList        EloEntityType = "list"
+	EloEntityTypeInstance    EloEntityType = "instance"
+	EloEntityTypeContentItem EloEntityType = "content_item"
 )
 
 var AllEloEntityType = []EloEntityType{
@@ -2886,11 +2986,12 @@ var AllEloEntityType = []EloEntityType{
 	EloEntityTypeTag,
 	EloEntityTypeList,
 	EloEntityTypeInstance,
+	EloEntityTypeContentItem,
 }
 
 func (e EloEntityType) IsValid() bool {
 	switch e {
-	case EloEntityTypePerformer, EloEntityTypeScene, EloEntityTypeStudio, EloEntityTypeSite, EloEntityTypeTag, EloEntityTypeList, EloEntityTypeInstance:
+	case EloEntityTypePerformer, EloEntityTypeScene, EloEntityTypeStudio, EloEntityTypeSite, EloEntityTypeTag, EloEntityTypeList, EloEntityTypeInstance, EloEntityTypeContentItem:
 		return true
 	}
 	return false
@@ -4115,10 +4216,11 @@ func (e ListAuditActionEnum) MarshalJSON() ([]byte, error) {
 type ListEntityTypeEnum string
 
 const (
-	ListEntityTypeEnumPerformer ListEntityTypeEnum = "PERFORMER"
-	ListEntityTypeEnumScene     ListEntityTypeEnum = "SCENE"
-	ListEntityTypeEnumStudio    ListEntityTypeEnum = "STUDIO"
-	ListEntityTypeEnumSite      ListEntityTypeEnum = "SITE"
+	ListEntityTypeEnumPerformer   ListEntityTypeEnum = "PERFORMER"
+	ListEntityTypeEnumScene       ListEntityTypeEnum = "SCENE"
+	ListEntityTypeEnumStudio      ListEntityTypeEnum = "STUDIO"
+	ListEntityTypeEnumSite        ListEntityTypeEnum = "SITE"
+	ListEntityTypeEnumContentItem ListEntityTypeEnum = "CONTENT_ITEM"
 )
 
 var AllListEntityTypeEnum = []ListEntityTypeEnum{
@@ -4126,11 +4228,12 @@ var AllListEntityTypeEnum = []ListEntityTypeEnum{
 	ListEntityTypeEnumScene,
 	ListEntityTypeEnumStudio,
 	ListEntityTypeEnumSite,
+	ListEntityTypeEnumContentItem,
 }
 
 func (e ListEntityTypeEnum) IsValid() bool {
 	switch e {
-	case ListEntityTypeEnumPerformer, ListEntityTypeEnumScene, ListEntityTypeEnumStudio, ListEntityTypeEnumSite:
+	case ListEntityTypeEnumPerformer, ListEntityTypeEnumScene, ListEntityTypeEnumStudio, ListEntityTypeEnumSite, ListEntityTypeEnumContentItem:
 		return true
 	}
 	return false
@@ -4498,20 +4601,22 @@ func (e PerformerSortEnum) MarshalJSON() ([]byte, error) {
 type ReviewEntityTypeEnum string
 
 const (
-	ReviewEntityTypeEnumPerformer ReviewEntityTypeEnum = "PERFORMER"
-	ReviewEntityTypeEnumStudio    ReviewEntityTypeEnum = "STUDIO"
-	ReviewEntityTypeEnumSite      ReviewEntityTypeEnum = "SITE"
+	ReviewEntityTypeEnumPerformer   ReviewEntityTypeEnum = "PERFORMER"
+	ReviewEntityTypeEnumStudio      ReviewEntityTypeEnum = "STUDIO"
+	ReviewEntityTypeEnumSite        ReviewEntityTypeEnum = "SITE"
+	ReviewEntityTypeEnumContentItem ReviewEntityTypeEnum = "CONTENT_ITEM"
 )
 
 var AllReviewEntityTypeEnum = []ReviewEntityTypeEnum{
 	ReviewEntityTypeEnumPerformer,
 	ReviewEntityTypeEnumStudio,
 	ReviewEntityTypeEnumSite,
+	ReviewEntityTypeEnumContentItem,
 }
 
 func (e ReviewEntityTypeEnum) IsValid() bool {
 	switch e {
-	case ReviewEntityTypeEnumPerformer, ReviewEntityTypeEnumStudio, ReviewEntityTypeEnumSite:
+	case ReviewEntityTypeEnumPerformer, ReviewEntityTypeEnumStudio, ReviewEntityTypeEnumSite, ReviewEntityTypeEnumContentItem:
 		return true
 	}
 	return false
