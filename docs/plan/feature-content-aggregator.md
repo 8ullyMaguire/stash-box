@@ -406,7 +406,7 @@ part of the commit message.
    name the behaviour and nothing else, and restoring returned the suite to green. Nothing is
    wired yet, so this slice's own tests are its only surface, which is why the integration test
    belongs to slice 2, where the text reaches a resolver.
-2a. **The language reaches the query surface. DONE** (commit `a22b8d4` expected).
+2a. **The language reaches the query surface. DONE** (commit `fb73769d`).
    `SceneQueryInput.query` (NOT the deprecated `text` field, which clients still send),
    `exclude_tags` and `duration` criteria with their builder branches, the two new fields added
    to the filter-presence list at `scene/query.go:355`, `QueryScenesResultType.diagnostics`,
