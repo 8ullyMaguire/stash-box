@@ -28,6 +28,8 @@ enum NotificationEnum {
   UPDATED_EDIT
   FINGERPRINTED_SCENE_EDIT
   FINGERPRINT_MOVED
+  """A saved search found scenes it had not seen before (one notification per run)"""
+  SAVED_SEARCH_MATCH
 }
 
 union NotificationData =
@@ -43,6 +45,7 @@ union NotificationData =
    | UpdatedEdit
    | FingerprintedSceneEdit
    | FingerprintMovedScene
+   | SavedSearchMatch
 
 type FavoritePerformerScene {
   scene: Scene!

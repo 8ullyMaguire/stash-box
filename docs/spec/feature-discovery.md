@@ -190,25 +190,69 @@ redirect — so without that second step a query written before a merge reports 
 empties silently. §3.2's cost is therefore paid in the resolver, not deferred to a rewrite, and
 `TestAQueryOverAMergedTagStillMeansSomething` is the test that says so.
 
-## 5. Saved searches and their notifications (slice 2b)
+## 5. Saved searches and their notifications (slice 2b, DONE)
 
-The language reaches the query surface already (slice 2a: `SceneQueryInput.query`,
-`exclude_tags`, `duration`, `QueryScenesResultType.diagnostics`); what is left here is storing a
-query and watching it.
+The language reaches the query surface already (slice 2a); this stores a query and watches it.
 
-Migration **113 `saved_searches`**: `id, user_id, name, query text NOT NULL, notify boolean NOT
-NULL DEFAULT false, created_at, updated_at`, `UNIQUE (user_id, name)`, index on
-`(user_id, updated_at DESC)`. Not a `jsonb` filter snapshot — §3.2.
+Migration **113 `saved_searches`**: `id, user_id, name, query text, notify boolean DEFAULT false,
+last_notified_at timestamp, created_at, updated_at`; `UNIQUE (user_id, name)` — per OWNER,
+because two people may each keep "unwatched anal" and mean different things by it; a
+`(user_id, updated_at DESC)` index for the list; a partial `WHERE notify` index for the job,
+which is the only reader that wants the subscribed rows; and the `notification_type` value
+`SAVED_SEARCH_MATCH`. Not a `jsonb` filter snapshot — §3.2.
 
-GraphQL: `SavedSearch` type, `savedSearches` (own only, `@isUserOwner`), `createSavedSearch`,
-`updateSavedSearch`, `deleteSavedSearch`, and a `results` field that runs the query. A saved
-search is a `SceneQuery` variant, so it is reachable from the existing query surface rather
-than being a second one.
+**The text is what runs.** `SavedSearch.results(page, per_page, sort, direction)` builds a
+`SceneQueryInput` whose `query` is the stored text and returns the lazy `QueryScenesResultType`,
+so it takes the same parse → resolve → lower → builder path `queryScenes` takes. Two
+consequences worth stating: a saved search cannot answer differently from the statement it
+stores, and `results.diagnostics` reports a term the filter cannot apply exactly the way a live
+query does. A client that wants a different surface (performer context, another sort) can call
+`queryScenes` with the stored text, which is why the field is a convenience and not a second
+query language.
 
-Notifications: when `notify` is true, a periodic job (the existing `internal/cron`) runs each
-subscribed search with a `created_since` cursor and writes one `notifications` row per user per
-run, never one per match — the draft's "my ongoing interests" is a feed, not a mail bomb. The
-`notification_type` enum gains a value in the same migration.
+Three implementation facts that are contracts, not accidents:
+
+1. **`results` is force-resolved, not bound to the struct field.** gqlgen parses a bound field's
+   arguments and then returns the field anyway, so `results(page: 2)` would have returned page 1
+   with no error anywhere. `gqlgen.yml` marks the field `resolver: true`, and
+   `TestSavedSearchResultsHonourTheirPagingArguments` asserts that two pages DIFFER — "it
+   returned scenes" passes under the bug.
+2. **The input's defaults are spelled out where the input is built in Go.** `page: 1, per_page:
+   25, sort: DATE, direction: DESC` are `SceneQueryInput`'s schema defaults; a client gets them
+   from gqlgen, a Go-built input does not, and `page: 0` is not "unset" — it is an offset of −25.
+3. **`created_since` is a filter, not a private cursor.** `SceneQueryInput.created_since`
+   filters on `scenes.created_at` — when the scene ARRIVED here, not `date`, when it was made —
+   and it is in the filter-presence list at `scene/query.go:377` for the reason that list exists.
+   The notification job uses it, and so may any client.
+
+**The job.** `savedsearch.NotifyMatches`, run by a thin cron wrapper every
+`saved_search_notify_interval` (default 15m) and testable without a scheduler. It writes ONE
+notification per subscribed search per run, never one per match — a standing query over a busy
+instance is a feed, not a mailbox — and returns how many it wrote.
+
+- **The cursor comes from the DATABASE's clock** (`SavedSearchNow`, `now()::timestamp`). Not
+  stylistic: `scenes.created_at` is a `timestamp` stamped by the database's clock, and a Go
+  process in +02:00 writing its local wall clock into a `timestamp` column stores a cursor two
+  hours AHEAD of the rows it is compared with — every run finds nothing, forever, with no error
+  anywhere. That was the first version of this job; the integration test went red on it.
+- **The cursor is taken before the run and written after**, so a run that takes a minute cannot
+  move it past a scene that arrived while the run was still going.
+- **A search with no cursor gets one and announces nothing.** A search saved a year ago must not
+  announce a year of matches the first time it is subscribed.
+- **Each search runs as its OWNER.** The filter can depend on who is asking — `favorites:` means
+  the owner's favorites — so the owner's identity is put into the context for that run, and the
+  query path's own use of the current user is satisfied by the reader whose search it is.
+- **The notification's target is the NEWEST match**, so opening it lands on something to look at
+  rather than on a search to run again; the payload carries the search's id and the count.
+  `SavedSearchMatch.saved_search` is nullable because deleting a search deletes its notifications
+  in the same transaction, and a notification list renders every unread row it returns.
+- **A failure on one search does not stop the others.** A query saved before a syntax tightening
+  must not silence every other reader.
+
+The self-referential trap this section exists to prevent: the search's own `notify` flag IS the
+subscription, so the notification is written directly rather than through
+`user_notifications` — requiring a second opt-in in a settings page would mean a search that
+silently never notifies.
 
 ## 6. The tag explorer (slice 3)
 
@@ -317,9 +361,16 @@ continue; nothing reads it unless the user turned it on.
   GraphQL: `anal -rough` returns what the equivalent struct filter returns, asserted against
   the same fixture both ways — a language that agrees with itself and not with the query
   builder is the failure this catches.
-- **Slice 2** — a migration harness (`scripts/verify-113.sh`) for the constraints, and an
-  integration test that a saved search survives a round trip (save, list, run, rename) and that
-  a notified search writes ONE notification per run, not one per match.
+- **Slice 2** — `scripts/mutate-saved-searches.py` plus `internal/api/saved_search_integration_test.go`:
+  a round trip (save, list, find, rename, subscribe, delete); ownership (another user's id is
+  null, their delete is false, the owner's row survives); the stored text agreeing with
+  `queryScenes` on the same fixture; two pages differing, so the paging arguments are shown to
+  reach the query; an unapplicable term returning empty WITH one diagnostic naming it; and the
+  job's rules — first run announces nothing, a run writes ONE notification with the newest match
+  as its target and the count in its payload, a second run over the same state writes none, and
+  deleting the search takes its notifications. Four mutations (cursor filtering dropped, paging
+  arguments ignored, the no-cursor rule removed, ownership unchecked in delete) each redden
+  exactly the test that names that behaviour and restore green.
 - **Slice 3** — facets: the counts a query returns for a fixture whose co-occurrence is known
   by construction; and the scope test, that a facet count agrees with the result set it sits
   next to.
@@ -350,3 +401,13 @@ continue; nothing reads it unless the user turned it on.
    than a new sort over the old one.
 6. **The explanation half of similarity ships before the vector half** (§8), because it is
    correct today and the vector half is not yet possible.
+7. **The notification cursor is the DATABASE's clock, not the process's** (§5). A `timestamp`
+   column has no zone, so a process in +02:00 stores a cursor two hours ahead of the rows it is
+   compared against and every run silently finds nothing. Measured on the first version of the
+   job, and the reason `SavedSearchNow` exists as a query.
+8. **A saved search runs as its OWNER, in the job as well as in the UI** (§5). `favorites:` is
+   a filter about who is asking, so a run with no current user is not merely imprecise — the
+   query path dereferences the user, and the first version of the job panicked on it.
+9. **The search's `notify` flag IS the subscription** (§5), so the notification bypasses
+   `user_notifications` on purpose: a second opt-in would produce a search that silently never
+   notifies.

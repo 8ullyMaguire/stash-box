@@ -759,6 +759,34 @@ func StringsToRoleEnums(strings []string) []models.RoleEnum {
 	return result
 }
 
+// SavedSearchToModel converts a database saved search to a models.SavedSearch. The `results`
+// field is deliberately NOT set here: it takes paging and sorting arguments, so it is built by
+// the field resolver when it is asked for (internal/api/resolver_saved_search.go).
+func SavedSearchToModel(dbSavedSearch queries.SavedSearch) models.SavedSearch {
+	return models.SavedSearch{
+		ID:           dbSavedSearch.ID,
+		Name:         dbSavedSearch.Name,
+		Query:        dbSavedSearch.Query,
+		Notify:       dbSavedSearch.Notify,
+		Created:      dbSavedSearch.CreatedAt,
+		Updated:      dbSavedSearch.UpdatedAt,
+		LastNotified: dbSavedSearch.LastNotifiedAt,
+	}
+}
+
+// SavedSearchesToModels converts database saved searches to models.SavedSearch.
+func SavedSearchesToModels(dbSavedSearches []queries.SavedSearch) []models.SavedSearch {
+	if dbSavedSearches == nil {
+		return nil
+	}
+
+	savedSearches := make([]models.SavedSearch, len(dbSavedSearches))
+	for i, savedSearch := range dbSavedSearches {
+		savedSearches[i] = SavedSearchToModel(savedSearch)
+	}
+	return savedSearches
+}
+
 // NotificationToModel converts a database notification to a models.Notification
 func NotificationToModel(dbNotification queries.Notification) models.Notification {
 	notification := models.Notification{

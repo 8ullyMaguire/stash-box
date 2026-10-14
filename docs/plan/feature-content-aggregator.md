@@ -422,14 +422,30 @@ part of the commit message.
    `exclude_tags` criterion, disabling the duration branch, dropping the redirect fallback
    (the name-only lookup that FAILED the first time the merge test ran), and disabling the
    `noMatch` short-circuit each reddened exactly one test and restored green.
-2b. **Saved searches.** Migration **113** (`saved_searches`, `UNIQUE (user_id, name)`, the
-   `notification_type` enum value), `internal/queries/sql/saved_search.sql`, the GraphQL type
-   and mutations, a `results` field that runs the stored text through the same parse → lower →
-   builder path 2a wired, and the `created_since` notification job in `internal/cron`.
-   **Verification:** `./scripts/verify-113.sh` → the constraints and the enum value;
-   `POSTGRES_DB=<dsn> go test -tags=integration -run 'TestSavedSearch' ./internal/api/` →
-   save/list/run/rename, ONE notification per run, and the language test — `anal -rough`
-   through GraphQL returns exactly what the equivalent struct filter returns.
+2b. **Saved searches and their notifications. DONE** (commit `pending`).
+   Migration **113** (`saved_searches`: `UNIQUE (user_id, name)`, `last_notified_at` cursor, a
+   partial `WHERE notify` index, the `SAVED_SEARCH_MATCH` enum value), its sqlc queries,
+   `internal/service/savedsearch` (CRUD scoped by owner, plus `NotifyMatches`),
+   `internal/service/scene/query.go`'s `created_since` criterion (in the filter-presence list),
+   the GraphQL type and its five operations, and a 15-minute cron wrapper
+   (`saved_search_notify_interval`).
+   **Verification:** `POSTGRES_DB=... go test -tags integration -count=1 -run 'SavedSearch|AnotherUsersSavedSearch|ATermItCannotApply' ./internal/api/` → ok: save/list/find/rename/
+   subscribe/delete; another user's id is null, their delete is false, the owner's row survives;
+   `results` agrees with `queryScenes` on the same fixture; page 2 differs from page 1 (so
+   the paging arguments are shown to reach the query); an unapplicable term returns empty WITH
+   one diagnostic naming it; and the job announces nothing on the first run, writes ONE
+   notification whose target is the newest match and whose payload names the search, writes
+   none on a second run over the same state, and loses its notifications when the search is
+   deleted.
+   **Mutation-checked** by `scripts/mutate-saved-searches.py`: dropping the `created_since`
+   clause, ignoring the paging arguments, removing the first-run cursor rule, and removing the
+   ownership check in delete each reddened exactly the test that names that behaviour and
+   restored green.
+   **Two failures found by the tests, not by review:** a Go process in +02:00 writing its local
+   wall clock into a `timestamp` cursor sat two hours ahead of `scenes.created_at` (every run
+   found nothing, silently — the cursor now comes from `SavedSearchNow`), and the job ran with no
+   current user in its context, which the query path dereferences (it now runs as the search's
+   owner, which is also the only correct reading of `favorites:`).
 3. **The tag explorer.** `internal/queries/sql/tag_facets.sql` (co-occurrence counts scoped by
    the same filter as the results) and the `Tag.facets`/`TagExplorer` surface.
    **Verification:** the facet count equals the result-set count for a fixture built to make

@@ -55,6 +55,7 @@ type ResolverRoot interface {
 	QueryPerformersResultType() QueryPerformersResultTypeResolver
 	QueryScenesResultType() QueryScenesResultTypeResolver
 	QueryUnorganizedImagesResultType() QueryUnorganizedImagesResultTypeResolver
+	SavedSearch() SavedSearchResolver
 	Scene() SceneResolver
 	SceneDraft() SceneDraftResolver
 	SceneEdit() SceneEditResolver
@@ -524,7 +525,9 @@ type ComplexityRoot struct {
 		CancelEdit                        func(childComplexity int, input CancelEditInput) int
 		ChangePassword                    func(childComplexity int, input UserChangePasswordInput) int
 		ConfirmChangeEmail                func(childComplexity int, token uuid.UUID) int
+		CreateSavedSearch                 func(childComplexity int, input SavedSearchInput) int
 		DeleteEdit                        func(childComplexity int, input DeleteEditInput) int
+		DeleteSavedSearch                 func(childComplexity int, id uuid.UUID) int
 		DestroyDraft                      func(childComplexity int, id uuid.UUID) int
 		EditComment                       func(childComplexity int, input EditCommentInput) int
 		EditVote                          func(childComplexity int, input EditVoteInput) int
@@ -608,6 +611,7 @@ type ComplexityRoot struct {
 		UpdateEditComment                 func(childComplexity int, input UpdateEditCommentInput) int
 		UpdateImageTypePreferences        func(childComplexity int, input ImageTypePreferencesInput) int
 		UpdateNotificationSubscriptions   func(childComplexity int, subscriptions []NotificationEnum) int
+		UpdateSavedSearch                 func(childComplexity int, input SavedSearchUpdateInput) int
 		UserCreate                        func(childComplexity int, input UserCreateInput) int
 		UserDestroy                       func(childComplexity int, input UserDestroyInput) int
 		UserUpdate                        func(childComplexity int, input UserUpdateInput) int
@@ -790,6 +794,7 @@ type ComplexityRoot struct {
 		FindOntologyVersion            func(childComplexity int, version int) int
 		FindPerformer                  func(childComplexity int, id uuid.UUID) int
 		FindPerformers                 func(childComplexity int, ids []uuid.UUID) int
+		FindSavedSearch                func(childComplexity int, id uuid.UUID) int
 		FindScene                      func(childComplexity int, id uuid.UUID) int
 		FindScenes                     func(childComplexity int, ids []uuid.UUID) int
 		FindScenesBySceneFingerprints  func(childComplexity int, fingerprints [][]FingerprintQueryInput) int
@@ -832,6 +837,7 @@ type ComplexityRoot struct {
 		QueryUsers                     func(childComplexity int, input UserQueryInput) int
 		ResolvedIdentificationQueries  func(childComplexity int, entityType IdentificationTargetType, entityID uuid.UUID, limit *int) int
 		Review                         func(childComplexity int, id uuid.UUID) int
+		SavedSearches                  func(childComplexity int) int
 		SceneChangelog                 func(childComplexity int, since time.Time, afterID *uuid.UUID, limit *int) int
 		SceneCollage                   func(childComplexity int, sceneID uuid.UUID) int
 		SceneSnapshots                 func(childComplexity int, sceneID uuid.UUID) int
@@ -938,6 +944,22 @@ type ComplexityRoot struct {
 		Average    func(childComplexity int) int
 		RatedCount func(childComplexity int) int
 		TotalCount func(childComplexity int) int
+	}
+
+	SavedSearch struct {
+		Created      func(childComplexity int) int
+		ID           func(childComplexity int) int
+		LastNotified func(childComplexity int) int
+		Name         func(childComplexity int) int
+		Notify       func(childComplexity int) int
+		Query        func(childComplexity int) int
+		Results      func(childComplexity int, page *int, perPage *int, sort *SceneSortEnum, direction *SortDirectionEnum) int
+		Updated      func(childComplexity int) int
+	}
+
+	SavedSearchMatch struct {
+		Count       func(childComplexity int) int
+		SavedSearch func(childComplexity int) int
 	}
 
 	Scene struct {
@@ -1410,6 +1432,9 @@ type MutationResolver interface {
 	DestroyDraft(ctx context.Context, id uuid.UUID) (bool, error)
 	FavoritePerformer(ctx context.Context, id uuid.UUID, favorite bool) (bool, error)
 	FavoriteStudio(ctx context.Context, id uuid.UUID, favorite bool) (bool, error)
+	CreateSavedSearch(ctx context.Context, input SavedSearchInput) (*SavedSearch, error)
+	UpdateSavedSearch(ctx context.Context, input SavedSearchUpdateInput) (*SavedSearch, error)
+	DeleteSavedSearch(ctx context.Context, id uuid.UUID) (bool, error)
 	MarkNotificationsRead(ctx context.Context, notification *MarkNotificationReadInput) (bool, error)
 	UpdateNotificationSubscriptions(ctx context.Context, subscriptions []NotificationEnum) (bool, error)
 	UpdateImageTypePreferences(ctx context.Context, input ImageTypePreferencesInput) (bool, error)
@@ -1525,6 +1550,8 @@ type QueryResolver interface {
 	FindScenes(ctx context.Context, ids []uuid.UUID) ([]*Scene, error)
 	FindScenesBySceneFingerprints(ctx context.Context, fingerprints [][]FingerprintQueryInput) ([][]*Scene, error)
 	QueryScenes(ctx context.Context, input SceneQueryInput) (*SceneQuery, error)
+	SavedSearches(ctx context.Context) ([]SavedSearch, error)
+	FindSavedSearch(ctx context.Context, id uuid.UUID) (*SavedSearch, error)
 	SceneChangelog(ctx context.Context, since time.Time, afterID *uuid.UUID, limit *int) ([]EntityChange, error)
 	FindSite(ctx context.Context, id uuid.UUID) (*Site, error)
 	QuerySites(ctx context.Context) (*QuerySitesResultType, error)
@@ -1608,6 +1635,9 @@ type QueryScenesResultTypeResolver interface {
 type QueryUnorganizedImagesResultTypeResolver interface {
 	Count(ctx context.Context, obj *UnorganizedImagesQuery) (int, error)
 	Images(ctx context.Context, obj *UnorganizedImagesQuery) ([]UnorganizedImage, error)
+}
+type SavedSearchResolver interface {
+	Results(ctx context.Context, obj *SavedSearch, page *int, perPage *int, sort *SceneSortEnum, direction *SortDirectionEnum) (*SceneQuery, error)
 }
 type SceneResolver interface {
 	ReleaseDate(ctx context.Context, obj *Scene) (*string, error)
@@ -3458,6 +3488,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.ConfirmChangeEmail(childComplexity, args["token"].(uuid.UUID)), true
+	case "Mutation.createSavedSearch":
+		if e.ComplexityRoot.Mutation.CreateSavedSearch == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_createSavedSearch_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.CreateSavedSearch(childComplexity, args["input"].(SavedSearchInput)), true
 	case "Mutation.deleteEdit":
 		if e.ComplexityRoot.Mutation.DeleteEdit == nil {
 			break
@@ -3469,6 +3510,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.DeleteEdit(childComplexity, args["input"].(DeleteEditInput)), true
+	case "Mutation.deleteSavedSearch":
+		if e.ComplexityRoot.Mutation.DeleteSavedSearch == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_deleteSavedSearch_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.DeleteSavedSearch(childComplexity, args["id"].(uuid.UUID)), true
 	case "Mutation.destroyDraft":
 		if e.ComplexityRoot.Mutation.DestroyDraft == nil {
 			break
@@ -4372,6 +4424,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.UpdateNotificationSubscriptions(childComplexity, args["subscriptions"].([]NotificationEnum)), true
+	case "Mutation.updateSavedSearch":
+		if e.ComplexityRoot.Mutation.UpdateSavedSearch == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_updateSavedSearch_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.UpdateSavedSearch(childComplexity, args["input"].(SavedSearchUpdateInput)), true
 	case "Mutation.userCreate":
 		if e.ComplexityRoot.Mutation.UserCreate == nil {
 			break
@@ -5375,6 +5438,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.FindPerformers(childComplexity, args["ids"].([]uuid.UUID)), true
+	case "Query.findSavedSearch":
+		if e.ComplexityRoot.Query.FindSavedSearch == nil {
+			break
+		}
+
+		args, err := ec.field_Query_findSavedSearch_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.FindSavedSearch(childComplexity, args["id"].(uuid.UUID)), true
 	case "Query.findScene":
 		if e.ComplexityRoot.Query.FindScene == nil {
 			break
@@ -5798,6 +5872,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.Review(childComplexity, args["id"].(uuid.UUID)), true
+	case "Query.savedSearches":
+		if e.ComplexityRoot.Query.SavedSearches == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Query.SavedSearches(childComplexity), true
 	case "Query.sceneChangelog":
 		if e.ComplexityRoot.Query.SceneChangelog == nil {
 			break
@@ -6222,6 +6302,73 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.ReviewSummary.TotalCount(childComplexity), true
+
+	case "SavedSearch.created":
+		if e.ComplexityRoot.SavedSearch.Created == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SavedSearch.Created(childComplexity), true
+	case "SavedSearch.id":
+		if e.ComplexityRoot.SavedSearch.ID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SavedSearch.ID(childComplexity), true
+	case "SavedSearch.last_notified":
+		if e.ComplexityRoot.SavedSearch.LastNotified == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SavedSearch.LastNotified(childComplexity), true
+	case "SavedSearch.name":
+		if e.ComplexityRoot.SavedSearch.Name == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SavedSearch.Name(childComplexity), true
+	case "SavedSearch.notify":
+		if e.ComplexityRoot.SavedSearch.Notify == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SavedSearch.Notify(childComplexity), true
+	case "SavedSearch.query":
+		if e.ComplexityRoot.SavedSearch.Query == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SavedSearch.Query(childComplexity), true
+	case "SavedSearch.results":
+		if e.ComplexityRoot.SavedSearch.Results == nil {
+			break
+		}
+
+		args, err := ec.field_SavedSearch_results_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.SavedSearch.Results(childComplexity, args["page"].(*int), args["per_page"].(*int), args["sort"].(*SceneSortEnum), args["direction"].(*SortDirectionEnum)), true
+	case "SavedSearch.updated":
+		if e.ComplexityRoot.SavedSearch.Updated == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SavedSearch.Updated(childComplexity), true
+
+	case "SavedSearchMatch.count":
+		if e.ComplexityRoot.SavedSearchMatch.Count == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SavedSearchMatch.Count(childComplexity), true
+	case "SavedSearchMatch.saved_search":
+		if e.ComplexityRoot.SavedSearchMatch.SavedSearch == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SavedSearchMatch.SavedSearch(childComplexity), true
 
 	case "Scene.code":
 		if e.ComplexityRoot.Scene.Code == nil {
@@ -7727,6 +7874,8 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputReviewSubmitInput,
 		ec.unmarshalInputRevokeInviteInput,
 		ec.unmarshalInputRoleCriterionInput,
+		ec.unmarshalInputSavedSearchInput,
+		ec.unmarshalInputSavedSearchUpdateInput,
 		ec.unmarshalInputSceneCreateInput,
 		ec.unmarshalInputSceneDestroyInput,
 		ec.unmarshalInputSceneDraftInput,
@@ -9917,6 +10066,8 @@ enum NotificationEnum {
   UPDATED_EDIT
   FINGERPRINTED_SCENE_EDIT
   FINGERPRINT_MOVED
+  """A saved search found scenes it had not seen before (one notification per run)"""
+  SAVED_SEARCH_MATCH
 }
 
 union NotificationData =
@@ -9932,6 +10083,7 @@ union NotificationData =
    | UpdatedEdit
    | FingerprintedSceneEdit
    | FingerprintMovedScene
+   | SavedSearchMatch
 
 type FavoritePerformerScene {
   scene: Scene!
@@ -10779,6 +10931,76 @@ extend type Mutation {
   "Delete your own review. Authors only; a moderator removes reviews by flagging."
   reviewDelete(id: ID!): Boolean! @hasRole(role: MODERATE)
 }`, BuiltIn: false},
+	{Name: "../../graphql/schema/types/saved_search.graphql", Input: `"""
+A search a reader keeps. The stored TEXT is canonical and the filter is derived by parsing it on
+every run -- docs/spec/feature-discovery.md section 3.2 -- so there is exactly one source of
+truth and no filter snapshot that can disagree with it.
+
+The cost, paid at resolution and stated there: a tag merge or rename does not rewrite the stored
+text, so a saved search keeps the OLD name and resolution follows the redirect. A term that can
+no longer be applied empties the result and says so in ` + "`" + `results.diagnostics` + "`" + `; it is never dropped.
+"""
+type SavedSearch {
+  id: ID!
+  name: String!
+  """The query-language text, exactly as it was written."""
+  query: String!
+  """
+  Be told when it finds something new.
+
+  One notification per run that found something, never one per match: a standing query over a
+  busy instance is a feed, not a mailbox.
+  """
+  notify: Boolean!
+  created: Time!
+  updated: Time!
+  """When the notification job last looked. Null means it has never run for this search."""
+  last_notified: Time
+
+  """
+  Runs the stored query. The same path ` + "`" + `queryScenes` + "`" + ` takes, so a saved search cannot answer
+  differently from the statement it stores.
+  """
+  results(
+    page: Int = 1
+    per_page: Int = 40
+    sort: SceneSortEnum
+    direction: SortDirectionEnum
+  ): QueryScenesResultType!
+}
+
+"""
+A saved search found something it had not seen before.
+
+` + "`" + `count` + "`" + ` is how many matches the run found past the search's cursor, and the notification's own
+target id is the newest of them, so the notification opens the newest match rather than the
+search.
+"""
+type SavedSearchMatch {
+  """
+  The search that matched, or null if it has since been deleted.
+
+  Deleting a search removes the notifications it produced in the same transaction, so null here
+  means a race, not the normal path -- but a notification list renders every row it returns, and
+  a non-null field with nothing behind it would fail the whole list rather than one link.
+  """
+  saved_search: SavedSearch
+  count: Int!
+}
+
+input SavedSearchInput {
+  name: String!
+  query: String!
+  notify: Boolean = False
+}
+
+input SavedSearchUpdateInput {
+  id: ID!
+  name: String!
+  query: String!
+  notify: Boolean = False
+}
+`, BuiltIn: false},
 	{Name: "../../graphql/schema/types/scene.graphql", Input: `type PerformerAppearance {
   performer: Performer!
   """Performing as alias"""
@@ -11086,6 +11308,14 @@ input SceneQueryInput {
   exclude_tags: MultiIDCriterionInput
   """Filter by scene duration in seconds"""
   duration: IntCriterionInput
+  """
+  Filter to scenes ADDED to the instance at or after this instant.
+
+  Not a release date: ` + "`" + `date` + "`" + ` is when the scene was made, this is when it arrived here. It is
+  what a saved search's notification cursor needs -- "what is new since I last looked" is a
+  question about this instance, not about the calendar of the industry.
+  """
+  created_since: Time
 
   page: Int! = 1
   per_page: Int! = 25
@@ -12005,6 +12235,11 @@ type Query {
   findScenesBySceneFingerprints(fingerprints: [[FingerprintQueryInput!]!]!): [[Scene]!]! @hasRole(role: READ)
 
   queryScenes(input: SceneQueryInput!): QueryScenesResultType! @hasRole(role: READ)
+
+  """This user's saved searches, most recently touched first."""
+  savedSearches: [SavedSearch!]! @hasRole(role: READ)
+  """One of this user's saved searches. Another user's id is ` + "`" + `null` + "`" + `, not a row."""
+  findSavedSearch(id: ID!): SavedSearch @hasRole(role: READ)
   """Incremental feed of scenes changed since a keyset cursor"""
   sceneChangelog(since: Time!, after_id: ID, limit: Int = 5000): [EntityChange!]! @hasRole(role: READ)
 
@@ -12260,6 +12495,19 @@ type Mutation {
   favoritePerformer(id: ID!, favorite: Boolean!): Boolean! @hasRole(role: READ)
   """Favorite or unfavorite a studio"""
   favoriteStudio(id: ID!, favorite: Boolean!): Boolean! @hasRole(role: READ)
+
+  """
+  Keep a search. The name is per owner, so two people may each keep "unwatched anal" and mean
+  different things by it.
+  """
+  createSavedSearch(input: SavedSearchInput!): SavedSearch! @hasRole(role: READ)
+  """Change a saved search's name, text or subscription. The id must be yours."""
+  updateSavedSearch(input: SavedSearchUpdateInput!): SavedSearch! @hasRole(role: READ)
+  """
+  Forget a search, and the notifications it produced. False when there was no such search of
+  yours -- a delete that removed nothing must not report success.
+  """
+  deleteSavedSearch(id: ID!): Boolean! @hasRole(role: READ)
 
   """Mark all of the current users notifications as read."""
   markNotificationsRead(notification: MarkNotificationReadInput): Boolean! @hasRole(role: READ)
@@ -13430,6 +13678,28 @@ func (ec *executionContext) childFields_ReviewSummary(ctx context.Context, field
 	return nil, fmt.Errorf("no field named %q was found under type ReviewSummary", field.Name)
 }
 
+func (ec *executionContext) childFields_SavedSearch(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "id":
+		return ec.fieldContext_SavedSearch_id(ctx, field)
+	case "name":
+		return ec.fieldContext_SavedSearch_name(ctx, field)
+	case "query":
+		return ec.fieldContext_SavedSearch_query(ctx, field)
+	case "notify":
+		return ec.fieldContext_SavedSearch_notify(ctx, field)
+	case "created":
+		return ec.fieldContext_SavedSearch_created(ctx, field)
+	case "updated":
+		return ec.fieldContext_SavedSearch_updated(ctx, field)
+	case "last_notified":
+		return ec.fieldContext_SavedSearch_last_notified(ctx, field)
+	case "results":
+		return ec.fieldContext_SavedSearch_results(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type SavedSearch", field.Name)
+}
+
 func (ec *executionContext) childFields_Scene(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 	switch field.Name {
 	case "id":
@@ -14192,6 +14462,20 @@ func (ec *executionContext) field_Mutation_confirmChangeEmail_args(ctx context.C
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_createSavedSearch_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
+		func(ctx context.Context, v any) (SavedSearchInput, error) {
+			return ec.unmarshalNSavedSearchInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSavedSearchInput(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_deleteEdit_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -14203,6 +14487,20 @@ func (ec *executionContext) field_Mutation_deleteEdit_args(ctx context.Context, 
 		return nil, err
 	}
 	args["input"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_deleteSavedSearch_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (uuid.UUID, error) {
+			return ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
 	return args, nil
 }
 
@@ -15412,6 +15710,20 @@ func (ec *executionContext) field_Mutation_updateNotificationSubscriptions_args(
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_updateSavedSearch_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
+		func(ctx context.Context, v any) (SavedSearchUpdateInput, error) {
+			return ec.unmarshalNSavedSearchUpdateInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSavedSearchUpdateInput(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_userCreate_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -15793,6 +16105,20 @@ func (ec *executionContext) field_Query_findPerformers_args(ctx context.Context,
 		return nil, err
 	}
 	args["ids"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_findSavedSearch_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (uuid.UUID, error) {
+			return ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
 	return args, nil
 }
 
@@ -16669,6 +16995,44 @@ func (ec *executionContext) field_Query_underSnapshottedScenes_args(ctx context.
 		return nil, err
 	}
 	args["limit"] = arg1
+	return args, nil
+}
+
+func (ec *executionContext) field_SavedSearch_results_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "page",
+		func(ctx context.Context, v any) (*int, error) {
+			return ec.unmarshalOInt2ᚖint(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["page"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "per_page",
+		func(ctx context.Context, v any) (*int, error) {
+			return ec.unmarshalOInt2ᚖint(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["per_page"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "sort",
+		func(ctx context.Context, v any) (*SceneSortEnum, error) {
+			return ec.unmarshalOSceneSortEnum2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSceneSortEnum(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["sort"] = arg2
+	arg3, err := graphql.ProcessArgField(ctx, rawArgs, "direction",
+		func(ctx context.Context, v any) (*SortDirectionEnum, error) {
+			return ec.unmarshalOSortDirectionEnum2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSortDirectionEnum(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["direction"] = arg3
 	return args, nil
 }
 
@@ -27559,6 +27923,192 @@ func (ec *executionContext) fieldContext_Mutation_favoriteStudio(ctx context.Con
 	return fc, nil
 }
 
+func (ec *executionContext) _Mutation_createSavedSearch(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_createSavedSearch(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().CreateSavedSearch(ctx, fc.Args["input"].(SavedSearchInput))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal *SavedSearch
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *SavedSearch
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *SavedSearch) graphql.Marshaler {
+			return ec.marshalNSavedSearch2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSavedSearch(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_createSavedSearch(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_SavedSearch(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_createSavedSearch_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_updateSavedSearch(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_updateSavedSearch(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().UpdateSavedSearch(ctx, fc.Args["input"].(SavedSearchUpdateInput))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal *SavedSearch
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *SavedSearch
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *SavedSearch) graphql.Marshaler {
+			return ec.marshalNSavedSearch2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSavedSearch(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_updateSavedSearch(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_SavedSearch(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_updateSavedSearch_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_deleteSavedSearch(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_deleteSavedSearch(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().DeleteSavedSearch(ctx, fc.Args["id"].(uuid.UUID))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal bool
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal bool
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_deleteSavedSearch(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_deleteSavedSearch_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Mutation_markNotificationsRead(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -33877,6 +34427,118 @@ func (ec *executionContext) fieldContext_Query_queryScenes(ctx context.Context, 
 	return fc, nil
 }
 
+func (ec *executionContext) _Query_savedSearches(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_savedSearches(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Query().SavedSearches(ctx)
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal []SavedSearch
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal []SavedSearch
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v []SavedSearch) graphql.Marshaler {
+			return ec.marshalNSavedSearch2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSavedSearchᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_savedSearches(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_SavedSearch(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_findSavedSearch(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_findSavedSearch(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().FindSavedSearch(ctx, fc.Args["id"].(uuid.UUID))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal *SavedSearch
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *SavedSearch
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *SavedSearch) graphql.Marshaler {
+			return ec.marshalOSavedSearch2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSavedSearch(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_Query_findSavedSearch(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_SavedSearch(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_findSavedSearch_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Query_sceneChangelog(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -37969,6 +38631,266 @@ func (ec *executionContext) _ReviewSummary_totalCount(ctx context.Context, field
 }
 func (ec *executionContext) fieldContext_ReviewSummary_totalCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("ReviewSummary", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _SavedSearch_id(ctx context.Context, field graphql.CollectedField, obj *SavedSearch) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SavedSearch_id(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v uuid.UUID) graphql.Marshaler {
+			return ec.marshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SavedSearch_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SavedSearch", field, false, false, errors.New("field of type ID does not have child fields"))
+}
+
+func (ec *executionContext) _SavedSearch_name(ctx context.Context, field graphql.CollectedField, obj *SavedSearch) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SavedSearch_name(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Name, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SavedSearch_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SavedSearch", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _SavedSearch_query(ctx context.Context, field graphql.CollectedField, obj *SavedSearch) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SavedSearch_query(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Query, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SavedSearch_query(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SavedSearch", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _SavedSearch_notify(ctx context.Context, field graphql.CollectedField, obj *SavedSearch) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SavedSearch_notify(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Notify, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SavedSearch_notify(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SavedSearch", field, false, false, errors.New("field of type Boolean does not have child fields"))
+}
+
+func (ec *executionContext) _SavedSearch_created(ctx context.Context, field graphql.CollectedField, obj *SavedSearch) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SavedSearch_created(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Created, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v time.Time) graphql.Marshaler {
+			return ec.marshalNTime2timeᚐTime(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SavedSearch_created(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SavedSearch", field, false, false, errors.New("field of type Time does not have child fields"))
+}
+
+func (ec *executionContext) _SavedSearch_updated(ctx context.Context, field graphql.CollectedField, obj *SavedSearch) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SavedSearch_updated(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Updated, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v time.Time) graphql.Marshaler {
+			return ec.marshalNTime2timeᚐTime(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SavedSearch_updated(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SavedSearch", field, false, false, errors.New("field of type Time does not have child fields"))
+}
+
+func (ec *executionContext) _SavedSearch_last_notified(ctx context.Context, field graphql.CollectedField, obj *SavedSearch) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SavedSearch_last_notified(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.LastNotified, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *time.Time) graphql.Marshaler {
+			return ec.marshalOTime2ᚖtimeᚐTime(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_SavedSearch_last_notified(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SavedSearch", field, false, false, errors.New("field of type Time does not have child fields"))
+}
+
+func (ec *executionContext) _SavedSearch_results(ctx context.Context, field graphql.CollectedField, obj *SavedSearch) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SavedSearch_results(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.SavedSearch().Results(ctx, obj, fc.Args["page"].(*int), fc.Args["per_page"].(*int), fc.Args["sort"].(*SceneSortEnum), fc.Args["direction"].(*SortDirectionEnum))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *SceneQuery) graphql.Marshaler {
+			return ec.marshalNQueryScenesResultType2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSceneQuery(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SavedSearch_results(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SavedSearch",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_QueryScenesResultType(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_SavedSearch_results_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SavedSearchMatch_saved_search(ctx context.Context, field graphql.CollectedField, obj *SavedSearchMatch) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SavedSearchMatch_saved_search(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.SavedSearch, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *SavedSearch) graphql.Marshaler {
+			return ec.marshalOSavedSearch2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSavedSearch(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_SavedSearchMatch_saved_search(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SavedSearchMatch",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_SavedSearch(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SavedSearchMatch_count(ctx context.Context, field graphql.CollectedField, obj *SavedSearchMatch) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SavedSearchMatch_count(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Count, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SavedSearchMatch_count(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SavedSearchMatch", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
 func (ec *executionContext) _Scene_id(ctx context.Context, field graphql.CollectedField, obj *Scene) (ret graphql.Marshaler) {
@@ -49236,6 +50158,109 @@ func (ec *executionContext) unmarshalInputRoleCriterionInput(ctx context.Context
 	return it, nil
 }
 
+func (ec *executionContext) unmarshalInputSavedSearchInput(ctx context.Context, obj any) (SavedSearchInput, error) {
+	var it SavedSearchInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	if _, present := asMap["notify"]; !present {
+		asMap["notify"] = "False"
+	}
+
+	fieldsInOrder := [...]string{"name", "query", "notify"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "name":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("name"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Name = data
+		case "query":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("query"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Query = data
+		case "notify":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("notify"))
+			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Notify = data
+		}
+	}
+	return it, nil
+}
+
+func (ec *executionContext) unmarshalInputSavedSearchUpdateInput(ctx context.Context, obj any) (SavedSearchUpdateInput, error) {
+	var it SavedSearchUpdateInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	if _, present := asMap["notify"]; !present {
+		asMap["notify"] = "False"
+	}
+
+	fieldsInOrder := [...]string{"id", "name", "query", "notify"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "id":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("id"))
+			data, err := ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ID = data
+		case "name":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("name"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Name = data
+		case "query":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("query"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Query = data
+		case "notify":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("notify"))
+			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Notify = data
+		}
+	}
+	return it, nil
+}
+
 func (ec *executionContext) unmarshalInputSceneCreateInput(ctx context.Context, obj any) (SceneCreateInput, error) {
 	var it SceneCreateInput
 	if obj == nil {
@@ -49686,7 +50711,7 @@ func (ec *executionContext) unmarshalInputSceneQueryInput(ctx context.Context, o
 		asMap["sort"] = "DATE"
 	}
 
-	fieldsInOrder := [...]string{"text", "title", "url", "code", "date", "production_date", "id", "studios", "parentStudio", "tags", "performers", "alias", "fingerprints", "favorites", "has_fingerprint_submissions", "query", "exclude_tags", "duration", "page", "per_page", "direction", "sort"}
+	fieldsInOrder := [...]string{"text", "title", "url", "code", "date", "production_date", "id", "studios", "parentStudio", "tags", "performers", "alias", "fingerprints", "favorites", "has_fingerprint_submissions", "query", "exclude_tags", "duration", "created_since", "page", "per_page", "direction", "sort"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -49819,6 +50844,13 @@ func (ec *executionContext) unmarshalInputSceneQueryInput(ctx context.Context, o
 				return it, err
 			}
 			it.Duration = data
+		case "created_since":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("created_since"))
+			data, err := ec.unmarshalOTime2ᚖtimeᚐTime(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.CreatedSince = data
 		case "page":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("page"))
 			data, err := ec.unmarshalNInt2int(ctx, v)
@@ -51782,6 +52814,13 @@ func (ec *executionContext) _NotificationData(ctx context.Context, sel ast.Selec
 			return graphql.Null
 		}
 		return ec._UpdatedEdit(ctx, sel, obj)
+	case SavedSearchMatch:
+		return ec._SavedSearchMatch(ctx, sel, &obj)
+	case *SavedSearchMatch:
+		if obj == nil {
+			return graphql.Null
+		}
+		return ec._SavedSearchMatch(ctx, sel, obj)
 	case FingerprintedSceneEdit:
 		return ec._FingerprintedSceneEdit(ctx, sel, &obj)
 	case *FingerprintedSceneEdit:
@@ -57331,6 +58370,27 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "createSavedSearch":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_createSavedSearch(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "updateSavedSearch":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_updateSavedSearch(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "deleteSavedSearch":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_deleteSavedSearch(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "markNotificationsRead":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_markNotificationsRead(ctx, field)
@@ -60434,6 +61494,50 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "savedSearches":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_savedSearches(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "findSavedSearch":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_findSavedSearch(ctx, field)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
 		case "sceneChangelog":
 			field := field
 
@@ -62860,6 +63964,155 @@ func (ec *executionContext) _ReviewSummary(ctx context.Context, sel ast.Selectio
 			}
 		case "totalCount":
 			out.Values[i] = ec._ReviewSummary_totalCount(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var savedSearchImplementors = []string{"SavedSearch"}
+
+func (ec *executionContext) _SavedSearch(ctx context.Context, sel ast.SelectionSet, obj *SavedSearch) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, savedSearchImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("SavedSearch")
+		case "id":
+			out.Values[i] = ec._SavedSearch_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "name":
+			out.Values[i] = ec._SavedSearch_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "query":
+			out.Values[i] = ec._SavedSearch_query(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "notify":
+			out.Values[i] = ec._SavedSearch_notify(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "created":
+			out.Values[i] = ec._SavedSearch_created(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "updated":
+			out.Values[i] = ec._SavedSearch_updated(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "last_notified":
+			out.Values[i] = ec._SavedSearch_last_notified(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "results":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._SavedSearch_results(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var savedSearchMatchImplementors = []string{"SavedSearchMatch", "NotificationData"}
+
+func (ec *executionContext) _SavedSearchMatch(ctx context.Context, sel ast.SelectionSet, obj *SavedSearchMatch) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, savedSearchMatchImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("SavedSearchMatch")
+		case "saved_search":
+			out.Values[i] = ec._SavedSearchMatch_saved_search(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		case "count":
+			out.Values[i] = ec._SavedSearchMatch_count(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -70386,6 +71639,46 @@ func (ec *executionContext) marshalNRoleEnum2ᚕgithubᚗcomᚋstashappᚋstash�
 	return ret
 }
 
+func (ec *executionContext) marshalNSavedSearch2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSavedSearch(ctx context.Context, sel ast.SelectionSet, v SavedSearch) graphql.Marshaler {
+	return ec._SavedSearch(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNSavedSearch2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSavedSearchᚄ(ctx context.Context, sel ast.SelectionSet, v []SavedSearch) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNSavedSearch2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSavedSearch(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNSavedSearch2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSavedSearch(ctx context.Context, sel ast.SelectionSet, v *SavedSearch) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._SavedSearch(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalNSavedSearchInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSavedSearchInput(ctx context.Context, v any) (SavedSearchInput, error) {
+	res, err := ec.unmarshalInputSavedSearchInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) unmarshalNSavedSearchUpdateInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSavedSearchUpdateInput(ctx context.Context, v any) (SavedSearchUpdateInput, error) {
+	res, err := ec.unmarshalInputSavedSearchUpdateInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
 func (ec *executionContext) marshalNScene2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐScene(ctx context.Context, sel ast.SelectionSet, v Scene) graphql.Marshaler {
 	return ec._Scene(ctx, sel, &v)
 }
@@ -72455,6 +73748,13 @@ func (ec *executionContext) marshalORoleEnum2ᚕgithubᚗcomᚋstashappᚋstash�
 	return ret
 }
 
+func (ec *executionContext) marshalOSavedSearch2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSavedSearch(ctx context.Context, sel ast.SelectionSet, v *SavedSearch) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._SavedSearch(ctx, sel, v)
+}
+
 func (ec *executionContext) marshalOScene2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐScene(ctx context.Context, sel ast.SelectionSet, v *Scene) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
@@ -72496,6 +73796,22 @@ func (ec *executionContext) unmarshalOSceneEditDetailsInput2ᚖgithubᚗcomᚋst
 	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
+func (ec *executionContext) unmarshalOSceneSortEnum2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSceneSortEnum(ctx context.Context, v any) (*SceneSortEnum, error) {
+	if v == nil {
+		return nil, nil
+	}
+	var res = new(SceneSortEnum)
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOSceneSortEnum2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSceneSortEnum(ctx context.Context, sel ast.SelectionSet, v *SceneSortEnum) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return v
+}
+
 func (ec *executionContext) marshalOSite2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSite(ctx context.Context, sel ast.SelectionSet, v *Site) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
@@ -72508,6 +73824,22 @@ func (ec *executionContext) marshalOSiteCategory2ᚖgithubᚗcomᚋstashappᚋst
 		return graphql.Null
 	}
 	return ec._SiteCategory(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalOSortDirectionEnum2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSortDirectionEnum(ctx context.Context, v any) (*SortDirectionEnum, error) {
+	if v == nil {
+		return nil, nil
+	}
+	var res = new(SortDirectionEnum)
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOSortDirectionEnum2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSortDirectionEnum(ctx context.Context, sel ast.SelectionSet, v *SortDirectionEnum) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return v
 }
 
 func (ec *executionContext) unmarshalOString2string(ctx context.Context, v any) (string, error) {

@@ -253,6 +253,15 @@ func Init(fac service.Factory) {
 		panic(err.Error())
 	}
 
+	// Saved-search notifications (docs/spec/feature-discovery.md section 5). Every 15 minutes,
+	// not every minute: this job runs one query per subscribed search, and "a standing question
+	// got a new answer" is not a latency-sensitive event -- an hour-old match is still news. The
+	// interval is a knob because the cost is proportional to how many searches are subscribed.
+	_, err = c.AddFunc("@every "+config.GetSavedSearchNotifyInterval(), cronJobs.notifySavedSearches)
+	if err != nil {
+		panic(err.Error())
+	}
+
 	interval := config.GetVoteCronInterval()
 	if interval != "" {
 		_, err := c.AddFunc("@every "+config.GetVoteCronInterval(), cronJobs.processEdits)

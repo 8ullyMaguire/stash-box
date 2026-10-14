@@ -81,6 +81,9 @@ type config struct {
 	MinDestructiveVotingPeriod int `mapstructure:"min_destructive_voting_period"`
 	// Interval between checks for completed voting periods
 	VoteCronInterval string `mapstructure:"vote_cron_interval"`
+	// How often subscribed saved searches are run and their owners notified. One query per
+	// subscribed search per tick, so the cost is proportional to how many exist.
+	SavedSearchNotifyInterval string `mapstructure:"saved_search_notify_interval"`
 	// Number of times an edit can be updated by the creator
 	EditUpdateLimit int `mapstructure:"edit_update_limit"`
 	// Minimum trust level at which a user may update another user's edit.
@@ -184,6 +187,7 @@ var C = &config{
 	VoteApplicationThreshold:   3,
 	VotePromotionThreshold:     10,
 	VoteCronInterval:           "5m",
+	SavedSearchNotifyInterval:  "15m",
 	VotingPeriod:               345600,
 	MinDestructiveVotingPeriod: 172800,
 	DraftTimeLimit:             86400,
@@ -570,6 +574,13 @@ func GetMinDestructiveVotingPeriod() int {
 
 func GetVoteCronInterval() string {
 	return C.VoteCronInterval
+}
+
+// GetSavedSearchNotifyInterval returns the interval between saved-search notification runs,
+// in the same bare-duration form as the vote interval ("15m"), because the two knobs are read
+// by an operator in the same file and a second format would be a trap.
+func GetSavedSearchNotifyInterval() string {
+	return C.SavedSearchNotifyInterval
 }
 
 func GetEditUpdateLimit() int {

@@ -27,6 +27,33 @@ func (r *notificationResolver) Level(ctx context.Context, obj *models.Notificati
 
 func (r *notificationResolver) Data(ctx context.Context, obj *models.Notification) (models.NotificationData, error) {
 	switch obj.Type {
+	case models.NotificationEnumSavedSearchMatch:
+		// The notification's target id is the NEWEST matching scene, so opening it lands on a
+		// match rather than on the search; the search itself comes from the payload, scoped to
+		// the reader being shown the notification.
+		payload := struct {
+			SavedSearchID uuid.UUID `json:"saved_search_id"`
+			Count         int       `json:"count"`
+		}{}
+		if obj.Data != nil {
+			if err := json.Unmarshal(*obj.Data, &payload); err != nil {
+				return nil, err
+			}
+		}
+
+		savedSearch, err := r.services.SavedSearch().FindForUser(ctx, obj.UserID, payload.SavedSearchID)
+		if err != nil {
+			return nil, err
+		}
+		if savedSearch == nil {
+			// The search is gone. Deleting one takes its notifications with it in the same
+			// transaction, so this is a race -- and the count is still true, so the row renders
+			// rather than failing the whole list for one missing link.
+			return &models.SavedSearchMatch{Count: payload.Count}, nil
+		}
+
+		return &models.SavedSearchMatch{SavedSearch: savedSearch, Count: payload.Count}, nil
+
 	case models.NotificationEnumCommentCommentedEdit:
 		fallthrough
 	case models.NotificationEnumCommentOwnEdit:

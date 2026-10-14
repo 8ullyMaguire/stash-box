@@ -32,6 +32,10 @@ DELETE FROM notifications WHERE id = $1;
 -- name: DeleteNotificationsByEditComments :exec
 DELETE FROM notifications WHERE id IN (SELECT id FROM edit_comments WHERE edit_id = $1);
 
+-- name: CreateSavedSearchMatchNotification :exec
+INSERT INTO notifications (user_id, type, id, data)
+VALUES (@user_id, 'SAVED_SEARCH_MATCH', @id, @data);
+
 -- name: DestroyExpiredNotifications :exec
 DELETE FROM notifications
 WHERE read_at < CURRENT_DATE - INTERVAL '1 day'

@@ -83,6 +83,11 @@ type Query {
   findScenesBySceneFingerprints(fingerprints: [[FingerprintQueryInput!]!]!): [[Scene]!]! @hasRole(role: READ)
 
   queryScenes(input: SceneQueryInput!): QueryScenesResultType! @hasRole(role: READ)
+
+  """This user's saved searches, most recently touched first."""
+  savedSearches: [SavedSearch!]! @hasRole(role: READ)
+  """One of this user's saved searches. Another user's id is `null`, not a row."""
+  findSavedSearch(id: ID!): SavedSearch @hasRole(role: READ)
   """Incremental feed of scenes changed since a keyset cursor"""
   sceneChangelog(since: Time!, after_id: ID, limit: Int = 5000): [EntityChange!]! @hasRole(role: READ)
 
@@ -338,6 +343,19 @@ type Mutation {
   favoritePerformer(id: ID!, favorite: Boolean!): Boolean! @hasRole(role: READ)
   """Favorite or unfavorite a studio"""
   favoriteStudio(id: ID!, favorite: Boolean!): Boolean! @hasRole(role: READ)
+
+  """
+  Keep a search. The name is per owner, so two people may each keep "unwatched anal" and mean
+  different things by it.
+  """
+  createSavedSearch(input: SavedSearchInput!): SavedSearch! @hasRole(role: READ)
+  """Change a saved search's name, text or subscription. The id must be yours."""
+  updateSavedSearch(input: SavedSearchUpdateInput!): SavedSearch! @hasRole(role: READ)
+  """
+  Forget a search, and the notifications it produced. False when there was no such search of
+  yours -- a delete that removed nothing must not report success.
+  """
+  deleteSavedSearch(id: ID!): Boolean! @hasRole(role: READ)
 
   """Mark all of the current users notifications as read."""
   markNotificationsRead(notification: MarkNotificationReadInput): Boolean! @hasRole(role: READ)

@@ -7,6 +7,7 @@ package queries
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/gofrs/uuid"
 )
@@ -76,6 +77,22 @@ func (q *Queries) CountUnreadNotificationsByUserGroupedByType(ctx context.Contex
 		return nil, err
 	}
 	return items, nil
+}
+
+const createSavedSearchMatchNotification = `-- name: CreateSavedSearchMatchNotification :exec
+INSERT INTO notifications (user_id, type, id, data)
+VALUES ($1, 'SAVED_SEARCH_MATCH', $2, $3)
+`
+
+type CreateSavedSearchMatchNotificationParams struct {
+	UserID uuid.UUID        `db:"user_id" json:"user_id"`
+	ID     uuid.UUID        `db:"id" json:"id"`
+	Data   *json.RawMessage `db:"data" json:"data"`
+}
+
+func (q *Queries) CreateSavedSearchMatchNotification(ctx context.Context, arg CreateSavedSearchMatchNotificationParams) error {
+	_, err := q.db.Exec(ctx, createSavedSearchMatchNotification, arg.UserID, arg.ID, arg.Data)
+	return err
 }
 
 type CreateUserNotificationSubscriptionsParams struct {

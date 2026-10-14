@@ -453,6 +453,8 @@ type Querier interface {
 	// judgement about a claim, and an author editing prose must not be able to edit
 	// the moderator's verdict along with it.
 	CreateReview(ctx context.Context, arg CreateReviewParams) (Review, error)
+	CreateSavedSearch(ctx context.Context, arg CreateSavedSearchParams) (SavedSearch, error)
+	CreateSavedSearchMatchNotification(ctx context.Context, arg CreateSavedSearchMatchNotificationParams) error
 	// Scene queries
 	CreateScene(ctx context.Context, arg CreateSceneParams) (Scene, error)
 	CreateSceneEdit(ctx context.Context, arg CreateSceneEditParams) error
@@ -609,6 +611,11 @@ type Querier interface {
 	// mutation resolver, and a GraphQL client cannot tell a failed delete from a
 	// deleted review.
 	DeleteReview(ctx context.Context, id uuid.UUID) (Review, error)
+	DeleteSavedSearch(ctx context.Context, arg DeleteSavedSearchParams) (int64, error)
+	// Notifications a saved search produced, found by the payload they carry. Deleting them with
+	// the search is not cosmetic: the notification list renders every unread row it returns, and a
+	// row naming a search that no longer exists has nothing to render.
+	DeleteSavedSearchMatchNotifications(ctx context.Context, savedSearchID string) error
 	DeleteScene(ctx context.Context, id uuid.UUID) error
 	DeleteSceneFingerprint(ctx context.Context, arg DeleteSceneFingerprintParams) error
 	DeleteSceneFingerprintsByScene(ctx context.Context, sceneID uuid.UUID) error
@@ -831,6 +838,9 @@ type Querier interface {
 	FindMergeIDsBySourcePerformerIds(ctx context.Context, performerIds []uuid.UUID) ([]FindMergeIDsBySourcePerformerIdsRow, error)
 	// Notification queries
 	FindNotificationsByUser(ctx context.Context, arg FindNotificationsByUserParams) ([]Notification, error)
+	// The notification job's read. Ordered oldest-updated first so that a run which cannot finish
+	// still makes progress on a stable order rather than restarting at the same rows.
+	FindNotifyingSavedSearches(ctx context.Context) ([]SavedSearch, error)
 	FindOntologyVersion(ctx context.Context, version int) (OntologyVersion, error)
 	FindPendingPerformerCreation(ctx context.Context, arg FindPendingPerformerCreationParams) ([]Edit, error)
 	FindPendingSceneCreation(ctx context.Context, arg FindPendingSceneCreationParams) ([]Edit, error)
@@ -883,6 +893,12 @@ type Querier interface {
 	// Used by the upsert path to decide create-vs-update, and by the service to turn a
 	// duplicate submission into an update rather than a constraint error.
 	FindReviewByAuthorAndEntity(ctx context.Context, arg FindReviewByAuthorAndEntityParams) (Review, error)
+	FindSavedSearchByUserAndName(ctx context.Context, arg FindSavedSearchByUserAndNameParams) (SavedSearch, error)
+	FindSavedSearchForUser(ctx context.Context, arg FindSavedSearchForUserParams) (SavedSearch, error)
+	// Saved searches. Every read that a user can reach is scoped by user_id in the WHERE clause:
+	// a lookup that is able to return somebody else's row is a leak waiting for one caller to
+	// forget the check, and the check belongs in the query that cannot be called without it.
+	FindSavedSearchesByUser(ctx context.Context, userID uuid.UUID) ([]SavedSearch, error)
 	FindScene(ctx context.Context, id uuid.UUID) (Scene, error)
 	// Get performer appearances for multiple scenes
 	FindSceneAppearancesByIds(ctx context.Context, sceneIds []uuid.UUID) ([]FindSceneAppearancesByIdsRow, error)
@@ -1864,6 +1880,15 @@ type Querier interface {
 	// a rotation is what a user does after suspecting a leak, and a rotation that
 	// left the old secret valid would give no protection at all.
 	RotateWebhookSecret(ctx context.Context, arg RotateWebhookSecretParams) (WebhookEndpoint, error)
+	// The database's OWN clock, in the same terms as the column the cursor is compared against
+	// (`scenes.created_at`, a `timestamp` stamped by `now()`).
+	//
+	// The cursor must come from this clock and not from the Go process. `timestamp` has no zone, so
+	// a process in +02:00 writing its local wall clock stores two hours ahead of the rows it will be
+	// compared with: every run finds nothing, forever, with no error anywhere. Measured, not
+	// assumed -- the first version of the notification job had exactly that bug and the integration
+	// test went red on it.
+	SavedSearchNow(ctx context.Context) (time.Time, error)
 	// Keyset-paginated feed of scenes changed since (since, after_id), including
 	// tombstones. redirect_to is the surviving scene for merged-away scenes.
 	SceneChangelog(ctx context.Context, arg SceneChangelogParams) ([]SceneChangelogRow, error)
@@ -1960,6 +1985,7 @@ type Querier interface {
 	// granting and withdrawing it are different calls and neither can be an
 	// accidental side effect of the other.
 	SetReviewVerified(ctx context.Context, arg SetReviewVerifiedParams) (Review, error)
+	SetSavedSearchNotifiedAt(ctx context.Context, arg SetSavedSearchNotifiedAtParams) error
 	SetScenePerformerAlias(ctx context.Context, arg SetScenePerformerAliasParams) error
 	// Move a category under a parent, or promote it to top level with a NULL parent.
 	//
@@ -2058,6 +2084,7 @@ type Querier interface {
 	// The author's own review of the same entity, replaced in place. `verified` is
 	// deliberately absent from the SET list: see the note above.
 	UpdateReview(ctx context.Context, arg UpdateReviewParams) (Review, error)
+	UpdateSavedSearch(ctx context.Context, arg UpdateSavedSearchParams) (SavedSearch, error)
 	UpdateScene(ctx context.Context, arg UpdateSceneParams) (Scene, error)
 	UpdateSceneRedirects(ctx context.Context, arg UpdateSceneRedirectsParams) error
 	UpdateSceneStudios(ctx context.Context, arg UpdateSceneStudiosParams) error

@@ -125,6 +125,7 @@ sql:
       - internal/database/migrations/postgres/110_content_source_normalized_url.up.sql
       - internal/database/migrations/postgres/111_tag_implications.up.sql
       - internal/database/migrations/postgres/112_ontology_versions.up.sql
+      - internal/database/migrations/postgres/113_saved_searches.up.sql
     queries: "internal/queries/sql"
     gen:
       go:

@@ -48,6 +48,7 @@ import (
 	"github.com/stashapp/stash-box/internal/service/performer"
 	"github.com/stashapp/stash-box/internal/service/quest"
 	"github.com/stashapp/stash-box/internal/service/review"
+	"github.com/stashapp/stash-box/internal/service/savedsearch"
 	"github.com/stashapp/stash-box/internal/service/scene"
 	"github.com/stashapp/stash-box/internal/service/site"
 	"github.com/stashapp/stash-box/internal/service/streak"
@@ -254,6 +255,11 @@ func (f *Factory) Draft() *draft.Draft {
 // Notification returns a NotificationService instance
 func (f *Factory) Notification() *notification.Notification {
 	return notification.NewNotification(queries.New(f.db), f.withTxn)
+}
+
+// SavedSearch returns a SavedSearchService instance
+func (f *Factory) SavedSearch() *savedsearch.SavedSearch {
+	return savedsearch.NewSavedSearch(queries.New(f.db), f.withTxn)
 }
 
 func (f *Factory) Invite() *invite.Invite {

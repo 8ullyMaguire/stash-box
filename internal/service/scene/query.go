@@ -168,6 +168,13 @@ func (s *Scene) buildSceneQuery(ctx context.Context, psql sq.StatementBuilderTyp
 		query = queryhelper.ApplyIntCriterion(query, "scenes.duration", input.Duration)
 	}
 
+	// Filter to what ARRIVED at this instance since an instant. `scenes.created_at`, not
+	// `scenes.date`: the release date is when the scene was made, this is when it got here,
+	// and a saved search's "anything new?" is a question about this instance.
+	if input.CreatedSince != nil {
+		query = query.Where(sq.GtOrEq{"scenes.created_at": *input.CreatedSince})
+	}
+
 	// Filter by fingerprints
 	if input.Fingerprints != nil && len(input.Fingerprints.Value) > 0 {
 		// Duplicate hashes are dropped so that the "includes all" count below
@@ -369,7 +376,8 @@ func (s *Scene) buildSceneQuery(ctx context.Context, psql sq.StatementBuilderTyp
 			input.Date != nil || input.Favorites != nil ||
 			input.Code != nil ||
 			(input.ExcludeTags != nil && len(input.ExcludeTags.Value) > 0) ||
-			input.Duration != nil
+			input.Duration != nil ||
+			input.CreatedSince != nil
 		// Everything the search language can lower into is a field listed above, and the
 		// language variable itself is cleared before this function is reached -- so `input.Query`
 		// would always be nil here and cannot stand in for its terms. A field the language

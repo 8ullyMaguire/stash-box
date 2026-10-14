@@ -54,6 +54,10 @@ func (r *Resolver) TagCategory() models.TagCategoryResolver {
 func (r *Resolver) OntologyVersion() models.OntologyVersionResolver {
 	return &ontologyVersionResolver{r}
 }
+
+func (r *Resolver) SavedSearch() models.SavedSearchResolver {
+	return &savedSearchResolver{r}
+}
 func (r *Resolver) Image() models.ImageResolver {
 	return &imageResolver{r}
 }

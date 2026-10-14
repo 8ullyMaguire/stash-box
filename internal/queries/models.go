@@ -74,6 +74,7 @@ const (
 	NotificationTypeUPDATEDEDIT            NotificationType = "UPDATED_EDIT"
 	NotificationTypeFINGERPRINTEDSCENEEDIT NotificationType = "FINGERPRINTED_SCENE_EDIT"
 	NotificationTypeFINGERPRINTMOVED       NotificationType = "FINGERPRINT_MOVED"
+	NotificationTypeSAVEDSEARCHMATCH       NotificationType = "SAVED_SEARCH_MATCH"
 )
 
 func (e *NotificationType) Scan(src interface{}) error {
@@ -602,6 +603,18 @@ type Review struct {
 	Status     string             `db:"status" json:"status"`
 	CreatedAt  pgtype.Timestamptz `db:"created_at" json:"created_at"`
 	UpdatedAt  pgtype.Timestamptz `db:"updated_at" json:"updated_at"`
+}
+
+// A stored search-language query per user. The query TEXT is canonical and the filter is derived by parsing it on every run (spec section 3.2); last_notified_at is the notification cursor.
+type SavedSearch struct {
+	ID             uuid.UUID  `db:"id" json:"id"`
+	UserID         uuid.UUID  `db:"user_id" json:"user_id"`
+	Name           string     `db:"name" json:"name"`
+	Query          string     `db:"query" json:"query"`
+	Notify         bool       `db:"notify" json:"notify"`
+	LastNotifiedAt *time.Time `db:"last_notified_at" json:"last_notified_at"`
+	CreatedAt      time.Time  `db:"created_at" json:"created_at"`
+	UpdatedAt      time.Time  `db:"updated_at" json:"updated_at"`
 }
 
 type Scene struct {

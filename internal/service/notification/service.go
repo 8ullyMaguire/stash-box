@@ -2,6 +2,7 @@ package notification
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/gofrs/uuid"
 	"github.com/stashapp/stash-box/internal/converter"
@@ -26,6 +27,21 @@ func NewNotification(queries *queries.Queries, withTxn queries.WithTxnFunc) *Not
 // WithTxn executes a function within a transaction
 func (s *Notification) WithTxn(fn func(*queries.Queries) error) error {
 	return s.withTxn(fn)
+}
+
+// CreateSavedSearchMatch writes the one notification a saved-search run produces. The target is
+// the NEWEST matching scene, chosen by the caller, so opening the notification lands on a match
+// rather than on a search to run again; the payload carries the search it was for and the count.
+//
+// Written directly instead of through `user_notifications`: the search's own `notify` flag is
+// the subscription, made explicitly by the person who saved it, so requiring a second opt-in in
+// a settings page would mean a search that silently never notifies.
+func (s *Notification) CreateSavedSearchMatch(ctx context.Context, userID uuid.UUID, targetID uuid.UUID, data *json.RawMessage) error {
+	return s.queries.CreateSavedSearchMatchNotification(ctx, queries.CreateSavedSearchMatchNotificationParams{
+		UserID: userID,
+		ID:     targetID,
+		Data:   data,
+	})
 }
 
 func (s *Notification) TriggerSceneCreationNotifications(ctx context.Context, sceneID uuid.UUID) error {

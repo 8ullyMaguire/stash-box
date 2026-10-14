@@ -1432,6 +1432,62 @@ type RoleCriterionInput struct {
 	Modifier CriterionModifier `json:"modifier"`
 }
 
+// A search a reader keeps. The stored TEXT is canonical and the filter is derived by parsing it on
+// every run -- docs/spec/feature-discovery.md section 3.2 -- so there is exactly one source of
+// truth and no filter snapshot that can disagree with it.
+//
+// The cost, paid at resolution and stated there: a tag merge or rename does not rewrite the stored
+// text, so a saved search keeps the OLD name and resolution follows the redirect. A term that can
+// no longer be applied empties the result and says so in `results.diagnostics`; it is never dropped.
+type SavedSearch struct {
+	ID   uuid.UUID `json:"id"`
+	Name string    `json:"name"`
+	// The query-language text, exactly as it was written.
+	Query string `json:"query"`
+	// Be told when it finds something new.
+	//
+	// One notification per run that found something, never one per match: a standing query over a
+	// busy instance is a feed, not a mailbox.
+	Notify  bool      `json:"notify"`
+	Created time.Time `json:"created"`
+	Updated time.Time `json:"updated"`
+	// When the notification job last looked. Null means it has never run for this search.
+	LastNotified *time.Time `json:"last_notified,omitempty"`
+	// Runs the stored query. The same path `queryScenes` takes, so a saved search cannot answer
+	// differently from the statement it stores.
+	Results *SceneQuery `json:"results"`
+}
+
+type SavedSearchInput struct {
+	Name   string `json:"name"`
+	Query  string `json:"query"`
+	Notify *bool  `json:"notify,omitempty"`
+}
+
+// A saved search found something it had not seen before.
+//
+// `count` is how many matches the run found past the search's cursor, and the notification's own
+// target id is the newest of them, so the notification opens the newest match rather than the
+// search.
+type SavedSearchMatch struct {
+	// The search that matched, or null if it has since been deleted.
+	//
+	// Deleting a search removes the notifications it produced in the same transaction, so null here
+	// means a race, not the normal path -- but a notification list renders every row it returns, and
+	// a non-null field with nothing behind it would fail the whole list rather than one link.
+	SavedSearch *SavedSearch `json:"saved_search,omitempty"`
+	Count       int          `json:"count"`
+}
+
+func (SavedSearchMatch) IsNotificationData() {}
+
+type SavedSearchUpdateInput struct {
+	ID     uuid.UUID `json:"id"`
+	Name   string    `json:"name"`
+	Query  string    `json:"query"`
+	Notify *bool     `json:"notify,omitempty"`
+}
+
 type SceneCreateInput struct {
 	Title          *string                    `json:"title,omitempty"`
 	Details        *string                    `json:"details,omitempty"`
@@ -1535,11 +1591,17 @@ type SceneQueryInput struct {
 	// -- the search language's own headline example, `anal -rough` -- has no other representation.
 	ExcludeTags *MultiIDCriterionInput `json:"exclude_tags,omitempty"`
 	// Filter by scene duration in seconds
-	Duration  *IntCriterionInput `json:"duration,omitempty"`
-	Page      int                `json:"page"`
-	PerPage   int                `json:"per_page"`
-	Direction SortDirectionEnum  `json:"direction"`
-	Sort      SceneSortEnum      `json:"sort"`
+	Duration *IntCriterionInput `json:"duration,omitempty"`
+	// Filter to scenes ADDED to the instance at or after this instant.
+	//
+	// Not a release date: `date` is when the scene was made, this is when it arrived here. It is
+	// what a saved search's notification cursor needs -- "what is new since I last looked" is a
+	// question about this instance, not about the calendar of the industry.
+	CreatedSince *time.Time        `json:"created_since,omitempty"`
+	Page         int               `json:"page"`
+	PerPage      int               `json:"per_page"`
+	Direction    SortDirectionEnum `json:"direction"`
+	Sort         SceneSortEnum     `json:"sort"`
 }
 
 type SceneUpdateInput struct {
@@ -3665,6 +3727,8 @@ const (
 	NotificationEnumUpdatedEdit            NotificationEnum = "UPDATED_EDIT"
 	NotificationEnumFingerprintedSceneEdit NotificationEnum = "FINGERPRINTED_SCENE_EDIT"
 	NotificationEnumFingerprintMoved       NotificationEnum = "FINGERPRINT_MOVED"
+	// A saved search found scenes it had not seen before (one notification per run)
+	NotificationEnumSavedSearchMatch NotificationEnum = "SAVED_SEARCH_MATCH"
 )
 
 var AllNotificationEnum = []NotificationEnum{
@@ -3680,11 +3744,12 @@ var AllNotificationEnum = []NotificationEnum{
 	NotificationEnumUpdatedEdit,
 	NotificationEnumFingerprintedSceneEdit,
 	NotificationEnumFingerprintMoved,
+	NotificationEnumSavedSearchMatch,
 }
 
 func (e NotificationEnum) IsValid() bool {
 	switch e {
-	case NotificationEnumFavoritePerformerScene, NotificationEnumFavoritePerformerEdit, NotificationEnumFavoriteStudioScene, NotificationEnumFavoriteStudioEdit, NotificationEnumCommentOwnEdit, NotificationEnumDownvoteOwnEdit, NotificationEnumFailedOwnEdit, NotificationEnumCommentCommentedEdit, NotificationEnumCommentVotedEdit, NotificationEnumUpdatedEdit, NotificationEnumFingerprintedSceneEdit, NotificationEnumFingerprintMoved:
+	case NotificationEnumFavoritePerformerScene, NotificationEnumFavoritePerformerEdit, NotificationEnumFavoriteStudioScene, NotificationEnumFavoriteStudioEdit, NotificationEnumCommentOwnEdit, NotificationEnumDownvoteOwnEdit, NotificationEnumFailedOwnEdit, NotificationEnumCommentCommentedEdit, NotificationEnumCommentVotedEdit, NotificationEnumUpdatedEdit, NotificationEnumFingerprintedSceneEdit, NotificationEnumFingerprintMoved, NotificationEnumSavedSearchMatch:
 		return true
 	}
 	return false

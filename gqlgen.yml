@@ -16,6 +16,13 @@ autobind:
 models:
   ID:
     model: github.com/stashapp/stash-box/internal/models.ID
+  SavedSearch:
+    fields:
+      # `results` takes paging and sorting arguments. Left bound to the struct field,
+      # gqlgen parses the arguments and then returns the field anyway -- page 2 would
+      # silently come back as page 1. Force-resolved so the arguments reach the query.
+      results:
+        resolver: true
   Collage:
     model: github.com/stashapp/stash-box/internal/models.Collage
     fields:

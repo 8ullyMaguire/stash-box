@@ -305,6 +305,14 @@ input SceneQueryInput {
   exclude_tags: MultiIDCriterionInput
   """Filter by scene duration in seconds"""
   duration: IntCriterionInput
+  """
+  Filter to scenes ADDED to the instance at or after this instant.
+
+  Not a release date: `date` is when the scene was made, this is when it arrived here. It is
+  what a saved search's notification cursor needs -- "what is new since I last looked" is a
+  question about this instance, not about the calendar of the industry.
+  """
+  created_since: Time
 
   page: Int! = 1
   per_page: Int! = 25
