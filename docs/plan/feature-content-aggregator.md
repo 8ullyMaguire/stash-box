@@ -1524,14 +1524,43 @@ refusal reported while the batch continues). Four probes, all killed -- one of t
 mutation script was fixed: `str.replace` with a needle that does not match is a silent no-op, so a
 probe can report SURVIVED for a cut that was never made. The script now asserts the text changed.
 
-### Slice 9f — `expected_totals` integration
+### Slice 9f — `expected_totals` integration (DECIDED, not yet built)
 
-Migration 97's totals point at a URL row via `(source_entity_type, source_url)`; this slice makes that
-pointer resolve to a `content_sources` row, so a dead source LOWERS the entity's completion score and
-raises a quest, which is the phase's own acceptance criterion.
+Migration 97's totals carry `(source_entity_type, source_url)` and its own comment says a total is "a
+claim about the world" whose source must be real. Migration 108 then made `content_sources` the health
+record for exactly those URLs. This slice joins the two.
 
-**Verification:** a studio's totals with a live source and with a dead one, and the completion score
-drops; the quest appears with the source named.
+**Resolve, do not copy.** The link is computed at READ time from the URL (`ingest.NormalizeURL`, the
+same canonicalizer the ingest path writes `content_sources.url` with), via a query like
+`FindExpectedTotalSources(entityType, entityID)`. No FK and no cached health column on the total: a
+total's source is a claim, and copying a health row's id or status into it would freeze a stale answer
+next to a live one -- the same reason slice 9e's columns are written by one statement.
+
+**Report.** The total's GraphQL type gains `source: ContentSource`, so a client can say "this
+denominator came from a page that is gone" rather than showing a number with no provenance.
+
+**Score: CAP the entity, do not drop the denominator.** A total whose source is `dead`, `dmca` or
+`archived` is UNVERIFIABLE. Dropping it is the tempting move and it is the exact failure migration 97
+exists to prevent: a studio with 3 of 400 scenes catalogued would score 100% the moment its source page
+died, rewarding the loss of evidence. So the denominator stands, and the entity's completion score is
+capped at `100 - UnverifiablePenalty` (10) -- ONCE per entity, not once per total, because what is
+compromised is the record's provenance rather than each individual number. This is a DECISION (the
+spec section §7.24.2 does not address a source that dies, and the phase's acceptance criterion says only
+that the score drops), recorded here as one so the next reader can argue with it rather than guess at it.
+
+**Quest.** `quest.Generate(ctx, entityType, field, target)` raises quests per missing FIELD; an
+unverifiable total is not a missing field, so it gets its own entry point (`GenerateUnverifiedSource`)
+built from the same `Wording` machinery, so the wording convention stays in one place. The quest names
+the URL: "the page this total came from is gone".
+
+**Verification:**
+* A studio whose total's source is live: the score is unchanged and `source.status` is `LIVE`.
+* The same row after the source is marked dead: the score drops by the penalty, the quest exists and
+  NAMES the URL, and the denominator still counts -- asserted directly, because "the score dropped" and
+  "the denominator was dropped" are different outcomes and only the first is wanted.
+* A source URL written in a non-canonical form still resolves (the canonicalizer's job).
+* Probes: the penalty removed; the denominator dropped instead of capped (which reddens the 3-of-400
+  assertion); the resolution done by exact string match (an unnormalized URL stops resolving).
 
 ### Slice 9g — performer profile snapshots
 
