@@ -365,6 +365,91 @@ func (s *Trust) SetContentViewingOptIn(ctx context.Context, userID uuid.UUID, en
 	return &updated, nil
 }
 
+// MaxContentTier is the highest tier the model defines (migration 120).
+//
+// Exported because the page paths skip their tier predicate entirely at this
+// value: a viewer who has opted into everything has nothing to exclude, and
+// paying a NOT EXISTS per row to exclude nothing is a cost with no answer.
+const MaxContentTier = 3
+
+// VisibleTier is the highest tier a user has opted into, 0 when they have
+// expressed no preference or have no rollup row at all.
+//
+// Zero for "never asked" is deliberate: the gate compares it against an entity's
+// tier, and an unasked user must be treated as having consented to nothing.
+func (s *Trust) VisibleTier(ctx context.Context, userID uuid.UUID) (int, error) {
+	tier, err := s.queries.UserVisibleTier(ctx, userID)
+	if err != nil {
+		return 0, err
+	}
+	return int(tier), nil
+}
+
+// VisibleTiers is the array as stored -- the record of what the user consented
+// to, in contrast to VisibleTier, which is the ceiling the gate compares
+// against. Exported separately because they answer different questions: "what
+// did I agree to" is the array, "what may I see" is the maximum.
+func (s *Trust) VisibleTiers(ctx context.Context, userID uuid.UUID) ([]int16, error) {
+	rollup, err := s.queries.GetUserTrust(ctx, userID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return rollup.VisibleTiers, nil
+}
+
+// SetVisibleTiers records the tiers a user has opted into.
+//
+// The array is stored AS SENT rather than collapsed to its maximum: the record
+// of what was consented to is the thing an audit reads, and the gate's ceiling
+// is derived from it. A user with no rollup row yet is the NORMAL case here (the
+// opt-in can be expressed before eligibility, SPEC §6), and the UPDATE cannot
+// create the row -- so a zeroed rollup is created first, exactly as
+// SetContentViewingOptIn does. Storing a preference grants nothing.
+func (s *Trust) SetVisibleTiers(ctx context.Context, userID uuid.UUID, tiers []int16) ([]int16, error) {
+	updated, err := s.queries.SetVisibleTiers(ctx, queries.SetVisibleTiersParams{
+		UserID:       userID,
+		VisibleTiers: tiers,
+	})
+	if err == nil {
+		return updated.VisibleTiers, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return nil, err
+	}
+
+	if _, err := s.queries.RecomputeUserTrustTotals(ctx, userID); err != nil {
+		return nil, err
+	}
+	updated, err = s.queries.SetVisibleTiers(ctx, queries.SetVisibleTiersParams{
+		UserID:       userID,
+		VisibleTiers: tiers,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return updated.VisibleTiers, nil
+}
+
+// SetTagContentTier is a moderator's classification of a tag.
+//
+// Both columns are written together because they are two refusals set by one
+// decision: the tier ("this is above your ceiling") and the opt-in ("this needs
+// content viewing at all"). Reading them from two statements is how they drift.
+func (s *Trust) SetTagContentTier(ctx context.Context, tagID uuid.UUID, tier int16, requiresOptIn bool) (*queries.Tag, error) {
+	tag, err := s.queries.SetTagContentTier(ctx, queries.SetTagContentTierParams{
+		ID:            tagID,
+		ContentTier:   tier,
+		RequiresOptIn: requiresOptIn,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &tag, nil
+}
+
 // RebuildLevels recomputes every user's rollup from their event log and
 // re-derives their level.
 //

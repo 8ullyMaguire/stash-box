@@ -64,6 +64,21 @@ type AccessRequest struct {
 	// a legitimate user the override was issued to. If an operator needs to
 	// clear a flag, that is an action on the flag, not a content gate.
 	Flagged bool
+
+	// EntityTier is the content's effective tier: the MAXIMUM over its tags.
+	//
+	// Zero for untagged content and for every caller that has not been taught
+	// about tiers, which is why adding this condition did not change the
+	// verdict for a single existing request.
+	EntityTier int
+
+	// VisibleTier is the highest tier the requester has opted into.
+	//
+	// NEVER bypassable, for the same reason OptedIn is not: it is the user's
+	// own decision about their own eyes. An override that could raise it would
+	// make one operator action consent on a user's behalf, which is the one
+	// thing the opt-in exists to prevent.
+	VisibleTier int
 }
 
 // AccessDecision is the gate's verdict.
@@ -102,6 +117,7 @@ const (
 	ReasonContribution = "contribution score below the instance threshold"
 	ReasonTerms        = "content terms not accepted"
 	ReasonFlagged      = "viewing behaviour is flagged"
+	ReasonTier         = "content is above the tiers you have opted into"
 	ReasonRestricted   = "access to this content is restricted"
 )
 
@@ -171,6 +187,21 @@ func EvaluateContentAccess(r AccessRequest) AccessDecision {
 	// 6. Abuse flag. NEVER bypassed.
 	if r.Flagged {
 		fail(ReasonFlagged)
+	}
+
+	// 7. Content tier. NEVER bypassed.
+	//
+	// A strict comparison, so tier 0 content is visible to a requester with no
+	// opt-in (their VisibleTier is 0) -- which is what makes the whole
+	// mechanism additive. The direction is the point: a tag RAISES an entity's
+	// tier and a tier can only remove visibility, so there is no value of
+	// EntityTier that lets an entity into a view its viewer has not consented to.
+	//
+	// This condition is duplicated in SQL for the page paths
+	// (buildSceneQuery's NOT EXISTS), because a filtered page cannot ask this
+	// function per row. The two must stay the same comparison.
+	if r.EntityTier > r.VisibleTier {
+		fail(ReasonTier)
 	}
 
 	if len(failed) > 0 {

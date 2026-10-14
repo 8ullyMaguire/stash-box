@@ -2269,10 +2269,16 @@ type Querier interface {
 	// every writer, not only this path -- a check that can be bypassed by any other writer is
 	// not a check.
 	SetTagCategoryParent(ctx context.Context, arg SetTagCategoryParentParams) (TagCategory, error)
+	// A moderator's classification of a tag. Both columns together, because the two
+	// refusals ("tier too high" and "needs the opt-in") are set by the same decision.
+	SetTagContentTier(ctx context.Context, arg SetTagContentTierParams) (Tag, error)
 	// The level is written by the service after deriving it from the thresholds,
 	// never by the database. The curve is a product decision and belongs in Go,
 	// where it can be changed without a migration.
 	SetUserTrustLevel(ctx context.Context, arg SetUserTrustLevelParams) (UserTrust, error)
+	// The record of consent. The gate uses its MAXIMUM; the array is what an audit
+	// reads, so the value is stored as sent rather than collapsed to a number.
+	SetVisibleTiers(ctx context.Context, arg SetVisibleTiersParams) (UserTrust, error)
 	SetWebhookEndpointDisabled(ctx context.Context, arg SetWebhookEndpointDisabledParams) (WebhookEndpoint, error)
 	SiteCompletionInputs(ctx context.Context, id uuid.UUID) (SiteCompletionInputsRow, error)
 	SoftDeleteContentItem(ctx context.Context, id uuid.UUID) error
@@ -2434,6 +2440,11 @@ type Querier interface {
 	// touched" answers the question an operator actually asks.
 	UpsertSiteDetails(ctx context.Context, arg UpsertSiteDetailsParams) (SiteDetail, error)
 	UpsertTasteVector(ctx context.Context, arg UpsertTasteVectorParams) (TasteVector, error)
+	// The viewer's ceiling: the MAXIMUM tier they have opted into, or 0 for a user
+	// with no preference, no user_trust row at all, or an empty array. COALESCE over
+	// unnest of a missing row keeps "anonymous" and "never asked" the same answer,
+	// which is what the gate wants: neither has consented to anything.
+	UserVisibleTier(ctx context.Context, userID uuid.UUID) (int16, error)
 	// One vote. The composite primary key on the vote table is the rule: a second
 	// vote is a constraint violation rather than a silently doubled tally.
 	VoteForIdentificationCandidate(ctx context.Context, arg VoteForIdentificationCandidateParams) error

@@ -2172,6 +2172,14 @@ type TagCategoryUpdateInput struct {
 	Description *string       `json:"description,omitempty"`
 }
 
+type TagContentTierInput struct {
+	ID uuid.UUID `json:"id"`
+	// 0-3. Zero means unclassified, which is also visible to everyone.
+	Tier int `json:"tier"`
+	// Independent of the tier: a tier-0 tag can still require the opt-in.
+	RequiresOptIn bool `json:"requires_opt_in"`
+}
+
 type TagCreateInput struct {
 	Name        string     `json:"name"`
 	Description *string    `json:"description,omitempty"`

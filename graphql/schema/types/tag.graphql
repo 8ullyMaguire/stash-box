@@ -5,6 +5,11 @@ enum TagGroupEnum {
 }
 
 type Tag {
+  "How far this tag raises its entities out of a viewer's default view, 0-3. A tier can only remove visibility."
+  content_tier: Int!
+
+  "Refuse this tag's entities to a viewer who has not opted into content viewing, whatever the tier."
+  requires_opt_in: Boolean!
   id: ID!
   name: String!
   description: String
@@ -268,4 +273,14 @@ input TagCategoryUpdateInput {
 
 input TagCategoryDestroyInput {
   id: ID!
+}
+
+input TagContentTierInput {
+  id: ID!
+
+  "0-3. Zero means unclassified, which is also visible to everyone."
+  tier: Int!
+
+  "Independent of the tier: a tier-0 tag can still require the opt-in."
+  requires_opt_in: Boolean!
 }

@@ -816,6 +816,8 @@ func (c *ModelConverterImpl) ConvertStudios(source []queries.Studio) []models.St
 }
 func (c *ModelConverterImpl) ConvertTag(source queries.Tag) models.Tag {
 	var modelsTag models.Tag
+	modelsTag.ContentTier = ConvertSmallIntToInt(source.ContentTier)
+	modelsTag.RequiresOptIn = source.RequiresOptIn
 	modelsTag.ID = c.uuidUUIDToUuidUUID3(source.ID)
 	modelsTag.Name = source.Name
 	if source.Description != nil {

@@ -114,3 +114,4 @@ internal/database/migrations/postgres/116_session_states.up.sql
 internal/database/migrations/postgres/117_content_items.up.sql
 internal/database/migrations/postgres/118_content_item_edits.up.sql
 internal/database/migrations/postgres/119_content_item_edits_pkey.up.sql
+internal/database/migrations/postgres/120_content_tiers.up.sql

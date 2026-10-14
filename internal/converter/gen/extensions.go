@@ -20,6 +20,15 @@ func ConvertNullIntToInt(i *int) int {
 	return 0
 }
 
+// ConvertSmallIntToInt carries a smallint column into the API's int.
+//
+// A GraphQL `Int!` binds to Go int, and the width belongs to the database (migration
+// 120 chose smallint for a 0-3 value), so the two have to meet somewhere -- here rather
+// than by widening the column to an int4 nobody needs.
+func ConvertSmallIntToInt(i int16) int {
+	return int(i)
+}
+
 func ConvertNotificationType(t queries.NotificationType) models.NotificationEnum {
 	return models.NotificationEnum(t)
 }

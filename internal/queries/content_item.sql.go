@@ -273,7 +273,7 @@ func (q *Queries) ListContentItemMedia(ctx context.Context, contentItemID uuid.U
 }
 
 const listContentItemTags = `-- name: ListContentItemTags :many
-SELECT t.id, t.name, t.description, t.created_at, t.updated_at, t.deleted, t.category_id FROM "tags" t
+SELECT t.id, t.name, t.description, t.created_at, t.updated_at, t.deleted, t.category_id, t.content_tier, t.requires_opt_in FROM "tags" t
 JOIN "content_item_tags" cit ON cit."tag_id" = t."id"
 WHERE cit."content_item_id" = $1
 ORDER BY t."name"
@@ -296,6 +296,8 @@ func (q *Queries) ListContentItemTags(ctx context.Context, contentItemID uuid.UU
 			&i.UpdatedAt,
 			&i.Deleted,
 			&i.CategoryID,
+			&i.ContentTier,
+			&i.RequiresOptIn,
 		); err != nil {
 			return nil, err
 		}

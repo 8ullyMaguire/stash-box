@@ -9,13 +9,20 @@ import (
 )
 
 type Tag struct {
-	ID          uuid.UUID `json:"id"`
-	Name        string    `json:"name"`
-	Description *string   `json:"description,omitempty"`
-	Deleted     bool      `json:"deleted"`
-	CategoryID  uuid.NullUUID
-	Created     time.Time `json:"created"`
-	Updated     time.Time `json:"updated"`
+	// ContentTier is how far this tag raises its entities out of a viewer's
+	// default view (0-3, migration 120). A tier can only REMOVE visibility.
+	ContentTier int `json:"content_tier"`
+
+	// RequiresOptIn refuses this tag's entities to a viewer who has not opted
+	// into content viewing at all, whatever the tier.
+	RequiresOptIn bool      `json:"requires_opt_in"`
+	ID            uuid.UUID `json:"id"`
+	Name          string    `json:"name"`
+	Description   *string   `json:"description,omitempty"`
+	Deleted       bool      `json:"deleted"`
+	CategoryID    uuid.NullUUID
+	Created       time.Time `json:"created"`
+	Updated       time.Time `json:"updated"`
 }
 
 func (Tag) IsSceneDraftTag() {}

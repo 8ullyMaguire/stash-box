@@ -1,5 +1,7 @@
 """The query root for this schema"""
 type Query {
+  "The tiers the CALLER has opted into. Self-only: another user's consent is not a query."
+  visibleContentTiers: [Int!]!
   #### Performers ####
 
   # performer names may not be unique
@@ -316,6 +318,25 @@ type Mutation {
   """Update a pending tag edit"""
   tagEditUpdate(id: ID!, input: TagEditInput!): Edit! @hasRole(role: EDIT)
   contentItemEditUpdate(id: ID!, input: ContentItemEditInput!): Edit! @hasRole(role: EDIT)
+
+  """
+  Classify a tag's content tier (phase 5).
+
+  A moderator action, not an edit: the tier is a moderation judgement about what a
+  viewer sees by default, and it is denylist-shaped -- it can only remove content
+  from someone's view. An entity's effective tier is the MAXIMUM over its tags, so
+  this is the only place a tier is set.
+  """
+  tagSetContentTier(input: TagContentTierInput!): Tag! @hasRole(role: MODERATE)
+
+  """
+  Record the tiers the caller has opted into (phase 5).
+
+  Self-only by construction: there is no user argument, because no role may consent
+  to content on someone else's behalf. The stored value is the array as sent (the
+  record of consent); the gate uses its maximum as a ceiling.
+  """
+  userSetVisibleTiers(tiers: [Int!]!): [Int!]!
 
   """Vote to accept/reject an edit"""
   editVote(input: EditVoteInput!): Edit! @hasRole(role: VOTE)

@@ -301,6 +301,13 @@ type EloVote struct {
 	Weight     float64            `db:"weight" json:"weight"`
 }
 
+// Effective content tier per entity (MAX over its tags, 0 when untagged). A report: the read paths exclude with NOT EXISTS instead of aggregating.
+type EntityEffectiveTier struct {
+	EntityType string    `db:"entity_type" json:"entity_type"`
+	EntityID   uuid.UUID `db:"entity_id" json:"entity_id"`
+	Tier       int16     `db:"tier" json:"tier"`
+}
+
 type ExpectedTotal struct {
 	ID               uuid.UUID `db:"id" json:"id"`
 	EntityType       string    `db:"entity_type" json:"entity_type"`
@@ -878,6 +885,10 @@ type Tag struct {
 	UpdatedAt   time.Time     `db:"updated_at" json:"updated_at"`
 	Deleted     bool          `db:"deleted" json:"deleted"`
 	CategoryID  uuid.NullUUID `db:"category_id" json:"category_id"`
+	// Highest tier this tag places its entities in. 0 = unclassified/visible to everyone. A tier can only REMOVE visibility: an entity's effective tier is the MAX over its tags.
+	ContentTier int16 `db:"content_tier" json:"content_tier"`
+	// Refuse this tag's entities to any viewer who has not opted into content viewing, whatever the tier. Independent of content_tier so a tier-0 tag can still require the opt-in.
+	RequiresOptIn bool `db:"requires_opt_in" json:"requires_opt_in"`
 }
 
 type TagAlias struct {
@@ -1000,6 +1011,8 @@ type UserTrust struct {
 	BonusPoints          int                `db:"bonus_points" json:"bonus_points"`
 	// Granted status, not derived from level. Feeds elo.VoterWeight at vote-cast time.
 	IsVanguard bool `db:"is_vanguard" json:"is_vanguard"`
+	// Tiers the user has explicitly opted into. The gate uses MAX(visible_tiers) as a ceiling; the array itself is the record of consent.
+	VisibleTiers []int16 `db:"visible_tiers" json:"visible_tiers"`
 }
 
 type WebhookDelivery struct {

@@ -168,7 +168,7 @@ func (q *Queries) ExpandTagIDsByImplications(ctx context.Context, tagIds []uuid.
 }
 
 const findImplicationsByTagID = `-- name: FindImplicationsByTagID :many
-SELECT i.id, i.name, i.description, i.created_at, i.updated_at, i.deleted, i.category_id FROM tag_implications ti
+SELECT i.id, i.name, i.description, i.created_at, i.updated_at, i.deleted, i.category_id, i.content_tier, i.requires_opt_in FROM tag_implications ti
 JOIN tags i ON i.id = ti.implied_tag_id
 WHERE ti.tag_id = $1 AND i.deleted = false
 ORDER BY i.name
@@ -192,6 +192,8 @@ func (q *Queries) FindImplicationsByTagID(ctx context.Context, tagID uuid.UUID) 
 			&i.UpdatedAt,
 			&i.Deleted,
 			&i.CategoryID,
+			&i.ContentTier,
+			&i.RequiresOptIn,
 		); err != nil {
 			return nil, err
 		}
@@ -204,7 +206,7 @@ func (q *Queries) FindImplicationsByTagID(ctx context.Context, tagID uuid.UUID) 
 }
 
 const findImpliedByTagID = `-- name: FindImpliedByTagID :many
-SELECT t.id, t.name, t.description, t.created_at, t.updated_at, t.deleted, t.category_id FROM tag_implications ti
+SELECT t.id, t.name, t.description, t.created_at, t.updated_at, t.deleted, t.category_id, t.content_tier, t.requires_opt_in FROM tag_implications ti
 JOIN tags t ON t.id = ti.tag_id
 WHERE ti.implied_tag_id = $1 AND t.deleted = false
 ORDER BY t.name
@@ -228,6 +230,8 @@ func (q *Queries) FindImpliedByTagID(ctx context.Context, impliedTagID uuid.UUID
 			&i.UpdatedAt,
 			&i.Deleted,
 			&i.CategoryID,
+			&i.ContentTier,
+			&i.RequiresOptIn,
 		); err != nil {
 			return nil, err
 		}
@@ -286,7 +290,7 @@ WITH RECURSIVE reach(tag_id, depth) AS (
     JOIN tag_implications ti ON ti.tag_id = r.tag_id
    WHERE r.depth < 64
 )
-SELECT DISTINCT ON (t.id) t.id, t.name, t.description, t.created_at, t.updated_at, t.deleted, t.category_id, r.depth
+SELECT DISTINCT ON (t.id) t.id, t.name, t.description, t.created_at, t.updated_at, t.deleted, t.category_id, t.content_tier, t.requires_opt_in, r.depth
 FROM reach r
 JOIN tags t ON t.id = r.tag_id
 WHERE t.deleted = false
@@ -294,14 +298,16 @@ ORDER BY t.id, r.depth
 `
 
 type FindTransitiveImplicationsByTagIDRow struct {
-	ID          uuid.UUID     `db:"id" json:"id"`
-	Name        string        `db:"name" json:"name"`
-	Description *string       `db:"description" json:"description"`
-	CreatedAt   time.Time     `db:"created_at" json:"created_at"`
-	UpdatedAt   time.Time     `db:"updated_at" json:"updated_at"`
-	Deleted     bool          `db:"deleted" json:"deleted"`
-	CategoryID  uuid.NullUUID `db:"category_id" json:"category_id"`
-	Depth       int32         `db:"depth" json:"depth"`
+	ID            uuid.UUID     `db:"id" json:"id"`
+	Name          string        `db:"name" json:"name"`
+	Description   *string       `db:"description" json:"description"`
+	CreatedAt     time.Time     `db:"created_at" json:"created_at"`
+	UpdatedAt     time.Time     `db:"updated_at" json:"updated_at"`
+	Deleted       bool          `db:"deleted" json:"deleted"`
+	CategoryID    uuid.NullUUID `db:"category_id" json:"category_id"`
+	ContentTier   int16         `db:"content_tier" json:"content_tier"`
+	RequiresOptIn bool          `db:"requires_opt_in" json:"requires_opt_in"`
+	Depth         int32         `db:"depth" json:"depth"`
 }
 
 // Everything below this tag, at any depth. depth 1 is a direct implication.
@@ -330,6 +336,8 @@ func (q *Queries) FindTransitiveImplicationsByTagID(ctx context.Context, tagID u
 			&i.UpdatedAt,
 			&i.Deleted,
 			&i.CategoryID,
+			&i.ContentTier,
+			&i.RequiresOptIn,
 			&i.Depth,
 		); err != nil {
 			return nil, err
@@ -353,7 +361,7 @@ WITH RECURSIVE reach(tag_id, depth) AS (
     JOIN tag_implications ti ON ti.implied_tag_id = r.tag_id
    WHERE r.depth < 64
 )
-SELECT DISTINCT ON (t.id) t.id, t.name, t.description, t.created_at, t.updated_at, t.deleted, t.category_id, r.depth
+SELECT DISTINCT ON (t.id) t.id, t.name, t.description, t.created_at, t.updated_at, t.deleted, t.category_id, t.content_tier, t.requires_opt_in, r.depth
 FROM reach r
 JOIN tags t ON t.id = r.tag_id
 WHERE t.deleted = false
@@ -361,14 +369,16 @@ ORDER BY t.id, r.depth
 `
 
 type FindTransitiveImpliedByTagIDRow struct {
-	ID          uuid.UUID     `db:"id" json:"id"`
-	Name        string        `db:"name" json:"name"`
-	Description *string       `db:"description" json:"description"`
-	CreatedAt   time.Time     `db:"created_at" json:"created_at"`
-	UpdatedAt   time.Time     `db:"updated_at" json:"updated_at"`
-	Deleted     bool          `db:"deleted" json:"deleted"`
-	CategoryID  uuid.NullUUID `db:"category_id" json:"category_id"`
-	Depth       int32         `db:"depth" json:"depth"`
+	ID            uuid.UUID     `db:"id" json:"id"`
+	Name          string        `db:"name" json:"name"`
+	Description   *string       `db:"description" json:"description"`
+	CreatedAt     time.Time     `db:"created_at" json:"created_at"`
+	UpdatedAt     time.Time     `db:"updated_at" json:"updated_at"`
+	Deleted       bool          `db:"deleted" json:"deleted"`
+	CategoryID    uuid.NullUUID `db:"category_id" json:"category_id"`
+	ContentTier   int16         `db:"content_tier" json:"content_tier"`
+	RequiresOptIn bool          `db:"requires_opt_in" json:"requires_opt_in"`
+	Depth         int32         `db:"depth" json:"depth"`
 }
 
 // Everything above this tag, at any depth: the tags a reader can filter by to find it.
@@ -389,6 +399,8 @@ func (q *Queries) FindTransitiveImpliedByTagID(ctx context.Context, impliedTagID
 			&i.UpdatedAt,
 			&i.Deleted,
 			&i.CategoryID,
+			&i.ContentTier,
+			&i.RequiresOptIn,
 			&i.Depth,
 		); err != nil {
 			return nil, err

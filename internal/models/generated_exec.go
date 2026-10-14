@@ -698,6 +698,7 @@ type ComplexityRoot struct {
 		TagDestroy                        func(childComplexity int, input TagDestroyInput) int
 		TagEdit                           func(childComplexity int, input TagEditInput) int
 		TagEditUpdate                     func(childComplexity int, id uuid.UUID, input TagEditInput) int
+		TagSetContentTier                 func(childComplexity int, input TagContentTierInput) int
 		TagUpdate                         func(childComplexity int, input TagUpdateInput) int
 		UnfollowUser                      func(childComplexity int, input UnfollowInput) int
 		UnvoteIdentificationCandidate     func(childComplexity int, candidateID uuid.UUID) int
@@ -707,6 +708,7 @@ type ComplexityRoot struct {
 		UpdateSavedSearch                 func(childComplexity int, input SavedSearchUpdateInput) int
 		UserCreate                        func(childComplexity int, input UserCreateInput) int
 		UserDestroy                       func(childComplexity int, input UserDestroyInput) int
+		UserSetVisibleTiers               func(childComplexity int, tiers []int) int
 		UserUpdate                        func(childComplexity int, input UserUpdateInput) int
 		ValidateChangeEmail               func(childComplexity int, token uuid.UUID, email string) int
 		VoteElo                           func(childComplexity int, input EloVoteInput) int
@@ -955,6 +957,7 @@ type ComplexityRoot struct {
 		UnderSnapshottedScenes         func(childComplexity int, minimum *int, limit *int) int
 		UserStreak                     func(childComplexity int) int
 		Version                        func(childComplexity int) int
+		VisibleContentTiers            func(childComplexity int) int
 	}
 
 	QueryEditsResultType struct {
@@ -1263,6 +1266,7 @@ type ComplexityRoot struct {
 		Aliases             func(childComplexity int) int
 		Category            func(childComplexity int) int
 		Completion          func(childComplexity int) int
+		ContentTier         func(childComplexity int) int
 		Created             func(childComplexity int) int
 		Deleted             func(childComplexity int) int
 		Description         func(childComplexity int) int
@@ -1273,6 +1277,7 @@ type ComplexityRoot struct {
 		Implies             func(childComplexity int) int
 		ImpliesTransitive   func(childComplexity int) int
 		Name                func(childComplexity int) int
+		RequiresOptIn       func(childComplexity int) int
 		SceneCount          func(childComplexity int) int
 		Updated             func(childComplexity int) int
 	}
@@ -1563,6 +1568,8 @@ type MutationResolver interface {
 	StudioEditUpdate(ctx context.Context, id uuid.UUID, input StudioEditInput) (*Edit, error)
 	TagEditUpdate(ctx context.Context, id uuid.UUID, input TagEditInput) (*Edit, error)
 	ContentItemEditUpdate(ctx context.Context, id uuid.UUID, input ContentItemEditInput) (*Edit, error)
+	TagSetContentTier(ctx context.Context, input TagContentTierInput) (*Tag, error)
+	UserSetVisibleTiers(ctx context.Context, tiers []int) ([]int, error)
 	EditVote(ctx context.Context, input EditVoteInput) (*Edit, error)
 	EditComment(ctx context.Context, input EditCommentInput) (*Edit, error)
 	UpdateEditComment(ctx context.Context, input UpdateEditCommentInput) (*EditComment, error)
@@ -1680,6 +1687,7 @@ type PerformerEditResolver interface {
 	Piercings(ctx context.Context, obj *PerformerEdit) ([]BodyModification, error)
 }
 type QueryResolver interface {
+	VisibleContentTiers(ctx context.Context) ([]int, error)
 	FindPerformer(ctx context.Context, id uuid.UUID) (*Performer, error)
 	FindPerformers(ctx context.Context, ids []uuid.UUID) ([]*Performer, error)
 	QueryPerformers(ctx context.Context, input PerformerQueryInput) (*PerformerQuery, error)
@@ -4922,6 +4930,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.TagEditUpdate(childComplexity, args["id"].(uuid.UUID), args["input"].(TagEditInput)), true
+	case "Mutation.tagSetContentTier":
+		if e.ComplexityRoot.Mutation.TagSetContentTier == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_tagSetContentTier_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.TagSetContentTier(childComplexity, args["input"].(TagContentTierInput)), true
 	case "Mutation.tagUpdate":
 		if e.ComplexityRoot.Mutation.TagUpdate == nil {
 			break
@@ -5021,6 +5040,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.UserDestroy(childComplexity, args["input"].(UserDestroyInput)), true
+	case "Mutation.userSetVisibleTiers":
+		if e.ComplexityRoot.Mutation.UserSetVisibleTiers == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_userSetVisibleTiers_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.UserSetVisibleTiers(childComplexity, args["tiers"].([]int)), true
 	case "Mutation.userUpdate":
 		if e.ComplexityRoot.Mutation.UserUpdate == nil {
 			break
@@ -6676,6 +6706,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.Version(childComplexity), true
+	case "Query.visibleContentTiers":
+		if e.ComplexityRoot.Query.VisibleContentTiers == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Query.VisibleContentTiers(childComplexity), true
 
 	case "QueryEditsResultType.count":
 		if e.ComplexityRoot.QueryEditsResultType.Count == nil {
@@ -7964,6 +8000,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Tag.Completion(childComplexity), true
+	case "Tag.content_tier":
+		if e.ComplexityRoot.Tag.ContentTier == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Tag.ContentTier(childComplexity), true
 	case "Tag.created":
 		if e.ComplexityRoot.Tag.Created == nil {
 			break
@@ -8024,6 +8066,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Tag.Name(childComplexity), true
+	case "Tag.requires_opt_in":
+		if e.ComplexityRoot.Tag.RequiresOptIn == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Tag.RequiresOptIn(childComplexity), true
 	case "Tag.scene_count":
 		if e.ComplexityRoot.Tag.SceneCount == nil {
 			break
@@ -8697,6 +8745,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputTagCategoryDestroyInput,
 		ec.unmarshalInputTagCategoryParentInput,
 		ec.unmarshalInputTagCategoryUpdateInput,
+		ec.unmarshalInputTagContentTierInput,
 		ec.unmarshalInputTagCreateInput,
 		ec.unmarshalInputTagDestroyInput,
 		ec.unmarshalInputTagEditDetailsInput,
@@ -13208,6 +13257,11 @@ input StudioQueryInput {
 }
 
 type Tag {
+  "How far this tag raises its entities out of a viewer's default view, 0-3. A tier can only remove visibility."
+  content_tier: Int!
+
+  "Refuse this tag's entities to a viewer who has not opted into content viewing, whatever the tier."
+  requires_opt_in: Boolean!
   id: ID!
   name: String!
   description: String
@@ -13471,6 +13525,16 @@ input TagCategoryUpdateInput {
 
 input TagCategoryDestroyInput {
   id: ID!
+}
+
+input TagContentTierInput {
+  id: ID!
+
+  "0-3. Zero means unclassified, which is also visible to everyone."
+  tier: Int!
+
+  "Independent of the tier: a tier-0 tag can still require the opt-in."
+  requires_opt_in: Boolean!
 }
 `, BuiltIn: false},
 	{Name: "../../graphql/schema/types/trust.graphql", Input: `"""
@@ -13770,6 +13834,8 @@ enum UserChangeEmailStatus {
 `, BuiltIn: false},
 	{Name: "../../graphql/schema/schema.graphql", Input: `"""The query root for this schema"""
 type Query {
+  "The tiers the CALLER has opted into. Self-only: another user's consent is not a query."
+  visibleContentTiers: [Int!]!
   #### Performers ####
 
   # performer names may not be unique
@@ -14086,6 +14152,25 @@ type Mutation {
   """Update a pending tag edit"""
   tagEditUpdate(id: ID!, input: TagEditInput!): Edit! @hasRole(role: EDIT)
   contentItemEditUpdate(id: ID!, input: ContentItemEditInput!): Edit! @hasRole(role: EDIT)
+
+  """
+  Classify a tag's content tier (phase 5).
+
+  A moderator action, not an edit: the tier is a moderation judgement about what a
+  viewer sees by default, and it is denylist-shaped -- it can only remove content
+  from someone's view. An entity's effective tier is the MAXIMUM over its tags, so
+  this is the only place a tier is set.
+  """
+  tagSetContentTier(input: TagContentTierInput!): Tag! @hasRole(role: MODERATE)
+
+  """
+  Record the tiers the caller has opted into (phase 5).
+
+  Self-only by construction: there is no user argument, because no role may consent
+  to content on someone else's behalf. The stored value is the array as sent (the
+  record of consent); the gate uses its maximum as a ceiling.
+  """
+  userSetVisibleTiers(tiers: [Int!]!): [Int!]!
 
   """Vote to accept/reject an edit"""
   editVote(input: EditVoteInput!): Edit! @hasRole(role: VOTE)
@@ -15760,6 +15845,10 @@ func (ec *executionContext) childFields_Studio(ctx context.Context, field graphq
 
 func (ec *executionContext) childFields_Tag(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 	switch field.Name {
+	case "content_tier":
+		return ec.fieldContext_Tag_content_tier(ctx, field)
+	case "requires_opt_in":
+		return ec.fieldContext_Tag_requires_opt_in(ctx, field)
 	case "id":
 		return ec.fieldContext_Tag_id(ctx, field)
 	case "name":
@@ -17598,6 +17687,20 @@ func (ec *executionContext) field_Mutation_tagEdit_args(ctx context.Context, raw
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_tagSetContentTier_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
+		func(ctx context.Context, v any) (TagContentTierInput, error) {
+			return ec.unmarshalNTagContentTierInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTagContentTierInput(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_tagUpdate_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -17721,6 +17824,20 @@ func (ec *executionContext) field_Mutation_userDestroy_args(ctx context.Context,
 		return nil, err
 	}
 	args["input"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_userSetVisibleTiers_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "tiers",
+		func(ctx context.Context, v any) ([]int, error) {
+			return ec.unmarshalNInt2ᚕintᚄ(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["tiers"] = arg0
 	return args, nil
 }
 
@@ -30376,6 +30493,112 @@ func (ec *executionContext) fieldContext_Mutation_contentItemEditUpdate(ctx cont
 	return fc, nil
 }
 
+func (ec *executionContext) _Mutation_tagSetContentTier(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_tagSetContentTier(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().TagSetContentTier(ctx, fc.Args["input"].(TagContentTierInput))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "MODERATE")
+				if err != nil {
+					var zeroVal *Tag
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *Tag
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *Tag) graphql.Marshaler {
+			return ec.marshalNTag2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTag(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_tagSetContentTier(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_Tag(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_tagSetContentTier_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_userSetVisibleTiers(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_userSetVisibleTiers(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().UserSetVisibleTiers(ctx, fc.Args["tiers"].([]int))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []int) graphql.Marshaler {
+			return ec.marshalNInt2ᚕintᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_userSetVisibleTiers(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_userSetVisibleTiers_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Mutation_editVote(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -36861,6 +37084,29 @@ func (ec *executionContext) _PerformerTimelineEntry_sceneCount(ctx context.Conte
 }
 func (ec *executionContext) fieldContext_PerformerTimelineEntry_sceneCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("PerformerTimelineEntry", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _Query_visibleContentTiers(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_visibleContentTiers(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Query().VisibleContentTiers(ctx)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []int) graphql.Marshaler {
+			return ec.marshalNInt2ᚕintᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_visibleContentTiers(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Query", field, true, true, errors.New("field of type Int does not have child fields"))
 }
 
 func (ec *executionContext) _Query_findPerformer(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
@@ -47189,6 +47435,52 @@ func (ec *executionContext) fieldContext_StudioEdit_urls(_ context.Context, fiel
 	return fc, nil
 }
 
+func (ec *executionContext) _Tag_content_tier(ctx context.Context, field graphql.CollectedField, obj *Tag) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Tag_content_tier(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ContentTier, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Tag_content_tier(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Tag", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _Tag_requires_opt_in(ctx context.Context, field graphql.CollectedField, obj *Tag) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Tag_requires_opt_in(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.RequiresOptIn, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Tag_requires_opt_in(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Tag", field, false, false, errors.New("field of type Boolean does not have child fields"))
+}
+
 func (ec *executionContext) _Tag_id(ctx context.Context, field graphql.CollectedField, obj *Tag) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -57142,6 +57434,50 @@ func (ec *executionContext) unmarshalInputTagCategoryUpdateInput(ctx context.Con
 	return it, nil
 }
 
+func (ec *executionContext) unmarshalInputTagContentTierInput(ctx context.Context, obj any) (TagContentTierInput, error) {
+	var it TagContentTierInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"id", "tier", "requires_opt_in"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "id":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("id"))
+			data, err := ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ID = data
+		case "tier":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("tier"))
+			data, err := ec.unmarshalNInt2int(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Tier = data
+		case "requires_opt_in":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("requires_opt_in"))
+			data, err := ec.unmarshalNBoolean2bool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.RequiresOptIn = data
+		}
+	}
+	return it, nil
+}
+
 func (ec *executionContext) unmarshalInputTagCreateInput(ctx context.Context, obj any) (TagCreateInput, error) {
 	var it TagCreateInput
 	if obj == nil {
@@ -64323,6 +64659,20 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "tagSetContentTier":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_tagSetContentTier(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "userSetVisibleTiers":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_userSetVisibleTiers(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "editVote":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_editVote(ctx, field)
@@ -67095,6 +67445,28 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 		switch field.Name {
 		case "__typename":
 			out.Values[i] = graphql.MarshalString("Query")
+		case "visibleContentTiers":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_visibleContentTiers(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
 		case "findPerformer":
 			field := field
 
@@ -73631,6 +74003,16 @@ func (ec *executionContext) _Tag(ctx context.Context, sel ast.SelectionSet, obj 
 		switch field.Name {
 		case "__typename":
 			out.Values[i] = graphql.MarshalString("Tag")
+		case "content_tier":
+			out.Values[i] = ec._Tag_content_tier(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "requires_opt_in":
+			out.Values[i] = ec._Tag_requires_opt_in(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
 		case "id":
 			out.Values[i] = ec._Tag_id(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -79287,6 +79669,11 @@ func (ec *executionContext) marshalNTagCategoryTreeNode2ᚕgithubᚗcomᚋstasha
 
 func (ec *executionContext) unmarshalNTagCategoryUpdateInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTagCategoryUpdateInput(ctx context.Context, v any) (TagCategoryUpdateInput, error) {
 	res, err := ec.unmarshalInputTagCategoryUpdateInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) unmarshalNTagContentTierInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTagContentTierInput(ctx context.Context, v any) (TagContentTierInput, error) {
+	res, err := ec.unmarshalInputTagContentTierInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 

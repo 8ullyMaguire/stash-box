@@ -281,3 +281,80 @@ func TestAZeroThresholdDisablesTheCheckRatherThanDenyingEveryone(t *testing.T) {
 		"MinContribution=0 is an operator turning the check off, not a rule "+
 			"that requires a score of zero")
 }
+
+// The tier condition, added by phase 5 (migration 120).
+//
+// These rows are the reason the condition lives in this pure function: the
+// question is not "does the limit work" but "does a role substitute for the
+// user's own consent", and that is a decision table question, not a database one.
+
+func TestTierZeroIsVisibleWithNoConsentAtAll(t *testing.T) {
+	// The control for the whole mechanism: adding tiers did not change a single
+	// existing verdict, because unclassified content is tier 0 and an unasked
+	// viewer's ceiling is 0.
+	decision := EvaluateContentAccess(AccessRequest{
+		Level:         LevelContentViewing,
+		OptedIn:       true,
+		TermsAccepted: true,
+		EntityTier:    0,
+		VisibleTier:   0,
+	})
+	assert.True(t, decision.Allowed)
+}
+
+func TestATierAboveTheCeilingIsRefused(t *testing.T) {
+	decision := EvaluateContentAccess(AccessRequest{
+		Level:         LevelContentViewing,
+		OptedIn:       true,
+		TermsAccepted: true,
+		EntityTier:    2,
+		VisibleTier:   1,
+	})
+	assert.False(t, decision.Allowed)
+	assert.Equal(t, ReasonTier, decision.Reason)
+}
+
+func TestTheCeilingIsInclusive(t *testing.T) {
+	// Opting into tier 2 is consenting to tier 2, so the comparison is strict
+	// (>), not >=. An off-by-one here would hide exactly the content the user
+	// asked to see, which reads as a broken opt-in rather than as a boundary.
+	decision := EvaluateContentAccess(AccessRequest{
+		Level:         LevelContentViewing,
+		OptedIn:       true,
+		TermsAccepted: true,
+		EntityTier:    2,
+		VisibleTier:   2,
+	})
+	assert.True(t, decision.Allowed)
+}
+
+func TestNeitherVanguardNorAdminCanConsentToOneMoreTier(t *testing.T) {
+	// The asymmetry this whole file exists for. A vanguard or an operator
+	// override substitutes for the LEVEL check and for nothing else; consent is
+	// the user's own act, so neither may raise their ceiling.
+	for _, tc := range []struct {
+		name    string
+		request AccessRequest
+	}{
+		{
+			name: "vanguard",
+			request: AccessRequest{
+				Level: LevelContentViewing, OptedIn: true, TermsAccepted: true,
+				IsVanguard: true, EntityTier: 3, VisibleTier: 0,
+			},
+		},
+		{
+			name: "admin override",
+			request: AccessRequest{
+				Level: LevelContentViewing, OptedIn: true, TermsAccepted: true,
+				AdminOverride: true, EntityTier: 3, VisibleTier: 0,
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			decision := EvaluateContentAccess(tc.request)
+			assert.False(t, decision.Allowed)
+			assert.Equal(t, ReasonTier, decision.Reason)
+		})
+	}
+}

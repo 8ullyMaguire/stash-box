@@ -11,7 +11,7 @@ import (
 // goverter:converter
 // goverter:output:file ./generated.go
 // goverter:enum:unknown @ignore
-// goverter:extend ConvertNullIntToInt ConvertTime
+// goverter:extend ConvertNullIntToInt ConvertTime ConvertSmallIntToInt
 type ModelConverter interface {
 	// goverter:map Url RemoteURL
 	ConvertImage(source queries.Image) models.Image

@@ -12,6 +12,7 @@ import (
 	"github.com/stashapp/stash-box/internal/models"
 	queryhelper "github.com/stashapp/stash-box/internal/service/query"
 	"github.com/stashapp/stash-box/internal/service/tagontology"
+	"github.com/stashapp/stash-box/internal/service/trust"
 )
 
 func (s *Scene) Query(ctx context.Context, input models.SceneQueryInput) ([]models.Scene, error) {
@@ -347,6 +348,33 @@ func (s *Scene) buildSceneQuery(ctx context.Context, psql sq.StatementBuilderTyp
 	// instead of a bind parameter -- upstream PR #1280.
 	query = query.Where("scenes.deleted = false")
 
+	// CONTENT TIERS (phase 5, migration 120).
+	//
+	// A scene's tier is the MAXIMUM over its tags, and a tier can only REMOVE visibility --
+	// so this predicate excludes and never includes. It is a NOT EXISTS against the link
+	// table rather than a join to the entity_effective_tier view: an aggregate over every
+	// scene is the wrong shape for a filtered page, and this form uses the index on
+	// (scene_id) and stops at the first tag above the ceiling.
+	//
+	// The comparison (> visibleTier) is the same one trust.EvaluateContentAccess makes for
+	// a single entity. Two implementations of one rule is one too many; they are kept in
+	// step by both being this comparison and by the tests that walk the same fixture
+	// through the page path and the gate.
+	//
+	// Skipped entirely at the ceiling: a viewer who has opted into every tier has nothing
+	// to exclude, and an unconsented viewer's visibleTier is 0, which still pays the
+	// predicate -- the normal case must not be the cheap one.
+	visibleTier, err := s.queries.UserVisibleTier(ctx, userID)
+	if err != nil {
+		return query, err
+	}
+	tierFiltered := visibleTier < trust.MaxContentTier
+	if tierFiltered {
+		query = query.Where(sq.Expr(
+			`NOT EXISTS (SELECT 1 FROM scene_tags st JOIN tags t ON t.id = st.tag_id WHERE st.scene_id = scenes.id AND t.content_tier > ?)`,
+			visibleTier))
+	}
+
 	// Apply sort and pagination
 	switch input.Sort {
 	case models.SceneSortEnumFresh, models.SceneSortEnumRising:
@@ -393,7 +421,12 @@ func (s *Scene) buildSceneQuery(ctx context.Context, psql sq.StatementBuilderTyp
 	case models.SceneSortEnumTrending:
 		// Check if we can optimize by limiting the trending subquery
 		// This is only safe when there are no other filters applied
-		hasOtherFilters := performerID != nil ||
+		// The tier predicate is a filter like any other, and the optimized path LIMITS the
+		// trending subquery BEFORE the filters run -- so a page that must exclude tiered
+		// scenes cannot take it. Omitting tierFiltered here returns a page whose first
+		// entry is a scene the reader must not see, which looks like a bug in the tier.
+		hasOtherFilters := tierFiltered ||
+			performerID != nil ||
 			input.URL != nil || input.ParentStudio != nil ||
 			(input.Performers != nil && len(input.Performers.Value) > 0) ||
 			(input.Tags != nil && len(input.Tags.Value) > 0) ||

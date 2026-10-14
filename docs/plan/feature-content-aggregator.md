@@ -611,6 +611,80 @@ assertion pass with the thing on screen (`docs/track/WORKLOG.md`: *"a test asser
 'no nav label appears twice' PASSED WITH THE DUPLICATE ON SCREEN"*). Each absence
 assertion is preceded by a count assertion of the subject.
 
+### Slice 5a — the tier model, and the gate wired to a page — DONE
+
+**The find that reshaped this slice: the content gate existed and nothing used it.**
+`trust.EvaluateContentAccess` has been a pure function with a decision-table test suite since
+the content-access work, and `trust.ContentDenylist` has been able to load the denylist rows --
+but the only caller of `NewAccessRuleSet` is the **`AccessRules` query, which REPORTS the rules**
+(`enforced` vs `unenforced`). No read path consulted any of it. Phase 5's real work is therefore
+wiring, not inventing, and the tier model is the second reason to do it.
+
+**Migration 120** (`content_tiers`): `tags.content_tier smallint not null default 0` with
+`CHECK (0 <= content_tier <= 3)`, `tags.requires_opt_in boolean not null default false`,
+`user_trust.visible_tiers smallint[] not null default '{}'` with
+`CHECK (<@ ARRAY[0,1,2,3])`, and the report view `entity_effective_tier (entity_type, entity_id,
+tier)` = the MAX over an entity's tags (scenes and content items; LEFT JOINs so an untagged
+entity reports tier 0 rather than being absent, which is a different claim).
+
+**Denylist-shaped, and additive.** The effective tier is a MAXIMUM, so a tag can only raise a
+thing out of a reader's view; nothing can lower an entity INTO a view. And because unclassified
+content is tier 0 while an unasked viewer's ceiling is also 0, the comparison
+(`EntityTier > VisibleTier`) changed the verdict for **zero existing requests** -- which is what
+makes it safe to add a seventh condition to a gate whose comment says the order is load-bearing.
+
+**Consent is a record and a ceiling.** `visible_tiers` stores the array AS SENT because that is
+what an audit reads ("what did they agree to"); the gate derives its ceiling from the MAXIMUM,
+because opting into tier 3 is opting into 1 and 2. `[3]` and `[1,2,3]` are the same ceiling and
+different consents, so the query field returns the array and the gate takes the maximum.
+
+**No role may consent.** The tier condition is NEVER bypassable -- vanguard and admin override
+substitute for the level check and nothing else -- and the integration test asserts it from the
+strongest angle available: **the admin who classified the tag cannot see the scene they
+classified**, because they have not opted into that tier. Two unit tests state the same thing as
+a decision table.
+
+**The page path** (`buildSceneQuery`, which search, facets, the performer-scene list and the
+discovery language all build on) excludes with a `NOT EXISTS` against the link table, which stops
+at the first tag above the ceiling and uses the existing index, rather than joining the aggregate
+view. Skipped entirely at the ceiling. **The predicate is also added to `hasOtherFilters`**: the
+optimized trending path LIMITS the subquery before the filters run, so a page that must exclude
+tiered scenes cannot take it -- and omitting it there returns a first entry the reader must not
+see, which reads as a bug in the tier.
+
+#### The test lesson that cost the most time
+
+`queryResolver.QueryScenes` returns `&models.SceneQuery{Filter: input}` with `SearchResults` nil;
+**the paginated page is produced by the `querySceneResolver.Scenes` FIELD resolver**, which is
+only reached through the GraphQL handler. A test that calls the resolver and reads
+`result.SearchResults` asserts against an empty struct -- and an empty page is exactly what a
+tier gate produces, so **the broken test looked like the feature working**. The probe goes
+through the GraphQL client (`runner.client.queryScenes`), which is also what makes the assertion
+about the schema rather than about Go.
+
+#### Evidence
+
+Four gate unit tests (tier 0 visible with no consent; above the ceiling refused; the ceiling
+inclusive; vanguard and override cannot consent to one more tier). Two integration tests: the
+scene is COUNTED through the exact query before the tag is classified, then absent for an
+unconsented viewer, present for a viewer on `{1,2}`, absent for the admin who classified it; and
+a tier-3 scene absent at a ceiling of 2, present after opting into 3.
+
+Five mutation probes. Four killed behaviourally: the comparison `>=` instead of `>`, the gate's
+`<` instead of `>`, collapsing the consent array to its maximum, and inactivating the page
+predicate (which reddened the absence assertion with its own message). **The first version of
+that last probe did not compile** -- it deleted the predicate and left `visibleTier` unused, so
+the verdict was "BROKEN" twice, and a mutation that does not compile has proved nothing. It was
+re-cut to keep the bind argument and make the comparison unsatisfiable.
+
+#### Still open in phase 5
+
+`similar-to`, the activity feed and `forYou` do **not** go through `buildSceneQuery`, so each
+needs the same predicate and its own absence assertion -- the plan's four-path verification is
+one path (search, plus facets and the performer list by construction) done and three to go. Also
+open: the warnings-vs-gates split, the T3 cooling period, the onboarding wizard, and a test for
+the trending-path guard, which is written and has no coverage.
+
 ## Phase 6 — trust, sub-scores, gamification
 
 **Goal:** NexusXXX §5.2–§5.4, §6.1–§6.5. **Verified:** `trust` is derived by a curve

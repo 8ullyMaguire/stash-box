@@ -1241,7 +1241,7 @@ final_tags AS (
     UNION
     SELECT tag_id FROM added_tags
 )
-SELECT t.id, t.name, t.description, t.created_at, t.updated_at, t.deleted, t.category_id FROM final_tags ft
+SELECT t.id, t.name, t.description, t.created_at, t.updated_at, t.deleted, t.category_id, t.content_tier, t.requires_opt_in FROM final_tags ft
 JOIN tags t ON ft.tag_id = t.id
 WHERE t.deleted = FALSE
 ORDER BY t.name
@@ -1265,6 +1265,8 @@ func (q *Queries) GetMergedTagsForEdit(ctx context.Context, id uuid.UUID) ([]Tag
 			&i.UpdatedAt,
 			&i.Deleted,
 			&i.CategoryID,
+			&i.ContentTier,
+			&i.RequiresOptIn,
 		); err != nil {
 			return nil, err
 		}

@@ -138,3 +138,27 @@ SELECT count(*) FROM trust_events WHERE user_id = $1;
 -- Every rollup row. Used when a threshold changes and every level must be
 -- recomputed (see RebuildLevels in internal/service/trust).
 SELECT * FROM user_trust;
+
+-- name: UserVisibleTier :one
+-- The viewer's ceiling: the MAXIMUM tier they have opted into, or 0 for a user
+-- with no preference, no user_trust row at all, or an empty array. COALESCE over
+-- unnest of a missing row keeps "anonymous" and "never asked" the same answer,
+-- which is what the gate wants: neither has consented to anything.
+SELECT COALESCE(MAX(tier), 0)::SMALLINT AS "tier"
+FROM unnest(COALESCE((SELECT "visible_tiers" FROM "user_trust" WHERE "user_id" = @user_id), '{}')) AS tier;
+
+-- name: SetVisibleTiers :one
+-- The record of consent. The gate uses its MAXIMUM; the array is what an audit
+-- reads, so the value is stored as sent rather than collapsed to a number.
+UPDATE "user_trust"
+SET "visible_tiers" = @visible_tiers, "updated_at" = NOW()
+WHERE "user_id" = @user_id
+RETURNING *;
+
+-- name: SetTagContentTier :one
+-- A moderator's classification of a tag. Both columns together, because the two
+-- refusals ("tier too high" and "needs the opt-in") are set by the same decision.
+UPDATE "tags"
+SET "content_tier" = @content_tier, "requires_opt_in" = @requires_opt_in, "updated_at" = NOW()
+WHERE "id" = @id AND "deleted" = FALSE
+RETURNING *;
