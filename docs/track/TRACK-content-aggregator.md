@@ -31,7 +31,7 @@ table and `goal-check.py` clause C8. The reversal and its cost are recorded in
 | Phase | Name | State | Evidence |
 |---|---|---|---|
 | 1 | source layer (`content_sources`, health, GraphQL) | done | migration 108 + `scripts/verify-108.sh` (49/49, mutation-tested); `internal/service/content/source.go`, `ContentSourcesLoader`, `Scene.sources`, `internal/api/scene_sources_integration_test.go` (4 cases, 3 mutations each naming its own failure). Frontend does not consume `sources` yet — that is phase 16, not this phase's surface |
-| 2 | ingestion pipeline (URL → content record) | not started | — |
+| 2 | ingestion pipeline (URL → content record) | in progress | schema half landed: migration 109 (`scenes.origin` for provenance + `ingest_queue` with the status/outcome machine and a partial unique on the active URL), `internal/queries/sql/ingest.sql` (enqueue / claim / finish / fail), `docs/spec/feature-ingestion.md`, `scripts/verify-109.sh` (46/46; four mutations — plain UNIQUE, no `next_attempt_at` guard, vacuous done/outcome CHECK, `origin` nullable — each reddening only its own assertions). NOT done: the URL normaliser, the dedup decision, the extractor interface, and the `submitContentUrl` mutation |
 | 3 | the other five content kinds (`content_items`) | not started | — |
 | 4 | tag ontology (implications, versions, RFC) | not started | — |
 | 5 | tiers, warnings and gates | not started | — |

@@ -183,9 +183,21 @@ thumbnail + preview via the existing `collage` service → auto-tier (Phase 5's 
 defaulting T0 until it lands) → `pending` review when confidence is low, auto-approve
 when the source site is trusted and confidence is high → archive submission.
 
-**Files:** migration 109 `scene_origin_and_ingest_queue`, `internal/service/ingest/`,
-`internal/cron` entry for the queue, `internal/api/resolver_ingest.go` (mutation
+**Files:** `internal/database/migrations/postgres/109_scene_origin_and_ingest_queue.{up,down}.sql`,
+`internal/queries/sql/ingest.sql` (+ generated), `scripts/verify-109.sh`,
+`internal/service/ingest/` (normalise + dedup decision as pure functions, then the
+pipeline), `internal/service/ingest/extract/` (the extractor interface and the fake),
+`internal/cron` entry for the queue drain, `internal/api/resolver_ingest.go` (mutation
 `submitContentUrl(url:)`), `docs/spec/feature-ingestion.md`.
+
+**Status:** the schema half is landed and harnessed: `scenes.origin` (why a row exists,
+not derivable from fingerprints-or-sources), `ingest_queue` with the status/outcome
+machine, a partial unique index over the active URL states, and the four queue statements
+— enqueue, claim (`FOR UPDATE SKIP LOCKED`), finish, fail-with-backoff — proven against a
+real database by `scripts/verify-109.sh` (46 checks, four mutations, all killed). The Go
+half — the normaliser, the dedup decision, the extractor interface, the drain and the
+mutation — is not written yet, and nothing calls the queue statements (see the note on
+inert code in phase 9).
 
 **Verification:** unit tests for the pure functions (normaliser, dedup decision) with
 table-driven cases; integration test submitting three URLs that resolve to one
