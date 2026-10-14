@@ -339,7 +339,7 @@ Expect `{"data":{"federationPeers":[]}}` on a fresh instance, not an error.
 
 ## Step 7 — third-party identification sources (SPEC §8)
 
-**Status: 7a DONE; 7b/7c planned; 7d deferred.** Steps 1–6 federate with *peers*
+**Status: 7a DONE (`a71b06f7`, 5/5 mutations killed); 7b/7c planned; 7d deferred.** Steps 1–6 federate with *peers*
 — remote instances running this software, accountable by attestation. Step 7 adds
 the other kind of remote answerer: a service or model the operator does not
 control, which is why every slice below is about keeping its answer as
