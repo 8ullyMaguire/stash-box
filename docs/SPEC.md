@@ -1751,6 +1751,46 @@ By dependency, and the first item is not a feature:
 
 ---
 
+### 7.27 The content aggregator programme — NexusXXX parity (added 2026-10-14)
+
+Owner instruction: *"I want stash-box to include all functionality of nexusxxx to
+use it as a content aggregator, without losing any of the current functionality.
+Update docs/spec/plan/etc then continue developing stash-box until completion"* —
+and on scope, *"'until completion': until stash-box is fully implemented and tested
+including all new functionality."*
+
+This section is a pointer, not the specification. The programme lives in:
+
+- `docs/spec/feature-content-aggregator.md` — the normative spec: a measured
+  inventory of what already exists, the one architectural decision (video stays
+  `scene` and is extended; the other five content kinds get `content_items` on the
+  existing `EntityType` polymorphism), a row-per-section parity table for all 23
+  NexusXXX sections, and **the six reversals** this instruction makes against
+  earlier sections of this document — §7.19's rejection of the content plane,
+  monetisation against MIT, public sub-scores against `@isUserOwner`, local-first
+  taste against mesh peering, ActivityPub, and facial recognition at ingest.
+- `docs/plan/feature-content-aggregator.md` — 17 phases with migration numbers,
+  file paths, decisions and verification commands.
+- `docs/track/TRACK-content-aggregator.md` — per-phase state with its evidence
+  commit; `docs/goal-check.py` clause C8 reads it, so the programme's completion
+  is checkable and not a claim.
+
+**The no-loss rule is binding on both sides.** Nothing in this fork regresses —
+the public GraphQL contract, every existing migration and every passing clause
+of `goal-check.py`. And nothing in the NexusXXX draft is dropped as "not
+applicable": where §7.16 below says the content plane stays out, or §7.25 says a
+feature is "deliberately not adopted", this section supersedes it, and the cost of
+that reversal is written down in the spec's §4 rather than discovered later.
+
+Two consequences worth stating here because they change this document's own
+claims: §7.16's table ("what the vision needs from the existing codebase") is now
+half-stale — Elo, collages, the identification board, completion and federation
+all exist — and Phase 14's policy text is a **precondition** for Phase 10's first
+stored byte, because the moment this instance holds content it is a host, and
+§7.18 already replicates member files between peers.
+
+---
+
 ### 7.16 What the vision needs from the existing codebase
 
 The three capabilities the fork must *build* rather than extend, because nothing

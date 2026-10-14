@@ -699,11 +699,66 @@ def update_baseline():
     return 0
 
 
+def c8_aggregator_programme():
+    spec = REPO / "docs" / "spec" / "feature-content-aggregator.md"
+    plan = REPO / "docs" / "plan" / "feature-content-aggregator.md"
+    track = REPO / "docs" / "track" / "TRACK-content-aggregator.md"
+    for p in (spec, plan, track):
+        if not p.exists():
+            add("C8 aggregator programme", "FAIL",
+                f"{p.relative_to(REPO)} is missing")
+            return
+
+    # The main SPEC must point at all three, or a reader of the spec never learns
+    # the programme exists -- which is how a spec acquires a second, unmentioned half.
+    main_spec = (REPO / "docs" / "SPEC.md").read_text()
+    for name in ("docs/spec/feature-content-aggregator.md",
+                 "docs/plan/feature-content-aggregator.md",
+                 "docs/track/TRACK-content-aggregator.md"):
+        if name not in main_spec:
+            add("C8 aggregator programme", "FAIL",
+                f"docs/SPEC.md does not reference {name}")
+            return
+
+    phases = re.findall(r"^## Phase (\d+)\b", plan.read_text(), re.M)
+    if not phases:
+        add("C8 aggregator programme", "FAIL", "the plan names no phases")
+        return
+
+    rows = {}
+    for line in track.read_text().splitlines():
+        m = re.match(r"\|\s*(\d+)\s*\|([^|]*)\|([^|]*)\|([^|]*)\|", line)
+        if m:
+            rows[m.group(1)] = (m.group(3).strip().lower(), m.group(4).strip())
+
+    undone, noevidence = [], []
+    for n in phases:
+        if n not in rows:
+            undone.append(n)
+            continue
+        state, evidence = rows[n]
+        if not state.startswith("done"):
+            undone.append(n)
+        elif evidence in ("", "—", "-", "(none)"):
+            noevidence.append(n)
+
+    if noevidence:
+        add("C8 aggregator programme", "FAIL",
+            f"phase(s) marked done with no evidence: {', '.join(noevidence)}")
+    elif undone:
+        add("C8 aggregator programme", "FAIL",
+            f"{len(undone)}/{len(phases)} phases not done: {', '.join(undone)}")
+    else:
+        add("C8 aggregator programme", "PASS",
+            f"all {len(phases)} phases done, each naming its evidence")
+
+
 def main():
     if "--update-baseline" in sys.argv:
         sys.exit(update_baseline())
     for fn in (c1_prs_decided, c2_issues_dispositioned, c3_plan_built,
-               c4_narrow_merged, c5_migrations_coherent, c6_suite, c7_build_clean):
+               c4_narrow_merged, c5_migrations_coherent, c6_suite, c7_build_clean,
+               c8_aggregator_programme):
         try:
             fn()
         except Exception as e:  # a clause that crashes is not a passing clause

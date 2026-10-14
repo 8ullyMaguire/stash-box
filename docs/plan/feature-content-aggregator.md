@@ -1,0 +1,377 @@
+# PLAN — the content aggregator programme (NexusXXX parity)
+
+Implements `docs/spec/feature-content-aggregator.md`. Phase-level, because that is
+the only level at which the ordering is decidable: each phase's code depends on the
+previous phase's landed schema, and this repo's own commit log records what happens
+when code is written against a schema that does not exist yet — *"Third round of
+invented APIs in this feature … I wrote `WithTx(ctx)`, `GetUser`, `GetListItem`,
+`OwnedBy`, `PublisherOf`, `User().Get` and `ListEntityTypeScene` before checking any
+of them. Every one was wrong … Seven build cycles on fictions I could have read off
+the tree in one grep."*
+
+So: **every symbol in this plan was checked against the tree before being written
+down**, marked with `Verified:`. Where a phase needs step-level code, that detail is
+written when the phase starts, against the schema the previous phase landed — which
+is this repo's existing pattern (spec + plan per feature, both written before that
+feature's code, both revised as measured facts arrive).
+
+## Environment (do this first — Phase 1 cannot be verified without it)
+
+```bash
+sudo systemctl start docker.socket docker.service      # docker is disabled at boot
+docker run -d --name sbx-pg \
+  -e POSTGRES_PASSWORD=smoke_pw -e POSTGRES_USER=postgres \
+  -e POSTGRES_DB=stash-box-test \
+  -p 127.0.0.1:55434:5432 stashbox-pg18:latest
+export POSTGRES_DB='postgres:smoke_pw@127.0.0.1:55434/stash-box-test?sslmode=disable'
+```
+
+`POSTGRES_DB` is **not a URL** — a `postgres://` scheme makes pgx parse
+`user=alvaro` and the suite dies in `pgDropAll` with `lookup postgres: no such host`
+(`docs/track/HANDOFF-R074.md`). The image `stashbox-pg18:latest` already exists on
+this host and carries `pg_search` + `bktree`; the bare `postgres` package on the
+host does not, and migration 56 fails without them.
+
+**Proven this session:** `go test -tags=integration -count=1 -p 1 ./internal/api/
+-run 'TestListCreateReturnsAPrivateListWithTheRightShape'` → `ok … 1.835s`, and
+`./scripts/provision-scratch-db.sh sbx-scratch` → `migrations: 104 applied`,
+`version 107`, `tables: 86`.
+
+## Order
+
+**1 → 2 → 4 → 5 → 3 → 6 → 7 → 9 → 8 → 11 → 13 → 14 → 10 → 12 → 15 → 16**, with 17
+(a goal-check clause per phase) threaded through every phase rather than left to the
+end.
+
+The two hard constraints:
+
+- **14's policy text precedes 10's first stored byte.** The moment this instance
+  holds content it is a host, and §7.18 already schedules replication of member
+  files across peers. Legal text after the fact is legal text that was never
+  written.
+- **`frontend` builds before `go build`, always.** `frontend/embed.go` is
+  `//go:embed build`, so a stale SPA serves HTTP 200 and a blank page with no
+  console error. The project's own remedy is `scripts/fe.sh`-style ordering; the
+  ordering rule is stated in `docs/plan/growth-items-19-20-21-24-28-29.md` and it
+  applies to every phase below that touches the UI.
+
+---
+
+## Phase 1 — the source layer (the aggregator's first brick)
+
+**Goal:** a scene can be a record of content that exists at a URL and nobody here
+owns, with the URL's health tracked. NexusXXX §3.2 `sources[]` + §7.3's status
+machine, on the existing `scene_urls` table.
+
+**Verified:** `scene_urls` is `(scene_id uuid, url varchar, site_id uuid)` with
+`UNIQUE (scene_id, url)` and an index on `lower(url)`; it has **no** status,
+platform, timestamp or archive column. `sites` exists with a favicon and categories.
+`EntityType` has exactly five values (`performer, scene, studio, site, tag`) —
+adding a sixth is a schema change other code reads, so Phase 1 does not.
+
+**Migration 108 `content_sources`:**
+
+- `content_sources (id uuid pk, entity_type varchar(20) not null, entity_id uuid
+  not null, url text not null, site_id uuid null, platform varchar(50) null,
+  status varchar(20) not null default 'unknown', canonical boolean not null
+  default false, last_checked timestamptz null, last_ok timestamptz null,
+  first_seen timestamptz not null default now(), check_failures int not null
+  default 0, archived_url text null, archived_at timestamptz null,
+  created_by uuid null references users(id))`
+- `CHECK (status IN ('unknown','live','intermittent','dead','dmca','archived'))`
+- `UNIQUE (entity_type, entity_id, url)`, `INDEX (status, last_checked)` for the
+  health sweep, `INDEX (lower(url))` for URL dedup.
+- Backfill: `INSERT … SELECT 'scene', scene_id, url, site_id, 'live' FROM
+  scene_urls` and **keep `scene_urls` in place** — 30 call sites read it and
+  `internal/service/scene/service.go:461` loads it through a dataloader. The
+  migration states which of the two is authoritative (answer: `content_sources`,
+  with a `scene_urls` compatibility trigger, because the alternative is two sources
+  of truth that disagree on the first write).
+
+**Files:** `internal/database/migrations/postgres/108_content_sources.{up,down}.sql`,
+`internal/queries/sql/content_source.sql`, `internal/service/content/source.go`,
+`graphql/schema/types/content.graphql`, `internal/api/resolver_content.go`,
+`frontend/src/graphql/{queries,types.generated}`.
+
+**Verification:** `./scripts/verify-108.sh` (CHECK constraints proven against the
+schema directly — a service test cannot tell "the database rejected this" from "the
+service never asked"), then `go test -tags=integration -p 1 ./internal/api/
+-run TestContentSource` asserting: a source with `status='dead'` is returned by the
+scene query with that status; a duplicate URL for the same entity is rejected; a
+`dmca` source is not served to a `READ`-only caller.
+
+## Phase 2 — ingestion pipeline
+
+**Goal:** submit a URL and get a content record — NexusXXX §7.2's pipeline, §7.1's
+eight source classes, §3.3's dedup, §3.4's versioning.
+
+**Design rule:** the extractor is an interface with one implementation
+(`internal/service/ingest/extract/`) so the yt-dlp dependency is swappable and
+testable without network. **Verified:** no yt-dlp wrapper exists in the tree; the
+only importer is `internal/sdbimport` (stashdb.org dumps).
+
+Steps, in one phase because each is useless alone: URL normalisation (strip tracking
+params, resolve redirects) → dedup (URL match → attach source; fingerprint match →
+cluster; else new scene with `origin='aggregate'`) → metadata extraction →
+thumbnail + preview via the existing `collage` service → auto-tier (Phase 5's table,
+defaulting T0 until it lands) → `pending` review when confidence is low, auto-approve
+when the source site is trusted and confidence is high → archive submission.
+
+**Files:** migration 109 `scene_origin_and_ingest_queue`, `internal/service/ingest/`,
+`internal/cron` entry for the queue, `internal/api/resolver_ingest.go` (mutation
+`submitContentUrl(url:)`), `docs/spec/feature-ingestion.md`.
+
+**Verification:** unit tests for the pure functions (normaliser, dedup decision) with
+table-driven cases; integration test submitting three URLs that resolve to one
+existing scene → one row, three sources, one cluster; a **mutation** run that breaks
+the dedup comparison and reddens exactly that test.
+
+## Phase 3 — the other five content kinds
+
+**Goal:** NexusXXX §3.1's image/gallery/animation/text/audio/comic alongside video.
+
+**Decision (from the spec):** the five non-video kinds land in `content_items` with
+`EntityType` extended by one value, `content_item`, rather than five entity types —
+one new enum member instead of five, and every polymorphic table (reviews,
+completion, elo, lists, expected_totals, denylist) works unchanged.
+`content_items (id, kind varchar(20) not null check (kind in
+('image','gallery','animation','text','audio','comic')), title, details,
+release_date, created_at, updated_at)` plus `content_item_chapters` for text/comic
+progress and `content_item_media` for variant URLs (Phase 10 fills it).
+
+**Verified:** adding an `EntityType` member touches `graphql/schema/types/
+completion.graphql:57`, `internal/models`, and any `switch` over the enum — `rg
+'EntityType' internal/` before writing, and every switch must gain an explicit case
+or the compiler says so (Go exhaustiveness is manual; the plan requires a test that
+enumerates the type list and asserts each has a completion mapping, which is how
+`internal/api/completion_weight_parity_test.go:143` already guards weights).
+
+**Verification:** integration test that a text item takes tags, a review, an elo
+matchup and a list entry with no new plumbing.
+
+## Phase 4 — the tag ontology
+
+**Goal:** NexusXXX §4.1–§4.6. **Verified:** `tags` has `name, description, aliases,
+deleted, category_id, created_at, updated_at`; `tag_categories` nests (migration 106,
+`tag_categories_parent_id_idx`, cycle trigger, `TagCategoryTreeNode` with
+`parent/ancestors/descendants`); there is **no** tag-to-tag relation and no ontology
+version.
+
+**Migrations:** 110 `tag_implications` (`tag_id, implied_tag_id, created_by`,
+cycle-guarded the same way 106 is — reuse the CTE approach, do not invent a second
+one), 111 `ontology_versions` (`version int, snapshot jsonb, created_at,
+created_by`) + `ontology_changes` (proposal → discussion → vote → implement, with
+the change kind enumerated). Tag `content_tier` and `requires_opt_in` arrive in
+Phase 5 with the tier table.
+
+**Decision:** implications are **derived at read time with one owning table**, never
+duplicated onto tag rows. The fork's §3.2 "generated vs hand-written — know which is
+which" is the rule; a materialised implication list is a second source of truth that
+disagrees on the first merge.
+
+**Verification:** a cycle attempt is rejected by the database (not by the service);
+applying `cowgirl_position` in the UI/search surface returns items tagged
+`woman_on_top`; `docs/plan-verify.py` still passes.
+
+## Phase 5 — tiers, warnings and gates
+
+**Goal:** NexusXXX §10. **Verified:** `content_denylist_tag/studio/performer`
+(migration 87), `AccessRuleSet` reporting `enforced` vs `unenforced`, and the
+migration-87 argument that an entity id is checkable while a region or User-Agent is
+a client claim.
+
+**Migration 112 `content_tiers`:** `tags.content_tier smallint not null default 0`
+with `CHECK (0 <= content_tier and content_tier <= 3)`,
+`tags.requires_opt_in boolean not null default false`,
+`users.opted_in_tiers smallint[] not null default '{}'`, and a view
+`entity_effective_tier (entity_type, entity_id, tier)` computed as the **max** of its
+tags' tiers. **Denylist-shaped**: a tier can only ever remove visibility, never grant
+it — the rule migration 87 states and the reason an allowlist was refused.
+
+**Also:** the onboarding wizard (frontend), the warnings-vs-gates split, and the
+cooling period for T3.
+
+**Verification:** a T2-tagged scene is absent from search, feeds, recommendations and
+similar-to for a member who has not opted in — all four paths asserted separately,
+because "invisible" is an absence claim and this repo already had an absence
+assertion pass with the thing on screen (`docs/track/WORKLOG.md`: *"a test asserting
+'no nav label appears twice' PASSED WITH THE DUPLICATE ON SCREEN"*). Each absence
+assertion is preceded by a count assertion of the subject.
+
+## Phase 6 — trust, sub-scores, gamification
+
+**Goal:** NexusXXX §5.2–§5.4, §6.1–§6.5. **Verified:** `trust` is derived by a curve
+in `internal/service/trust`, exposed as `UserTrust` behind `@isUserOwner`;
+`streak.graphql` has `currentStreak/longestStreak/totalActiveDays/activeToday/
+lastActiveDay`; `quest`, `badge`, `award`, `authored` services exist; `elo` provides
+leaderboards.
+
+**The decision this phase exists for:** which sub-scores become public. The draft
+makes them public (§5.2, §20.2); `user.graphql` says a user's standing is not other
+users' business. Resolution to implement: **level public, weights and error rates
+private**, with the visibility rule stated in the schema comment so a reader does not
+have to infer it — the pattern `list.graphql` uses.
+
+**Also:** decay with grace and recovery (§5.3), streak freeze, vouching with a
+maximum of three active, contribution heatmap, leaderboard filters by level and
+opt-out, seasonal events.
+
+**Verification:** a member with two flags loses TL3 after the grace period and
+regains it in 14 days; a fourth vouch is refused; a member who opts out of
+leaderboards keeps every capability.
+
+## Phase 7 — discovery
+
+**Goal:** NexusXXX §8. **Verified:** search exists (`scene_search`, pg_search BM25,
+migration 103 added `details`/`director`/tag columns with a statement-level trigger
+and a drift check); trending exists since migration 60; `elo` supplies ranking;
+`performer_similar` is the nearest thing to similarity.
+
+**New:** saved searches (query text, owner, subscription → notifications), the search
+language (`-tag`, `score:>`, `duration:m..m`, `type:`, `sort:`, `similar_to:`,
+`taste:me:`) parsed into the existing filter structs rather than a second query
+builder, tag explorer over the Phase 4 graph, freshness scoring for trending, a
+vector store for content DNA behind an interface with a no-op implementation (a
+pgvector column is the cheap first implementation; a separate Milvus is justified only
+by a measured latency), taste profile + For You + serendipity parameter, social
+discovery, and "where I left off" (local-first, server-synced opt-in).
+
+**Verification:** each discovery mode has an integration test; the serendipity
+parameter has the degenerate-output test the crosswalk names — two contrasting
+settings over the same seed must not return near-identical sets.
+
+## Phase 8 — social
+
+**Goal:** NexusXXX §9. Typed comments (`discussion`, `source_info`, `performer_id`,
+`timestamp`, `correction`, `request`, `review`) with **structured fields**, routed
+into an **edit** rather than writing metadata directly — §7.25.3's "a vote is
+evidence, never authority" is the rule that survives contact with the identification
+board. Forums (searchable, governance-gated), playlist extensions (fork, auto-update
+from a saved search, collaborative) on the existing `list` tables.
+
+**Verification:** a confirmed `performer_id` comment creates an edit, and applying
+that edit links the performer — the test asserts the *edit* exists, because the
+failure mode is a comment that silently writes the link.
+
+## Phase 9 — preservation at scale
+
+**Goal:** NexusXXX §7.3–§7.4 on top of Phase 1's status column: the health daemon
+(frequency by popularity × reliability), status transitions with the documented
+failure thresholds, resurrection queue, mirror resolution through the fingerprint
+cluster, Wayback submission, `expected_totals` integration (a dead source lowers
+completion and raises a quest), performer profile snapshots.
+
+**Verified:** `expected_totals` (migration 97) already scores studio/network totals
+and points at a url row via `(source_entity_type, source_url)` — Phase 9 makes that
+pointer resolve to a `content_sources` row.
+
+**Verification:** kill a seeded source, run the sweep, assert status transitions
+`live → intermittent → dead` at the documented thresholds and that the entity's
+completion score drops; restore, assert resurrection.
+
+## Phase 10 — media plane
+
+**Goal:** NexusXXX §7.5, §13.1–§13.5. **This phase is gated on Phase 14's policy
+text.** Hosting (MinIO/S3 via the existing `storage` abstraction), variant ladder,
+transcoding (ffmpeg — a new dependency, so a decision record and a fallback plan),
+the five players, PWA with offline caching, and the CDN/edge discussion in §19.1.
+
+**Verified:** `internal/storage` and `internal/image` already do local/S3 with
+resizing and caching; `collage` already extracts frames; `frontend/embed.go` is
+`//go:embed build`.
+
+**Verification:** upload → transcode → play at three qualities through the real
+handlers; a text item renders a reader with progress persisted; a comic honours
+right-to-left; the PWA installs and serves a cached page offline.
+
+## Phase 11 — growth: invites, referrals, cohorts
+
+**Goal:** NexusXXX §11. **Verified:** `InviteKey` (uses, expiry, `invited_by`) and
+`RoleEnum {…, INVITE, MANAGE_INVITES}` exist; nothing allocates, regenerates, caps or
+rewards.
+
+**Verification:** allocation by level with regeneration and caps; a referral chain
+pays on the invitee reaching TL1 (never on signup) with one level of depth; a QR code
+renders and its scan/signup/activation counters move; a cohort campaign's fast-track
+applies only to members of that cohort.
+
+## Phase 12 — federation extensions
+
+**Goal:** NexusXXX §12.3–§12.6 on top of the existing mesh (§7.17/§7.18): ontology
+version federation and mapping, the content hash network, specialised instances,
+ActivityPub last. **Verified:** `federation` service with peers and foreign
+candidates; `FederatedContentRef`-shaped work is already further along here than in
+the draft.
+
+**Verification:** two instances exchange an ontology version and resolve a local tag
+against a core tag; a hash lookup returns mirrors; an instance that declares core
+v1 is refused a v2-only field rather than silently mis-mapping.
+
+## Phase 13 — API, interoperability, exports
+
+**Goal:** NexusXXX §15. **Verified:** GraphQL only; `internal/webhook` exists;
+no REST, no RSS, no data export.
+
+**Verification:** RSS for a saved search validates against a feed parser; a webhook
+fires on a named event; the export round-trips into Hydrus-shaped JSON; rate limits
+are enforced per the §15.1 table and a limit breach returns 429 with the same body
+shape as every other error.
+
+## Phase 14 — moderation and legal (policy text before Phase 10)
+
+**Goal:** NexusXXX §17 — CSAM hash matching against NCMEC/IWF lists, DMCA with
+counter-notice and a registered agent, performer age verification as a precondition
+for real-person content, verified consent removal within 24 hours, appeals heard by a
+different moderator, elected moderators, published transparency reports.
+
+**Verified:** the fork's SPEC contains **zero** DMCA/takedown/CSAM/consent/age text
+(the only "DMCA" occurrence in the whole repository is inside a captured upstream
+issue body in `docs/track/issues-open-full.json`), while §7.6 level 4 grants upload
+and download and §7.18 replicates member files between peers.
+
+**Written per-instance and per-peer relationship**, not per-platform: what a peer
+instance must do when it receives a takedown, and what happens when it refuses.
+`content_sources.status='dmca'` (Phase 1) is the enforcement point.
+
+**Verification:** a hash-matchable seeded item is refused at ingest; a DMCA'd source
+stops being served while its metadata stays (the metadata/media split's whole
+point); an appeal is heard by a different moderator — asserted by identity, not by
+role.
+
+## Phase 15 — monetization
+
+**Goal:** NexusXXX §18 as **operator configuration**, open code, nothing behind it
+that §18.2 lists as always free. Premium (API limits, CDN priority, synced history,
+themes), creator subscriptions, contextual-only ads (max two slots), data licensing
+of aggregates, a commercial API tier.
+
+**Verification:** with monetization off, every feature is reachable; with it on, the
+free list is still fully reachable and asserted one feature at a time — the risk is a
+paywall leaking onto a core path.
+
+## Phase 16 — UI, metrics, accessibility
+
+**Goal:** NexusXXX §20–§23: the five key pages (home dashboard, search results,
+content detail, tag page, performer page) on the existing React SPA and its 25 page
+dirs, plus the §23 metrics as first-class counters, the dark-pattern transparency
+report, keyboard navigation, screen-reader alt text, high contrast, reduced motion
+and WCAG 2.1 AA.
+
+**Verification:** the metrics read from the database, not from a document (the rule
+`goal-check.py` states: *"Never trust a count written in a document. Recompute it."*);
+keyboard-only navigation reaches every control on each key page; the a11y target is
+recorded with the tool that measured it.
+
+## Phase 17 — the predicate grows (threaded, not separate)
+
+Every phase adds its clause to `docs/goal-check.py`, asserting an observable surface:
+a table exists, a GraphQL field resolves, a suite name is present, a route answers.
+A clause that cannot be evaluated reports `UNKNOWN`, never `PASS` — the file's own
+rule. Phase N's clause is written in Phase N's commit, so the predicate is never
+behind the code.
+
+**Current outstanding, measured this session:** C1 (4 undecided PRs), C3 (6 plans
+not Built), C6b (integration suite — now runnable, so this becomes PASS or FAIL),
+C7 (5 files unformatted, one of them the last committed test file). C7 is a
+one-command fix and it blocks a clause that otherwise says nothing about the new
+programme.
