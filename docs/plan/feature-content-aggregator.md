@@ -284,6 +284,41 @@ this" from "the service never asked". 3/3 mutations killed, two of them editing 
 MIGRATION itself (the harness re-runs migrations, so a schema mutation is genuinely
 applied on the next run).
 
+
+### Slice 3b — the completion vocabulary — DONE (`e92ae20c`)
+
+`completion.EntityContentItem` with its own weights (title 0, details 20, release
+date 15, media 30, tags 35), a `ContentItem` reader over a new
+`ContentItemCompletionInputs` query, and the three SQL places a type has to appear:
+the `CountEntitiesWithCompletionBelow` CASE, the `ListIncompleteEntities` union, and
+`CountArchiveEntities` (the denominator — a count without it is a page that says
+"0 of 0").
+
+The test that matters is the one that walks `completion.AllEntityTypes` rather than
+naming types: every type must have weights AND a row in the count query, so the next
+type added is covered without anyone extending the file. Two more assert that a
+content item's score **moves** when it gains its heaviest fields (a score computed
+from something other than the row would not) and that an incomplete item is
+**findable** by the quest query (a forgotten union arm returns an empty page, not an
+error).
+
+**The mutation probes were wrong twice before they were right**, and the correction
+is the reusable part: the first pair edited `internal/queries/sql/*.sql`, which
+sqlc compiles into Go string literals, so the process ran the OLD statement and both
+probes reported SURVIVED against code that had not changed. Re-cut against the
+generated `.sql.go`, the count-arm probe kills. The listing-arm probe remains
+**unscored** (its generated text differs from the `.sql`), which is reported as "not
+measured" rather than counted as covered.
+
+**One pre-existing test was corrected, not weakened:** `TestArchiveCountsCoverEveryScoredType`
+asserted `Len(rows, 5)` and there are now six rows. It compares against
+`len(completion.AllEntityTypes)`, which is what it meant — one row per scored type,
+so a missing arm is a missing ROW rather than a zero.
+
+**Still not client-visible.** The `content_item` member of the GraphQL `EntityType`
+enum and the resolver switches it forces are slice 3c, deliberately: half-exposing
+the kind would let a client ask for it and get a wrong answer rather than a refusal.
+
 **Three places this slice departs from the text above, each recorded:**
 
 1. **`deleted` is in the table now, not in a later migration.** `scenes` has carried
