@@ -21,6 +21,20 @@ func (q *Queries) CancelUserEdits(ctx context.Context, userID uuid.NullUUID) err
 	return err
 }
 
+const createContentItemEdit = `-- name: CreateContentItemEdit :exec
+INSERT INTO content_item_edits (edit_id, content_item_id) VALUES ($1, $2)
+`
+
+type CreateContentItemEditParams struct {
+	EditID        uuid.UUID `db:"edit_id" json:"edit_id"`
+	ContentItemID uuid.UUID `db:"content_item_id" json:"content_item_id"`
+}
+
+func (q *Queries) CreateContentItemEdit(ctx context.Context, arg CreateContentItemEditParams) error {
+	_, err := q.db.Exec(ctx, createContentItemEdit, arg.EditID, arg.ContentItemID)
+	return err
+}
+
 const createEdit = `-- name: CreateEdit :one
 
 INSERT INTO edits (
@@ -256,6 +270,50 @@ func (q *Queries) FindCompletedEdits(ctx context.Context, arg FindCompletedEdits
 			&i.RejectCount,
 			&i.FullPeriodElapsed,
 			&i.MinPeriodElapsed,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const findContentItemEditsForItem = `-- name: FindContentItemEditsForItem :many
+SELECT e.id, e.user_id, e.operation, e.target_type, e.data, e.votes, e.status, e.applied, e.created_at, e.updated_at, e.closed_at, e.bot, e.update_count FROM edits e
+JOIN content_item_edits cie ON e.id = cie.edit_id
+WHERE cie.content_item_id = $1
+ORDER BY e.created_at DESC
+`
+
+// Every edit that touched this item, newest first. Ordered by creation and not by update:
+// an edit that was amended keeps its place in the history, and re-ordering the list on
+// every amendment would make the page move under a reader.
+func (q *Queries) FindContentItemEditsForItem(ctx context.Context, contentItemID uuid.UUID) ([]Edit, error) {
+	rows, err := q.db.Query(ctx, findContentItemEditsForItem, contentItemID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Edit{}
+	for rows.Next() {
+		var i Edit
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.Operation,
+			&i.TargetType,
+			&i.Data,
+			&i.Votes,
+			&i.Status,
+			&i.Applied,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.ClosedAt,
+			&i.Bot,
+			&i.UpdateCount,
 		); err != nil {
 			return nil, err
 		}
@@ -634,12 +692,17 @@ SELECT CASE e.target_type
             WHEN 'PERFORMER' THEN pe.performer_id
             WHEN 'STUDIO' THEN ste.studio_id
             WHEN 'TAG' THEN te.tag_id
+            -- The arm that has to exist for a content item's edit to have a target at all:
+            -- without it the CASE falls to NULL, the caller reads a nil id, and the edit
+            -- looks like one whose target was deleted.
+            WHEN 'CONTENT_ITEM' THEN cie.content_item_id
        END::UUID AS id, e.target_type
 FROM edits e
 LEFT JOIN scene_edits se ON e.id = se.edit_id
 LEFT JOIN performer_edits pe ON e.id = pe.edit_id
 LEFT JOIN studio_edits ste ON e.id = ste.edit_id
 LEFT JOIN tag_edits te ON e.id = te.edit_id
+LEFT JOIN content_item_edits cie ON e.id = cie.edit_id
 WHERE e.id = $1
 `
 

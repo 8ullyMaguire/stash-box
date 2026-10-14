@@ -365,6 +365,7 @@ type Querier interface {
 	// adding it later.
 	CreateContentItem(ctx context.Context, arg CreateContentItemParams) (ContentItem, error)
 	CreateContentItemChapter(ctx context.Context, arg CreateContentItemChapterParams) (ContentItemChapter, error)
+	CreateContentItemEdit(ctx context.Context, arg CreateContentItemEditParams) error
 	CreateContentItemMedia(ctx context.Context, arg CreateContentItemMediaParams) (ContentItemMedium, error)
 	// Draft queries
 	CreateDraft(ctx context.Context, arg CreateDraftParams) (Draft, error)
@@ -807,6 +808,10 @@ type Querier interface {
 	// decide their outcome in Go. The `votes` column is unusable here: a net score cannot tell
 	// a unanimous result apart from a contested one adding up to the same number.
 	FindCompletedEdits(ctx context.Context, arg FindCompletedEditsParams) ([]FindCompletedEditsRow, error)
+	// Every edit that touched this item, newest first. Ordered by creation and not by update:
+	// an edit that was amended keeps its place in the history, and re-ordering the list on
+	// every amendment would make the page move under a reader.
+	FindContentItemEditsForItem(ctx context.Context, contentItemID uuid.UUID) ([]Edit, error)
 	// "Have we seen this URL before?" -- the first question the ingestion pipeline asks
 	// (plan Phase 2). Scoped to the entity, because the same URL on two different scenes
 	// is two sources: the URL's health is one fact, but the membership is per entity.
@@ -2317,6 +2322,11 @@ type Querier interface {
 	// unpublish event for a list that was never published.
 	UnpublishList(ctx context.Context, id uuid.UUID) (List, error)
 	UnvoteIdentificationCandidate(ctx context.Context, arg UnvoteIdentificationCandidateParams) error
+	// A FULL update of the item's own columns, not a patch: the edit's apply already merged the
+	// change into a model (see models.ContentItem.CopyFromContentItemEdit), so a statement that
+	// took partial fields would be a second place where "leave this alone" is decided -- and the
+	// two would disagree the first time a field is cleared.
+	UpdateContentItem(ctx context.Context, arg UpdateContentItemParams) (ContentItem, error)
 	UpdateEdit(ctx context.Context, arg UpdateEditParams) (Edit, error)
 	UpdateEditCommentText(ctx context.Context, arg UpdateEditCommentTextParams) (EditComment, error)
 	UpdateEditData(ctx context.Context, arg UpdateEditDataParams) (Edit, error)

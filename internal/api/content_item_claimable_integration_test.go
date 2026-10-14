@@ -53,7 +53,7 @@ func TestAContentItemIsClaimedLikeEveryOtherEntity(t *testing.T) {
 	assert.Equal(t, tag, tags[0].ID)
 
 	// --- 2. reviews: the validator is the thing that has to accept the new kind ---
-	author := newUUID(t)
+	author := userDB.read.ID
 	bogus, err := factory.Review().Submit(ctx, review.SubmitInput{
 		AuthorID:   author,
 		EntityType: bogusEntityType,
@@ -65,20 +65,33 @@ func TestAContentItemIsClaimedLikeEveryOtherEntity(t *testing.T) {
 		"the refusal must be the vocabulary's own, otherwise the assertion below proves nothing")
 	assert.Nil(t, bogus)
 
-	// A random author id, so the write fails at the foreign key rather than at the
-	// vocabulary -- which is exactly what makes this assertion about the vocabulary: the
-	// only way to see the type refusal here would be for the type to be unknown.
-	_, err = factory.Review().Submit(ctx, review.SubmitInput{
+	// Submitted by a REAL user against a REAL item, and REQUIRED to succeed: the vocabulary
+	// accepting the type is not the same as the row being storable, and an author id that
+	// cannot exist (a random uuid) would have proved only the first. This is the assertion
+	// that has to write.
+	written, err := factory.Review().Submit(ctx, review.SubmitInput{
 		AuthorID:   author,
 		EntityType: review.EntityContentItem,
 		EntityID:   item.ID,
 		Body:       "a review of a content item",
 		Rating:     ptrInt(4),
 	})
-	if err != nil {
-		assert.NotContains(t, err.Error(), "cannot review entity type",
-			"a content item must be reviewable: the vocabulary refused the new kind")
-	}
+	require.NoError(t, err, "a review of a content item must be storable, not merely admitted")
+	require.NotNil(t, written)
+	assert.Equal(t, review.EntityContentItem, written.EntityType,
+		"the stored review must carry the surface's own spelling")
+	assert.Equal(t, item.ID, written.EntityID)
+
+	// Read it back through the statements, so this is a row and not a struct the service
+	// returned: a write that raises an error nobody sees and a write that stores nothing look
+	// the same from the service's return value alone.
+	stored, err := contentItemQ().FindReviewByAuthorAndEntity(ctx, queries.FindReviewByAuthorAndEntityParams{
+		AuthorID:   author,
+		EntityType: review.EntityContentItem,
+		EntityID:   item.ID,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, item.ID, stored.EntityID)
 
 	// --- 3. lists: same shape, same pair ---
 	lists := factory.List()
@@ -86,11 +99,20 @@ func TestAContentItemIsClaimedLikeEveryOtherEntity(t *testing.T) {
 	require.ErrorIs(t, err, listsvc.ErrInvalidEntityType,
 		"the list vocabulary must refuse a type it does not know")
 
-	_, err = lists.AddItem(ctx, newUUID(t), item.ID, newUUID(t), listsvc.EntityContentItem, 0)
-	if err != nil {
-		assert.NotErrorIs(t, err, listsvc.ErrInvalidEntityType,
-			"a content item must be addable to a list: the vocabulary refused the new kind")
-	}
+	// A REAL list owned by a real user, and the add is REQUIRED to succeed -- same upgrade
+	// as the review above: a random list id can only prove the vocabulary, not the insert.
+	list, err := lists.Create(ctx, userDB.read.ID, "phase-three-claimable", "a list for the acceptance test")
+	require.NoError(t, err)
+	require.NotNil(t, list)
+
+	added, err := lists.AddItem(ctx, list.ID, item.ID, userDB.read.ID, listsvc.EntityContentItem, 0)
+	require.NoError(t, err, "a content item must be addable to a list, not merely admitted")
+	require.NotNil(t, added)
+	require.NotNil(t, added.EntityType)
+	assert.Equal(t, listsvc.EntityContentItem, *added.EntityType,
+		"the stored list item must carry the surface's own spelling")
+	require.True(t, added.EntityID.Valid, "the list item must name the entity it holds")
+	assert.Equal(t, item.ID, added.EntityID.UUID)
 
 	// --- 4. elo: the vocabulary accepts the type, and says so at the boundary ---
 	_, err = factory.Elo().Leaderboard(ctx, elo.EntityType(bogusEntityType), 5)

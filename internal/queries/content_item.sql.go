@@ -418,3 +418,48 @@ func (q *Queries) UnlinkContentItemTag(ctx context.Context, arg UnlinkContentIte
 	_, err := q.db.Exec(ctx, unlinkContentItemTag, arg.ContentItemID, arg.TagID)
 	return err
 }
+
+const updateContentItem = `-- name: UpdateContentItem :one
+UPDATE "content_items"
+SET "kind" = $1,
+    "title" = $2,
+    "details" = $3,
+    "release_date" = $4,
+    "updated_at" = now()
+WHERE "id" = $5 AND "deleted" = false
+RETURNING id, kind, title, details, release_date, deleted, created_at, updated_at
+`
+
+type UpdateContentItemParams struct {
+	Kind        string      `db:"kind" json:"kind"`
+	Title       string      `db:"title" json:"title"`
+	Details     *string     `db:"details" json:"details"`
+	ReleaseDate pgtype.Date `db:"release_date" json:"release_date"`
+	ID          uuid.UUID   `db:"id" json:"id"`
+}
+
+// A FULL update of the item's own columns, not a patch: the edit's apply already merged the
+// change into a model (see models.ContentItem.CopyFromContentItemEdit), so a statement that
+// took partial fields would be a second place where "leave this alone" is decided -- and the
+// two would disagree the first time a field is cleared.
+func (q *Queries) UpdateContentItem(ctx context.Context, arg UpdateContentItemParams) (ContentItem, error) {
+	row := q.db.QueryRow(ctx, updateContentItem,
+		arg.Kind,
+		arg.Title,
+		arg.Details,
+		arg.ReleaseDate,
+		arg.ID,
+	)
+	var i ContentItem
+	err := row.Scan(
+		&i.ID,
+		&i.Kind,
+		&i.Title,
+		&i.Details,
+		&i.ReleaseDate,
+		&i.Deleted,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}

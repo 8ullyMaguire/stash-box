@@ -198,6 +198,11 @@ type ContentItemChapter struct {
 	UpdatedAt       time.Time `db:"updated_at" json:"updated_at"`
 }
 
+type ContentItemEdit struct {
+	EditID        uuid.UUID `db:"edit_id" json:"edit_id"`
+	ContentItemID uuid.UUID `db:"content_item_id" json:"content_item_id"`
+}
+
 type ContentItemMedium struct {
 	ID              uuid.UUID `db:"id" json:"id"`
 	ContentItemID   uuid.UUID `db:"content_item_id" json:"content_item_id"`

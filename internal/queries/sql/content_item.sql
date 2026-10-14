@@ -36,6 +36,20 @@ WHERE cit."tag_id" = @tag_id AND ci."deleted" = false
 ORDER BY ci."created_at" DESC, ci."id"
 LIMIT @row_limit;
 
+-- name: UpdateContentItem :one
+-- A FULL update of the item's own columns, not a patch: the edit's apply already merged the
+-- change into a model (see models.ContentItem.CopyFromContentItemEdit), so a statement that
+-- took partial fields would be a second place where "leave this alone" is decided -- and the
+-- two would disagree the first time a field is cleared.
+UPDATE "content_items"
+SET "kind" = @kind,
+    "title" = @title,
+    "details" = @details,
+    "release_date" = @release_date,
+    "updated_at" = now()
+WHERE "id" = @id AND "deleted" = false
+RETURNING *;
+
 -- name: SoftDeleteContentItem :exec
 UPDATE "content_items" SET "deleted" = true, "updated_at" = now() WHERE "id" = @id;
 
