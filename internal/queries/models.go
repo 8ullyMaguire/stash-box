@@ -843,6 +843,12 @@ type SiteDetail struct {
 	UpdatedAt      pgtype.Timestamptz `db:"updated_at" json:"updated_at"`
 }
 
+type StreakFreeze struct {
+	UserID    uuid.UUID          `db:"user_id" json:"user_id"`
+	Day       pgtype.Date        `db:"day" json:"day"`
+	CreatedAt pgtype.Timestamptz `db:"created_at" json:"created_at"`
+}
+
 type Studio struct {
 	ID             uuid.UUID     `db:"id" json:"id"`
 	Name           string        `db:"name" json:"name"`

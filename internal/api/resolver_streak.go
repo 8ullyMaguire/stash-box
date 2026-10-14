@@ -2,9 +2,11 @@ package api
 
 import (
 	"context"
+	"time"
 
 	"github.com/stashapp/stash-box/internal/auth"
 	"github.com/stashapp/stash-box/internal/models"
+	"github.com/stashapp/stash-box/internal/service/streak"
 )
 
 // UserStreak returns the calling user's activity streak.
@@ -39,28 +41,52 @@ func (r *queryResolver) UserStreak(ctx context.Context) (*models.Streak, error) 
 		return nil, err
 	}
 
-	out := &models.Streak{
-		CurrentStreak:   result.CurrentStreak,
-		LongestStreak:   result.LongestStreak,
-		TotalActiveDays: result.TotalActiveDays,
-		ActiveToday:     result.ActiveToday,
-	}
+	return streakModel(result), nil
+}
 
-	// The DateTime scalar is a string here (gqlgen's default binding), so the
-	// day is formatted rather than passed through. RFC3339 in UTC, matching
-	// resolver_federation.go.
-	//
-	// The VALUE is a calendar date, not an instant: it came back from SQL as a
-	// `timestamp` truncated to the database's day. Rendering it as UTC is a
-	// formatting choice that would SHIFT it -- 2026-10-01 local midnight is
-	// 2026-09-30 22:00 UTC, and the client would show the day before the one the
-	// database matched against. So it is formatted as a plain YYYY-MM-DD, which is
-	// what the field actually is, and re-parsing it in the client's zone cannot
-	// move it.
+// streakModel maps the service's streak onto the schema's, in one place so the two
+// callers (the query and the freeze mutation) cannot disagree about what a streak is.
+//
+// The DateTime scalar is a string here (gqlgen's default binding), so `lastActiveDay`
+// is formatted rather than passed through.
+//
+// The VALUE is a calendar date, not an instant: it came back from SQL as a
+// `timestamp` truncated to the database's day. Rendering it as UTC is a formatting
+// choice that would SHIFT it -- 2026-10-01 local midnight is 2026-09-30 22:00 UTC, and
+// the client would show the day before the one the database matched against. A plain
+// YYYY-MM-DD is what the field actually is, and re-parsing it in the client's zone
+// cannot move it.
+func streakModel(result streak.Streak) *models.Streak {
+	out := &models.Streak{
+		CurrentStreak:    result.CurrentStreak,
+		LongestStreak:    result.LongestStreak,
+		TotalActiveDays:  result.TotalActiveDays,
+		ActiveToday:      result.ActiveToday,
+		FreezesEarned:    result.FreezesEarned,
+		FreezesUsed:      result.FreezesUsed,
+		FreezesAvailable: result.FreezesAvailable,
+	}
 	if result.LastActiveDay != nil {
 		day := result.LastActiveDay.Format("2006-01-02")
 		out.LastActiveDay = &day
 	}
+	return out
+}
 
-	return out, nil
+// SpendStreakFreeze covers the most recent missed day and returns the repaired streak.
+//
+// The mutation returns the STREAK rather than a confirmation, because the thing a
+// member wants to see after repairing a run is the run: a boolean would make every
+// client follow it with the query it already knew how to make, and would let the
+// two answers be read at different moments.
+func (r *mutationResolver) SpendStreakFreeze(ctx context.Context) (*models.Streak, error) {
+	user := auth.GetCurrentUser(ctx)
+	if user == nil {
+		return nil, auth.ErrUnauthorized
+	}
+	result, err := r.services.Streak().SpendFreeze(ctx, user.ID, time.Now())
+	if err != nil {
+		return nil, err
+	}
+	return streakModel(result), nil
 }

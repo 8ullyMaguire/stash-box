@@ -1994,6 +1994,13 @@ type Querier interface {
 	// from []time.Time to []pgtype.Interval. `timestamp` is the type the value
 	// actually has.
 	ListUserActivityDays(ctx context.Context, userID uuid.UUID) ([]time.Time, error)
+	// The calendar days a user has covered with a freeze, newest first.
+	//
+	// A separate table rather than a trust_events kind, because a freeze is NOT a
+	// contribution: it earns no points, it does not make a day active for
+	// totalActiveDays, and it must not be countable by the level curve. Recording it
+	// as an event would put a lever inside the ledger the levels are derived from.
+	ListUserFreezeDays(ctx context.Context, userID uuid.UUID) ([]pgtype.Date, error)
 	// The sweep's working set: members with something in flight, and ONLY them.
 	//
 	// A member enters it by having a shortfall or a demotion on record, which the
@@ -2164,6 +2171,10 @@ type Querier interface {
 	// transition rule (3 consecutive failures -> intermittent, 7 days -> dead) and this
 	// statement stays a write and not a policy.
 	RecordSourceCheck(ctx context.Context, arg RecordSourceCheckParams) (ContentSource, error)
+	// Records that one day was covered. ON CONFLICT DO NOTHING makes a second attempt
+	// report no rows, which the service reads as "already covered" rather than as an
+	// error -- the same idiom RecordTrustEvent uses for a duplicated event.
+	RecordStreakFreeze(ctx context.Context, arg RecordStreakFreezeParams) (StreakFreeze, error)
 	// ON CONFLICT DO NOTHING makes a retried or duplicated event a no-op rather
 	// than a silent double increment. The matching partial state is a real
 	// concern: an edit can be applied twice by a retried request, and without this

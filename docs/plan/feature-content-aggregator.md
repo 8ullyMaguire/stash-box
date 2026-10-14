@@ -1154,7 +1154,63 @@ reads as a working public field), and the public field accidentally gated by
 `@isUserOwner` -- that last one run through `gqlgen generate`, because a directive
 lives in the generated code and the harness alone would leave it inert.
 
-### Slice 6b-2 — the policy wired up: on the write path, and swept (BUILT)
+### Slice 6c — streak freeze (BUILT)
+
+**The schema this lands in refuses a stored streak because "a streak you can LOSE is a
+lever, not a measurement".** A freeze is the closest thing to that lever, so the shape
+here is chosen to keep the objection true rather than to make an exception to it: a
+freeze **INSERTS A FACT** — "this day was covered" — and every number in the feature
+stays **derived from the log**. Nothing decays, nothing is scheduled, and nothing can
+disagree with the log, which is the property the streak itself already has. Recording
+the fact IS the implementation; the walk does the rest.
+
+**What counts, and what does not:**
+
+- **A covered day is not a day of activity.** It joins the RUN (`currentStreak`,
+  `longestStreak`) and not `totalActiveDays`. The distinction is load-bearing in two
+  directions: a covered day is a day of absence that was paid for, and counting it as
+  activity would let **freezes earn freezes**.
+- **A freeze cannot start a run, only be inside one.** A member with contributions and
+  a gap can repair the gap; a member with no contributions has no run for a freeze to
+  be inside.
+- **Today is never coverable.** Today is not over, and covering it would spend a freeze
+  on a day the member can still contribute to. The window runs from yesterday back.
+- **Seven days.** A repair is something a member does when they notice, so the window
+  has to outlast a busy week — and it must not be unlimited, or a freeze becomes a way
+  to rewrite a year of history.
+- **One per thirty distinct contributing days, ever.** Far apart on purpose: an
+  allowance earned weekly would repair every week, which turns the streak into a
+  check-in that can never be missed. A month of showing up buys a single day off.
+
+**The day is not an argument** (`spendStreakFreeze` takes none). A client-supplied day
+is a way to cover a day that was never missed, and the three checks that make a day
+coverable — in the window, not already active, not already covered — would each have to
+be re-applied at the edge, in a place that cannot enforce them. The only thing the
+caller knows that the server does not is that the member asked. The mutation returns
+the REPAIRED STREAK rather than a confirmation, because the thing a member wants to see
+after repairing a run is the run.
+
+The two refusals are separate errors — `ErrNoFreezes` (nothing earned left) and
+`ErrNothingToCover` (no missed day in the window) — because one accuses a member of
+having spent something and the other does not.
+
+**Verification (DONE).** Pure: a covered day repairs the run (2 → 5 across a gap) while
+`totalActiveDays` does not move; covered days cannot start a streak; the merge
+deduplicates and keeps newest-first; the earn threshold is not rounded up; and
+`dayToCover` picks the most recent gap, covers the next-most-recent on a second spend,
+never returns today, and refuses a gap outside the window. Against a database: a member
+with exactly thirty contributing days earns exactly one freeze, spends it, and the run
+is repaired and STILL repaired on a later read (the repair is a fact in the table, not a
+return value); a member with a full window of activity is refused with
+`ErrNothingToCover` and nothing is consumed; a member with four days is refused with
+`ErrNoFreezes`; and a member whose run is already DEAD — the last activity two days
+back — has it brought back by covering yesterday, while `activeToday` stays false.
+
+Six probes, all killed: the runs ignoring the covered days; a covered day counting as
+activity; an empty cover window; a single active day earning a freeze; today being
+coverable; and the allowance not being checked before a spend.
+
+## Slice 6b-2 — the policy wired up: on the write path, and swept (BUILT)
 
 **The policy is on the WRITE PATH, not only in the sweep**, and that is the whole
 reason this slice is more than a scheduled job: if the level still followed the

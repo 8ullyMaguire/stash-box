@@ -19,9 +19,12 @@ package streak
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/gofrs/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/stashapp/stash-box/internal/queries"
 )
@@ -54,7 +57,35 @@ type Streak struct {
 	// version of a reset, and a user who has lost a streak deserves to be told
 	// when it ended rather than just watching it go to zero.
 	LastActiveDay *time.Time
+
+	// FreezesEarned is one per FreezeEarnPerActiveDays DISTINCT CONTRIBUTING days,
+	// ever. Counted from TotalActiveDays and therefore earned by the same thing
+	// everything else here is: showing up.
+	FreezesEarned int
+	// FreezesUsed is the number of days covered.
+	FreezesUsed int
+	// FreezesAvailable is the difference. Derived on every read, like the streak
+	// itself, for the same reason: a stored allowance is a number that can
+	// disagree with the log that justifies it.
+	FreezesAvailable int
 }
+
+// FreezeEarnPerActiveDays is how many distinct contributing days earn one freeze.
+//
+// Thirty, deliberately far apart: a freeze is a repair for a miss, and a member
+// who earns one a week would be repairing every week, which turns the streak into
+// a check-in that can never be missed. A month of showing up buys a single day off,
+// which is the shape of an apology rather than a habit.
+const FreezeEarnPerActiveDays = 30
+
+// FreezeWindowDays is how far back a day can be covered.
+//
+// Seven. Covering a day is REPAIRING a run, and a repair is something a member does
+// when they notice -- so the window has to outlast a busy week. It must not be
+// unlimited, or a freeze becomes a way to rewrite a year of history; and it does
+// not include today, because today is not over and a member who covers a day they
+// might still be active on has spent a freeze for nothing.
+const FreezeWindowDays = 7
 
 // Service computes streaks from the event log.
 type Service struct {
@@ -81,44 +112,193 @@ func NewService(q *queries.Queries) *Service {
 // The query truncates to the session timezone for the same reason -- they must
 // agree -- and both come from the database session, so they cannot drift apart.
 func (s *Service) For(ctx context.Context, userID uuid.UUID, now time.Time) (Streak, error) {
-	rows, err := s.queries.ListUserActivityDays(ctx, userID)
+	days, freezes, err := s.daysAndFreezes(ctx, userID)
 	if err != nil {
 		return Streak{}, err
 	}
 
-	// No events: a user who has never contributed has no streak, no last day, and
-	// zero total days. Returning a zero Streak is the right answer, NOT an error --
-	// a brand-new user asking about their streak is the most ordinary request
-	// there is, and an error page for it is a bug.
-	if len(rows) == 0 {
-		return Streak{}, nil
-	}
-
-	// Days arrive newest-first from the query, which is what the walk below wants:
-	// it stops at the first gap, so it never has to look past the break. A
-	// longest-streak scan still needs all of them, and they are already loaded.
-	days := make([]time.Time, 0, len(rows))
-	for _, r := range rows {
-		// No null check: the column is NOT NULL and the value is a truncated
-		// timestamp, so the sqlc type is time.Time rather than a pgtype wrapper
-		// with a Valid flag. The wrapper only existed while the query ended in
-		// ::timestamptz.
-		days = append(days, r)
-	}
+	// A user with no CONTRIBUTIONS has no streak, whatever their freezes say. A
+	// freeze covers a day inside a run; it cannot start one, because there is no
+	// run for it to be inside.
 	if len(days) == 0 {
-		return Streak{}, nil
+		return Streak{FreezesEarned: 0, FreezesUsed: len(freezes)}, nil
 	}
 
 	today := truncateDay(now)
+	earned, used := earnedFreezes(len(days)), len(freezes)
 
 	out := Streak{
+		// CONTRIBUTIONS ONLY, and the distinction is the feature: a covered day is
+		// not a day of activity, it is a day of absence that was paid for. Counting
+		// it here would let freezes earn freezes.
 		TotalActiveDays: len(days),
 		ActiveToday:     sameDay(days[0], today),
 		LastActiveDay:   &days[0],
+		FreezesEarned:   earned,
+		FreezesUsed:     used,
 	}
-	out.CurrentStreak = s.currentStreak(days, today)
-	out.LongestStreak = s.longestStreak(days)
+
+	// THE RUNS USE THE COVERED SET. This is the whole of the feature: the walk's
+	// input is the union of the days the member was present and the days they
+	// covered, so a gap that has been paid for is simply not a gap -- and because
+	// the walk is derived, covering a day REPAIRS the run without anything having
+	// to be recomputed or stored.
+	covered := mergeDays(days, freezes)
+	out.CurrentStreak = s.currentStreak(covered, today)
+	out.LongestStreak = s.longestStreak(covered)
+
+	switch {
+	case earned >= used:
+		out.FreezesAvailable = earned - used
+	default:
+		// Unreachable while SpendFreeze is the only writer -- it refuses to spend
+		// what is not available -- but a restored backup or a hand-edited row could
+		// produce it, and a negative allowance reads as a debt. Clamped, and said
+		// out loud rather than left to arithmetic.
+		out.FreezesAvailable = 0
+	}
 	return out, nil
+}
+
+// earnedFreezes maps a lifetime count of contributing days to freezes earned.
+func earnedFreezes(activeDays int) int {
+	return activeDays / FreezeEarnPerActiveDays
+}
+
+// daysAndFreezes loads both day lists, newest-first, converting the DATE column to
+// the same time.Time shape the activity days arrive in.
+func (s *Service) daysAndFreezes(ctx context.Context, userID uuid.UUID) ([]time.Time, []time.Time, error) {
+	rows, err := s.queries.ListUserActivityDays(ctx, userID)
+	if err != nil {
+		return nil, nil, err
+	}
+	days := make([]time.Time, 0, len(rows))
+	for _, r := range rows {
+		// No null check: the column is NOT NULL and the value is a truncated
+		// timestamp, so the sqlc type is time.Time rather than a pgtype wrapper.
+		days = append(days, r)
+	}
+
+	freezeRows, err := s.queries.ListUserFreezeDays(ctx, userID)
+	if err != nil {
+		return nil, nil, err
+	}
+	freezes := make([]time.Time, 0, len(freezeRows))
+	for _, r := range freezeRows {
+		// A DATE column is nullable in sqlc's model even when the schema says NOT
+		// NULL, so this one does need the Valid check.
+		if r.Valid {
+			freezes = append(freezes, truncateDay(r.Time))
+		}
+	}
+	return days, freezes, nil
+}
+
+// mergeDays unions two newest-first day lists, deduplicating.
+//
+// Both inputs are already sorted and distinct, so this is a two-pointer merge
+// rather than a set: the walk below wants a sorted list and would have to sort
+// anything built from a map, and the map version would also drop the invariant
+// that makes the walk's single-inequality gap test correct.
+func mergeDays(a, b []time.Time) []time.Time {
+	out := make([]time.Time, 0, len(a)+len(b))
+	i, j := 0, 0
+	for i < len(a) || j < len(b) {
+		switch {
+		case j >= len(b) || (i < len(a) && a[i].After(b[j])):
+			out = append(out, a[i])
+			i++
+		case i >= len(a) || b[j].After(a[i]):
+			out = append(out, b[j])
+			j++
+		default:
+			// The same day in both lists: a member can be active on a day they
+			// also covered (the freeze was spent on a later day that turned out to
+			// be active anyway, or a contribution arrived after the repair).
+			out = append(out, a[i])
+			i++
+			j++
+		}
+	}
+	return out
+}
+
+// ErrNoFreezes is returned when a member tries to cover a day they have not earned.
+var ErrNoFreezes = errors.New("no streak freeze available")
+
+// ErrNothingToCover is returned when there is no missed day inside the window.
+//
+// Distinct from ErrNoFreezes on purpose: "you have none left" and "there is nothing
+// to repair" are different answers, and a client that showed the first for the
+// second would be accusing a member of wasting something they never spent.
+var ErrNothingToCover = errors.New("no missed day in the cover window")
+
+// SpendFreeze covers the most recent day the member missed.
+//
+// The day is DECIDED HERE rather than passed in. A client-supplied day is a way to
+// cover a day that was never missed, and the window, the "not already active" test
+// and the "not already covered" test would all have to be re-applied at the edge
+// anyway -- three checks in a place that cannot enforce them. The only thing a
+// caller knows that this does not is that the member asked.
+func (s *Service) SpendFreeze(ctx context.Context, userID uuid.UUID, now time.Time) (Streak, error) {
+	days, freezes, err := s.daysAndFreezes(ctx, userID)
+	if err != nil {
+		return Streak{}, err
+	}
+	if earnedFreezes(len(days))-len(freezes) <= 0 {
+		return Streak{}, ErrNoFreezes
+	}
+
+	target, ok := dayToCover(days, freezes, truncateDay(now))
+	if !ok {
+		return Streak{}, ErrNothingToCover
+	}
+
+	day := pgtype.Date{Time: target, Valid: true}
+	if _, err := s.queries.RecordStreakFreeze(ctx, queries.RecordStreakFreezeParams{UserID: userID, Day: day}); err != nil {
+		// ON CONFLICT DO NOTHING reports no rows for a day already covered. That is
+		// a race with another request, and the outcome the member wanted is true
+		// either way, so it is not an error -- but it must NOT be reported as a
+		// fresh spend, which is why the streak is recomputed and returned rather
+		// than the row being returned.
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return Streak{}, err
+		}
+	}
+	return s.For(ctx, userID, now)
+}
+
+// dayToCover is the most recent day inside the window that is neither a day of
+// activity nor a day already covered.
+//
+// Newest-first, so spending a second freeze covers the next-most-recent gap: two
+// freezes repair two consecutive gaps in the order a member would repair them,
+// which is the order that makes the run longest soonest.
+//
+// Today is never a candidate. Today is not over, and covering it would spend a
+// freeze on a day the member can still contribute to.
+func dayToCover(days, freezes []time.Time, today time.Time) (time.Time, bool) {
+	covered := func(d time.Time) bool {
+		for _, a := range days {
+			if sameDay(a, d) {
+				return true
+			}
+		}
+		for _, f := range freezes {
+			if sameDay(f, d) {
+				return true
+			}
+		}
+		return false
+	}
+
+	for back := 1; back <= FreezeWindowDays; back++ {
+		day := today.AddDate(0, 0, -back)
+		if !covered(day) {
+			return day, true
+		}
+	}
+	return time.Time{}, false
 }
 
 // currentStreak counts consecutive active days back from today.

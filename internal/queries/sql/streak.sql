@@ -77,3 +77,20 @@ WHERE user_id = $1;
 -- timestamptz would hand the driver an instant to re-render in the HOST's zone, undoing
 -- the whole point of AT TIME ZONE.
 SELECT (now() AT TIME ZONE current_setting('TIMEZONE'))::timestamp AS now;
+
+-- name: ListUserFreezeDays :many
+-- The calendar days a user has covered with a freeze, newest first.
+--
+-- A separate table rather than a trust_events kind, because a freeze is NOT a
+-- contribution: it earns no points, it does not make a day active for
+-- totalActiveDays, and it must not be countable by the level curve. Recording it
+-- as an event would put a lever inside the ledger the levels are derived from.
+SELECT day FROM streak_freezes WHERE user_id = $1 ORDER BY day DESC;
+
+-- name: RecordStreakFreeze :one
+-- Records that one day was covered. ON CONFLICT DO NOTHING makes a second attempt
+-- report no rows, which the service reads as "already covered" rather than as an
+-- error -- the same idiom RecordTrustEvent uses for a duplicated event.
+INSERT INTO streak_freezes (user_id, day) VALUES ($1, sqlc.arg(day)::DATE)
+ON CONFLICT DO NOTHING
+RETURNING *;

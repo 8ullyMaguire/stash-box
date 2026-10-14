@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gofrs/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const countUserActivityDays = `-- name: CountUserActivityDays :one
@@ -127,4 +128,55 @@ func (q *Queries) ListUserActivityDays(ctx context.Context, userID uuid.UUID) ([
 		return nil, err
 	}
 	return items, nil
+}
+
+const listUserFreezeDays = `-- name: ListUserFreezeDays :many
+SELECT day FROM streak_freezes WHERE user_id = $1 ORDER BY day DESC
+`
+
+// The calendar days a user has covered with a freeze, newest first.
+//
+// A separate table rather than a trust_events kind, because a freeze is NOT a
+// contribution: it earns no points, it does not make a day active for
+// totalActiveDays, and it must not be countable by the level curve. Recording it
+// as an event would put a lever inside the ledger the levels are derived from.
+func (q *Queries) ListUserFreezeDays(ctx context.Context, userID uuid.UUID) ([]pgtype.Date, error) {
+	rows, err := q.db.Query(ctx, listUserFreezeDays, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []pgtype.Date{}
+	for rows.Next() {
+		var day pgtype.Date
+		if err := rows.Scan(&day); err != nil {
+			return nil, err
+		}
+		items = append(items, day)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const recordStreakFreeze = `-- name: RecordStreakFreeze :one
+INSERT INTO streak_freezes (user_id, day) VALUES ($1, $2::DATE)
+ON CONFLICT DO NOTHING
+RETURNING user_id, day, created_at
+`
+
+type RecordStreakFreezeParams struct {
+	UserID uuid.UUID   `db:"user_id" json:"user_id"`
+	Day    pgtype.Date `db:"day" json:"day"`
+}
+
+// Records that one day was covered. ON CONFLICT DO NOTHING makes a second attempt
+// report no rows, which the service reads as "already covered" rather than as an
+// error -- the same idiom RecordTrustEvent uses for a duplicated event.
+func (q *Queries) RecordStreakFreeze(ctx context.Context, arg RecordStreakFreezeParams) (StreakFreeze, error) {
+	row := q.db.QueryRow(ctx, recordStreakFreeze, arg.UserID, arg.Day)
+	var i StreakFreeze
+	err := row.Scan(&i.UserID, &i.Day, &i.CreatedAt)
+	return i, err
 }

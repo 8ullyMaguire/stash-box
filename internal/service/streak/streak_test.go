@@ -207,3 +207,87 @@ func TestSameDayComparesCalendarDatesNotInstants(t *testing.T) {
 			"point of comparing dates instead of subtracting instants")
 	assert.False(t, sameDay(date(2026, 9, 15), date(2026, 9, 16)))
 }
+
+// A COVERED DAY IS NOT A GAP. This is the whole feature: the run walks the union of
+// contribution days and covered days, so paying for a missed day repairs the run --
+// and because the walk is derived, nothing has to be recomputed or stored to make
+// that true.
+func TestACoveredDayRepairsTheRun(t *testing.T) {
+	today := date(2026, 6, 15)
+	contributed := days(date(2026, 6, 15), date(2026, 6, 14), date(2026, 6, 12), date(2026, 6, 11))
+	// The 13th is the gap: contributed on the 11th and 12th, missed the 13th, back on
+	// the 14th and 15th.
+	assert.Equal(t, 2, svc().currentStreak(contributed, today), "the run ends at the gap")
+
+	covered := mergeDays(contributed, days(date(2026, 6, 13)))
+	assert.Equal(t, 5, svc().currentStreak(covered, today), "and covering the 13th restores it")
+	assert.Equal(t, 5, svc().longestStreak(covered))
+
+	// The lifetime total does NOT move: a covered day is a day of absence that was
+	// paid for, not a day of activity, and counting it would let freezes earn freezes.
+	assert.Len(t, contributed, 4)
+}
+
+// A FREEZE CANNOT START A RUN, only be inside one.
+func TestCoveredDaysCannotStartAStreak(t *testing.T) {
+	today := date(2026, 6, 15)
+	covered := days(date(2026, 6, 15), date(2026, 6, 14))
+	assert.Equal(t, 2, svc().currentStreak(covered, today), "inside a run, covered days count")
+	assert.Equal(t, 0, svc().currentStreak(nil, today), "and an empty history is still zero")
+}
+
+func TestMergeDaysDeduplicatesAndOrders(t *testing.T) {
+	got := mergeDays(
+		days(date(2026, 6, 15), date(2026, 6, 13), date(2026, 6, 11)),
+		days(date(2026, 6, 14), date(2026, 6, 13)),
+	)
+	assert.Equal(t, days(date(2026, 6, 15), date(2026, 6, 14), date(2026, 6, 13), date(2026, 6, 11)), got,
+		"newest first, and a day present in both lists appears once")
+}
+
+func TestFreezesAreEarnedByContributionNotByCoverage(t *testing.T) {
+	assert.Equal(t, 0, earnedFreezes(0), "a new member has none")
+	assert.Equal(t, 0, earnedFreezes(29), "the threshold is not rounded up")
+	assert.Equal(t, 1, earnedFreezes(30))
+	assert.Equal(t, 2, earnedFreezes(60))
+	assert.Equal(t, 1, earnedFreezes(FreezeEarnPerActiveDays+29), "and the second period has to be whole too")
+}
+
+func TestDayToCoverPicksTheMostRecentGap(t *testing.T) {
+	today := date(2026, 6, 15)
+	// Active today and yesterday, gap on the 13th, active 12th and 11th, gap on the 10th.
+	contributed := days(date(2026, 6, 15), date(2026, 6, 14), date(2026, 6, 12), date(2026, 6, 11))
+
+	got, ok := dayToCover(contributed, nil, today)
+	require.True(t, ok)
+	assert.Equal(t, date(2026, 6, 13), got, "the most recent gap, not the oldest")
+
+	// A second freeze covers the NEXT-most-recent gap: gaps are repaired in the order
+	// a member would repair them, so the run gets longest soonest.
+	got, ok = dayToCover(contributed, days(date(2026, 6, 13)), today)
+	require.True(t, ok)
+	assert.Equal(t, date(2026, 6, 10), got)
+
+	// TODAY IS NEVER A CANDIDATE, even for a member who has not contributed today:
+	// the day is not over, and covering it would spend a freeze on a day they can
+	// still be active on.
+	got, ok = dayToCover(days(date(2026, 6, 14)), nil, today)
+	require.True(t, ok)
+	assert.NotEqual(t, today, got)
+
+	// Nothing to cover once every day in the window is accounted for.
+	everyDay := days(date(2026, 6, 15), date(2026, 6, 14), date(2026, 6, 13), date(2026, 6, 12),
+		date(2026, 6, 11), date(2026, 6, 10), date(2026, 6, 9), date(2026, 6, 8))
+	_, ok = dayToCover(everyDay, nil, today)
+	assert.False(t, ok, "an active member has nothing to repair")
+
+	// A DAY BEYOND THE WINDOW IS NOT COVERABLE. The member missed the 3rd and has been
+	// active since: a freeze is a repair a member does when they notice, not a way to
+	// rewrite a fortnight ago.
+	activeSince := days(date(2026, 6, 15), date(2026, 6, 14), date(2026, 6, 13), date(2026, 6, 12),
+		date(2026, 6, 11), date(2026, 6, 10), date(2026, 6, 9), date(2026, 6, 8), date(2026, 6, 7),
+		date(2026, 6, 6), date(2026, 6, 5), date(2026, 6, 4))
+	_, ok = dayToCover(activeSince, nil, today)
+	assert.False(t, ok, "the only gap is outside the window")
+	assert.True(t, FreezeWindowDays < 12, "fixture: the window must be narrower than the gap above")
+}

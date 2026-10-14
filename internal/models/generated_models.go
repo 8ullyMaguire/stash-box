@@ -2197,6 +2197,17 @@ type Streak struct {
 	// The most recent day with a contribution, or null if never. Lets a client state
 	// when a run ended instead of only showing that it is over.
 	LastActiveDay *string `json:"lastActiveDay,omitempty"`
+	// Freezes earned, ever: one per thirty distinct CONTRIBUTING days.
+	//
+	// A covered day does not count toward this, or freezes would earn freezes. The
+	// allowance is derived on every read like everything else here, so it cannot
+	// disagree with the log that justifies it.
+	FreezesEarned int `json:"freezesEarned"`
+	// Days covered with a freeze.
+	FreezesUsed int `json:"freezesUsed"`
+	// What is left to spend. Zero is the ordinary state of a member who has not been
+	// contributing for a month, not a penalty.
+	FreezesAvailable int `json:"freezesAvailable"`
 }
 
 type StringCriterionInput struct {

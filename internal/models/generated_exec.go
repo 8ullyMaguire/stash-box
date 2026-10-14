@@ -718,6 +718,7 @@ type ComplexityRoot struct {
 		SiteCreate                        func(childComplexity int, input SiteCreateInput) int
 		SiteDestroy                       func(childComplexity int, input SiteDestroyInput) int
 		SiteUpdate                        func(childComplexity int, input SiteUpdateInput) int
+		SpendStreakFreeze                 func(childComplexity int) int
 		StudioCreate                      func(childComplexity int, input StudioCreateInput) int
 		StudioDestroy                     func(childComplexity int, input StudioDestroyInput) int
 		StudioEdit                        func(childComplexity int, input StudioEditInput) int
@@ -1267,11 +1268,14 @@ type ComplexityRoot struct {
 	}
 
 	Streak struct {
-		ActiveToday     func(childComplexity int) int
-		CurrentStreak   func(childComplexity int) int
-		LastActiveDay   func(childComplexity int) int
-		LongestStreak   func(childComplexity int) int
-		TotalActiveDays func(childComplexity int) int
+		ActiveToday      func(childComplexity int) int
+		CurrentStreak    func(childComplexity int) int
+		FreezesAvailable func(childComplexity int) int
+		FreezesEarned    func(childComplexity int) int
+		FreezesUsed      func(childComplexity int) int
+		LastActiveDay    func(childComplexity int) int
+		LongestStreak    func(childComplexity int) int
+		TotalActiveDays  func(childComplexity int) int
 	}
 
 	Studio struct {
@@ -1675,6 +1679,7 @@ type MutationResolver interface {
 	ReviewDelete(ctx context.Context, id uuid.UUID) (bool, error)
 	SaveSessionState(ctx context.Context, input SessionStateInput) (*SessionState, error)
 	ClearSessionState(ctx context.Context, input ClearSessionStateInput) (bool, error)
+	SpendStreakFreeze(ctx context.Context) (*Streak, error)
 }
 type NotificationResolver interface {
 	Created(ctx context.Context, obj *Notification) (*time.Time, error)
@@ -4929,6 +4934,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.SiteUpdate(childComplexity, args["input"].(SiteUpdateInput)), true
+	case "Mutation.spendStreakFreeze":
+		if e.ComplexityRoot.Mutation.SpendStreakFreeze == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Mutation.SpendStreakFreeze(childComplexity), true
 	case "Mutation.studioCreate":
 		if e.ComplexityRoot.Mutation.StudioCreate == nil {
 			break
@@ -8033,6 +8044,24 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Streak.CurrentStreak(childComplexity), true
+	case "Streak.freezesAvailable":
+		if e.ComplexityRoot.Streak.FreezesAvailable == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Streak.FreezesAvailable(childComplexity), true
+	case "Streak.freezesEarned":
+		if e.ComplexityRoot.Streak.FreezesEarned == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Streak.FreezesEarned(childComplexity), true
+	case "Streak.freezesUsed":
+		if e.ComplexityRoot.Streak.FreezesUsed == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Streak.FreezesUsed(childComplexity), true
 	case "Streak.lastActiveDay":
 		if e.ComplexityRoot.Streak.LastActiveDay == nil {
 			break
@@ -13734,6 +13763,26 @@ type Streak {
   when a run ended instead of only showing that it is over.
   """
   lastActiveDay: DateTime
+
+  """
+  Freezes earned, ever: one per thirty distinct CONTRIBUTING days.
+
+  A covered day does not count toward this, or freezes would earn freezes. The
+  allowance is derived on every read like everything else here, so it cannot
+  disagree with the log that justifies it.
+  """
+  freezesEarned: Int!
+
+  """
+  Days covered with a freeze.
+  """
+  freezesUsed: Int!
+
+  """
+  What is left to spend. Zero is the ordinary state of a member who has not been
+  contributing for a month, not a penalty.
+  """
+  freezesAvailable: Int!
 }
 
 extend type Query {
@@ -13744,6 +13793,23 @@ extend type Query {
   been absent.
   """
   userStreak: Streak! @hasRole(role: READ)
+}
+
+extend type Mutation {
+  """
+  Covers the most recent missed day with a freeze, and returns the repaired streak.
+
+  THE DAY IS NOT AN ARGUMENT. A client-supplied day is a way to cover a day that
+  was never missed, and the three checks that make a day coverable -- inside the
+  window, not already active, not already covered -- would each have to be
+  re-applied at the edge, in a place that cannot enforce them. The only thing the
+  caller knows that the server does not is that the member asked.
+
+  Fails with ErrNoFreezes when the allowance is spent and ErrNothingToCover when
+  there is no missed day inside the window. The two are different answers: one
+  accuses a member of nothing, the other of having spent something.
+  """
+  spendStreakFreeze: Streak! @hasRole(role: READ)
 }`, BuiltIn: false},
 	{Name: "../../graphql/schema/types/studio.graphql", Input: `type Studio {
   id: ID!
@@ -16495,6 +16561,12 @@ func (ec *executionContext) childFields_Streak(ctx context.Context, field graphq
 		return ec.fieldContext_Streak_activeToday(ctx, field)
 	case "lastActiveDay":
 		return ec.fieldContext_Streak_lastActiveDay(ctx, field)
+	case "freezesEarned":
+		return ec.fieldContext_Streak_freezesEarned(ctx, field)
+	case "freezesUsed":
+		return ec.fieldContext_Streak_freezesUsed(ctx, field)
+	case "freezesAvailable":
+		return ec.fieldContext_Streak_freezesAvailable(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type Streak", field.Name)
 }
@@ -35121,6 +35193,56 @@ func (ec *executionContext) fieldContext_Mutation_clearSessionState(ctx context.
 	return fc, nil
 }
 
+func (ec *executionContext) _Mutation_spendStreakFreeze(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_spendStreakFreeze(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Mutation().SpendStreakFreeze(ctx)
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal *Streak
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *Streak
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *Streak) graphql.Marshaler {
+			return ec.marshalNStreak2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐStreak(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_spendStreakFreeze(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_Streak(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Notification_created(ctx context.Context, field graphql.CollectedField, obj *Notification) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -48155,6 +48277,75 @@ func (ec *executionContext) _Streak_lastActiveDay(ctx context.Context, field gra
 }
 func (ec *executionContext) fieldContext_Streak_lastActiveDay(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("Streak", field, false, false, errors.New("field of type DateTime does not have child fields"))
+}
+
+func (ec *executionContext) _Streak_freezesEarned(ctx context.Context, field graphql.CollectedField, obj *Streak) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Streak_freezesEarned(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.FreezesEarned, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Streak_freezesEarned(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Streak", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _Streak_freezesUsed(ctx context.Context, field graphql.CollectedField, obj *Streak) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Streak_freezesUsed(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.FreezesUsed, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Streak_freezesUsed(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Streak", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _Streak_freezesAvailable(ctx context.Context, field graphql.CollectedField, obj *Streak) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Streak_freezesAvailable(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.FreezesAvailable, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Streak_freezesAvailable(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Streak", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
 func (ec *executionContext) _Studio_id(ctx context.Context, field graphql.CollectedField, obj *Studio) (ret graphql.Marshaler) {
@@ -66983,6 +67174,13 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "spendStreakFreeze":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_spendStreakFreeze(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -75251,6 +75449,21 @@ func (ec *executionContext) _Streak(ctx context.Context, sel ast.SelectionSet, o
 		case "lastActiveDay":
 			out.Values[i] = ec._Streak_lastActiveDay(ctx, field, obj)
 			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		case "freezesEarned":
+			out.Values[i] = ec._Streak_freezesEarned(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "freezesUsed":
+			out.Values[i] = ec._Streak_freezesUsed(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "freezesAvailable":
+			out.Values[i] = ec._Streak_freezesAvailable(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
 		default:

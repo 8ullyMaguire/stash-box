@@ -51,6 +51,26 @@ type Streak {
   when a run ended instead of only showing that it is over.
   """
   lastActiveDay: DateTime
+
+  """
+  Freezes earned, ever: one per thirty distinct CONTRIBUTING days.
+
+  A covered day does not count toward this, or freezes would earn freezes. The
+  allowance is derived on every read like everything else here, so it cannot
+  disagree with the log that justifies it.
+  """
+  freezesEarned: Int!
+
+  """
+  Days covered with a freeze.
+  """
+  freezesUsed: Int!
+
+  """
+  What is left to spend. Zero is the ordinary state of a member who has not been
+  contributing for a month, not a penalty.
+  """
+  freezesAvailable: Int!
 }
 
 extend type Query {
@@ -61,4 +81,21 @@ extend type Query {
   been absent.
   """
   userStreak: Streak! @hasRole(role: READ)
+}
+
+extend type Mutation {
+  """
+  Covers the most recent missed day with a freeze, and returns the repaired streak.
+
+  THE DAY IS NOT AN ARGUMENT. A client-supplied day is a way to cover a day that
+  was never missed, and the three checks that make a day coverable -- inside the
+  window, not already active, not already covered -- would each have to be
+  re-applied at the edge, in a place that cannot enforce them. The only thing the
+  caller knows that the server does not is that the member asked.
+
+  Fails with ErrNoFreezes when the allowance is spent and ErrNothingToCover when
+  there is no missed day inside the window. The two are different answers: one
+  accuses a member of nothing, the other of having spent something.
+  """
+  spendStreakFreeze: Streak! @hasRole(role: READ)
 }
