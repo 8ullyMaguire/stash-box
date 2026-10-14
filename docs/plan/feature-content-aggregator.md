@@ -796,6 +796,135 @@ one statement earlier.
 The warnings-vs-gates split, the T3 cooling period, the onboarding wizard, and coverage for the
 trending-path guard from slice 5a.
 
+### Slice 5d — the trending-path guard, verified — DONE
+
+Slice 5a added `tierFiltered` to `hasOtherFilters` so a page that must exclude tiered scenes does not
+take the optimized trending path (which LIMITs its subquery before the filters run). That guard was
+written and unexercised. It is now tested, and the probe produced a more precise finding than the note
+predicted:
+
+**The guard's absence does not LEAK the tiered scene — it STARVES the page.** Removing `tierFiltered`
+from `hasOtherFilters` makes the optimized subquery take the one slot with the tiered scene, which the
+tier filter then removes: the reader gets an EMPTY page rather than a page with one scene on it. The
+probe's message is `Should NOT be empty, but was []`. Both halves matter — the assertion is not only
+"the tiered scene is absent" but "and the page falls through to the next scene".
+
+Building the fixture cost two wrong assumptions, both recorded here because the second one would have
+made the test pass for the wrong reason:
+
+* `scene_popularity_trending` is `COUNT(DISTINCT user_id) ... WHERE created_at >= now()::DATE - 7`
+  (migration 65) — **a count of distinct users in a seven-day window, NOT the decayed freshness score**
+  (that is `scene_freshness`, migration 114). A fixture that ranks by signal AGE gets a scene with no
+  row in the view at all, and an empty page.
+* Two signals from ONE user count once, so a scene needs more distinct users than its rival. A tie is
+  broken by `scene_id DESC` — that is, by a random uuid — so a fixture that relies on a tie passes or
+  fails per run.
+
+### Slice 5e — the T3 cooling period — DONE
+
+Migration 121 adds `user_trust.t3_consented_at`. T0–T2 take effect immediately; T3 does not, for
+`T3CoolingHours` (24, a named Go constant).
+
+**The rule lives in ONE query.** `UserVisibleTier` is the single place the ceiling is computed, and all
+four read paths plus the gate call it — so one of them calling a different query that forgot to cool
+would be the whole rule gone. The period's LENGTH is passed in as a parameter, so the policy number is
+not buried in SQL, and the comparison is `NOW() < t3_consented_at + make_interval(hours => ...)`.
+
+**Stamped on GAIN, cleared on LOSS, untouched otherwise.** That ELSE is the point: a member who re-sends
+the same numbers in a different order has not re-consented, and a stamp-on-every-write version lets
+anyone replaying the request restart the clock at will.
+
+**NULL means NOT COOLING.** A consent that predates the column is not retroactively aged, so no existing
+member loses access for a day — the additive, denylist-shaped move.
+
+**The stamp is data, so the test does not wait:** it backdates `t3_consented_at` by 25 hours. Four
+assertions, in this order: {1,2,3} does not reveal a tier-3 scene while tier 2 IS immediate; backdating
+reveals it; **re-sending {3,2,1} does not put it away again** (the property a naive implementation
+fails); and an explicit {1,2} cannot see it (the control, so the first is not vacuous).
+
+**Probes, both killed in the GENERATED statement** (sqlc bakes the SQL into a Go string literal, so a
+`.sql` edit alone proves nothing): the cooling branch answering 9 instead of 2 reddened "consenting to
+tier 3 must not reveal it in the same minute", and the stamp moved from gain to every write reddened
+"re-ordering the same consent is not a change of consent".
+
+### The three remaining phase-5 items, designed
+
+The plan's phase heading names all three in one line ("the onboarding wizard (frontend), the
+warnings-vs-gates split, and the cooling period for T3") and nothing else in the repo defines them.
+These are the decisions, so the implementation that follows is not inventing a policy. (The cooling
+period has since been BUILT — slice 5e above — and its design text is kept here for the record.)
+
+#### A0. THE FINDING THAT RESHAPES A: the per-entity denylist is enforced by NOTHING
+
+Checked rather than assumed, and the assumption in A below ("a read path that consults a warn entry")
+is **false**:
+
+* `trust.ContentDenylist` has exactly one caller, `resolver_trust.go`, which feeds `NewAccessRuleSet`
+  — the OPERATOR REPORT — and nothing else.
+* `PerEntityRule.Denies(id)` is a decision method that no read path calls.
+* The four enumerating paths (the scene query, similarity, the activity feed, For You) contain zero
+  references to the denylist.
+
+So `AccessRuleSet` reports `per_entity_denylist` as `Enforced: true, EnforcedBy: internal/service/trust`
+while no read path consults it: an operator-facing report is wrong about a security control. This is the
+same shape slice 5a found in the tier gate ("the gate existed and nothing called it"), one layer over.
+A is therefore two pieces, in this order:
+
+1. **Wire the denylist into the four read paths**, with the discipline the tiers got: one shared
+   predicate, `gate` entries excluding.
+2. **Then** the `mode` column and the `warnings` list, which are only meaningful once something reads
+   the table.
+
+The report is not the thing to patch: `Enforced: true` becomes true by wiring, and if the wiring is not
+done the claim has to be corrected instead. Either way the operator-facing sentence must match the code.
+
+#### A. Warnings vs gates
+
+**Today there is one instrument and it is all-or-nothing:** `EvaluateContentAccess` refuses (seven
+conditions) and the per-entity denylist blocks — once something consults it. Nothing can tell a reader
+"this is restricted" while letting them proceed, so an instance's only options are silence and refusal.
+
+**Design.** `content_denylist_tag` / `_studio` / `_performer` (migration 87) gain
+`mode VARCHAR(4) NOT NULL DEFAULT 'gate' CHECK (mode IN ('gate', 'warn'))`. Additive, and the default
+preserves today's behaviour exactly, so no existing row changes meaning. A read path that consults a
+`warn` entry reports it instead of refusing. New type `ContentWarning { reason: String!, source: String! }`
+and `warnings: [ContentWarning!]!` on `Scene` — an empty LIST, never null, because "no warnings" and
+"this surface does not report warnings" must not be the same response.
+
+**Warnings never grant and never remove visibility.** That is the tier/denylist rule restated, and the
+reason this is a mode on the existing table rather than a second kind of tier: a warning is an
+annotation on a view, a gate is a decision about one.
+
+**Verification.** A `gate` entry removes the scene from search, similarity, the feed and For You (the
+four paths, as the tiers do — a precondition of everything below, since today none of them consults the
+table at all); a `warn` entry leaves it present AND reports it; a row inserted without `mode` blocks
+(the default is the safe direction); and a warning is never returned for a scene the viewer cannot see
+at all (a warning about invisible content leaks it).
+
+#### B. The cooling period for T3
+
+BUILT — see slice 5e. Design as written: `user_trust.t3_consented_at`, set when the array GAINS 3 and
+cleared when it loses 3; the gate uses a ceiling of 2 while `now() < t3_consented_at + T3CoolingHours`.
+T0–T2 stay immediate, the period is a named constant rather than a setting (a policy knob with no
+operator surface is a guess), and the value is DATA so a fixture backdates it instead of sleeping.
+
+#### C. The onboarding wizard
+
+**Design, and a scope decision.** The wizard's SERVER half is what this repository owns. A query
+`contentAccessSetup: ContentAccessSetup!` (READ) reports, for each condition of the gate, whether THIS
+viewer satisfies it and what remains: `termsAccepted`, `optInSet`,
+`contributionScore { current, threshold }`, and `tiers { tier, optedIn, availableAt }` — computed from
+the SAME predicates `EvaluateContentAccess` uses, so the wizard cannot drift from the gate that will
+actually refuse the member.
+
+**The frontend half is out of scope here.** `frontend/` is the vendored application; the wizard is a
+screen over this query, and building a React screen in this repo would be a different piece of work than
+the programme this plan describes.
+
+**Verification.** Each reported field is asserted against the gate's own verdict for the same caller —
+the drift guard: if `termsAccepted` is false, `EvaluateContentAccess` must refuse that member with
+`ReasonTerms`. A wizard that is right about everything except what the gate does is the failure mode.
+
 ## Phase 6 — trust, sub-scores, gamification
 
 **Goal:** NexusXXX §5.2–§5.4, §6.1–§6.5. **Verified:** `trust` is derived by a curve
