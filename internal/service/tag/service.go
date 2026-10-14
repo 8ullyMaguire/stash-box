@@ -76,6 +76,34 @@ func (s *Tag) Find(ctx context.Context, id uuid.UUID) (*models.Tag, error) {
 	return s.FindByID(ctx, id)
 }
 
+// FindByIds returns the tags with these ids, in one query.
+//
+// The batch form exists for callers that have a LIST of tag ids to name -- the For You feed's
+// contributions, where a per-id lookup is an N+1 (up to five per row, twenty rows a page) that
+// would only show up under load.
+//
+// Soft-deleted tags are excluded, unlike `FindByID`, which follows a merge to its survivor:
+// this is for DISPLAY of something already chosen, and returning a merged-away tag here would
+// attribute a viewer's taste to a tag the archive no longer offers. Ids with no live tag are
+// simply absent from the result, so a caller maps over what it gets.
+func (s *Tag) FindByIds(ctx context.Context, ids []uuid.UUID) ([]*models.Tag, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	tags, err := s.queries.FindTagsByIds(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*models.Tag, 0, len(tags))
+	for i := range tags {
+		if tags[i].Deleted {
+			continue
+		}
+		out = append(out, converter.TagToModelPtr(tags[i]))
+	}
+	return out, nil
+}
+
 // Changelog returns tags changed since the (since, afterID) keyset cursor,
 // including deleted/merged tags, ordered by (updated_at, id) for pagination.
 func (s *Tag) Changelog(ctx context.Context, since time.Time, afterID uuid.UUID, limit int32) ([]models.EntityChange, error) {

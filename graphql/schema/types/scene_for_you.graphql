@@ -1,0 +1,109 @@
+# For You: the archive filtered by the viewer, ranked by the viewer's own taste
+# (feature-discovery SPEC section 9, aggregator phase 7 slice 6).
+#
+# THE FILTER IS THE EXISTING QUERY LANGUAGE, and this file adds no second way to search. `query`
+# is the same string `queryScenes` accepts (`anal -rough`, `duration:60..600`, bare words are
+# tags), lowered and merged by the same code, so a feed cannot show a scene the equivalent search
+# would hide -- including the ones the viewer's own role is not allowed to see, because the pool
+# is built by the scene query and that is where visibility is applied.
+#
+# THE RANKING IS AFFINITY, DERIVED AT READ TIME from the signals the viewer has already left
+# (a fingerprint vote, a list add, a review's rating). There is no stored taste profile and no
+# column: the signals are the profile, and a copy of them would be a second answer able to
+# disagree with them.
+#
+# SERENDIPITY IS AN INPUT, NOT A POLICY. A feed made only of what the viewer already likes can
+# only show more of what they already chose, so `serendipity` is the share of the page drawn
+# from OUTSIDE the affinity order. It is a slot rule rather than a random sample: one slot in
+# `round(1/serendipity)` is replaced, so 0 is a pure affinity page (and therefore a subset of
+# it), 0.5 replaces every second slot, and 1 replaces every slot. At 0 the result is a ranking
+# the viewer could reconstruct from their own signals; at 1 it is a shuffle of the eligible pool.
+#
+# AFFINITY IS NOT A SCORE OUT OF ANYTHING. It is a sum of weights with no natural maximum, and
+# it can be NEGATIVE -- a withdrawn fingerprint is -1.0, and a viewer who has voted a tag down
+# should see that reflected rather than hidden. Render it as an order and as `contributions`,
+# never as a percentage.
+
+"One tag's share of a recommendation's affinity."
+type AffinityContribution {
+  "The tag the viewer has taste for."
+  tag: Tag!
+
+  """
+  This tag's weight in the affinity sum.
+
+  Signed, and negative is a real answer: it is the viewer's own negative signal coming back to
+  them. A client that renders only positive contributions is rendering a feed more confident
+  than the data.
+  """
+  weight: Float!
+}
+
+"One recommended scene, with the taste that recommended it."
+type ForYouScene {
+  "The recommendation."
+  scene: Scene!
+
+  """
+  The total of `contributions`, in no particular unit.
+
+  Exposed for ordering and debugging, NOT for display. Negative is normal. Render
+  `contributions`.
+  """
+  affinity: Float!
+
+  """
+  The tags that produced it, in DESCENDING magnitude, at most five.
+
+  This is the answer to "why am I seeing this", and it names tags rather than describing them,
+  so a reader can disagree with the recommendation and know what they are disagreeing with.
+  """
+  contributions: [AffinityContribution!]!
+}
+
+input ForYouInput {
+  """
+  How many scenes to return.
+
+  Defaults to 20, and is clamped rather than rejected at 50: a feed is scrolled, and a client
+  asking for 5,000 rows is asking for a page size no feed surface can render.
+  """
+  limit: Int = 20
+
+  """
+  The share of the page drawn from outside the affinity order, 0 to 1.
+
+  Defaults to 0.2 -- one slot in five. 0 is a pure affinity ranking, 1 is a shuffle of the
+  eligible pool.
+  """
+  serendipity: Float = 0.2
+
+  """
+  Makes the serendipity part reproducible.
+
+  The same seed over the same pool returns the same page, so a client can pin a feed for a
+  session, and so a change in the page can be attributed to a change in the parameter rather
+  than to the shuffle. Omitted is 0.
+  """
+  seed: Int
+
+  """
+  A search-language query narrowing the feed, exactly as `queryScenes` takes it.
+
+  Bare words are tags, `-tag` excludes, `text:"..."` is free text, and `sort:`/`direction:` are
+  ACCEPTED AND IGNORED here -- the feed's order is affinity, and honouring a `sort:` would mean
+  returning a page ordered by something the caller did not get told about.
+  """
+  query: String
+}
+
+extend type Query {
+  """
+  Scenes this viewer is likely to want, ranked by the signals they have already left.
+
+  Empty is a legitimate answer for a viewer with no signals: nothing is known about their taste,
+  so every candidate is equally (un)likely and the honest page is the archive's own order. An
+  error would make a new account look broken.
+  """
+  forYou(input: ForYouInput): [ForYouScene!]! @hasRole(role: READ)
+}

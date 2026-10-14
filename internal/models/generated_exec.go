@@ -91,6 +91,11 @@ type ComplexityRoot struct {
 		Unenforced func(childComplexity int) int
 	}
 
+	AffinityContribution struct {
+		Tag    func(childComplexity int) int
+		Weight func(childComplexity int) int
+	}
+
 	ArchiveEntityCount struct {
 		Count      func(childComplexity int) int
 		EntityType func(childComplexity int) int
@@ -363,6 +368,12 @@ type ComplexityRoot struct {
 
 	FingerprintedSceneEdit struct {
 		Edit func(childComplexity int) int
+	}
+
+	ForYouScene struct {
+		Affinity      func(childComplexity int) int
+		Contributions func(childComplexity int) int
+		Scene         func(childComplexity int) int
 	}
 
 	ForeignCandidate struct {
@@ -808,6 +819,7 @@ type ComplexityRoot struct {
 		FindTags                       func(childComplexity int, ids []uuid.UUID) int
 		FindUser                       func(childComplexity int, id *uuid.UUID, username *string) int
 		FingerprintClusters            func(childComplexity int, input FingerprintClustersInput) int
+		ForYou                         func(childComplexity int, input *ForYouInput) int
 		GetConfig                      func(childComplexity int) int
 		GetUnreadNotificationCount     func(childComplexity int) int
 		IdentificationQuery            func(childComplexity int, id uuid.UUID) int
@@ -1628,6 +1640,7 @@ type QueryResolver interface {
 	PublishedLists(ctx context.Context, perPage *int, page *int) (*ListBrowseResult, error)
 	Lists(ctx context.Context, userID *uuid.UUID, perPage *int, page *int) ([]List, error)
 	Review(ctx context.Context, id uuid.UUID) (*Review, error)
+	ForYou(ctx context.Context, input *ForYouInput) ([]ForYouScene, error)
 	UserStreak(ctx context.Context) (*Streak, error)
 }
 type QueryEditsResultTypeResolver interface {
@@ -1861,6 +1874,19 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.AccessRuleSet.Unenforced(childComplexity), true
+
+	case "AffinityContribution.tag":
+		if e.ComplexityRoot.AffinityContribution.Tag == nil {
+			break
+		}
+
+		return e.ComplexityRoot.AffinityContribution.Tag(childComplexity), true
+	case "AffinityContribution.weight":
+		if e.ComplexityRoot.AffinityContribution.Weight == nil {
+			break
+		}
+
+		return e.ComplexityRoot.AffinityContribution.Weight(childComplexity), true
 
 	case "ArchiveEntityCount.count":
 		if e.ComplexityRoot.ArchiveEntityCount.Count == nil {
@@ -2808,6 +2834,25 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.FingerprintedSceneEdit.Edit(childComplexity), true
+
+	case "ForYouScene.affinity":
+		if e.ComplexityRoot.ForYouScene.Affinity == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ForYouScene.Affinity(childComplexity), true
+	case "ForYouScene.contributions":
+		if e.ComplexityRoot.ForYouScene.Contributions == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ForYouScene.Contributions(childComplexity), true
+	case "ForYouScene.scene":
+		if e.ComplexityRoot.ForYouScene.Scene == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ForYouScene.Scene(childComplexity), true
 
 	case "ForeignCandidate.fetched_at":
 		if e.ComplexityRoot.ForeignCandidate.FetchedAt == nil {
@@ -5623,6 +5668,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.FingerprintClusters(childComplexity, args["input"].(FingerprintClustersInput)), true
+	case "Query.forYou":
+		if e.ComplexityRoot.Query.ForYou == nil {
+			break
+		}
+
+		args, err := ec.field_Query_forYou_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.ForYou(childComplexity, args["input"].(*ForYouInput)), true
 	case "Query.getConfig":
 		if e.ComplexityRoot.Query.GetConfig == nil {
 			break
@@ -7969,6 +8025,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputFingerprintInput,
 		ec.unmarshalInputFingerprintQueryInput,
 		ec.unmarshalInputFingerprintSubmission,
+		ec.unmarshalInputForYouInput,
 		ec.unmarshalInputGenerateInviteCodeInput,
 		ec.unmarshalInputGrantInviteInput,
 		ec.unmarshalInputHairColorCriterionInput,
@@ -11536,6 +11593,116 @@ type QueryExistingSceneResult {
   scenes: [Scene!]!
 }
 `, BuiltIn: false},
+	{Name: "../../graphql/schema/types/scene_for_you.graphql", Input: `# For You: the archive filtered by the viewer, ranked by the viewer's own taste
+# (feature-discovery SPEC section 9, aggregator phase 7 slice 6).
+#
+# THE FILTER IS THE EXISTING QUERY LANGUAGE, and this file adds no second way to search. ` + "`" + `query` + "`" + `
+# is the same string ` + "`" + `queryScenes` + "`" + ` accepts (` + "`" + `anal -rough` + "`" + `, ` + "`" + `duration:60..600` + "`" + `, bare words are
+# tags), lowered and merged by the same code, so a feed cannot show a scene the equivalent search
+# would hide -- including the ones the viewer's own role is not allowed to see, because the pool
+# is built by the scene query and that is where visibility is applied.
+#
+# THE RANKING IS AFFINITY, DERIVED AT READ TIME from the signals the viewer has already left
+# (a fingerprint vote, a list add, a review's rating). There is no stored taste profile and no
+# column: the signals are the profile, and a copy of them would be a second answer able to
+# disagree with them.
+#
+# SERENDIPITY IS AN INPUT, NOT A POLICY. A feed made only of what the viewer already likes can
+# only show more of what they already chose, so ` + "`" + `serendipity` + "`" + ` is the share of the page drawn
+# from OUTSIDE the affinity order. It is a slot rule rather than a random sample: one slot in
+# ` + "`" + `round(1/serendipity)` + "`" + ` is replaced, so 0 is a pure affinity page (and therefore a subset of
+# it), 0.5 replaces every second slot, and 1 replaces every slot. At 0 the result is a ranking
+# the viewer could reconstruct from their own signals; at 1 it is a shuffle of the eligible pool.
+#
+# AFFINITY IS NOT A SCORE OUT OF ANYTHING. It is a sum of weights with no natural maximum, and
+# it can be NEGATIVE -- a withdrawn fingerprint is -1.0, and a viewer who has voted a tag down
+# should see that reflected rather than hidden. Render it as an order and as ` + "`" + `contributions` + "`" + `,
+# never as a percentage.
+
+"One tag's share of a recommendation's affinity."
+type AffinityContribution {
+  "The tag the viewer has taste for."
+  tag: Tag!
+
+  """
+  This tag's weight in the affinity sum.
+
+  Signed, and negative is a real answer: it is the viewer's own negative signal coming back to
+  them. A client that renders only positive contributions is rendering a feed more confident
+  than the data.
+  """
+  weight: Float!
+}
+
+"One recommended scene, with the taste that recommended it."
+type ForYouScene {
+  "The recommendation."
+  scene: Scene!
+
+  """
+  The total of ` + "`" + `contributions` + "`" + `, in no particular unit.
+
+  Exposed for ordering and debugging, NOT for display. Negative is normal. Render
+  ` + "`" + `contributions` + "`" + `.
+  """
+  affinity: Float!
+
+  """
+  The tags that produced it, in DESCENDING magnitude, at most five.
+
+  This is the answer to "why am I seeing this", and it names tags rather than describing them,
+  so a reader can disagree with the recommendation and know what they are disagreeing with.
+  """
+  contributions: [AffinityContribution!]!
+}
+
+input ForYouInput {
+  """
+  How many scenes to return.
+
+  Defaults to 20, and is clamped rather than rejected at 50: a feed is scrolled, and a client
+  asking for 5,000 rows is asking for a page size no feed surface can render.
+  """
+  limit: Int = 20
+
+  """
+  The share of the page drawn from outside the affinity order, 0 to 1.
+
+  Defaults to 0.2 -- one slot in five. 0 is a pure affinity ranking, 1 is a shuffle of the
+  eligible pool.
+  """
+  serendipity: Float = 0.2
+
+  """
+  Makes the serendipity part reproducible.
+
+  The same seed over the same pool returns the same page, so a client can pin a feed for a
+  session, and so a change in the page can be attributed to a change in the parameter rather
+  than to the shuffle. Omitted is 0.
+  """
+  seed: Int
+
+  """
+  A search-language query narrowing the feed, exactly as ` + "`" + `queryScenes` + "`" + ` takes it.
+
+  Bare words are tags, ` + "`" + `-tag` + "`" + ` excludes, ` + "`" + `text:"..."` + "`" + ` is free text, and ` + "`" + `sort:` + "`" + `/` + "`" + `direction:` + "`" + ` are
+  ACCEPTED AND IGNORED here -- the feed's order is affinity, and honouring a ` + "`" + `sort:` + "`" + ` would mean
+  returning a page ordered by something the caller did not get told about.
+  """
+  query: String
+}
+
+extend type Query {
+  """
+  Scenes this viewer is likely to want, ranked by the signals they have already left.
+
+  Empty is a legitimate answer for a viewer with no signals: nothing is known about their taste,
+  so every candidate is equally (un)likely and the honest page is the archive's own order. An
+  error would make a new account look broken.
+  """
+  forYou(input: ForYouInput): [ForYouScene!]! @hasRole(role: READ)
+}
+`, BuiltIn: false},
 	{Name: "../../graphql/schema/types/scene_similar.graphql", Input: `# Scene similarity (feature-discovery SPEC section 8, aggregator phase 7 slice 5).
 #
 # THE EVIDENCE IS THE DESIGN, again, and here it is the whole feature.
@@ -12899,6 +13066,16 @@ func (ec *executionContext) childFields_AccessRuleSet(ctx context.Context, field
 	return nil, fmt.Errorf("no field named %q was found under type AccessRuleSet", field.Name)
 }
 
+func (ec *executionContext) childFields_AffinityContribution(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "tag":
+		return ec.fieldContext_AffinityContribution_tag(ctx, field)
+	case "weight":
+		return ec.fieldContext_AffinityContribution_weight(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type AffinityContribution", field.Name)
+}
+
 func (ec *executionContext) childFields_ArchiveEntityCount(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 	switch field.Name {
 	case "entityType":
@@ -13343,6 +13520,18 @@ func (ec *executionContext) childFields_FingerprintSubmissionResult(ctx context.
 		return ec.fieldContext_FingerprintSubmissionResult_error(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type FingerprintSubmissionResult", field.Name)
+}
+
+func (ec *executionContext) childFields_ForYouScene(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "scene":
+		return ec.fieldContext_ForYouScene_scene(ctx, field)
+	case "affinity":
+		return ec.fieldContext_ForYouScene_affinity(ctx, field)
+	case "contributions":
+		return ec.fieldContext_ForYouScene_contributions(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type ForYouScene", field.Name)
 }
 
 func (ec *executionContext) childFields_ForeignCandidate(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -16745,6 +16934,20 @@ func (ec *executionContext) field_Query_fingerprintClusters_args(ctx context.Con
 	return args, nil
 }
 
+func (ec *executionContext) field_Query_forYou_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
+		func(ctx context.Context, v any) (*ForYouInput, error) {
+			return ec.unmarshalOForYouInput2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐForYouInput(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+
 func (ec *executionContext) field_Query_identificationQuery_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -17768,6 +17971,61 @@ func (ec *executionContext) fieldContext_AccessRuleSet_unenforced(_ context.Cont
 		},
 	}
 	return fc, nil
+}
+
+func (ec *executionContext) _AffinityContribution_tag(ctx context.Context, field graphql.CollectedField, obj *AffinityContribution) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_AffinityContribution_tag(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Tag, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *Tag) graphql.Marshaler {
+			return ec.marshalNTag2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTag(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_AffinityContribution_tag(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "AffinityContribution",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_Tag(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _AffinityContribution_weight(ctx context.Context, field graphql.CollectedField, obj *AffinityContribution) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_AffinityContribution_weight(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Weight, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v float64) graphql.Marshaler {
+			return ec.marshalNFloat2float64(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_AffinityContribution_weight(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("AffinityContribution", field, false, false, errors.New("field of type Float does not have child fields"))
 }
 
 func (ec *executionContext) _ArchiveEntityCount_entityType(ctx context.Context, field graphql.CollectedField, obj *ArchiveEntityCount) (ret graphql.Marshaler) {
@@ -21553,6 +21811,93 @@ func (ec *executionContext) fieldContext_FingerprintedSceneEdit_edit(_ context.C
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return ec.childFields_Edit(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ForYouScene_scene(ctx context.Context, field graphql.CollectedField, obj *ForYouScene) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ForYouScene_scene(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Scene, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *Scene) graphql.Marshaler {
+			return ec.marshalNScene2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐScene(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ForYouScene_scene(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ForYouScene",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_Scene(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ForYouScene_affinity(ctx context.Context, field graphql.CollectedField, obj *ForYouScene) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ForYouScene_affinity(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Affinity, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v float64) graphql.Marshaler {
+			return ec.marshalNFloat2float64(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ForYouScene_affinity(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ForYouScene", field, false, false, errors.New("field of type Float does not have child fields"))
+}
+
+func (ec *executionContext) _ForYouScene_contributions(ctx context.Context, field graphql.CollectedField, obj *ForYouScene) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ForYouScene_contributions(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Contributions, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []AffinityContribution) graphql.Marshaler {
+			return ec.marshalNAffinityContribution2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐAffinityContributionᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ForYouScene_contributions(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ForYouScene",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_AffinityContribution(ctx, field)
 		},
 	}
 	return fc, nil
@@ -37778,6 +38123,68 @@ func (ec *executionContext) fieldContext_Query_review(ctx context.Context, field
 	return fc, nil
 }
 
+func (ec *executionContext) _Query_forYou(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_forYou(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().ForYou(ctx, fc.Args["input"].(*ForYouInput))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal []ForYouScene
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal []ForYouScene
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v []ForYouScene) graphql.Marshaler {
+			return ec.marshalNForYouScene2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐForYouSceneᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_forYou(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ForYouScene(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_forYou_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Query_userStreak(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -48277,6 +48684,64 @@ func (ec *executionContext) unmarshalInputFingerprintSubmission(ctx context.Cont
 	return it, nil
 }
 
+func (ec *executionContext) unmarshalInputForYouInput(ctx context.Context, obj any) (ForYouInput, error) {
+	var it ForYouInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	if _, present := asMap["limit"]; !present {
+		asMap["limit"] = 20
+	}
+	if _, present := asMap["serendipity"]; !present {
+		asMap["serendipity"] = 0.200000
+	}
+
+	fieldsInOrder := [...]string{"limit", "serendipity", "seed", "query"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "limit":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("limit"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Limit = data
+		case "serendipity":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("serendipity"))
+			data, err := ec.unmarshalOFloat2ᚖfloat64(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Serendipity = data
+		case "seed":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("seed"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Seed = data
+		case "query":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("query"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Query = data
+		}
+	}
+	return it, nil
+}
+
 func (ec *executionContext) unmarshalInputGenerateInviteCodeInput(ctx context.Context, obj any) (GenerateInviteCodeInput, error) {
 	var it GenerateInviteCodeInput
 	if obj == nil {
@@ -53988,6 +54453,49 @@ func (ec *executionContext) _AccessRuleSet(ctx context.Context, sel ast.Selectio
 	return out
 }
 
+var affinityContributionImplementors = []string{"AffinityContribution"}
+
+func (ec *executionContext) _AffinityContribution(ctx context.Context, sel ast.SelectionSet, obj *AffinityContribution) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, affinityContributionImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("AffinityContribution")
+		case "tag":
+			out.Values[i] = ec._AffinityContribution_tag(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "weight":
+			out.Values[i] = ec._AffinityContribution_weight(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
 var archiveEntityCountImplementors = []string{"ArchiveEntityCount"}
 
 func (ec *executionContext) _ArchiveEntityCount(ctx context.Context, sel ast.SelectionSet, obj *ArchiveEntityCount) graphql.Marshaler {
@@ -57425,6 +57933,54 @@ func (ec *executionContext) _FingerprintedSceneEdit(ctx context.Context, sel ast
 			out.Values[i] = graphql.MarshalString("FingerprintedSceneEdit")
 		case "edit":
 			out.Values[i] = ec._FingerprintedSceneEdit_edit(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var forYouSceneImplementors = []string{"ForYouScene"}
+
+func (ec *executionContext) _ForYouScene(ctx context.Context, sel ast.SelectionSet, obj *ForYouScene) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, forYouSceneImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ForYouScene")
+		case "scene":
+			out.Values[i] = ec._ForYouScene_scene(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "affinity":
+			out.Values[i] = ec._ForYouScene_affinity(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "contributions":
+			out.Values[i] = ec._ForYouScene_contributions(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -63478,6 +64034,28 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 				}()
 				res = ec._Query_review(ctx, field)
 				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "forYou":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_forYou(ctx, field)
+				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
 				return res
@@ -70776,6 +71354,26 @@ func (ec *executionContext) unmarshalNActivateNewUserInput2githubᚗcomᚋstasha
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
+func (ec *executionContext) marshalNAffinityContribution2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐAffinityContribution(ctx context.Context, sel ast.SelectionSet, v AffinityContribution) graphql.Marshaler {
+	return ec._AffinityContribution(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNAffinityContribution2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐAffinityContributionᚄ(ctx context.Context, sel ast.SelectionSet, v []AffinityContribution) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNAffinityContribution2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐAffinityContribution(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
 func (ec *executionContext) unmarshalNAmendEditInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐAmendEditInput(ctx context.Context, v any) (AmendEditInput, error) {
 	res, err := ec.unmarshalInputAmendEditInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
@@ -71639,6 +72237,26 @@ func (ec *executionContext) marshalNFloat2float64(ctx context.Context, sel ast.S
 		}
 	}
 	return graphql.WrapContextMarshaler(ctx, res)
+}
+
+func (ec *executionContext) marshalNForYouScene2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐForYouScene(ctx context.Context, sel ast.SelectionSet, v ForYouScene) graphql.Marshaler {
+	return ec._ForYouScene(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNForYouScene2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐForYouSceneᚄ(ctx context.Context, sel ast.SelectionSet, v []ForYouScene) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNForYouScene2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐForYouScene(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
 }
 
 func (ec *executionContext) marshalNForeignCandidate2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐForeignCandidate(ctx context.Context, sel ast.SelectionSet, v ForeignCandidate) graphql.Marshaler {
@@ -73417,6 +74035,16 @@ func (ec *executionContext) marshalNTag2ᚕᚖgithubᚗcomᚋstashappᚋstashᚑ
 	return ret
 }
 
+func (ec *executionContext) marshalNTag2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTag(ctx context.Context, sel ast.SelectionSet, v *Tag) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._Tag(ctx, sel, v)
+}
+
 func (ec *executionContext) marshalNTagAtDepth2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTagAtDepth(ctx context.Context, sel ast.SelectionSet, v TagAtDepth) graphql.Marshaler {
 	return ec._TagAtDepth(ctx, sel, &v)
 }
@@ -74448,6 +75076,14 @@ func (ec *executionContext) marshalOFloat2ᚖfloat64(ctx context.Context, sel as
 	_ = sel
 	res := graphql.MarshalFloatContext(*v)
 	return graphql.WrapContextMarshaler(ctx, res)
+}
+
+func (ec *executionContext) unmarshalOForYouInput2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐForYouInput(ctx context.Context, v any) (*ForYouInput, error) {
+	if v == nil {
+		return nil, nil
+	}
+	res, err := ec.unmarshalInputForYouInput(ctx, v)
+	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
 func (ec *executionContext) marshalOFuzzyDate2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐFuzzyDate(ctx context.Context, sel ast.SelectionSet, v *FuzzyDate) graphql.Marshaler {

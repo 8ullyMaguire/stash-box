@@ -85,6 +85,18 @@ type ActivateNewUserInput struct {
 	Password      string    `json:"password"`
 }
 
+// One tag's share of a recommendation's affinity.
+type AffinityContribution struct {
+	// The tag the viewer has taste for.
+	Tag *Tag `json:"tag"`
+	// This tag's weight in the affinity sum.
+	//
+	// Signed, and negative is a real answer: it is the viewer's own negative signal coming back to
+	// them. A client that renders only positive contributions is rendering a feed more confident
+	// than the data.
+	Weight float64 `json:"weight"`
+}
+
 type AmendEditInput struct {
 	ID     uuid.UUID `json:"id"`
 	Reason string    `json:"reason"`
@@ -589,6 +601,47 @@ type FingerprintedSceneEdit struct {
 }
 
 func (FingerprintedSceneEdit) IsNotificationData() {}
+
+type ForYouInput struct {
+	// How many scenes to return.
+	//
+	// Defaults to 20, and is clamped rather than rejected at 50: a feed is scrolled, and a client
+	// asking for 5,000 rows is asking for a page size no feed surface can render.
+	Limit *int `json:"limit,omitempty"`
+	// The share of the page drawn from outside the affinity order, 0 to 1.
+	//
+	// Defaults to 0.2 -- one slot in five. 0 is a pure affinity ranking, 1 is a shuffle of the
+	// eligible pool.
+	Serendipity *float64 `json:"serendipity,omitempty"`
+	// Makes the serendipity part reproducible.
+	//
+	// The same seed over the same pool returns the same page, so a client can pin a feed for a
+	// session, and so a change in the page can be attributed to a change in the parameter rather
+	// than to the shuffle. Omitted is 0.
+	Seed *int `json:"seed,omitempty"`
+	// A search-language query narrowing the feed, exactly as `queryScenes` takes it.
+	//
+	// Bare words are tags, `-tag` excludes, `text:"..."` is free text, and `sort:`/`direction:` are
+	// ACCEPTED AND IGNORED here -- the feed's order is affinity, and honouring a `sort:` would mean
+	// returning a page ordered by something the caller did not get told about.
+	Query *string `json:"query,omitempty"`
+}
+
+// One recommended scene, with the taste that recommended it.
+type ForYouScene struct {
+	// The recommendation.
+	Scene *Scene `json:"scene"`
+	// The total of `contributions`, in no particular unit.
+	//
+	// Exposed for ordering and debugging, NOT for display. Negative is normal. Render
+	// `contributions`.
+	Affinity float64 `json:"affinity"`
+	// The tags that produced it, in DESCENDING magnitude, at most five.
+	//
+	// This is the answer to "why am I seeing this", and it names tags rather than describing them,
+	// so a reader can disagree with the recommendation and know what they are disagreeing with.
+	Contributions []AffinityContribution `json:"contributions"`
+}
 
 // One thing a peer suggested, as EVIDENCE.
 //

@@ -1209,6 +1209,54 @@ type Querier interface {
 	FindUserTokensByEmail(ctx context.Context, dollar_1 string) ([]UserToken, error)
 	FindUserTokensByInviteKey(ctx context.Context, dollar_1 uuid.UUID) ([]UserToken, error)
 	FindUserWithRoles(ctx context.Context, id uuid.UUID) (FindUserWithRolesRow, error)
+	// Scenes the viewer has already signalled, which a recommendation must not offer back.
+	//
+	// This is section 9's "already viewed" filter with the only producer this instance has. There
+	// is no view table (§2: no player until phase 10), so the closest honest substitute is "already
+	// engaged with": a fingerprint, a list add or a review. Recommending a scene back to the person
+	// who owns it, or who has reviewed it, is the failure this prevents, and it is checkable.
+	FindViewerEngagedSceneIDs(ctx context.Context, arg FindViewerEngagedSceneIDsParams) ([]uuid.UUID, error)
+	// Taste: the viewer's affinity for the things a scene is made of (discovery SPEC section 9,
+	// aggregator phase 7 slice 6).
+	//
+	// DERIVED AT READ TIME, NOT STORED. There is no affinity table and no column: affinity is a
+	// function of the signals a user has left, and storing it would create a second answer that can
+	// drift from them -- the same reasoning as the freshness view and the facet counts. The cost is
+	// one scan of three small per-user tables, which is what the index on each of them is for.
+	//
+	// ONE ARM PER SIGNAL KIND, UNIONED, and only the kinds with a PRODUCER. NexusXXX 8.6 also lists
+	// view completion (+0.3/-0.1), skip (-0.05) and not-interested (-1.0); nothing writes those yet
+	// (there is no player and no view table until phase 10), and a weight for a signal nobody emits
+	// is a constant nobody can explain. They are deferred to the phase that creates the producer.
+	//
+	// THE WEIGHTS, and where each number comes from:
+	//
+	//   | signal         | weight                    | why                                        |
+	//   |----------------|---------------------------|--------------------------------------------|
+	//   | fingerprint    | +1.0 / -1.0 (the vote)    | 8.6's "owns it": the strongest thing a user |
+	//   |                |                           | states about a scene, and a withdrawal -1  |
+	//   | list add       | +0.8                      | 8.6's playlist add, deliberately below a   |
+	//   |                |                           | fingerprint: filing is weaker than owning  |
+	//   | review         | (rating - 3) / 4          | -0.5 .. +0.5 for 1..5 stars. Half of the   |
+	//   |                |                           | 8.6 magnitude because a review is an OPINION |
+	//   |                |                           | about a scene, not a claim to own it, and a |
+	//   |                |                           | 5-star review must not outweigh a user's    |
+	//   |                |                           | own fingerprint. An UNRATED review          |
+	//   |                |                           | contributes NOTHING: `rating` is nullable    |
+	//   |                |                           | because a review of a studio's ethics is    |
+	//   |                |                           | not a 1-to-5 quantity, and inventing a 3    |
+	//   |                |                           | for it would be inventing a preference.     |
+	//
+	// Only PUBLISHED reviews count. A flagged or removed review is a moderator's decision about
+	// whether the text may stand, and letting it shape a recommendation would give a flagged review
+	// the same weight as a published one while the reader cannot see it.
+	// What this viewer likes, per tag, in no particular unit.
+	//
+	// The tag is the unit because tags are what a scene is about, and because every other axis
+	// (performer, studio) already has a direct surface -- a viewer's favourite performers are
+	// visible in what they fingerprint. The absolute value is meaningless on its own; only
+	// comparisons between tags, and the sign, are.
+	FindViewerTagAffinity(ctx context.Context, userID uuid.UUID) ([]FindViewerTagAffinityRow, error)
 	FindWebhookEndpoint(ctx context.Context, id uuid.UUID) (WebhookEndpoint, error)
 	// Scoped by user on purpose. An endpoint id is a UUID and a GraphQL client cannot
 	// be assumed to pass the caller's own, so a lookup that does not check ownership
@@ -1994,6 +2042,28 @@ type Querier interface {
 	SceneCompletionInputs(ctx context.Context, id uuid.UUID) (SceneCompletionInputsRow, error)
 	// Scenes missing one field, for a generated quest.
 	ScenesMissingField(ctx context.Context, arg ScenesMissingFieldParams) ([]uuid.UUID, error)
+	// One row per (candidate scene, tag of that scene): what the viewer's taste says it is worth.
+	//
+	// TWO COMPONENTS, and the split is the whole of section 9's hierarchy rule:
+	//
+	//   direct      the scene carries a tag the viewer has affinity for.
+	//   propagated  the scene carries a tag that IMPLIES something the viewer likes: liking
+	//               `cowgirl_position` raises `woman_on_top`'s affinity at a fraction of the direct
+	//               weight, so a scene tagged only `woman_on_top` is worth a fraction of one tagged
+	//               `cowgirl_position`.
+	//
+	// The fraction is `PROPAGATION_FACTOR` per hop, and it is fractional ON PURPOSE: the parent
+	// claim is weaker than the child's, and a scene the viewer has not signalled must not outrank
+	// one they did. At two hops it is 0.16, so depth fades on its own and the walk needs only the
+	// same depth bound the rest of the codebase uses.
+	//
+	// The walk is DOWNWARDS from the scene's tag (`C implies this tag`), which is the direction
+	// migration 111 records and the direction the search already walks: `cowgirl_position` implies
+	// `woman_on_top`, never the reverse.
+	// The scene's own tag, then every tag that implies it, transitively.
+	// Zero-weight rows are dropped: a tag the viewer has no affinity for is not a reason to show
+	// anything, and reporting it would fill a scene's contributions with every tag it has.
+	ScoreScenesByAffinity(ctx context.Context, arg ScoreScenesByAffinityParams) ([]ScoreScenesByAffinityRow, error)
 	// Keep the WHERE clause in sync across SearchPerformers, CountPerformerSearchMatches,
 	// and GetPerformerSearchFacets so paging, counts, and facets stay consistent.
 	SearchPerformers(ctx context.Context, arg SearchPerformersParams) ([]uuid.UUID, error)

@@ -59,6 +59,7 @@ import (
 	"github.com/stashapp/stash-box/internal/service/studio"
 	"github.com/stashapp/stash-box/internal/service/tag"
 	"github.com/stashapp/stash-box/internal/service/tagontology"
+	"github.com/stashapp/stash-box/internal/service/taste"
 	"github.com/stashapp/stash-box/internal/service/trust"
 	"github.com/stashapp/stash-box/internal/service/user"
 	"github.com/stashapp/stash-box/internal/service/usertoken"
@@ -106,6 +107,15 @@ func (f *Factory) Completion() *completion.Service {
 // a typo.
 func (f *Factory) Similar() *similar.Service {
 	return similar.New(queries.New(f.db), f.Scene(), f.vectorStore)
+}
+
+// Taste returns the viewer-affinity service behind `forYou`.
+//
+// No stored state and no store to build: affinity is derived per call from the viewer's own
+// signals, so there is nothing here that two instances could disagree about and nothing that
+// could be stale between calls.
+func (f *Factory) Taste() *taste.Service {
+	return taste.New(queries.New(f.db), f.Scene())
 }
 
 // newVectorStore turns the configured name into an implementation, once per factory.

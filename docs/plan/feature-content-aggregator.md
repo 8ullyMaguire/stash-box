@@ -533,10 +533,36 @@ part of the commit message.
    **Not here, deliberately:** no `minShared` floor, no count field (the pool is bounded, so a
    count would be a lie with a number on it), and no embedding producer — nothing on this
    instance turns a scene into a vector.
-6. **Taste profile, For You, serendipity.** Affinity derived at read time from the signal
-   tables §2 measured; the hierarchy propagation; the feed assembly; the parameter.
-   **Verification:** the degenerate-output test — two contrasting settings over the same seed
-   must not return near-identical sets; `serendipity=0` is a subset of the affinity-ranked set.
+6. **Taste profile, For You, serendipity. DONE.**
+   `internal/service/taste/` (`service.go` — the pool, the affinity scoring, the contribution
+   ordering, the no-signals fallback, and `mixFeed`, the pure stride rule; `mix_test.go` — the
+   subset property at 0, the contrast at 1 over the same seed, the stride slots, the degenerate
+   pools), `internal/queries/sql/taste.sql` (the affinity map with one arm per signal kind, the
+   recursive scoring walk with the per-hop fraction, and the engaged-scene exclusion), the
+   `forYou(input: ForYouInput)` query with `ForYouScene`/`AffinityContribution`, and
+   `Tag.FindByIds` (one query for the tags the contributions name, not one per contribution).
+   **Verification:** `go test ./internal/service/taste/` and
+   `POSTGRES_DB=... go test -tags=integration -count=1 -p 1 -run TestForYou ./internal/api/`
+   → 8 tests green: each signal's weight (`1.0` / `0.8` / `±0.5`), the four clauses that are
+   separate claims (published-only, nullable-rating, the negative sign, the withdrawal), the
+   §9 acceptance criterion as two numbers (parent `0.4` against direct `1.0`), the engaged
+   exclusion covering all three signal kinds, the query language really lowering the filter
+   (`-tag`), the degenerate-output test at the resolver over the same seed, and the no-signal
+   page making no claims. Three real defects were found by these tests rather than by review:
+   `lists` has no `user_id` column (**which sqlc did not catch** — the statement was checked
+   against generated types, not the schema, so the feed failed with `column l.user_id does not
+   exist`), a recursive CTE exposing `weight` while the outer term read `a.affinity`, and a
+   fixture colliding on `lists_unique_name_per_owner`.
+   **Mutation-checked** by `scripts/mutate-scene-for-you.py` — 11/11 caught and restored: the
+   three weights, the published-only and nullable-rating clauses, the propagation factor, two of
+   the three engaged arms, the zero-weight filter, the serendipity stride, and the off-by-one in
+   the stride rule (a unit test). Eight of them mutate the GENERATED `taste.sql.go`, for the
+   reason slice 5 recorded: sqlc compiles each statement into a Go string literal, so a `.sql`
+   edit changes nothing that runs.
+   **Not here, deliberately:** no stored taste profile (derived at read time), no view/skip
+   signals (no producer until phase 10), no blacklist or score floor (no stored preference until
+   phase 16), and no "reset my taste" mutation — §12 lists it as deferred, and a delete-the-
+   signals button is a data-deletion surface, not a feed feature.
 7. **Social discovery and "where I left off".** Migration **115** (`user_follows`), **116**
    (`session_states`), the chronological activity feed, the opt-in sync surface.
    **Verification:** the visibility default is private (asserted); the feed is chronological;

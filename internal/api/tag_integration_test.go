@@ -152,22 +152,38 @@ func (s *tagTestRunner) testQueryTags() {
 	s.t.Logf("Looking for tag1 ID: %s, tag2 ID: %s", tag1.ID, tag2.ID)
 	s.t.Logf("Query returned %d tags", len(result.Tags))
 
-	// Verify our created tags are in the results
-	found1 := false
-	found2 := false
-	for _, tag := range result.Tags {
-		if tag.ID == tag1.ID {
-			found1 = true
-			assert.Equal(s.t, name1, tag.Name)
-		}
-		if tag.ID == tag2.ID {
-			found2 = true
-			assert.Equal(s.t, name2, tag.Name)
-		}
-	}
+	// Verify the created tags are findable, BY NAME.
+	//
+	// NOT by looking for them in the unfiltered result above: that is page 1 of 100 sorted by
+	// name over a database every test in this package shares, which is not a stable set. A test
+	// that creates tags sorting before `testtag...` pushes these two out of the window and this
+	// test then fails for a reason that has nothing to do with the tag query -- which is exactly
+	// what happened when the For You fixtures added thirty-odd tags (upper case sorts first).
+	// The count assertions above still exercise the unfiltered path; the lookup below is the
+	// assertion about THIS test's tags, and it holds however many tags the database has.
+	for _, created := range []struct {
+		id   string
+		name string
+	}{{tag1.ID, name1}, {tag2.ID, name2}} {
+		name := created.name
+		byName, err := s.client.queryTags(models.TagQueryInput{
+			Name:      &name,
+			Page:      1,
+			PerPage:   100,
+			Direction: models.SortDirectionEnumAsc,
+			Sort:      models.TagSortEnumName,
+		})
+		assert.NoError(s.t, err, "Error querying tags by name")
 
-	assert.True(s.t, found1, "Created tag 1 not found in query results")
-	assert.True(s.t, found2, "Created tag 2 not found in query results")
+		found := false
+		for _, tag := range byName.Tags {
+			if tag.ID == created.id {
+				found = true
+				assert.Equal(s.t, created.name, tag.Name)
+			}
+		}
+		assert.True(s.t, found, "Created tag %q not found by name", created.name)
+	}
 }
 
 func (s *tagTestRunner) testFindTagOrAlias() {

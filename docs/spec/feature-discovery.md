@@ -507,21 +507,113 @@ number that says so is the one above rather than a guess.
   until something does. `Noop.Put` returns an error rather than succeeding quietly: a seeding
   pipeline that stored nothing must not report itself healthy.
 
-## 9. Taste profile, For You, and the serendipity parameter (slice 6)
+## 9. Taste profile, For You, and the serendipity parameter (slice 6, DONE)
 
-The affinity table of §8.6 with the weights above, computed at read time by one query per
-signal kind, UNIONed — derived, not stored, for the reason §3.2 gives. Propagation through the
-hierarchy uses phase 4's closure: liking `cowgirl_position` raises `woman_on_top`'s affinity at
-a fraction of the direct weight (the draft's "less strongly", made a constant).
+Taste is `internal/service/taste/` and the GraphQL `forYou` field. Affinity is DERIVED AT READ
+TIME — computed by one query per signal kind, UNIONed — and never stored, for the reason §3.2
+gives: a stored copy is a second answer able to drift from the signals it came from, and every
+write path would have to remember to update it. Nothing outside §8.6's own list of signals feeds
+it, which is what makes the number explainable.
 
-`For You` = the query language plus the affinity ranking plus the filters §8.6 lists (tier,
-blacklist, already-viewed, score floor). `serendipity_factor` picks the mix, and the test the
-plan names is a **degenerate-output test**: two contrasting settings over the same seed must
-not return near-identical sets — otherwise the parameter is decoration.
+### 9.1 The weights, and where each one comes from
 
-Signals whose producer does not exist (view completion, skip, not-interested) are deferred to
-the phase that creates the producer, because a signal table with no writer is a column nobody
-fills and a weight nobody can explain.
+| signal | weight | why |
+|---|---|---|
+| a fingerprint vote | `+1.0` / `−1.0` | §8.6's "owns it": the strongest thing a user states about a scene. The `−1.0` is a withdrawal, and it is a signal rather than the absence of one |
+| a list add | `+0.8` | §8.6's playlist add, deliberately below a fingerprint: filing is weaker than owning |
+| a review's rating | `(rating − 3) / 4` — `±0.5` at the extremes | half of §8.6's magnitude, because a review is an OPINION about a scene rather than a claim to own it, and a five-star review must not outweigh the user's own fingerprint. An UNRATED review contributes NOTHING: `rating` is nullable because a review of a studio's ethics is not a 1-to-5 quantity, and inventing a 3 would be inventing a preference |
+| view completion `+0.3`/`−0.1`, skip `−0.05`, not-interested `−1.0` | — | **deferred to phase 10 with their producer.** Nothing writes them: there is no player and no view table. A weight for a signal nobody emits is a constant nobody can explain |
+
+Only PUBLISHED reviews count. A flagged or removed review is a moderator's decision about whether
+the text may stand; letting it shape a recommendation would give it the same weight as a published
+one while the reader cannot see it. The mutation script reddens a test for each of these four
+clauses, because each is a separate claim.
+
+**The weights are a named convention, not a measurement**, and the justification for each is the
+ordering it produces (owning > filing > opining) rather than a fit to data nobody has collected.
+
+### 9.2 Propagation: the parent is raised at a fraction, and that is a test
+
+Affinity is kept per TAG, and the hierarchy is applied at SCORING time rather than folded into the
+stored signals: a scene's affinity is the sum over its own tags of the viewer's affinity for that
+tag, PLUS, for each tag that IMPLIES it (the direction migration 111 records), that tag's affinity
+times `propagationFactor = 0.4` per hop, transitively.
+
+Read as the §9 acceptance criterion, that is: **liking `cowgirl_position` raises `woman_on_top`'s
+affinity, and by LESS than the direct weight.** A scene tagged only the parent scores 0.4 where one
+tagged the child scores 1.0 — strictly between nothing and a direct hit, asserted literally in
+`TestForYouPropagatesToTheParentAtAFractionOfTheDirectWeight`, not merely described. Two hops are
+0.16, so depth fades on its own and the walk needs only the same depth bound the rest of the
+codebase uses.
+
+The fraction is not a second denominator and not a percentage: it is the same "a parent claim is
+weaker than the child's" rule §8.2 applies to similarity, with a different number because the two
+answer different questions.
+
+### 9.3 What the feed is, and what it refuses to be
+
+`For You` = **the query language plus the affinity ranking plus the mix**, and the first of those
+is the EXISTING language rather than a second implementation: `forYou(input: { query: "anal -rough" })`
+is lowered by the same code `queryScenes` uses, so a feed cannot show a scene the equivalent search
+would hide — including the ones the viewer's own role may not see, because the pool is built by the
+scene query and that is where visibility is applied. A `sort:`/`direction:` in the query string is
+accepted and IGNORED: the feed's order is affinity, and honouring a sort would return a page ordered
+by something the caller was not told about.
+
+The pool (`limit × 6 + 60`, capped at 600) is drawn in the archive's own order — **`CREATED_AT`
+DESC, the order of ARRIVAL at this instance** — and affinity is not that order, so a pool of exactly
+`limit` would make the ranking a no-op. Bounded because the scoring query carries the candidate ids
+and walks the tag graph for each of them.
+
+The sort is `CREATED_AT` rather than the scene query's default (`DATE`, the release date), and the
+full test suite is what found out why: with the release-date default on an archive with more than
+600 dated scenes, the pool fills with scenes that HAVE a release date and a scene with none is
+never even scored — so the feed silently stops recommending anything recently added. Arrival order
+is total (every row has a `created_at`) and it is what "the archive's own order" should mean for a
+discovery feed.
+
+**AFFINITY IS NOT A SCORE OUT OF ANYTHING.** It is a sum of weights with no natural maximum, and it
+can be NEGATIVE. It is exposed for ordering and debugging; a client renders `contributions`, which
+name the tags and carry their signed weights. Rendering a percentage from it would invent a
+precision the number does not have.
+
+### 9.4 Serendipity is an input, not a policy
+
+`serendipity` sets a STRIDE, not a sample size: one slot in `round(1/serendipity)` is filled from
+outside the affinity order, so `0` is a pure affinity page (and therefore a SUBSET of the affinity
+ranking, which is how the acceptance criterion is read), `0.5` replaces every second slot, and `1`
+replaces every slot. The surprises come from a seeded shuffle of the pool minus the affinity page,
+so a surprise is never a duplicate of a pick and is always something the affinity order would not
+have led with.
+
+A random sample of `serendipity × limit` rows was the obvious alternative and it is worse: the
+surprises arrive in a clump at the end of the page, or in a scatter that differs on every call.
+`seed` is an input for the same reason — without it the parameter could not be tested, because a
+difference between two pages could always be the shuffle.
+
+The **degenerate-output test** the plan named is `TestForYouSerendipityZeroIsTheAffinityOrderAndOneIsNot`
+at the resolver (every row of a `serendipity: 0` page carries affinity > 0; a `serendipity: 1` page
+shares under half of its rows with it AT THE SAME SEED; and the same seed returns the same page,
+which is what makes the comparison attributable to the parameter) plus the pure-function tests in
+`internal/service/taste/mix_test.go`.
+
+### 9.5 Filters: the ones with a producer, and the substitution
+
+§8.6 lists tier, blacklist, already-viewed and a score floor. What ships is **already-viewed, read
+as already-ENGAGED**: there is no view table until phase 10, so the closest honest substitute is
+"the viewer has a fingerprint, a list item or a review on it" — which is exactly the failure the
+filter exists to prevent (offering a scene back to the person who owns or reviewed it) and is
+checkable. `tier` is applied where it has always been applied, in the scene query that builds the
+pool, rather than duplicated here. A `blacklist` and a `score floor` have no producer and no
+stored preference yet, and are deferred to the surface that creates them (phase 16 UI).
+
+### 9.6 A viewer with no signals
+
+The feed returns the pool in the archive's own order (recency) with zero affinity and no
+contributions, rather than an id-ordered tie: a new account that lands on uuid order looks broken,
+one that lands on what arrived today looks like an archive. Nothing is claimed about their taste,
+because nothing is known about it.
+
 
 ## 10. Social discovery (slice 7)
 
@@ -696,3 +788,45 @@ continue; nothing reads it unless the user turned it on.
     directions, with the depth bound `ExpandTagIDsByImplications` already uses) and the SQL
     pre-rank is deliberately UNWEIGHTED: a weighted pre-rank would be a second copy of the
     scorer's weights in a file the scorer does not read, and the two would drift.
+21. **The taste weights are a named convention with an ORDER, not a fit** (§9.1). Owning beats
+    filing beats opining (1.0 / 0.8 / 0.5), and each number is justified by the ordering it
+    produces rather than by data nobody collected. The alternative — one weight per signal kind
+    chosen to look principled — would have been three constants with no claim attached, and the
+    mutation script could not have reddened a test for any of them.
+22. **Affinity is per TAG, and the hierarchy is applied at scoring time** (§9.2), which is a
+    reversal of the first design, where the signals were propagated into the affinity map itself
+    before scoring. Propagating into the map means a viewer's love of `cowgirl_position` is
+    written into their affinity for `woman_on_top`, and then a scene tagged the PARENT collects
+    the parent's raised value AND the child's — the same preference counted twice, for a scene
+    the viewer never signalled. Applying the fraction at scoring time keeps one direct value per
+    tag and applies "the parent is weaker" once, which is also what makes the acceptance
+    criterion checkable as a pair of numbers (0.4 against 1.0).
+23. **`serendipity` is a stride, and the seed is an INPUT** (§9.4). The stride makes `0` a
+    provable subset of the affinity ranking and puts the surprises through the page rather than in
+    a clump at the end; the seed is what turns "the parameter changed the output" from an
+    unfalsifiable claim into a test, because without it a difference between two pages could
+    always be the shuffle.
+24. **What the tests found, again, is the argument for integration tests over unit tests in this
+    area** (both defects real, both invisible to review): `lists` has no `user_id` column — it is
+    `owner_id` — and **sqlc did not catch it**, because the statement was type-checked against
+    generated row types rather than the live schema, so the feed failed at the first request with
+    `column l.user_id does not exist`; and the recursive CTE in the scoring query exposed its
+    column as `weight` while the outer term read `a.affinity`. Neither is a logic error and
+    neither would have been found by reading the code: they are the SQL and the Go disagreeing
+    about a name, and only a real database says so.
+25. **A test that passes alone and fails in the suite is measuring the suite, and the fix is at the
+    FIXTURE, not in the assertion** (§9, plan slice 6). Three of the eight feed tests passed in
+    isolation and failed in the full run, for two different reasons that both came from the shared
+    database and the shared viewer: the fixture scenes were not in the top page once other tests had
+    given the viewer more affinity than they had, and (after that was fixed by filtering the pool to
+    the fixture) the FILTER TAG itself turned out to be a signal — affinity is computed from the
+    tags of the scenes a user has engaged with, so a tag carried by a fingerprinted scene earns
+    weight and appears in the contribution list. Each test now narrows the pool with a tag of its own
+    and puts that tag on every fixture scene EXCEPT the one the viewer signals, which is a claim
+    about the feature rather than about tidiness: filtering must not also be tasting.
+26. **The other direction of the same defect: a fixture that pollutes the tests that follow it.**
+    The mirror image, found the same session: ~35 new tags whose names sort before `testtag…`
+    pushed `TestQueryTags`' tags out of its UNFILTERED page-1 window, so a test about tag lookup
+    started failing because of a test about a feed. A test that reads "page 1 of everything" over a
+    database the whole package shares is asserting a property of the database, not of the code; it
+    now looks its tags up by name.
