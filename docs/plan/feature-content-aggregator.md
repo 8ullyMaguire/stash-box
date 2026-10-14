@@ -285,6 +285,44 @@ MIGRATION itself (the harness re-runs migrations, so a schema mutation is genuin
 applied on the next run).
 
 
+### Slice 3c — the read surface and the enum member — DONE (`529b81da`)
+
+`contentItem(id:)` and `queryContentItems(kind:, limit:)`, the `ContentItem` type with
+its `ContentItemKind` enum, `releaseDate` and `completion`, and `content_item` on the
+GraphQL `EntityType` enum — so slice 3b's vocabulary is reachable from a query and not
+only from Go. `internal/service/contentitem` is **read-only on purpose**: a content item
+is created by ingestion or by an edit, this repository has one write path for shared
+metadata (propose, vote, apply), and a create mutation here would be a second writer the
+vote machinery cannot see. The write side belongs with the edit types and phase 2's
+pipeline.
+
+**The trap this slice is mostly about.** gqlgen binds a schema field to a struct field
+by default. For the types this repository generates *from* the schema — unlike its
+hand-written models — `completion` would have been generated into `ContentItem`, the
+field resolver would never run, and every client would read `"completion": null` while
+every Go test still passed, because a null is not an error. `gqlgen.yml` declares the
+field external, and **only an executed query can see the difference**: there is a
+round-trip test through the GraphQL handler for exactly this, and a probe that removes
+the yml entry and regenerates kills it (the generated tree is hash-verified identical
+after restore).
+
+**Two unreachable branches, named rather than implied.** `ParseKind`'s refusal and
+`kindEnum`'s refusal cannot be reached while the enum stays closed and migration 117's
+CHECK holds. They stay — a loosened CHECK would otherwise surface as a silently invalid
+enum member on the wire — and they are recorded as carrying no test claim.
+
+**A page size above 100 is refused, not clamped**: a truncated list that looks complete
+is the failure the ceiling exists to prevent. No limit means the service default.
+
+**Mutation evidence, including the probe that first survived.** The yml probe and the
+page-ceiling probe kill. The kind-filter probe **survived the first cut**: the test
+asserted only that every returned member carried the asked-for kind, which is vacuous
+when the unfiltered page happens to be homogeneous — the same family as an absence
+assertion whose subject was never counted. The fix is a *discriminating* fixture created
+inside the test (an item of another kind, newest, so an unfiltered page would contain
+it); re-cut, the probe kills. The lesson generalises: a filter test needs a member the
+filter must EXCLUDE, created where the test can see it.
+
 ### Slice 3b — the completion vocabulary — DONE (`e92ae20c`)
 
 `completion.EntityContentItem` with its own weights (title 0, details 20, release
