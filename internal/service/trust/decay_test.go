@@ -106,7 +106,7 @@ func TestAShortfallThatClearsNeverDemotes(t *testing.T) {
 // the totals are back, because a level that flips twice a day means nothing.
 func TestTheLevelIsHeldForFourteenDaysAndThenFollowsTheTotals(t *testing.T) {
 	demotedAt := day0.Add(GracePeriod)
-	state := TrustState{Level: memberLevel - 1, DemotedAt: demotedAt}
+	state := TrustState{Level: memberLevel - 1, DemotedAt: demotedAt, DemotedFrom: memberLevel}
 
 	// Day 13, with the points already earned back: still held down.
 	next, decision := Decide(state, originalTotals, demotedAt.Add(RecoveryPeriod-time.Hour))
@@ -124,7 +124,7 @@ func TestTheLevelIsHeldForFourteenDaysAndThenFollowsTheTotals(t *testing.T) {
 
 	// NOT A RESTORE ON A TIMER: with nothing earned back, the same window ending lands the member
 	// where the totals are, not where they were.
-	stillFlagged, _ := Decide(TrustState{Level: memberLevel - 1, DemotedAt: demotedAt}, flaggedTotals, demotedAt.Add(RecoveryPeriod))
+	stillFlagged, _ := Decide(TrustState{Level: memberLevel - 1, DemotedAt: demotedAt, DemotedFrom: memberLevel}, flaggedTotals, demotedAt.Add(RecoveryPeriod))
 	assert.Equal(t, LevelForTotals(flaggedTotals), stillFlagged.Level)
 }
 
@@ -158,6 +158,31 @@ func TestDecidingTwiceAtOneInstantIsIdempotent(t *testing.T) {
 	held, decision2 := Decide(demoted, flaggedTotals, day0.Add(GracePeriod))
 	assert.Equal(t, demoted, held)
 	assert.Equal(t, KindHeld, decision2.Kind)
+}
+
+// A STANDING THE MEMBER NEVER HAD CANNOT BE HELD AGAINST THEM -- and this case exists because the
+// integration test found the bug, not because the policy's prose suggested it. The window is a hold on
+// the level the member was DROPPED FROM; a member whose totals now justify more than that has earned
+// something new. The first version of decideWhileDemoted ignored that and held every rise, so a
+// demoted member was pinned at the level they fell to for fourteen days however much they earned.
+func TestAPromotionAboveTheLostLevelEndsTheWindow(t *testing.T) {
+	demotedAt := day0.Add(GracePeriod)
+	// Dropped from TL3 to TL2 an hour ago, still well inside the window.
+	state := TrustState{Level: LevelContributor, DemotedAt: demotedAt, DemotedFrom: LevelCurator}
+
+	// One rung ABOVE where they were dropped from: immediate, and the window closes with it.
+	next, decision := Decide(state, Totals{ApprovedEdits: 80}, demotedAt.Add(time.Hour))
+	require.Equal(t, LevelArchivist, LevelForTotals(Totals{ApprovedEdits: 80}), "fixture: 800 points is TL4")
+	assert.Equal(t, KindPromoted, decision.Kind)
+	assert.Equal(t, LevelArchivist, next.Level)
+	assert.True(t, next.DemotedAt.IsZero(), "nothing left to hold")
+	assert.Equal(t, LevelEnum(0), next.DemotedFrom)
+
+	// Exactly the lost level, in the same window, is still held: that is the recovery the window exists
+	// to stop, and it is the case the two rules have to keep apart.
+	held, decision2 := Decide(state, originalTotals, demotedAt.Add(time.Hour))
+	assert.Equal(t, KindHeld, decision2.Kind)
+	assert.Equal(t, LevelContributor, held.Level)
 }
 
 // A MERELY-UNCHANGED MEMBER IS NOT A SHORTFALL. The ordinary case -- totals that still justify the

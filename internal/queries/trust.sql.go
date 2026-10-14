@@ -49,7 +49,7 @@ ON CONFLICT (user_id) DO UPDATE SET
     replicas_hosted = user_trust.replicas_hosted + EXCLUDED.replicas_hosted,
     bonus_points = user_trust.bonus_points + EXCLUDED.bonus_points,
     updated_at = NOW()
-RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at
+RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at, short_since, demoted_at, demoted_from_level
 `
 
 type ApplyTrustEventParams struct {
@@ -95,6 +95,9 @@ func (q *Queries) ApplyTrustEvent(ctx context.Context, arg ApplyTrustEventParams
 		&i.VisibleTiers,
 		&i.T3ConsentedAt,
 		&i.ContentTermsAcceptedAt,
+		&i.ShortSince,
+		&i.DemotedAt,
+		&i.DemotedFromLevel,
 	)
 	return i, err
 }
@@ -160,7 +163,7 @@ func (q *Queries) DeniedSceneIDs(ctx context.Context, sceneIds []uuid.UUID) ([]u
 }
 
 const getAllUserTrust = `-- name: GetAllUserTrust :many
-SELECT user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at FROM user_trust
+SELECT user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at, short_since, demoted_at, demoted_from_level FROM user_trust
 `
 
 // Every rollup row. Used when a threshold changes and every level must be
@@ -189,6 +192,9 @@ func (q *Queries) GetAllUserTrust(ctx context.Context) ([]UserTrust, error) {
 			&i.VisibleTiers,
 			&i.T3ConsentedAt,
 			&i.ContentTermsAcceptedAt,
+			&i.ShortSince,
+			&i.DemotedAt,
+			&i.DemotedFromLevel,
 		); err != nil {
 			return nil, err
 		}
@@ -202,7 +208,7 @@ func (q *Queries) GetAllUserTrust(ctx context.Context) ([]UserTrust, error) {
 
 const getUserTrust = `-- name: GetUserTrust :one
 
-SELECT user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at FROM user_trust WHERE user_id = $1
+SELECT user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at, short_since, demoted_at, demoted_from_level FROM user_trust WHERE user_id = $1
 `
 
 // Trust level queries (SPEC §6, migration 76).
@@ -229,12 +235,15 @@ func (q *Queries) GetUserTrust(ctx context.Context, userID uuid.UUID) (UserTrust
 		&i.VisibleTiers,
 		&i.T3ConsentedAt,
 		&i.ContentTermsAcceptedAt,
+		&i.ShortSince,
+		&i.DemotedAt,
+		&i.DemotedFromLevel,
 	)
 	return i, err
 }
 
 const getUserTrustByUserIDs = `-- name: GetUserTrustByUserIDs :many
-SELECT user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at FROM user_trust WHERE user_id = ANY($1::UUID[])
+SELECT user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at, short_since, demoted_at, demoted_from_level FROM user_trust WHERE user_id = ANY($1::UUID[])
 `
 
 func (q *Queries) GetUserTrustByUserIDs(ctx context.Context, dollar_1 []uuid.UUID) ([]UserTrust, error) {
@@ -261,6 +270,64 @@ func (q *Queries) GetUserTrustByUserIDs(ctx context.Context, dollar_1 []uuid.UUI
 			&i.VisibleTiers,
 			&i.T3ConsentedAt,
 			&i.ContentTermsAcceptedAt,
+			&i.ShortSince,
+			&i.DemotedAt,
+			&i.DemotedFromLevel,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUserTrustDecayPending = `-- name: ListUserTrustDecayPending :many
+SELECT user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at, short_since, demoted_at, demoted_from_level FROM user_trust
+WHERE short_since IS NOT NULL OR demoted_at IS NOT NULL
+ORDER BY user_id
+`
+
+// The sweep's working set: members with something in flight, and ONLY them.
+//
+// A member enters it by having a shortfall or a demotion on record, which the
+// write path sets the moment an event puts them below their level -- so a member
+// whose totals fall can never be missed by the sweep, and a member whose totals
+// are steady is never examined. The partial indexes from migration 125 are on
+// exactly this predicate.
+//
+// A row leaves it when the recovery window closes and the policy clears both
+// timestamps, which is why a sweep that has nothing to do examines a set that
+// empties itself.
+func (q *Queries) ListUserTrustDecayPending(ctx context.Context) ([]UserTrust, error) {
+	rows, err := q.db.Query(ctx, listUserTrustDecayPending)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []UserTrust{}
+	for rows.Next() {
+		var i UserTrust
+		if err := rows.Scan(
+			&i.UserID,
+			&i.Level,
+			&i.ApprovedEdits,
+			&i.RejectedEdits,
+			&i.IdentificationSolves,
+			&i.QuestsCompleted,
+			&i.ReplicasHosted,
+			&i.ContentViewingOptIn,
+			&i.UpdatedAt,
+			&i.BonusPoints,
+			&i.IsVanguard,
+			&i.VisibleTiers,
+			&i.T3ConsentedAt,
+			&i.ContentTermsAcceptedAt,
+			&i.ShortSince,
+			&i.DemotedAt,
+			&i.DemotedFromLevel,
 		); err != nil {
 			return nil, err
 		}
@@ -329,7 +396,7 @@ ON CONFLICT (user_id) DO UPDATE SET
     replicas_hosted = EXCLUDED.replicas_hosted,
     bonus_points = EXCLUDED.bonus_points,
     updated_at = NOW()
-RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at
+RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at, short_since, demoted_at, demoted_from_level
 `
 
 // Rebuilds the totals from the event log.
@@ -361,6 +428,9 @@ func (q *Queries) RecomputeUserTrustTotals(ctx context.Context, userID uuid.UUID
 		&i.VisibleTiers,
 		&i.T3ConsentedAt,
 		&i.ContentTermsAcceptedAt,
+		&i.ShortSince,
+		&i.DemotedAt,
+		&i.DemotedFromLevel,
 	)
 	return i, err
 }
@@ -491,7 +561,7 @@ const setContentViewingOptIn = `-- name: SetContentViewingOptIn :one
 UPDATE user_trust
 SET content_viewing_opt_in = $2, updated_at = NOW()
 WHERE user_id = $1
-RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at
+RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at, short_since, demoted_at, demoted_from_level
 `
 
 type SetContentViewingOptInParams struct {
@@ -524,6 +594,9 @@ func (q *Queries) SetContentViewingOptIn(ctx context.Context, arg SetContentView
 		&i.VisibleTiers,
 		&i.T3ConsentedAt,
 		&i.ContentTermsAcceptedAt,
+		&i.ShortSince,
+		&i.DemotedAt,
+		&i.DemotedFromLevel,
 	)
 	return i, err
 }
@@ -560,23 +633,44 @@ func (q *Queries) SetTagContentTier(ctx context.Context, arg SetTagContentTierPa
 	return i, err
 }
 
-const setUserTrustLevel = `-- name: SetUserTrustLevel :one
+const setUserTrustState = `-- name: SetUserTrustState :one
 UPDATE user_trust
-SET level = $2, updated_at = NOW()
+SET level = $2,
+    short_since = $3,
+    demoted_at = $4,
+    demoted_from_level = $5,
+    updated_at = NOW()
 WHERE user_id = $1
-RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at
+RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at, short_since, demoted_at, demoted_from_level
 `
 
-type SetUserTrustLevelParams struct {
-	UserID uuid.UUID `db:"user_id" json:"user_id"`
-	Level  int       `db:"level" json:"level"`
+type SetUserTrustStateParams struct {
+	UserID           uuid.UUID          `db:"user_id" json:"user_id"`
+	Level            int                `db:"level" json:"level"`
+	ShortSince       pgtype.Timestamptz `db:"short_since" json:"short_since"`
+	DemotedAt        pgtype.Timestamptz `db:"demoted_at" json:"demoted_at"`
+	DemotedFromLevel *int               `db:"demoted_from_level" json:"demoted_from_level"`
 }
 
 // The level is written by the service after deriving it from the thresholds,
 // never by the database. The curve is a product decision and belongs in Go,
 // where it can be changed without a migration.
-func (q *Queries) SetUserTrustLevel(ctx context.Context, arg SetUserTrustLevelParams) (UserTrust, error) {
-	row := q.db.QueryRow(ctx, setUserTrustLevel, arg.UserID, arg.Level)
+//
+// The decay timestamps travel WITH the level in this one statement, and that is
+// why this replaces the level-only setter rather than joining it. A member's
+// level and the reason it is lower than their totals justify are one fact: a
+// level written without its grace deadline is a member who is demoted at the
+// next sweep with no grace left, and a deadline written without its level is a
+// shortfall with nothing to measure it against. Two setters would be two chances
+// to write one without the other, and the failure is silent in both directions.
+func (q *Queries) SetUserTrustState(ctx context.Context, arg SetUserTrustStateParams) (UserTrust, error) {
+	row := q.db.QueryRow(ctx, setUserTrustState,
+		arg.UserID,
+		arg.Level,
+		arg.ShortSince,
+		arg.DemotedAt,
+		arg.DemotedFromLevel,
+	)
 	var i UserTrust
 	err := row.Scan(
 		&i.UserID,
@@ -593,6 +687,9 @@ func (q *Queries) SetUserTrustLevel(ctx context.Context, arg SetUserTrustLevelPa
 		&i.VisibleTiers,
 		&i.T3ConsentedAt,
 		&i.ContentTermsAcceptedAt,
+		&i.ShortSince,
+		&i.DemotedAt,
+		&i.DemotedFromLevel,
 	)
 	return i, err
 }
@@ -607,7 +704,7 @@ SET "visible_tiers" = $1,
     END,
     "updated_at" = NOW()
 WHERE "user_id" = $2
-RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at
+RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at, short_since, demoted_at, demoted_from_level
 `
 
 type SetVisibleTiersParams struct {
@@ -640,6 +737,9 @@ func (q *Queries) SetVisibleTiers(ctx context.Context, arg SetVisibleTiersParams
 		&i.VisibleTiers,
 		&i.T3ConsentedAt,
 		&i.ContentTermsAcceptedAt,
+		&i.ShortSince,
+		&i.DemotedAt,
+		&i.DemotedFromLevel,
 	)
 	return i, err
 }

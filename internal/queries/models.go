@@ -1031,6 +1031,9 @@ type UserTrust struct {
 	T3ConsentedAt pgtype.Timestamptz `db:"t3_consented_at" json:"t3_consented_at"`
 	// When the member first accepted the content-viewing terms (gate condition 5). NULL = never accepted. Kept on first acceptance.
 	ContentTermsAcceptedAt pgtype.Timestamptz `db:"content_terms_accepted_at" json:"content_terms_accepted_at"`
+	ShortSince             pgtype.Timestamptz `db:"short_since" json:"short_since"`
+	DemotedAt              pgtype.Timestamptz `db:"demoted_at" json:"demoted_at"`
+	DemotedFromLevel       *int               `db:"demoted_from_level" json:"demoted_from_level"`
 }
 
 type WebhookDelivery struct {

@@ -16,9 +16,11 @@ package trust
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/gofrs/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/stashapp/stash-box/internal/queries"
 )
@@ -35,11 +37,26 @@ var ErrUnknownKind = errors.New("unknown trust event kind")
 type Trust struct {
 	queries *queries.Queries
 	withTxn queries.WithTxnFunc
+	// now is injectable so tests can hold elapsed time still. The default is
+	// time.Now.
+	now func() time.Time
 }
 
 // NewTrust creates a new trust service.
 func NewTrust(queries *queries.Queries, withTxn queries.WithTxnFunc) *Trust {
-	return &Trust{queries: queries, withTxn: withTxn}
+	return &Trust{queries: queries, withTxn: withTxn, now: time.Now}
+}
+
+// WithClock overrides the clock, for tests.
+//
+// There is deliberately no config path for this. The decay policy's whole
+// behaviour turns on elapsed time -- a grace period, a recovery window -- so a
+// caller who could set the clock could hand themselves any level they liked,
+// and a configurable clock in a reputation system is a configurable reputation
+// system.
+func (s *Trust) WithClock(now func() time.Time) *Trust {
+	s.now = now
+	return s
 }
 
 // WithTxn executes a function within a transaction.
@@ -191,7 +208,8 @@ func (s *Trust) withRecordTx(ctx context.Context, event Event) (*queries.UserTru
 		return nil, err
 	}
 
-	return s.recomputeLevel(ctx, out)
+	updated, _, err := s.applyPolicy(ctx, out)
+	return updated, err
 }
 
 // toRecordParams converts an Event into the generated query parameters.
@@ -220,30 +238,181 @@ func toRecordParams(event Event) queries.RecordTrustEventParams {
 // The level is derived in Go and written back rather than computed in SQL,
 // because the curve is a product decision and belongs in one readable table
 // (see thresholds in models.go).
-func (s *Trust) recomputeLevel(ctx context.Context, rollup *queries.UserTrust) (*queries.UserTrust, error) {
+// repairLevel writes the level the totals justify, taking no notice of grace or of a recovery window.
+//
+// This is the REBUILD path's writer, and the distinction from applyPolicy is the point: a rebuild
+// repairs a rollup that drifted -- corruption, a failed migration, a restored backup -- and a repair
+// that left the level where the corruption put it would not be a repair. Its existing test says so:
+// "the corrupted level 5 must be recomputed, not left in place". The decay state is deliberately
+// untouched, which is safe in both directions: a stale shortfall against a level that now matches the
+// totals reads as CLEARED on the next sweep (the policy compares levels, not history), and a member
+// inside a genuine recovery window keeps the window they had.
+//
+// A THRESHOLD change goes through here too, because RebuildLevels is what an operator runs after one.
+// That means a raised threshold demotes a cohort at once rather than after a grace period -- which is
+// the operator's own decision, taken with the numbers in front of them, and not the same thing as a
+// member's bad afternoon. A config-driven clock would blur that; an explicit "apply thresholds with
+// grace" path can exist later if anyone wants one.
+func (s *Trust) repairLevel(ctx context.Context, rollup *queries.UserTrust) (*queries.UserTrust, error) {
 	if rollup == nil {
 		return nil, nil
 	}
-
-	want := LevelForTotals(Totals{
-		ApprovedEdits:        rollup.ApprovedEdits,
-		RejectedEdits:        rollup.RejectedEdits,
-		IdentificationSolves: rollup.IdentificationSolves,
-		QuestsCompleted:      rollup.QuestsCompleted,
-		ReplicasHosted:       rollup.ReplicasHosted,
-	})
+	want := LevelForTotals(totalsOf(rollup))
 	if int(rollup.Level) == int(want) {
 		return rollup, nil
 	}
-
-	updated, err := s.queries.SetUserTrustLevel(ctx, queries.SetUserTrustLevelParams{
-		UserID: rollup.UserID,
-		Level:  int(want),
+	updated, err := s.queries.SetUserTrustState(ctx, queries.SetUserTrustStateParams{
+		UserID:           rollup.UserID,
+		Level:            int(want),
+		ShortSince:       nullableTime(timeOf(rollup.ShortSince)),
+		DemotedAt:        nullableTime(timeOf(rollup.DemotedAt)),
+		DemotedFromLevel: rollup.DemotedFromLevel,
 	})
 	if err != nil {
 		return nil, err
 	}
 	return &updated, nil
+}
+
+// timeOf reads a nullable column as a time, with the zero time standing for NULL.
+func timeOf(ts pgtype.Timestamptz) time.Time {
+	if !ts.Valid {
+		return time.Time{}
+	}
+	return ts.Time
+}
+
+// applyPolicy derives the level from the rollup through the decay policy and persists the result.
+//
+// THE POLICY IS ON THE WRITE PATH, NOT ONLY IN THE SWEEP, and this is the whole reason the slice is
+// more than a scheduled job: a level that still followed the totals immediately would make the grace
+// period a decoration. The member's level does not fall here -- the shortfall is RECORDED, and the
+// fall happens when a sweep finds the deadline passed.
+//
+// It is the single place the level is written, for both the event path and RebuildLevels, which is
+// what keeps a threshold change from demoting anybody instantly either.
+func (s *Trust) applyPolicy(ctx context.Context, rollup *queries.UserTrust) (*queries.UserTrust, Decision, error) {
+	if rollup == nil {
+		return nil, Decision{}, nil
+	}
+
+	next, decision := Decide(stateOf(rollup), totalsOf(rollup), s.now())
+	if !decision.Changed() {
+		return rollup, decision, nil
+	}
+
+	updated, err := s.queries.SetUserTrustState(ctx, queries.SetUserTrustStateParams{
+		UserID:           rollup.UserID,
+		Level:            int(next.Level),
+		ShortSince:       nullableTime(next.ShortSince),
+		DemotedAt:        nullableTime(next.DemotedAt),
+		DemotedFromLevel: nullableLevel(next.DemotedFrom),
+	})
+	if err != nil {
+		return nil, decision, err
+	}
+	return &updated, decision, nil
+}
+
+// stateOf reads the persisted decay state, with the zero time standing for "not happening" -- which is
+// exactly what the NULL columns mean, and why they are NULL: a column that used the zero time as a
+// sentinel could not tell "no shortfall on record" from "short since the year 1".
+func stateOf(rollup *queries.UserTrust) TrustState {
+	state := TrustState{Level: LevelEnum(rollup.Level)}
+	if rollup.ShortSince.Valid {
+		state.ShortSince = rollup.ShortSince.Time
+	}
+	if rollup.DemotedAt.Valid {
+		state.DemotedAt = rollup.DemotedAt.Time
+	}
+	if rollup.DemotedFromLevel != nil {
+		state.DemotedFrom = LevelEnum(*rollup.DemotedFromLevel)
+	}
+	return state
+}
+
+// totalsOf reads every counted column, BonusPoints included.
+//
+// The bonus was MISSING here before this slice -- the rollup carried it, ApplyTrustEvent incremented
+// it, and Totals.Points() added it, but this function built the Totals by hand and left it out, so a
+// quest bounty raised nothing. Reading the whole row is the fix and also the reason not to build a
+// Totals field by field: a column added to the rollup later is counted here without an edit, and the
+// failure mode of the hand-built version was silence.
+func totalsOf(rollup *queries.UserTrust) Totals {
+	return Totals{
+		ApprovedEdits:        rollup.ApprovedEdits,
+		RejectedEdits:        rollup.RejectedEdits,
+		IdentificationSolves: rollup.IdentificationSolves,
+		QuestsCompleted:      rollup.QuestsCompleted,
+		ReplicasHosted:       rollup.ReplicasHosted,
+		BonusPoints:          rollup.BonusPoints,
+	}
+}
+
+// nullableTime converts a zero time back to NULL.
+func nullableTime(t time.Time) pgtype.Timestamptz {
+	if t.IsZero() {
+		return pgtype.Timestamptz{}
+	}
+	return pgtype.Timestamptz{Time: t, Valid: true}
+}
+
+// nullableLevel converts a zero level back to NULL: a level of 0 is "public", which is a real standing,
+// so the column cannot use 0 to mean "not demoted".
+func nullableLevel(l LevelEnum) *int {
+	if l == 0 {
+		return nil
+	}
+	level := int(l)
+	return &level
+}
+
+// DecaySweep counts what a sweep did, so the caller can log it rather than guess.
+type DecaySweep struct {
+	Examined  int
+	Started   int
+	Cleared   int
+	Demoted   int
+	Held      int
+	Recovered int
+}
+
+// SweepDecay applies the decay policy to every member with something in flight.
+//
+// "In flight" is the floor of who this can affect: a member's totals only fall through an event, and
+// every event goes through applyPolicy, which records the shortfall the moment it appears. So the
+// members this sweep must reach are exactly the members it is asked for -- and a member whose totals
+// are steady is not examined at all.
+//
+// The clock is the sweep's, not the row's: a caller that runs late still applies the deadlines it has
+// passed, because Decide compares timestamps rather than counting intervals.
+func (s *Trust) SweepDecay(ctx context.Context) (DecaySweep, error) {
+	rows, err := s.queries.ListUserTrustDecayPending(ctx)
+	if err != nil {
+		return DecaySweep{}, err
+	}
+
+	sweep := DecaySweep{Examined: len(rows)}
+	for _, rollup := range rows {
+		row := rollup
+		_, decision, err := s.applyPolicy(ctx, &row)
+		if err != nil {
+			return sweep, err
+		}
+		switch decision.Kind {
+		case KindGraceStarted:
+			sweep.Started++
+		case KindShortfallCleared:
+			sweep.Cleared++
+		case KindDemoted:
+			sweep.Demoted++
+		case KindHeld:
+			sweep.Held++
+		case KindRecovered:
+			sweep.Recovered++
+		}
+	}
+	return sweep, nil
 }
 
 // Level returns a user's current trust level.
@@ -478,7 +647,7 @@ func (s *Trust) RebuildLevels(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if _, err := s.recomputeLevel(ctx, &rebuilt); err != nil {
+		if _, err := s.repairLevel(ctx, &rebuilt); err != nil {
 			return err
 		}
 	}

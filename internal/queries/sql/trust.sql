@@ -102,12 +102,40 @@ ON CONFLICT (user_id) DO UPDATE SET
     updated_at = NOW()
 RETURNING *;
 
--- name: SetUserTrustLevel :one
+-- name: ListUserTrustDecayPending :many
+-- The sweep's working set: members with something in flight, and ONLY them.
+--
+-- A member enters it by having a shortfall or a demotion on record, which the
+-- write path sets the moment an event puts them below their level -- so a member
+-- whose totals fall can never be missed by the sweep, and a member whose totals
+-- are steady is never examined. The partial indexes from migration 125 are on
+-- exactly this predicate.
+--
+-- A row leaves it when the recovery window closes and the policy clears both
+-- timestamps, which is why a sweep that has nothing to do examines a set that
+-- empties itself.
+SELECT * FROM user_trust
+WHERE short_since IS NOT NULL OR demoted_at IS NOT NULL
+ORDER BY user_id;
+
+-- name: SetUserTrustState :one
 -- The level is written by the service after deriving it from the thresholds,
 -- never by the database. The curve is a product decision and belongs in Go,
 -- where it can be changed without a migration.
+--
+-- The decay timestamps travel WITH the level in this one statement, and that is
+-- why this replaces the level-only setter rather than joining it. A member's
+-- level and the reason it is lower than their totals justify are one fact: a
+-- level written without its grace deadline is a member who is demoted at the
+-- next sweep with no grace left, and a deadline written without its level is a
+-- shortfall with nothing to measure it against. Two setters would be two chances
+-- to write one without the other, and the failure is silent in both directions.
 UPDATE user_trust
-SET level = $2, updated_at = NOW()
+SET level = $2,
+    short_since = $3,
+    demoted_at = $4,
+    demoted_from_level = $5,
+    updated_at = NOW()
 WHERE user_id = $1
 RETURNING *;
 

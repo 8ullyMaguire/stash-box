@@ -1154,7 +1154,61 @@ reads as a working public field), and the public field accidentally gated by
 `@isUserOwner` -- that last one run through `gqlgen generate`, because a directive
 lives in the generated code and the harness alone would leave it inert.
 
-### Slice 6b-1 — decay with grace and recovery (BUILT)
+### Slice 6b-2 — the policy wired up: on the write path, and swept (BUILT)
+
+**The policy is on the WRITE PATH, not only in the sweep**, and that is the whole
+reason this slice is more than a scheduled job: if the level still followed the
+totals the moment an event landed, the grace period would be a decoration. A
+negative event now RECORDS the shortfall and leaves the level where it is; the fall
+happens when a sweep finds the deadline passed.
+
+**Two timestamps and the level are written in ONE statement** (`SetUserTrustState`,
+replacing the level-only setter). A member's level and the reason it is below what
+their totals justify are one fact: a level written without its deadline is a member
+demoted at the next sweep with no grace left, and a deadline written without its
+level is a shortfall with nothing to measure it against. Two setters would be two
+chances to write one without the other, and the failure is silent in both
+directions.
+
+**The sweep works from the members, not the instance.** Its query asks for rows
+with a shortfall or a demotion on record — which the write path sets the moment one
+appears, so a member whose totals fall can never be missed — and a member with
+nothing in flight is not examined at all. A row leaves the set when the window
+closes and the policy clears both timestamps, so a sweep with nothing to do
+examines a set that empties itself. Partial indexes sit on exactly that predicate.
+
+**The window holds the level the member was dropped FROM, and only that**
+(`demoted_from_level`). A member whose totals come back to where they were is
+recovering early, which is what the window exists to stop; a member whose totals
+justify MORE than they ever had has earned a standing the window was never
+protecting, and holding them at the level they fell to would punish them for doing
+better than before. This distinction is the one the integration test found, and it
+is not bookkeeping: without the column the two cases are indistinguishable.
+
+**Two bugs found on the way, both by reading the code this slice had to touch:**
+`recomputeLevel` built its `Totals` field by field and omitted `BonusPoints` — which
+the rollup carried, `ApplyTrustEvent` incremented and `Totals.Points()` added — so a
+quest's bounty raised nothing and a member who earned points did not get them. It
+now reads the whole row. And `applyPolicy` is the single writer of the level for
+the event path and for `RebuildLevels`, so a threshold change grants grace too
+rather than demoting a cohort instantly.
+
+**Verification (DONE), against a real database.** The plan's sentence end to end:
+twenty approvals put the member at TL3; two reversals leave them there AND record
+the shortfall; a sweep an hour before the deadline changes nothing; the sweep at the
+deadline demotes to TL2 and dates the demotion; the points earned back inside the
+window leave them at TL2; day 13 holds; day 14 restores TL3 and clears both
+timestamps; and the next sweep examines nobody. Plus a shortfall that clears itself
+(and a later one that starts a FRESH grace), a promotion held by nothing — the case
+that failed against the first version of the policy and became a unit test — and a
+bounty that raises the level.
+
+Five probes, all killed: the write path skipping the policy; the shortfall never
+persisted; the grace deadline measured with the recovery period; a sweep whose
+working set is every member (a mutation in the GENERATED SQL, since that is the file
+that runs); and the level not written with its state.
+
+## Slice 6b-1 — decay with grace and recovery (BUILT)
 
 **The three parts, because each answers a different fear.**
 

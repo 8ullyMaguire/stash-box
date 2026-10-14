@@ -55,6 +55,14 @@ type TrustState struct {
 	ShortSince time.Time
 	// DemotedAt is when the member was last dropped, or the zero time.
 	DemotedAt time.Time
+	// DemotedFrom is the level the member was dropped FROM, and it is the window's own subject:
+	// the hold is on that level, not on the level they fell to. Zero when not demoted.
+	//
+	// The distinction is not bookkeeping. A member whose totals come back to where they were is
+	// recovering early, and the window exists to stop exactly that. A member whose totals justify
+	// MORE than they ever had has earned a standing the window was never protecting, and holding
+	// them at the level they were dropped to would punish them for doing better than before.
+	DemotedFrom LevelEnum
 }
 
 // Decision is what the decision function did, and why -- for the caller that has to write it down.
@@ -95,8 +103,8 @@ const (
 	KindShortfallCleared DecisionKind = "shortfall_cleared"
 	// KindDemoted: the grace deadline passed with the shortfall standing.
 	KindDemoted DecisionKind = "demoted"
-	// KindHeld: inside a recovery window, the level is being held down against totals that justify
-	// more. EffectiveAt is when the window ends.
+	// KindHeld: inside a recovery window, the level is being held down against a return to the level
+	// the member was dropped from. EffectiveAt is when the window ends.
 	KindHeld DecisionKind = "held"
 	// KindRecovered: the recovery window ended. The level now follows the totals again -- which is
 	// a regain only if the totals went back up; the next call is what decides that.
@@ -105,6 +113,22 @@ const (
 	// Immediate: no grace, no window.
 	KindPromoted DecisionKind = "promoted"
 )
+
+// Changed reports whether a decision alters what is PERSISTED.
+//
+// The caller that stores the result has to know the difference between "the level moved" and "the
+// state moved", and both need writing: KindGraceStarted does not touch the level but starts a clock
+// that the next sweep will act on, and KindShortfallCleared does not touch the level but stops one.
+// Only the three kinds that leave the stored state exactly as it was are excluded -- and they are
+// excluded because a write would only restamp updated_at on a row nothing happened to.
+func (d Decision) Changed() bool {
+	switch d.Kind {
+	case KindUnchanged, KindGraceStanding, KindHeld:
+		return false
+	default:
+		return true
+	}
+}
 
 // Decide applies the decay policy to one member, one instant at a time.
 //
@@ -162,6 +186,7 @@ func Decide(prev TrustState, totals Totals, now time.Time) (TrustState, Decision
 	next.Level = raw
 	next.ShortSince = time.Time{}
 	next.DemotedAt = now
+	next.DemotedFrom = prev.Level
 	return next, Decision{
 		Kind:        KindDemoted,
 		At:          now,
@@ -178,6 +203,19 @@ func Decide(prev TrustState, totals Totals, now time.Time) (TrustState, Decision
 // changes twice in an hour and means nothing. At the end of the window the level follows the totals
 // again -- a regain if the totals recovered, a further fall if they did not.
 func decideWhileDemoted(prev TrustState, raw LevelEnum, now time.Time) (TrustState, Decision) {
+	// A STANDING THE MEMBER NEVER HAD CANNOT BE HELD AGAINST THEM. The window is a hold on the level
+	// they were dropped from; a member whose totals now justify more than that has earned something
+	// new, and it lands immediately -- which also ends the window, because there is no longer anything
+	// to hold. This branch is checked BEFORE the clock for that reason, and it was missing until the
+	// integration test promoted a demoted member and watched the level stay put.
+	if prev.DemotedFrom > 0 && raw > prev.DemotedFrom {
+		next := prev
+		next.Level = raw
+		next.DemotedAt = time.Time{}
+		next.DemotedFrom = 0
+		return next, Decision{Kind: KindPromoted, At: now, From: prev.Level, To: raw}
+	}
+
 	window := prev.DemotedAt.Add(RecoveryPeriod)
 	if now.Before(window) {
 		return prev, Decision{
@@ -192,5 +230,6 @@ func decideWhileDemoted(prev TrustState, raw LevelEnum, now time.Time) (TrustSta
 	next := prev
 	next.Level = raw
 	next.DemotedAt = time.Time{}
+	next.DemotedFrom = 0
 	return next, Decision{Kind: KindRecovered, At: now, From: prev.Level, To: raw}
 }

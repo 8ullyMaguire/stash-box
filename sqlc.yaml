@@ -137,6 +137,7 @@ sql:
       - internal/database/migrations/postgres/122_denylist_mode.up.sql
       - internal/database/migrations/postgres/123_content_terms.up.sql
       - internal/database/migrations/postgres/124_performer_profile_snapshots.up.sql
+      - internal/database/migrations/postgres/125_trust_decay_state.up.sql
     queries: "internal/queries/sql"
     gen:
       go:

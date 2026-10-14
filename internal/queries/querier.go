@@ -1994,6 +1994,18 @@ type Querier interface {
 	// from []time.Time to []pgtype.Interval. `timestamp` is the type the value
 	// actually has.
 	ListUserActivityDays(ctx context.Context, userID uuid.UUID) ([]time.Time, error)
+	// The sweep's working set: members with something in flight, and ONLY them.
+	//
+	// A member enters it by having a shortfall or a demotion on record, which the
+	// write path sets the moment an event puts them below their level -- so a member
+	// whose totals fall can never be missed by the sweep, and a member whose totals
+	// are steady is never examined. The partial indexes from migration 125 are on
+	// exactly this predicate.
+	//
+	// A row leaves it when the recovery window closes and the policy clears both
+	// timestamps, which is why a sweep that has nothing to do examines a set that
+	// empties itself.
+	ListUserTrustDecayPending(ctx context.Context) ([]UserTrust, error)
 	// One user's history, newest first. Used by the audit view and by tests that
 	// assert the event log is the source of truth.
 	ListUserTrustEvents(ctx context.Context, userID uuid.UUID) ([]TrustEvent, error)
@@ -2372,7 +2384,15 @@ type Querier interface {
 	// The level is written by the service after deriving it from the thresholds,
 	// never by the database. The curve is a product decision and belongs in Go,
 	// where it can be changed without a migration.
-	SetUserTrustLevel(ctx context.Context, arg SetUserTrustLevelParams) (UserTrust, error)
+	//
+	// The decay timestamps travel WITH the level in this one statement, and that is
+	// why this replaces the level-only setter rather than joining it. A member's
+	// level and the reason it is lower than their totals justify are one fact: a
+	// level written without its grace deadline is a member who is demoted at the
+	// next sweep with no grace left, and a deadline written without its level is a
+	// shortfall with nothing to measure it against. Two setters would be two chances
+	// to write one without the other, and the failure is silent in both directions.
+	SetUserTrustState(ctx context.Context, arg SetUserTrustStateParams) (UserTrust, error)
 	// The record of consent. The gate uses its MAXIMUM; the array is what an audit
 	// reads, so the value is stored as sent rather than collapsed to a number.
 	//
