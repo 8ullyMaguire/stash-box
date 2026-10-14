@@ -1,0 +1,148 @@
+# Expected totals and their evidence (SPEC §7.24.2, aggregator phase 9 slice 9f).
+#
+# A source asserts that a studio lists four hundred scenes. This is what that
+# claim looks like once the instance has counted what it holds against it -- and,
+# crucially, what the claim looks like when the page it came from is gone.
+#
+# Two things a reader needs are separate fields on purpose. `percent` is the
+# arithmetic; `score` is the answer, and the two differ when a claim's evidence
+# has been lost. Reporting only `score` would hide WHY a studio at 100% of its
+# claim shows 90; reporting only `percent` would present a number nobody can
+# check as though it were settled.
+
+"""
+One denominator a source asserts, with how much of it this instance holds.
+"""
+type CompletenessClaim {
+  """
+  The kind being counted, e.g. `scenes`.
+  """
+  kind: String!
+
+  """
+  What the source claims exists.
+  """
+  expected: Int!
+
+  """
+  How many of them this instance holds.
+
+  A count of what is HELD, not of what is missing: the two are derivable from
+  each other only while the gap is positive, and an instance holding more than
+  the source lists is the normal case for a growing archive.
+  """
+  observed: Int!
+
+  """
+  The gap, FLOORED at zero.
+
+  Over-count is real and intended. A negative gap would read as an error in a
+  figure whose whole purpose is to be read quickly, so a surplus reports 0.
+  """
+  missing: Int!
+
+  """
+  The page the claim came from, exactly as it was asserted.
+
+  Not normalised: this is the string a curator wrote, and rewriting it here would
+  make the API disagree with the row it just read.
+  """
+  sourceUrl: String!
+
+  """
+  The health of that page, or null when this instance does not track it.
+
+  NULL IS THE ORDINARY CASE AND NOT A PROBLEM. Most source pages are not URLs
+  this instance aggregates, and "nobody has checked this page" is not "this page
+  is gone". Only a status the instance observed -- `DEAD`, `DMCA`, `ARCHIVED` --
+  makes a claim unverifiable.
+  """
+  status: ContentSourceStatus
+
+  """
+  Whether the claim's evidence is gone, so the claim can no longer be checked.
+  """
+  unverifiable: Boolean!
+}
+
+"""
+A studio's denominators, what is held against them, and whether the record still
+stands.
+"""
+type CompletenessVerdict {
+  """
+  Every claim, in the order the queries return them.
+  """
+  claims: [CompletenessClaim!]!
+
+  """
+  The claimed total, summed over the claims.
+  """
+  expected: Int!
+
+  """
+  What this instance holds against them, summed.
+  """
+  observed: Int!
+
+  """
+  The observed share of the claim, FLOORED.
+
+  Floored rather than rounded, deliberately, and it differs from the completion
+  scorer: that answers "how much of the work is done", where a job essentially
+  finished may round to 100. This answers "how much of the claim do we hold",
+  and a figure that reaches 100 while the claim is unmet is the same lie as 100%
+  for a claim nobody checked, one step smaller. Only a met claim reports 100.
+  """
+  percent: Int!
+
+  """
+  The percentage to show: `percent`, capped at 90 when a claim's evidence is gone.
+
+  A CEILING, not a penalty: an entity at 25% stays at 25%, because subtracting
+  would report less completeness than the archive verifiably holds. The cap
+  exists for the one case where it changes the meaning -- the claim fully held
+  and uncheckable, where 100 is a defensible statement about the archive and an
+  indefensible one about the record.
+  """
+  score: Int!
+
+  """
+  Whether any source has claimed anything about this entity.
+
+  False means "no ratio": `percent` is then 0 and that zero means nobody has
+  asserted a figure, NOT that the instance holds none of it. A client that shows
+  a percentage for an unclaimed entity without checking this reads the archive as
+  more complete the less is known about it.
+  """
+  hasClaim: Boolean!
+
+  """
+  Whether ANY claim's evidence is gone.
+
+  Any, not all: one claim nobody can check makes the record unverifiable, however
+  many of its other claims still stand.
+  """
+  unverifiable: Boolean!
+
+  """
+  The first claim whose evidence is gone, or null.
+
+  Exposed because "unverifiable" without "which claim" is not actionable: the
+  reader's next move is to re-assert that total against a page that is still
+  there, or to accept the cap, and neither is possible from a bare boolean.
+  """
+  lostSource: CompletenessClaim
+}
+
+extend type Query {
+  """
+  What the sources claim a studio lists, what this instance holds, and whether
+  that record can still be checked (SPEC §7.24.2).
+
+  READ, not VOTE: a denominator is a claim about the world that anyone can read
+  on the source's own page, and hiding it would conceal the archive's own health
+  from the people browsing it. The studio it describes is itself role-gated.
+  """
+  studioCompleteness(studioId: ID!): CompletenessVerdict! @hasRole(role: READ)
+}

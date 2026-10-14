@@ -244,6 +244,84 @@ type CommentVotedEdit struct {
 
 func (CommentVotedEdit) IsNotificationData() {}
 
+// One denominator a source asserts, with how much of it this instance holds.
+type CompletenessClaim struct {
+	// The kind being counted, e.g. `scenes`.
+	Kind string `json:"kind"`
+	// What the source claims exists.
+	Expected int `json:"expected"`
+	// How many of them this instance holds.
+	//
+	// A count of what is HELD, not of what is missing: the two are derivable from
+	// each other only while the gap is positive, and an instance holding more than
+	// the source lists is the normal case for a growing archive.
+	Observed int `json:"observed"`
+	// The gap, FLOORED at zero.
+	//
+	// Over-count is real and intended. A negative gap would read as an error in a
+	// figure whose whole purpose is to be read quickly, so a surplus reports 0.
+	Missing int `json:"missing"`
+	// The page the claim came from, exactly as it was asserted.
+	//
+	// Not normalised: this is the string a curator wrote, and rewriting it here would
+	// make the API disagree with the row it just read.
+	SourceURL string `json:"sourceUrl"`
+	// The health of that page, or null when this instance does not track it.
+	//
+	// NULL IS THE ORDINARY CASE AND NOT A PROBLEM. Most source pages are not URLs
+	// this instance aggregates, and "nobody has checked this page" is not "this page
+	// is gone". Only a status the instance observed -- `DEAD`, `DMCA`, `ARCHIVED` --
+	// makes a claim unverifiable.
+	Status *ContentSourceStatus `json:"status,omitempty"`
+	// Whether the claim's evidence is gone, so the claim can no longer be checked.
+	Unverifiable bool `json:"unverifiable"`
+}
+
+// A studio's denominators, what is held against them, and whether the record still
+// stands.
+type CompletenessVerdict struct {
+	// Every claim, in the order the queries return them.
+	Claims []CompletenessClaim `json:"claims"`
+	// The claimed total, summed over the claims.
+	Expected int `json:"expected"`
+	// What this instance holds against them, summed.
+	Observed int `json:"observed"`
+	// The observed share of the claim, FLOORED.
+	//
+	// Floored rather than rounded, deliberately, and it differs from the completion
+	// scorer: that answers "how much of the work is done", where a job essentially
+	// finished may round to 100. This answers "how much of the claim do we hold",
+	// and a figure that reaches 100 while the claim is unmet is the same lie as 100%
+	// for a claim nobody checked, one step smaller. Only a met claim reports 100.
+	Percent int `json:"percent"`
+	// The percentage to show: `percent`, capped at 90 when a claim's evidence is gone.
+	//
+	// A CEILING, not a penalty: an entity at 25% stays at 25%, because subtracting
+	// would report less completeness than the archive verifiably holds. The cap
+	// exists for the one case where it changes the meaning -- the claim fully held
+	// and uncheckable, where 100 is a defensible statement about the archive and an
+	// indefensible one about the record.
+	Score int `json:"score"`
+	// Whether any source has claimed anything about this entity.
+	//
+	// False means "no ratio": `percent` is then 0 and that zero means nobody has
+	// asserted a figure, NOT that the instance holds none of it. A client that shows
+	// a percentage for an unclaimed entity without checking this reads the archive as
+	// more complete the less is known about it.
+	HasClaim bool `json:"hasClaim"`
+	// Whether ANY claim's evidence is gone.
+	//
+	// Any, not all: one claim nobody can check makes the record unverifiable, however
+	// many of its other claims still stand.
+	Unverifiable bool `json:"unverifiable"`
+	// The first claim whose evidence is gone, or null.
+	//
+	// Exposed because "unverifiable" without "which claim" is not actionable: the
+	// reader's next move is to re-assert that total against a page that is still
+	// there, or to accept the cap, and neither is possible from a bare boolean.
+	LostSource *CompletenessClaim `json:"lostSource,omitempty"`
+}
+
 // How complete an entity is, and what is missing.
 //
 // The `score` is for a progress bar and `missing` is for the quest that fills it.

@@ -1590,9 +1590,36 @@ per-entity case (two dead claims still 90), and the rounding table. Five probes,
 own messages: the cap subtracting instead of ceilinging; `Percent` rounding up instead of flooring;
 `HasClaim` always true; the penalty applied per total; `Unverifiable` requiring EVERY total to be lost.
 
-**Still to come (9f-3, decided):** the quest (`GenerateUnverifiedSource` on the existing `Wording`
-machinery -- the acceptance criterion's "raises a quest" half) and the API exposure, so a reader sees
-the verdict rather than only the service's callers.
+#### 9f-3 — the API exposure, BUILT; and the quest, DECIDED AGAINST
+
+**Exposed as `Query.studioCompleteness(studioId: ID!)`** (`graphql/schema/types/completeness.graphql`):
+the claims with their evidence, the summed counts, `percent` (floored) beside `score` (capped), and
+`lostSource`. `percent` and `score` are BOTH published on purpose -- reporting only `score` would hide
+WHY a studio at 100% of its claim shows 90, and reporting only `percent` would present a number nobody
+can check as though it were settled. A claim's `status` is NULLABLE and null means "this instance does
+not track that page": an empty-string status would either become `UNKNOWN` (a lie -- nothing has checked
+the URL) or fail the read, and every source page in the world that is not one of ours lands there.
+
+The status mapping was factored out of `contentSourceResolver.Status` into `contentSourceStatusEnum`,
+now shared by both callers. One switch for one vocabulary, and the existing mapping test guards the
+refactor. The resolver computes nothing: the percentages come from the verdict, which is the only place
+the rules live, or the two drift the first time either rule changes.
+
+**Verification (9f-3, DONE):** three tests through the GraphQL HANDLER (not the resolver, per the
+gqlgen rule that calling an accessor proves nothing about the schema): the full round trip with the
+source live and then dead (the numbers UNCHANGED, `lostSource` naming the claim, `status` `DEAD`), a
+studio with no claim, and a claim whose page is untracked (`status` null, no cap). Five probes killed:
+the resolver ignoring the service, the resolver doing its own rounding, `LIVE`/`DEAD` swapped at the
+mapping, absence turned into a status, and `lostSource` always returned.
+
+**The quest is DECIDED AGAINST, and this narrows the phase's acceptance criterion on the record.** The
+criterion says a dead source "raises a quest". The quest package's grammar is `(entity, missing FIELD,
+score)` and its guarantee is that an item disappears when the field it names is FILLED. A dead source is
+not a field and is not filled by an edit -- it is RE-ASSERTED, a different verb -- so expressing it as a
+quest means either breaking the `Item` contract or smuggling a pseudo-field into a vocabulary whose
+whole value is that every value in it means "go and edit this". The reader is instead served where a
+curator already is: `lostSource` and `score` on the studio's own verdict. If a worklist is ever wanted,
+the honest shape is a separate query over studios with unverifiable totals -- not an item in a quest.
 
 Migration 97's totals carry `(source_entity_type, source_url)` and its own comment says a total is "a
 claim about the world" whose source must be real. Migration 108 then made `content_sources` the health

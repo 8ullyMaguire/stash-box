@@ -43,21 +43,35 @@ type contentSourceResolver struct{ *Resolver }
 // which would be a lie: UNKNOWN means "nothing has checked this URL", not "this instance does not
 // understand the answer".
 func (r *contentSourceResolver) Status(ctx context.Context, obj *models.ContentSource) (models.ContentSourceStatus, error) {
-	switch obj.Status {
-	case content.StatusUnknown:
-		return models.ContentSourceStatusUnknown, nil
-	case content.StatusLive:
-		return models.ContentSourceStatusLive, nil
-	case content.StatusIntermittent:
-		return models.ContentSourceStatusIntermittent, nil
-	case content.StatusDead:
-		return models.ContentSourceStatusDead, nil
-	case content.StatusDMCA:
-		return models.ContentSourceStatusDmca, nil
-	case content.StatusArchived:
-		return models.ContentSourceStatusArchived, nil
-	default:
+	status, ok := contentSourceStatusEnum(obj.Status)
+	if !ok {
 		return "", fmt.Errorf("content source %s has status %q, which has no name in the API's vocabulary", obj.URL, obj.Status)
+	}
+	return status, nil
+}
+
+// contentSourceStatusEnum names a stored status in the API's vocabulary.
+//
+// One switch, two callers: this resolver, and the completeness verdict's claim, which reports the
+// health of a page a total came from. The second return is false for a status this function cannot
+// name -- and for the EMPTY string, which is what a claim with no health record carries and is NOT a
+// status at all (see the resolver above for why that must not become UNKNOWN).
+func contentSourceStatusEnum(status string) (models.ContentSourceStatus, bool) {
+	switch status {
+	case content.StatusUnknown:
+		return models.ContentSourceStatusUnknown, true
+	case content.StatusLive:
+		return models.ContentSourceStatusLive, true
+	case content.StatusIntermittent:
+		return models.ContentSourceStatusIntermittent, true
+	case content.StatusDead:
+		return models.ContentSourceStatusDead, true
+	case content.StatusDMCA:
+		return models.ContentSourceStatusDmca, true
+	case content.StatusArchived:
+		return models.ContentSourceStatusArchived, true
+	default:
+		return "", false
 	}
 }
 

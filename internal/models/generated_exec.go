@@ -171,6 +171,27 @@ type ComplexityRoot struct {
 		Comment func(childComplexity int) int
 	}
 
+	CompletenessClaim struct {
+		Expected     func(childComplexity int) int
+		Kind         func(childComplexity int) int
+		Missing      func(childComplexity int) int
+		Observed     func(childComplexity int) int
+		SourceURL    func(childComplexity int) int
+		Status       func(childComplexity int) int
+		Unverifiable func(childComplexity int) int
+	}
+
+	CompletenessVerdict struct {
+		Claims       func(childComplexity int) int
+		Expected     func(childComplexity int) int
+		HasClaim     func(childComplexity int) int
+		LostSource   func(childComplexity int) int
+		Observed     func(childComplexity int) int
+		Percent      func(childComplexity int) int
+		Score        func(childComplexity int) int
+		Unverifiable func(childComplexity int) int
+	}
+
 	Completion struct {
 		Earned     func(childComplexity int) int
 		EntityType func(childComplexity int) int
@@ -972,6 +993,7 @@ type ComplexityRoot struct {
 		SessionState                   func(childComplexity int, kind string, key string) int
 		SessionStates                  func(childComplexity int, kind string) int
 		StudioChangelog                func(childComplexity int, since time.Time, afterID *uuid.UUID, limit *int) int
+		StudioCompleteness             func(childComplexity int, studioID uuid.UUID) int
 		TagChangelog                   func(childComplexity int, since time.Time, afterID *uuid.UUID, limit *int) int
 		TagImplications                func(childComplexity int) int
 		UnderSnapshottedScenes         func(childComplexity int, minimum *int, limit *int) int
@@ -1780,6 +1802,7 @@ type QueryResolver interface {
 	SceneSnapshots(ctx context.Context, sceneID uuid.UUID) ([]CollageSnapshot, error)
 	SceneCollage(ctx context.Context, sceneID uuid.UUID) (*Collage, error)
 	UnderSnapshottedScenes(ctx context.Context, minimum *int, limit *int) ([]UnderSnapshottedScene, error)
+	StudioCompleteness(ctx context.Context, studioID uuid.UUID) (*CompletenessVerdict, error)
 	CountIncompleteEntities(ctx context.Context, entityType EntityType, below int) (int, error)
 	ContentAccessSetup(ctx context.Context) (*ContentAccessSetup, error)
 	ContentItem(ctx context.Context, id uuid.UUID) (*ContentItem, error)
@@ -2284,6 +2307,98 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.CommentVotedEdit.Comment(childComplexity), true
+
+	case "CompletenessClaim.expected":
+		if e.ComplexityRoot.CompletenessClaim.Expected == nil {
+			break
+		}
+
+		return e.ComplexityRoot.CompletenessClaim.Expected(childComplexity), true
+	case "CompletenessClaim.kind":
+		if e.ComplexityRoot.CompletenessClaim.Kind == nil {
+			break
+		}
+
+		return e.ComplexityRoot.CompletenessClaim.Kind(childComplexity), true
+	case "CompletenessClaim.missing":
+		if e.ComplexityRoot.CompletenessClaim.Missing == nil {
+			break
+		}
+
+		return e.ComplexityRoot.CompletenessClaim.Missing(childComplexity), true
+	case "CompletenessClaim.observed":
+		if e.ComplexityRoot.CompletenessClaim.Observed == nil {
+			break
+		}
+
+		return e.ComplexityRoot.CompletenessClaim.Observed(childComplexity), true
+	case "CompletenessClaim.sourceUrl":
+		if e.ComplexityRoot.CompletenessClaim.SourceURL == nil {
+			break
+		}
+
+		return e.ComplexityRoot.CompletenessClaim.SourceURL(childComplexity), true
+	case "CompletenessClaim.status":
+		if e.ComplexityRoot.CompletenessClaim.Status == nil {
+			break
+		}
+
+		return e.ComplexityRoot.CompletenessClaim.Status(childComplexity), true
+	case "CompletenessClaim.unverifiable":
+		if e.ComplexityRoot.CompletenessClaim.Unverifiable == nil {
+			break
+		}
+
+		return e.ComplexityRoot.CompletenessClaim.Unverifiable(childComplexity), true
+
+	case "CompletenessVerdict.claims":
+		if e.ComplexityRoot.CompletenessVerdict.Claims == nil {
+			break
+		}
+
+		return e.ComplexityRoot.CompletenessVerdict.Claims(childComplexity), true
+	case "CompletenessVerdict.expected":
+		if e.ComplexityRoot.CompletenessVerdict.Expected == nil {
+			break
+		}
+
+		return e.ComplexityRoot.CompletenessVerdict.Expected(childComplexity), true
+	case "CompletenessVerdict.hasClaim":
+		if e.ComplexityRoot.CompletenessVerdict.HasClaim == nil {
+			break
+		}
+
+		return e.ComplexityRoot.CompletenessVerdict.HasClaim(childComplexity), true
+	case "CompletenessVerdict.lostSource":
+		if e.ComplexityRoot.CompletenessVerdict.LostSource == nil {
+			break
+		}
+
+		return e.ComplexityRoot.CompletenessVerdict.LostSource(childComplexity), true
+	case "CompletenessVerdict.observed":
+		if e.ComplexityRoot.CompletenessVerdict.Observed == nil {
+			break
+		}
+
+		return e.ComplexityRoot.CompletenessVerdict.Observed(childComplexity), true
+	case "CompletenessVerdict.percent":
+		if e.ComplexityRoot.CompletenessVerdict.Percent == nil {
+			break
+		}
+
+		return e.ComplexityRoot.CompletenessVerdict.Percent(childComplexity), true
+	case "CompletenessVerdict.score":
+		if e.ComplexityRoot.CompletenessVerdict.Score == nil {
+			break
+		}
+
+		return e.ComplexityRoot.CompletenessVerdict.Score(childComplexity), true
+	case "CompletenessVerdict.unverifiable":
+		if e.ComplexityRoot.CompletenessVerdict.Unverifiable == nil {
+			break
+		}
+
+		return e.ComplexityRoot.CompletenessVerdict.Unverifiable(childComplexity), true
 
 	case "Completion.earned":
 		if e.ComplexityRoot.Completion.Earned == nil {
@@ -6769,6 +6884,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.StudioChangelog(childComplexity, args["since"].(time.Time), args["after_id"].(*uuid.UUID), args["limit"].(*int)), true
+	case "Query.studioCompleteness":
+		if e.ComplexityRoot.Query.StudioCompleteness == nil {
+			break
+		}
+
+		args, err := ec.field_Query_studioCompleteness_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.StudioCompleteness(childComplexity, args["studioId"].(uuid.UUID)), true
 	case "Query.tagChangelog":
 		if e.ComplexityRoot.Query.TagChangelog == nil {
 			break
@@ -9338,6 +9464,155 @@ extend type Mutation {
   generateCollage(sceneID: ID!, frameCount: Int = 16): Collage
     @hasRole(role: READ)
 }`, BuiltIn: false},
+	{Name: "../../graphql/schema/types/completeness.graphql", Input: `# Expected totals and their evidence (SPEC §7.24.2, aggregator phase 9 slice 9f).
+#
+# A source asserts that a studio lists four hundred scenes. This is what that
+# claim looks like once the instance has counted what it holds against it -- and,
+# crucially, what the claim looks like when the page it came from is gone.
+#
+# Two things a reader needs are separate fields on purpose. ` + "`" + `percent` + "`" + ` is the
+# arithmetic; ` + "`" + `score` + "`" + ` is the answer, and the two differ when a claim's evidence
+# has been lost. Reporting only ` + "`" + `score` + "`" + ` would hide WHY a studio at 100% of its
+# claim shows 90; reporting only ` + "`" + `percent` + "`" + ` would present a number nobody can
+# check as though it were settled.
+
+"""
+One denominator a source asserts, with how much of it this instance holds.
+"""
+type CompletenessClaim {
+  """
+  The kind being counted, e.g. ` + "`" + `scenes` + "`" + `.
+  """
+  kind: String!
+
+  """
+  What the source claims exists.
+  """
+  expected: Int!
+
+  """
+  How many of them this instance holds.
+
+  A count of what is HELD, not of what is missing: the two are derivable from
+  each other only while the gap is positive, and an instance holding more than
+  the source lists is the normal case for a growing archive.
+  """
+  observed: Int!
+
+  """
+  The gap, FLOORED at zero.
+
+  Over-count is real and intended. A negative gap would read as an error in a
+  figure whose whole purpose is to be read quickly, so a surplus reports 0.
+  """
+  missing: Int!
+
+  """
+  The page the claim came from, exactly as it was asserted.
+
+  Not normalised: this is the string a curator wrote, and rewriting it here would
+  make the API disagree with the row it just read.
+  """
+  sourceUrl: String!
+
+  """
+  The health of that page, or null when this instance does not track it.
+
+  NULL IS THE ORDINARY CASE AND NOT A PROBLEM. Most source pages are not URLs
+  this instance aggregates, and "nobody has checked this page" is not "this page
+  is gone". Only a status the instance observed -- ` + "`" + `DEAD` + "`" + `, ` + "`" + `DMCA` + "`" + `, ` + "`" + `ARCHIVED` + "`" + ` --
+  makes a claim unverifiable.
+  """
+  status: ContentSourceStatus
+
+  """
+  Whether the claim's evidence is gone, so the claim can no longer be checked.
+  """
+  unverifiable: Boolean!
+}
+
+"""
+A studio's denominators, what is held against them, and whether the record still
+stands.
+"""
+type CompletenessVerdict {
+  """
+  Every claim, in the order the queries return them.
+  """
+  claims: [CompletenessClaim!]!
+
+  """
+  The claimed total, summed over the claims.
+  """
+  expected: Int!
+
+  """
+  What this instance holds against them, summed.
+  """
+  observed: Int!
+
+  """
+  The observed share of the claim, FLOORED.
+
+  Floored rather than rounded, deliberately, and it differs from the completion
+  scorer: that answers "how much of the work is done", where a job essentially
+  finished may round to 100. This answers "how much of the claim do we hold",
+  and a figure that reaches 100 while the claim is unmet is the same lie as 100%
+  for a claim nobody checked, one step smaller. Only a met claim reports 100.
+  """
+  percent: Int!
+
+  """
+  The percentage to show: ` + "`" + `percent` + "`" + `, capped at 90 when a claim's evidence is gone.
+
+  A CEILING, not a penalty: an entity at 25% stays at 25%, because subtracting
+  would report less completeness than the archive verifiably holds. The cap
+  exists for the one case where it changes the meaning -- the claim fully held
+  and uncheckable, where 100 is a defensible statement about the archive and an
+  indefensible one about the record.
+  """
+  score: Int!
+
+  """
+  Whether any source has claimed anything about this entity.
+
+  False means "no ratio": ` + "`" + `percent` + "`" + ` is then 0 and that zero means nobody has
+  asserted a figure, NOT that the instance holds none of it. A client that shows
+  a percentage for an unclaimed entity without checking this reads the archive as
+  more complete the less is known about it.
+  """
+  hasClaim: Boolean!
+
+  """
+  Whether ANY claim's evidence is gone.
+
+  Any, not all: one claim nobody can check makes the record unverifiable, however
+  many of its other claims still stand.
+  """
+  unverifiable: Boolean!
+
+  """
+  The first claim whose evidence is gone, or null.
+
+  Exposed because "unverifiable" without "which claim" is not actionable: the
+  reader's next move is to re-assert that total against a page that is still
+  there, or to accept the cap, and neither is possible from a bare boolean.
+  """
+  lostSource: CompletenessClaim
+}
+
+extend type Query {
+  """
+  What the sources claim a studio lists, what this instance holds, and whether
+  that record can still be checked (SPEC §7.24.2).
+
+  READ, not VOTE: a denominator is a claim about the world that anyone can read
+  on the source's own page, and hiding it would conceal the archive's own health
+  from the people browsing it. The studio it describes is itself role-gated.
+  """
+  studioCompleteness(studioId: ID!): CompletenessVerdict! @hasRole(role: READ)
+}
+`, BuiltIn: false},
 	{Name: "../../graphql/schema/types/completion.graphql", Input: `# Completion scores (SPEC §7.7).
 #
 # One type, five places it appears. A performer, a scene, a studio, a site and a
@@ -14713,6 +14988,48 @@ func (ec *executionContext) childFields_CollageFrame(ctx context.Context, field 
 	return nil, fmt.Errorf("no field named %q was found under type CollageFrame", field.Name)
 }
 
+func (ec *executionContext) childFields_CompletenessClaim(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "kind":
+		return ec.fieldContext_CompletenessClaim_kind(ctx, field)
+	case "expected":
+		return ec.fieldContext_CompletenessClaim_expected(ctx, field)
+	case "observed":
+		return ec.fieldContext_CompletenessClaim_observed(ctx, field)
+	case "missing":
+		return ec.fieldContext_CompletenessClaim_missing(ctx, field)
+	case "sourceUrl":
+		return ec.fieldContext_CompletenessClaim_sourceUrl(ctx, field)
+	case "status":
+		return ec.fieldContext_CompletenessClaim_status(ctx, field)
+	case "unverifiable":
+		return ec.fieldContext_CompletenessClaim_unverifiable(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type CompletenessClaim", field.Name)
+}
+
+func (ec *executionContext) childFields_CompletenessVerdict(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "claims":
+		return ec.fieldContext_CompletenessVerdict_claims(ctx, field)
+	case "expected":
+		return ec.fieldContext_CompletenessVerdict_expected(ctx, field)
+	case "observed":
+		return ec.fieldContext_CompletenessVerdict_observed(ctx, field)
+	case "percent":
+		return ec.fieldContext_CompletenessVerdict_percent(ctx, field)
+	case "score":
+		return ec.fieldContext_CompletenessVerdict_score(ctx, field)
+	case "hasClaim":
+		return ec.fieldContext_CompletenessVerdict_hasClaim(ctx, field)
+	case "unverifiable":
+		return ec.fieldContext_CompletenessVerdict_unverifiable(ctx, field)
+	case "lostSource":
+		return ec.fieldContext_CompletenessVerdict_lostSource(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type CompletenessVerdict", field.Name)
+}
+
 func (ec *executionContext) childFields_Completion(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 	switch field.Name {
 	case "entityType":
@@ -19517,6 +19834,20 @@ func (ec *executionContext) field_Query_studioChangelog_args(ctx context.Context
 	return args, nil
 }
 
+func (ec *executionContext) field_Query_studioCompleteness_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "studioId",
+		func(ctx context.Context, v any) (uuid.UUID, error) {
+			return ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["studioId"] = arg0
+	return args, nil
+}
+
 func (ec *executionContext) field_Query_tagChangelog_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -20924,6 +21255,369 @@ func (ec *executionContext) fieldContext_CommentVotedEdit_comment(_ context.Cont
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return ec.childFields_EditComment(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _CompletenessClaim_kind(ctx context.Context, field graphql.CollectedField, obj *CompletenessClaim) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_CompletenessClaim_kind(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Kind, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_CompletenessClaim_kind(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("CompletenessClaim", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _CompletenessClaim_expected(ctx context.Context, field graphql.CollectedField, obj *CompletenessClaim) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_CompletenessClaim_expected(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Expected, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_CompletenessClaim_expected(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("CompletenessClaim", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _CompletenessClaim_observed(ctx context.Context, field graphql.CollectedField, obj *CompletenessClaim) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_CompletenessClaim_observed(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Observed, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_CompletenessClaim_observed(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("CompletenessClaim", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _CompletenessClaim_missing(ctx context.Context, field graphql.CollectedField, obj *CompletenessClaim) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_CompletenessClaim_missing(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Missing, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_CompletenessClaim_missing(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("CompletenessClaim", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _CompletenessClaim_sourceUrl(ctx context.Context, field graphql.CollectedField, obj *CompletenessClaim) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_CompletenessClaim_sourceUrl(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.SourceURL, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_CompletenessClaim_sourceUrl(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("CompletenessClaim", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _CompletenessClaim_status(ctx context.Context, field graphql.CollectedField, obj *CompletenessClaim) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_CompletenessClaim_status(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Status, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *ContentSourceStatus) graphql.Marshaler {
+			return ec.marshalOContentSourceStatus2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentSourceStatus(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_CompletenessClaim_status(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("CompletenessClaim", field, false, false, errors.New("field of type ContentSourceStatus does not have child fields"))
+}
+
+func (ec *executionContext) _CompletenessClaim_unverifiable(ctx context.Context, field graphql.CollectedField, obj *CompletenessClaim) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_CompletenessClaim_unverifiable(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Unverifiable, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_CompletenessClaim_unverifiable(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("CompletenessClaim", field, false, false, errors.New("field of type Boolean does not have child fields"))
+}
+
+func (ec *executionContext) _CompletenessVerdict_claims(ctx context.Context, field graphql.CollectedField, obj *CompletenessVerdict) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_CompletenessVerdict_claims(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Claims, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []CompletenessClaim) graphql.Marshaler {
+			return ec.marshalNCompletenessClaim2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐCompletenessClaimᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_CompletenessVerdict_claims(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "CompletenessVerdict",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_CompletenessClaim(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _CompletenessVerdict_expected(ctx context.Context, field graphql.CollectedField, obj *CompletenessVerdict) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_CompletenessVerdict_expected(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Expected, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_CompletenessVerdict_expected(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("CompletenessVerdict", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _CompletenessVerdict_observed(ctx context.Context, field graphql.CollectedField, obj *CompletenessVerdict) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_CompletenessVerdict_observed(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Observed, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_CompletenessVerdict_observed(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("CompletenessVerdict", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _CompletenessVerdict_percent(ctx context.Context, field graphql.CollectedField, obj *CompletenessVerdict) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_CompletenessVerdict_percent(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Percent, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_CompletenessVerdict_percent(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("CompletenessVerdict", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _CompletenessVerdict_score(ctx context.Context, field graphql.CollectedField, obj *CompletenessVerdict) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_CompletenessVerdict_score(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Score, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_CompletenessVerdict_score(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("CompletenessVerdict", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _CompletenessVerdict_hasClaim(ctx context.Context, field graphql.CollectedField, obj *CompletenessVerdict) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_CompletenessVerdict_hasClaim(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.HasClaim, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_CompletenessVerdict_hasClaim(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("CompletenessVerdict", field, false, false, errors.New("field of type Boolean does not have child fields"))
+}
+
+func (ec *executionContext) _CompletenessVerdict_unverifiable(ctx context.Context, field graphql.CollectedField, obj *CompletenessVerdict) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_CompletenessVerdict_unverifiable(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Unverifiable, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_CompletenessVerdict_unverifiable(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("CompletenessVerdict", field, false, false, errors.New("field of type Boolean does not have child fields"))
+}
+
+func (ec *executionContext) _CompletenessVerdict_lostSource(ctx context.Context, field graphql.CollectedField, obj *CompletenessVerdict) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_CompletenessVerdict_lostSource(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.LostSource, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *CompletenessClaim) graphql.Marshaler {
+			return ec.marshalOCompletenessClaim2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐCompletenessClaim(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_CompletenessVerdict_lostSource(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "CompletenessVerdict",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_CompletenessClaim(ctx, field)
 		},
 	}
 	return fc, nil
@@ -41313,6 +42007,68 @@ func (ec *executionContext) fieldContext_Query_underSnapshottedScenes(ctx contex
 	return fc, nil
 }
 
+func (ec *executionContext) _Query_studioCompleteness(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_studioCompleteness(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().StudioCompleteness(ctx, fc.Args["studioId"].(uuid.UUID))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal *CompletenessVerdict
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *CompletenessVerdict
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *CompletenessVerdict) graphql.Marshaler {
+			return ec.marshalNCompletenessVerdict2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐCompletenessVerdict(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_studioCompleteness(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_CompletenessVerdict(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_studioCompleteness_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Query_countIncompleteEntities(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -60476,6 +61232,147 @@ func (ec *executionContext) _CommentVotedEdit(ctx context.Context, sel ast.Selec
 	return out
 }
 
+var completenessClaimImplementors = []string{"CompletenessClaim"}
+
+func (ec *executionContext) _CompletenessClaim(ctx context.Context, sel ast.SelectionSet, obj *CompletenessClaim) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, completenessClaimImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("CompletenessClaim")
+		case "kind":
+			out.Values[i] = ec._CompletenessClaim_kind(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "expected":
+			out.Values[i] = ec._CompletenessClaim_expected(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "observed":
+			out.Values[i] = ec._CompletenessClaim_observed(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "missing":
+			out.Values[i] = ec._CompletenessClaim_missing(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "sourceUrl":
+			out.Values[i] = ec._CompletenessClaim_sourceUrl(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "status":
+			out.Values[i] = ec._CompletenessClaim_status(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		case "unverifiable":
+			out.Values[i] = ec._CompletenessClaim_unverifiable(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var completenessVerdictImplementors = []string{"CompletenessVerdict"}
+
+func (ec *executionContext) _CompletenessVerdict(ctx context.Context, sel ast.SelectionSet, obj *CompletenessVerdict) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, completenessVerdictImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("CompletenessVerdict")
+		case "claims":
+			out.Values[i] = ec._CompletenessVerdict_claims(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "expected":
+			out.Values[i] = ec._CompletenessVerdict_expected(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "observed":
+			out.Values[i] = ec._CompletenessVerdict_observed(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "percent":
+			out.Values[i] = ec._CompletenessVerdict_percent(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "score":
+			out.Values[i] = ec._CompletenessVerdict_score(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "hasClaim":
+			out.Values[i] = ec._CompletenessVerdict_hasClaim(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "unverifiable":
+			out.Values[i] = ec._CompletenessVerdict_unverifiable(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "lostSource":
+			out.Values[i] = ec._CompletenessVerdict_lostSource(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
 var completionImplementors = []string{"Completion"}
 
 func (ec *executionContext) _Completion(ctx context.Context, sel ast.SelectionSet, obj *Completion) graphql.Marshaler {
@@ -69811,6 +70708,28 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "studioCompleteness":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_studioCompleteness(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
 		case "countIncompleteEntities":
 			field := field
 
@@ -78015,6 +78934,36 @@ func (ec *executionContext) marshalNCollageFrame2ᚕgithubᚗcomᚋstashappᚋst
 	return ret
 }
 
+func (ec *executionContext) marshalNCompletenessClaim2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐCompletenessClaim(ctx context.Context, sel ast.SelectionSet, v CompletenessClaim) graphql.Marshaler {
+	return ec._CompletenessClaim(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNCompletenessClaim2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐCompletenessClaimᚄ(ctx context.Context, sel ast.SelectionSet, v []CompletenessClaim) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNCompletenessClaim2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐCompletenessClaim(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNCompletenessVerdict2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐCompletenessVerdict(ctx context.Context, sel ast.SelectionSet, v *CompletenessVerdict) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._CompletenessVerdict(ctx, sel, v)
+}
+
 func (ec *executionContext) marshalNContentAccessSetup2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentAccessSetup(ctx context.Context, sel ast.SelectionSet, v *ContentAccessSetup) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
@@ -81563,6 +82512,13 @@ func (ec *executionContext) marshalOCollage2ᚖgithubᚗcomᚋstashappᚋstash�
 	return ec._Collage(ctx, sel, v)
 }
 
+func (ec *executionContext) marshalOCompletenessClaim2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐCompletenessClaim(ctx context.Context, sel ast.SelectionSet, v *CompletenessClaim) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._CompletenessClaim(ctx, sel, v)
+}
+
 func (ec *executionContext) marshalOCompletion2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐCompletion(ctx context.Context, sel ast.SelectionSet, v *Completion) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
@@ -81606,6 +82562,22 @@ func (ec *executionContext) marshalOContentSource2ᚖgithubᚗcomᚋstashappᚋs
 		return graphql.Null
 	}
 	return ec._ContentSource(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalOContentSourceStatus2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentSourceStatus(ctx context.Context, v any) (*ContentSourceStatus, error) {
+	if v == nil {
+		return nil, nil
+	}
+	var res = new(ContentSourceStatus)
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOContentSourceStatus2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentSourceStatus(ctx context.Context, sel ast.SelectionSet, v *ContentSourceStatus) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return v
 }
 
 func (ec *executionContext) unmarshalOCropGuideRoleEnum2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐCropGuideRoleEnum(ctx context.Context, v any) (*CropGuideRoleEnum, error) {
