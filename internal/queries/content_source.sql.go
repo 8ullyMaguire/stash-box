@@ -162,6 +162,37 @@ func (q *Queries) FindContentSourceByEntityAndURL(ctx context.Context, arg FindC
 	return i, err
 }
 
+const findContentSourceByID = `-- name: FindContentSourceByID :one
+SELECT id, entity_type, entity_id, url, site_id, platform, status, canonical, first_seen, last_checked, last_ok, check_failures, archived_url, archived_at, created_by, url_normalized FROM "content_sources" WHERE "id" = $1
+`
+
+// The health sweep's read. It goes to the TABLE rather than the scene_sources view on purpose: the
+// sweep acts on the health record, and a URL a scene has stopped claiming still has one -- a row the
+// view deliberately hides. Checking it here is what keeps health history independent of membership.
+func (q *Queries) FindContentSourceByID(ctx context.Context, id uuid.UUID) (ContentSource, error) {
+	row := q.db.QueryRow(ctx, findContentSourceByID, id)
+	var i ContentSource
+	err := row.Scan(
+		&i.ID,
+		&i.EntityType,
+		&i.EntityID,
+		&i.Url,
+		&i.SiteID,
+		&i.Platform,
+		&i.Status,
+		&i.Canonical,
+		&i.FirstSeen,
+		&i.LastChecked,
+		&i.LastOk,
+		&i.CheckFailures,
+		&i.ArchivedUrl,
+		&i.ArchivedAt,
+		&i.CreatedBy,
+		&i.UrlNormalized,
+	)
+	return i, err
+}
+
 const findContentSourcesByNormalizedURL = `-- name: FindContentSourcesByNormalizedURL :many
 SELECT id, entity_type, entity_id, url, site_id, platform, status, canonical, first_seen, last_checked, last_ok, check_failures, archived_url, archived_at, created_by, url_normalized FROM content_sources
 WHERE entity_type = $1
@@ -522,19 +553,19 @@ func (q *Queries) PromoteSourceToCanonical(ctx context.Context, id uuid.UUID) er
 
 const recordSourceCheck = `-- name: RecordSourceCheck :one
 UPDATE content_sources SET
-    status = $2,
+    status = $1,
     last_checked = now(),
-    last_ok = COALESCE($3::timestamptz, last_ok),
-    check_failures = $4
-WHERE id = $1
+    last_ok = COALESCE($2::timestamptz, last_ok),
+    check_failures = $3
+WHERE id = $4
 RETURNING id, entity_type, entity_id, url, site_id, platform, status, canonical, first_seen, last_checked, last_ok, check_failures, archived_url, archived_at, created_by, url_normalized
 `
 
 type RecordSourceCheckParams struct {
-	ID            uuid.UUID          `db:"id" json:"id"`
 	Status        string             `db:"status" json:"status"`
-	Column3       pgtype.Timestamptz `db:"column_3" json:"column_3"`
+	LastOk        pgtype.Timestamptz `db:"last_ok" json:"last_ok"`
 	CheckFailures int                `db:"check_failures" json:"check_failures"`
+	ID            uuid.UUID          `db:"id" json:"id"`
 }
 
 // The health sweep's write, and the only statement that may move `status`.
@@ -549,10 +580,10 @@ type RecordSourceCheckParams struct {
 // statement stays a write and not a policy.
 func (q *Queries) RecordSourceCheck(ctx context.Context, arg RecordSourceCheckParams) (ContentSource, error) {
 	row := q.db.QueryRow(ctx, recordSourceCheck,
-		arg.ID,
 		arg.Status,
-		arg.Column3,
+		arg.LastOk,
 		arg.CheckFailures,
+		arg.ID,
 	)
 	var i ContentSource
 	err := row.Scan(

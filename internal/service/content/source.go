@@ -107,3 +107,39 @@ func SceneSourceToModel(row queries.SceneSource) models.ContentSource {
 
 	return source
 }
+
+// ContentSourceToModel converts the health ROW (the table, not the view).
+//
+// Separate from SceneSourceToModel because they answer different questions: the view's rows are
+// "URLs this scene claims", where a missing health row is normal and the id is optional, and the
+// table's rows are "health records", where the id is the whole point. The sweep works on the second,
+// and reusing the view's converter would have made a real row look like an absent one.
+func ContentSourceToModel(row queries.ContentSource) models.ContentSource {
+	source := models.ContentSource{
+		URL:           row.Url,
+		Platform:      row.Platform,
+		Status:        row.Status,
+		Canonical:     row.Canonical,
+		CheckFailures: row.CheckFailures,
+		ArchivedURL:   row.ArchivedUrl,
+	}
+
+	id := models.ID(row.ID)
+	source.ID = &id
+	if row.SiteID.Valid {
+		source.SiteID = row.SiteID.UUID
+	}
+	if row.FirstSeen.Valid {
+		firstSeen := row.FirstSeen.Time
+		source.FirstSeen = &firstSeen
+	}
+	if row.LastChecked.Valid {
+		lastChecked := row.LastChecked.Time
+		source.LastChecked = &lastChecked
+	}
+	if row.LastOk.Valid {
+		lastOK := row.LastOk.Time
+		source.LastOK = &lastOK
+	}
+	return source
+}

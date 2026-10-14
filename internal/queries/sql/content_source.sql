@@ -147,11 +147,11 @@ RETURNING *;
 -- transition rule (3 consecutive failures -> intermittent, 7 days -> dead) and this
 -- statement stays a write and not a policy.
 UPDATE content_sources SET
-    status = $2,
+    status = @status,
     last_checked = now(),
-    last_ok = COALESCE($3::timestamptz, last_ok),
-    check_failures = $4
-WHERE id = $1
+    last_ok = COALESCE(@last_ok::timestamptz, last_ok),
+    check_failures = @check_failures
+WHERE id = @id
 RETURNING *;
 
 -- name: ClearCanonicalSourceExcept :exec
@@ -181,3 +181,9 @@ UPDATE content_sources SET canonical = true WHERE id = $1;
 -- canonical source is a legitimate state and must be reachable, or the only way to
 -- remove a bad canonical would be to nominate a different one.
 UPDATE content_sources SET canonical = false WHERE entity_type = $1 AND entity_id = $2;
+
+-- name: FindContentSourceByID :one
+-- The health sweep's read. It goes to the TABLE rather than the scene_sources view on purpose: the
+-- sweep acts on the health record, and a URL a scene has stopped claiming still has one -- a row the
+-- view deliberately hides. Checking it here is what keeps health history independent of membership.
+SELECT * FROM "content_sources" WHERE "id" = @id;

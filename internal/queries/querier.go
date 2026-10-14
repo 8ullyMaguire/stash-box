@@ -830,6 +830,10 @@ type Querier interface {
 	// (plan Phase 2). Scoped to the entity, because the same URL on two different scenes
 	// is two sources: the URL's health is one fact, but the membership is per entity.
 	FindContentSourceByEntityAndURL(ctx context.Context, arg FindContentSourceByEntityAndURLParams) (ContentSource, error)
+	// The health sweep's read. It goes to the TABLE rather than the scene_sources view on purpose: the
+	// sweep acts on the health record, and a URL a scene has stopped claiming still has one -- a row the
+	// view deliberately hides. Checking it here is what keeps health history independent of membership.
+	FindContentSourceByID(ctx context.Context, id uuid.UUID) (ContentSource, error)
 	// "Has anything already claimed this URL?" (spec §1 stage 3) -- the question the
 	// pipeline asks before it creates a record.
 	//
