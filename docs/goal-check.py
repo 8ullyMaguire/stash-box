@@ -544,6 +544,22 @@ def isolated_test_db():
     port = os.environ.get("INTEGRATION_PORT", "5436")
     user = os.environ.get("INTEGRATION_USER", "postgres")
     pw = os.environ.get("INTEGRATION_PASSWORD", "smoke_pw")
+    # The port INSIDE the container, which is NOT the port the host publishes.
+    #
+    # `docker exec <c> psql -h 127.0.0.1 -p <host port>` is refused, because the host's
+    # 55434 is a docker-proxy mapping and the server inside the container has never heard
+    # of it. Measured against a container whose `docker ps` line reads
+    # `127.0.0.1:55434->5432/tcp`:
+    #   docker exec sbx-pg psql -h 127.0.0.1 -p 5432 ... -tAc 'SHOW port'  ->  5432
+    #   docker exec sbx-pg psql -h 127.0.0.1 -p 55434 ...                 ->  connection refused
+    # and the clause reported "no integration database available" for a database that was
+    # up and holding six of them.
+    #
+    # The DSN handed to the suite further down keeps the HOST port, correctly: the suite
+    # connects from OUTSIDE the container, where 55434 is the one that works. The two
+    # numbers are different because the two callers are in different network namespaces,
+    # and using one for both is what this line exists to stop.
+    iport = os.environ.get("INTEGRATION_INTERNAL_PORT", "5432")
     # The prefix must identify THIS PROCESS, not this TOOL. Another session was
     # running its own integration suite against a `goalcheck_*` database while this
     # one swept the prefix -- and the symptom was
@@ -560,25 +576,20 @@ def isolated_test_db():
     myprefix = f"goalcheck_{os.getpid()}_"
 
     def psql_cmd(database="postgres"):
-        # -h 127.0.0.1 -p <port>, NOT the default unix socket.
+        # -h 127.0.0.1 -p <iport>, NOT the default unix socket.
         #
-        # `psql` with no host connects over /var/run/postgresql/.s.PGSQL.<port>, and
-        # that file exists only if the server inside the container was started on 5432
-        # with a socket in the usual place. A container started with `-p 55434` puts its
-        # socket at .s.PGSQL.55434, so every psql call in this function fails with
-        # `connection to server on socket "/var/run/postgresql/.s.PGSQL.5432" failed: No
-        # such file or directory` -- while returning exit code 0 in some shells, which is
-        # how isolated_test_db() ends up returning (None, None) and C6b reports UNKNOWN
-        # on a machine that has a perfectly good database.
+        # `psql` with no host connects over /var/run/postgresql/.s.PGSQL.<port>, and that
+        # file exists only if the server inside the container was started with its socket
+        # in the usual place. Connecting over TCP to the container's OWN port removes the
+        # dependence on the socket path entirely.
         #
-        # Measured: with INTEGRATION_PORT=55434 the sweep and CREATE both failed this way
-        # and goal-check exited after 60s having run no tests at all -- an UNKNOWN that
-        # looked exactly like a slow suite.
-        #
-        # Connecting over TCP to the port we were told to use removes the dependence on
-        # the container's socket path entirely.
+        # The port here is iport (inside the container), not the host's published port.
+        # The earlier version of this comment claimed a container started with `-p 55434`
+        # puts its socket at .s.PGSQL.55434 -- it does not, and the claim was the reason
+        # the host port was used here, which is the bug that made this clause report
+        # UNKNOWN against a running database.
         return ["sudo", "-n", "docker", "exec", container, "psql",
-                "-h", "127.0.0.1", "-p", port, "-U", user, "-d", database]
+                "-h", "127.0.0.1", "-p", iport, "-U", user, "-d", database]
 
     def psql(sql, database="postgres"):
         return subprocess.run(
