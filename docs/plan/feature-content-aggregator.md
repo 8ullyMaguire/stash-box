@@ -375,23 +375,71 @@ leaderboards keeps every capability.
 
 ## Phase 7 — discovery
 
-**Goal:** NexusXXX §8. **Verified:** search exists (`scene_search`, pg_search BM25,
-migration 103 added `details`/`director`/tag columns with a statement-level trigger
-and a drift check); trending exists since migration 60; `elo` supplies ranking;
-`performer_similar` is the nearest thing to similarity.
+**Goal:** NexusXXX §8. **Spec:** `docs/spec/feature-discovery.md` (the eight modes, the language
+grammar, the decisions and what each slice defers).
 
-**New:** saved searches (query text, owner, subscription → notifications), the search
-language (`-tag`, `score:>`, `duration:m..m`, `type:`, `sort:`, `similar_to:`,
-`taste:me:`) parsed into the existing filter structs rather than a second query
-builder, tag explorer over the Phase 4 graph, freshness scoring for trending, a
-vector store for content DNA behind an interface with a no-op implementation (a
-pgvector column is the cheap first implementation; a separate Milvus is justified only
-by a measured latency), taste profile + For You + serendipity parameter, social
-discovery, and "where I left off" (local-first, server-synced opt-in).
+**Verified:** search exists and is ranked (`scene_search`, ParadeDB BM25 via `pg_search`, with
+`details`/`director`/`tag_names` added additively by migration 103 plus a statement-level
+trigger set and `Scene.Drift()`); `SceneQueryInput.Text` is already the free-text field of the
+same struct every other filter lives in; "trending" since migration 60 is a materialized view
+over `scene_fingerprints` counting distinct fingerprint submitters — **fingerprint
+submissions, not engagement**; `elo` supplies ranking; `performer_similar` is the nearest thing
+to similarity; and pgvector is **not installed** on this instance (§2 of the spec: only
+`bktree`, `pg_search`, `pg_trgm` and `cube` are available), so the plan's "a pgvector column is
+the cheap first implementation" is not available here. That correction is recorded in the
+spec's §14.
 
-**Verification:** each discovery mode has an integration test; the serendipity
-parameter has the degenerate-output test the crosswalk names — two contrasting
-settings over the same seed must not return near-identical sets.
+**Seven slices, in order.** Each is one commit with one verification command whose output is
+part of the commit message.
+
+1. **The query language. DONE** (the `aggregator phase 7 slice 1` commit).
+   `internal/service/search/query_language.go`
+   (`Parse`, `Render`, `Equal`, the `Expr` tree), `lower.go` (`Lower`: the expression merged into
+   a `models.SceneQueryInput` through a `Resolver` interface, plus the `Diagnostic`s and
+   `NoMatch`), `query_language_test.go`, `lower_test.go`.
+   **Verification:** `go test ./internal/service/search/ -v` → 25 cases over the term kinds
+   (each row also asserting the round trip and that rendering is idempotent), the term-shape
+   assertions, the 9 error cases with their offsets, and 12 lowering tests.
+   **Mutation-checked** by `scripts/mutate-search-language.py` (four mutations, each restored and
+   re-run): `NoMatch` forced false, the unresolved-name append removed, the unknown-field check
+   disabled, and the `sort:-date` normalisation disabled — each reddened exactly the tests that
+   name the behaviour and nothing else, and restoring returned the suite to green. Nothing is
+   wired yet, so this slice's own tests are its only surface, which is why the integration test
+   belongs to slice 2, where the text reaches a resolver.
+2. **Saved searches.** Migration **113** (`saved_searches`, `UNIQUE (user_id, name)`, the
+   `notification_type` enum value), `internal/queries/sql/saved_search.sql`, the GraphQL type
+   and mutations, `SceneQuery.text` as the entry point (parse → lower → the existing builder),
+   and the `created_since` notification job in `internal/cron`. It also adds the two fields
+   slice 1 could not lower — `exclude_tags` (so `anal -rough` is a filter and not only a
+   carried list) and `duration` — and **both must be added to the filter-presence list at
+   `scene/query.go:309`** with them: that block decides whether the custom-plan path may be
+   taken, and a filter missing from it can be answered by a fast path that never saw it.
+   **Verification:** `./scripts/verify-113.sh` → the constraints and the enum value;
+   `POSTGRES_DB=<dsn> go test -tags=integration -run 'TestSavedSearch' ./internal/api/` →
+   save/list/run/rename, ONE notification per run, and the language test — `anal -rough`
+   through GraphQL returns exactly what the equivalent struct filter returns.
+3. **The tag explorer.** `internal/queries/sql/tag_facets.sql` (co-occurrence counts scoped by
+   the same filter as the results) and the `Tag.facets`/`TagExplorer` surface.
+   **Verification:** the facet count equals the result-set count for a fixture built to make
+   them differ if the scope is wrong.
+4. **Trending and freshness.** Migration **114** (`scene_freshness`), the refresh in
+   `internal/cron`, `SceneSortEnumFresh`, the Rising and Best-of windows.
+   **Verification:** hand-computed scores for a fixture with known ages; an older-but-bigger
+   scene sorts below a newer one.
+5. **Similarity and its explanation.** `internal/service/similar/` with the `VectorStore`
+   interface, `Noop` and `InMemory`, and the explanation built from shared tags, performer,
+   studio and duration — explanation first, vector second (§8 of the spec).
+   **Verification:** `Noop` returns nothing and does not panic; `InMemory` ranks a constructed
+   pair above a constructed non-pair; every reason names something checkable in the fixture.
+6. **Taste profile, For You, serendipity.** Affinity derived at read time from the signal
+   tables §2 measured; the hierarchy propagation; the feed assembly; the parameter.
+   **Verification:** the degenerate-output test — two contrasting settings over the same seed
+   must not return near-identical sets; `serendipity=0` is a subset of the affinity-ranked set.
+7. **Social discovery and "where I left off".** Migration **115** (`user_follows`), **116**
+   (`session_states`), the chronological activity feed, the opt-in sync surface.
+   **Verification:** the visibility default is private (asserted); the feed is chronological;
+   and a private activity appears in nobody else's feed — an absence assertion, so the subject
+   is counted first.
 
 ## Phase 8 — social
 
