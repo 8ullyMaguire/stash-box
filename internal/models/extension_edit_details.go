@@ -46,6 +46,15 @@ func (e TagEditDetailsInput) TagEditFromDiff(orig Tag, inputArgs utils.Arguments
 		oldData.CategoryID, newData.CategoryID = ed.nullUUID(orig.CategoryID, e.CategoryID)
 	}
 
+	// Implications are a diff already, not a value to compare: the submitter sends what to
+	// add and what to remove. So they go on New as given -- the same shape the alias lists
+	// take -- and the "nothing changed" check below sees a difference if they are present,
+	// which is what lets an edit whose ONLY change is an implication be submittable.
+	if len(e.AddedImplications) > 0 || len(e.RemovedImplications) > 0 {
+		newData.AddedImplications = e.AddedImplications
+		newData.RemovedImplications = e.RemovedImplications
+	}
+
 	return TagEditData{
 		New: newData,
 		Old: oldData,

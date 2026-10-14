@@ -53,6 +53,7 @@ import (
 	"github.com/stashapp/stash-box/internal/service/streak"
 	"github.com/stashapp/stash-box/internal/service/studio"
 	"github.com/stashapp/stash-box/internal/service/tag"
+	"github.com/stashapp/stash-box/internal/service/tagontology"
 	"github.com/stashapp/stash-box/internal/service/trust"
 	"github.com/stashapp/stash-box/internal/service/user"
 	"github.com/stashapp/stash-box/internal/service/usertoken"
@@ -173,6 +174,11 @@ func (f *Factory) Elo() *elo.Elo {
 // Tag returns a TagService instance
 func (f *Factory) Tag() *tag.Tag {
 	return tag.NewTag(queries.New(f.db), f.withTxn)
+}
+
+// TagOntology returns the tag ontology service: the implication graph and its versions.
+func (f *Factory) TagOntology() *tagontology.Service {
+	return tagontology.New(queries.New(f.db))
 }
 
 // Performer returns a PerformerService instance

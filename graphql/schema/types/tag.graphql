@@ -14,6 +14,63 @@ type Tag {
   category: TagCategory
   created: Time!
   updated: Time!
+
+  """
+  Direct implications: applying this tag also applies these.
+
+  An implication is changed only through a tag edit (`added_implications` /
+  `removed_implications` on `TagEditDetailsInput`), because tag data is shared data and the
+  edit system is this instance's proposal-discussion-vote machine.
+  """
+  implies: [Tag!]!
+
+  "Direct: the tags that imply this one."
+  implied_by: [Tag!]!
+
+  """
+  Everything below this tag, at any depth, with how far below.
+
+  Read this instead of walking `implies` when the question is "what will a filter on this
+  tag actually return": it is one round trip and it is the set the search expands to.
+  """
+  implies_transitive: [TagAtDepth!]!
+
+  "Everything above this tag: every tag a reader could filter by and still find this one."
+  implied_by_transitive: [TagAtDepth!]!
+}
+
+"""
+A tag and how far it is from the tag that was asked about.
+
+`depth` is what makes a flat list usable: without it a client cannot tell a direct
+implication from one three levels down without walking the graph itself. 1 is direct.
+"""
+type TagAtDepth {
+  tag: Tag!
+  depth: Int!
+}
+
+"""
+One row of the ontology, by name.
+"""
+type TagImplication {
+  tag_id: ID!
+  tag_name: String!
+  implied_tag_id: ID!
+  implied_name: String!
+  created_at: Time!
+}
+
+"""
+One version of the tag ontology, written when the graph changes.
+"""
+type OntologyVersion {
+  version: Int!
+  note: String
+  created: Time!
+
+  "The whole ontology at this version, as a JSON list of {\"tag\": ..., \"implies\": ...} pairs by name. Empty for a listing."
+  snapshot: String
 }
 
 input TagCreateInput {
@@ -40,6 +97,16 @@ input TagEditDetailsInput {
   description: String
   aliases: [String!]
   category_id: ID
+
+  """
+  Tags this tag implies, added by this edit. Both lists are relative to the tag being
+  edited, and both are applied when the edit is approved.
+
+  An edit that would create a cycle is refused when it is submitted, so the submitter gets
+  the reason while they can still change it; the database refuses it again on apply.
+  """
+  added_implications: [ID!]
+  removed_implications: [ID!]
 }
 
 input TagEditInput {
@@ -53,6 +120,8 @@ type TagEdit {
   description: String
   added_aliases: [String!]
   removed_aliases: [String!]
+  added_implications: [Tag!]
+  removed_implications: [Tag!]
   category: TagCategory
 
   aliases: [String!]!

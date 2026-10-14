@@ -185,6 +185,12 @@ type TagEdit struct {
 	AddedAliases   []string   `json:"added_aliases,omitempty"`
 	RemovedAliases []string   `json:"removed_aliases,omitempty"`
 	CategoryID     *uuid.UUID `json:"category_id,omitempty"`
+
+	// The ontology change, both lists relative to the tag being edited: an added id means
+	// "this tag implies that". Stored on the edit so the change is a reviewed document rather
+	// than something a later reader has to reconstruct from the graph's before and after.
+	AddedImplications   []uuid.UUID `json:"added_implications,omitempty"`
+	RemovedImplications []uuid.UUID `json:"removed_implications,omitempty"`
 }
 
 func (TagEdit) IsEditDetails() {}

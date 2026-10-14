@@ -16,6 +16,19 @@ import (
 // fkColumn: the foreign key column in the join table referencing the main table (e.g., "scene_id")
 // joinField: the field in the join table to filter on (e.g., "performer_id")
 func ApplyMultiIDCriterion(query *sq.SelectBuilder, tableName, joinTable, fkColumn, joinField string, criterion *models.MultiIDCriterionInput) error {
+	return ApplyMultiIDCriterionExpanded(query, tableName, joinTable, fkColumn, joinField, criterion, nil)
+}
+
+// ApplyMultiIDCriterionExpanded is ApplyMultiIDCriterion for a field whose values have a
+// hierarchy: `expansion` maps each REQUESTED id to the ids that satisfy it, so an item that
+// carries something implying the requested value is a match.
+//
+// A nil `expansion` means every id is its own expansion, which is exactly what the plain
+// ApplyMultiIDCriterion above asks for. The map is per requested id rather than one flat set
+// because INCLUDES_ALL is a per-requested-id question: an item tagged only `cowgirl_position`
+// satisfies both `woman_on_top` and `vaginal_sex` -- which it implies -- while carrying
+// neither, and a flat set cannot say that.
+func ApplyMultiIDCriterionExpanded(query *sq.SelectBuilder, tableName, joinTable, fkColumn, joinField string, criterion *models.MultiIDCriterionInput, expansion map[uuid.UUID][]uuid.UUID) error {
 	// The join tables are unique on (fk, field), so the Having count below is a
 	// count of distinct ids. A repeated id would raise the target without
 	// matching another row, and the criterion would match nothing.
@@ -39,23 +52,45 @@ func ApplyMultiIDCriterion(query *sq.SelectBuilder, tableName, joinTable, fkColu
 	switch mod {
 	case models.CriterionModifierIncludes:
 		// Semi-join — naturally deduplicating regardless of len, no DISTINCT needed.
+		// The hierarchy makes this a union: "any of these" is satisfied by anything that
+		// implies any of them.
 		subquery := sq.Select("1").
 			From(joinTable).
-			Where(sq.Eq{joinField: values}).
+			Where(sq.Eq{joinField: satisfiedBy(values, expansion)}).
 			Where(sq.Expr(fmt.Sprintf("%s.%s = %s.id", joinTable, fkColumn, tableName)))
 		*query = query.Where(sq.Expr("EXISTS (?)", subquery))
 	case models.CriterionModifierIncludesAll:
-		// len > 1 only; "match all of these" has no semi-join equivalent.
-		subquery := sq.Select(fkColumn).
-			From(joinTable).
-			Where(sq.Eq{joinField: values}).
-			GroupBy(fkColumn).
-			Having(sq.Eq{"COUNT(*)": len(values)})
-		*query = query.JoinClause(sq.Expr(fmt.Sprintf("INNER JOIN (?) AS %s_filter ON %s.id = %s_filter.%s", joinTable, tableName, joinTable, fkColumn), subquery))
+		// One EXISTS per REQUESTED value, each over that value's expansion. It cannot be a
+		// count over an expanded list: an item tagged only `cowgirl_position` satisfies both
+		// `woman_on_top` and `vaginal_sex` -- which it implies -- while contributing ONE join
+		// row, so "COUNT(*) = len(expanded)" would refuse it. The old counting form is kept
+		// below only for the no-hierarchy case it was written for, where it is equivalent.
+		if expansion == nil {
+			// len > 1 only; "match all of these" has no semi-join equivalent.
+			subquery := sq.Select(fkColumn).
+				From(joinTable).
+				Where(sq.Eq{joinField: values}).
+				GroupBy(fkColumn).
+				Having(sq.Eq{"COUNT(*)": len(values)})
+			*query = query.JoinClause(sq.Expr(fmt.Sprintf("INNER JOIN (?) AS %s_filter ON %s.id = %s_filter.%s", joinTable, tableName, joinTable, fkColumn), subquery))
+
+			break
+		}
+
+		for _, value := range values {
+			subquery := sq.Select("1").
+				From(joinTable).
+				Where(sq.Eq{joinField: expansionOf(value, expansion)}).
+				Where(sq.Expr(fmt.Sprintf("%s.%s = %s.id", joinTable, fkColumn, tableName)))
+			// Each Where ANDs onto the previous one, which is the "all of" part.
+			*query = query.Where(sq.Expr("EXISTS (?)", subquery))
+		}
 	case models.CriterionModifierExcludes:
+		// The whole expansion is refused, not just the named tag: excluding `sex` has to
+		// exclude what implies `sex`, or the hierarchy is useless for filtering.
 		subquery := sq.Select("1").
 			From(joinTable).
-			Where(sq.Eq{joinField: values}).
+			Where(sq.Eq{joinField: satisfiedBy(values, expansion)}).
 			Where(sq.Expr(fmt.Sprintf("%s.%s = %s.id", joinTable, fkColumn, tableName)))
 		*query = query.Where(sq.Expr("NOT EXISTS (?)", subquery))
 	default:
@@ -259,4 +294,38 @@ func ApplyDateCriterion(query sq.SelectBuilder, field string, criterion *models.
 	default:
 		return query
 	}
+}
+
+// expansionOf is the ids that satisfy one requested id: always at least the id itself, so a
+// filter naming a value the hierarchy has never heard of behaves exactly as it did before
+// the hierarchy existed.
+func expansionOf(value uuid.UUID, expansion map[uuid.UUID][]uuid.UUID) []uuid.UUID {
+	if ids, ok := expansion[value]; ok && len(ids) > 0 {
+		return ids
+	}
+
+	return []uuid.UUID{value}
+}
+
+// satisfiedBy is the union over every requested value's expansion, or the values themselves
+// when there is no hierarchy. Duplicates are dropped because the result goes straight into an
+// IN clause and an id repeated there is noise rather than a criterion.
+func satisfiedBy(values []uuid.UUID, expansion map[uuid.UUID][]uuid.UUID) []uuid.UUID {
+	if expansion == nil {
+		return values
+	}
+
+	seen := make(map[uuid.UUID]struct{}, len(values))
+	out := make([]uuid.UUID, 0, len(values))
+	for _, value := range values {
+		for _, id := range expansionOf(value, expansion) {
+			if _, dup := seen[id]; dup {
+				continue
+			}
+			seen[id] = struct{}{}
+			out = append(out, id)
+		}
+	}
+
+	return out
 }

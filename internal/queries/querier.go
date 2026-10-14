@@ -505,6 +505,13 @@ type Querier interface {
 	// Tag category queries
 	CreateTagCategory(ctx context.Context, arg CreateTagCategoryParams) (TagCategory, error)
 	CreateTagEdit(ctx context.Context, arg CreateTagEditParams) error
+	// The tag ontology: the implication graph (migration 111) and its versions (migration 112).
+	//
+	// Nothing here writes an implied tag onto scene_tags. The graph is the owning table and
+	// every read derives from it; see docs/spec/feature-tag-ontology.md section 2.
+	// Idempotent on purpose: an edit that adds an implication the ontology already has is not an
+	// error worth failing an apply over, and the caller cannot tell the two apart in a diff.
+	CreateTagImplication(ctx context.Context, arg CreateTagImplicationParams) error
 	// Tag redirects
 	CreateTagRedirect(ctx context.Context, arg CreateTagRedirectParams) error
 	// User queries
@@ -520,6 +527,8 @@ type Querier interface {
 	CreateWebhookDelivery(ctx context.Context, arg CreateWebhookDeliveryParams) (WebhookDelivery, error)
 	// Webhook queries (SPEC §7.11, phase 3 step 3).
 	CreateWebhookEndpoint(ctx context.Context, arg CreateWebhookEndpointParams) (WebhookEndpoint, error)
+	// The version (migration 112's trigger owns the writes).
+	CurrentOntologyVersion(ctx context.Context) (int, error)
 	// The database's own clock, in the database's own timezone.
 	//
 	// Two things are deliberate and both were bugs once.
@@ -552,6 +561,10 @@ type Querier interface {
 	// conflating them is how a regeneration ends up deleting curated snapshots.
 	DeleteCollageForScene(ctx context.Context, sceneID uuid.UUID) error
 	DeleteDraft(ctx context.Context, id uuid.UUID) error
+	DeleteDuplicateTagImplicationHeads(ctx context.Context, arg DeleteDuplicateTagImplicationHeadsParams) error
+	// Rows the tail retarget would collide with. A duplicate is not an error here: it says the
+	// surviving tag already implies what the merged-away tag implied, which is the same fact.
+	DeleteDuplicateTagImplicationTails(ctx context.Context, arg DeleteDuplicateTagImplicationTailsParams) error
 	DeleteEdit(ctx context.Context, id uuid.UUID) error
 	// Retract a denominator, returning the removed row so the caller can log whose
 	// claim was withdrawn and what it claimed. :one rather than :exec for that
@@ -607,6 +620,11 @@ type Querier interface {
 	DeleteSceneTagsByScene(ctx context.Context, sceneID uuid.UUID) error
 	DeleteSceneTagsByTag(ctx context.Context, tagID uuid.UUID) error
 	DeleteSceneURLs(ctx context.Context, sceneID uuid.UUID) error
+	// Merging a tag into another (see edit/tag.go mergeInto).
+	// The pairs that would become self-implications once source is folded into target. Deleted
+	// FIRST, because after the retarget they are indistinguishable from a tag implying itself--
+	// which is a different statement (and the CHECK would refuse it, mid-merge).
+	DeleteSelfTagImplicationsForMerge(ctx context.Context, arg DeleteSelfTagImplicationsForMergeParams) error
 	DeleteSite(ctx context.Context, id uuid.UUID) error
 	DeleteSiteCategory(ctx context.Context, id int) error
 	DeleteStudio(ctx context.Context, id uuid.UUID) error
@@ -619,6 +637,7 @@ type Querier interface {
 	DeleteTagAliases(ctx context.Context, tagID uuid.UUID) error
 	DeleteTagAliasesByNames(ctx context.Context, arg DeleteTagAliasesByNamesParams) error
 	DeleteTagCategory(ctx context.Context, id uuid.UUID) error
+	DeleteTagImplication(ctx context.Context, arg DeleteTagImplicationParams) error
 	// Only used by a rebuild, so the row can be recreated from scratch rather than
 	// merged. Merging a recomputed vector into an existing one would double-count
 	// every feature.
@@ -683,6 +702,13 @@ type Querier interface {
 	// customscan's row count and picks a hash-join + seq scan of scene_fingerprints.
 	ExpandPhashNeighbors(ctx context.Context, arg ExpandPhashNeighborsParams) ([]ExpandPhashNeighborsRow, error)
 	ExpandSceneCoMembers(ctx context.Context, sceneIds []uuid.UUID) ([]ExpandSceneCoMembersRow, error)
+	// The paint brush the search uses: for EVERY requested tag id, every tag that implies it,
+	// transitively, INCLUDING the tag itself. One round trip for a whole filter.
+	//
+	// Returning root_id alongside tag_id is what makes it usable: the caller needs to know which
+	// REQUESTED tag each result satisfies, because "all of these" is a per-requested-tag
+	// question and a flat set of ids cannot answer it.
+	ExpandTagIDsByImplications(ctx context.Context, tagIds []uuid.UUID) ([]ExpandTagIDsByImplicationsRow, error)
 	// Expiring stale claims. A curator who abandoned work releases it themselves;
 	// this is the backstop for the ones who did not.
 	//
@@ -773,6 +799,10 @@ type Querier interface {
 	FindImagesByIds(ctx context.Context, dollar_1 []uuid.UUID) ([]Image, error)
 	FindImagesBySceneID(ctx context.Context, id uuid.UUID) ([]Image, error)
 	FindImagesByStudioID(ctx context.Context, id uuid.UUID) ([]Image, error)
+	// Direct: what THIS tag implies.
+	FindImplicationsByTagID(ctx context.Context, tagID uuid.UUID) ([]Tag, error)
+	// Direct: what implies THIS tag.
+	FindImpliedByTagID(ctx context.Context, impliedTagID uuid.UUID) ([]Tag, error)
 	FindInviteKey(ctx context.Context, id uuid.UUID) (InviteKey, error)
 	FindList(ctx context.Context, id uuid.UUID) (List, error)
 	// A list's publication history, newest first.
@@ -801,6 +831,7 @@ type Querier interface {
 	FindMergeIDsBySourcePerformerIds(ctx context.Context, performerIds []uuid.UUID) ([]FindMergeIDsBySourcePerformerIdsRow, error)
 	// Notification queries
 	FindNotificationsByUser(ctx context.Context, arg FindNotificationsByUserParams) ([]Notification, error)
+	FindOntologyVersion(ctx context.Context, version int) (OntologyVersion, error)
 	FindPendingPerformerCreation(ctx context.Context, arg FindPendingPerformerCreationParams) ([]Edit, error)
 	FindPendingSceneCreation(ctx context.Context, arg FindPendingSceneCreationParams) ([]Edit, error)
 	FindPerformer(ctx context.Context, id uuid.UUID) (Performer, error)
@@ -1032,9 +1063,22 @@ type Querier interface {
 	FindTagCategoryRoots(ctx context.Context) ([]TagCategory, error)
 	// Bulk query to find tag IDs for multiple scene IDs
 	FindTagIdsBySceneIds(ctx context.Context, sceneIds []uuid.UUID) ([]SceneTag, error)
+	FindTagImplication(ctx context.Context, arg FindTagImplicationParams) (TagImplication, error)
 	FindTagWithRedirect(ctx context.Context, id uuid.UUID) ([]Tag, error)
 	FindTagsByIds(ctx context.Context, dollar_1 []uuid.UUID) ([]Tag, error)
 	FindTagsBySceneID(ctx context.Context, sceneID uuid.UUID) ([]Tag, error)
+	// Everything below this tag, at any depth. depth 1 is a direct implication.
+	//
+	// A tag reachable by two paths appears ONCE, at its SHALLOWEST depth: UNION dedupes by
+	// (tag_id, depth), which does not collapse a diamond, so DISTINCT ON does. The ORDER BY has
+	// to lead with the column DISTINCT ON keys on; the caller sorts for display.
+	//
+	// The depth bound is unreachable while the cycle trigger holds. It is there so that a
+	// corrupt graph produces a short answer instead of a hung request, which is the failure mode
+	// a search surface can survive.
+	FindTransitiveImplicationsByTagID(ctx context.Context, tagID uuid.UUID) ([]FindTransitiveImplicationsByTagIDRow, error)
+	// Everything above this tag, at any depth: the tags a reader can filter by to find it.
+	FindTransitiveImpliedByTagID(ctx context.Context, impliedTagID uuid.UUID) ([]FindTransitiveImpliedByTagIDRow, error)
 	FindUnreadNotificationsByUser(ctx context.Context, arg FindUnreadNotificationsByUserParams) ([]Notification, error)
 	// The added_images path below has no COALESCE, and does not need one: a
 	// pending edit predating image types has no such key, and jsonb_array_elements
@@ -1438,6 +1482,9 @@ type Querier interface {
 	// would order the scenes and leave the performers in whatever order the planner
 	// produced, interleaving the two.
 	ListIncompleteEntities(ctx context.Context, arg ListIncompleteEntitiesParams) ([]uuid.UUID, error)
+	// The history, newest first, WITHOUT the snapshots: a list is not the place to ship every
+	// version's whole document, and the caller that wants one asks for it by number.
+	ListOntologyVersions(ctx context.Context, limit int32) ([]ListOntologyVersionsRow, error)
 	// The board's queue: open queries, newest first.
 	//
 	// Bounded by the caller and defaulted in the service. An unbounded queue is a
@@ -1527,6 +1574,9 @@ type Querier interface {
 	// about a record that no longer exists, and leaving it on the board would put a
 	// permanent, unclosable gap at the top of a race nobody can win.
 	ListStudioCompleteness(ctx context.Context, arg ListStudioCompletenessParams) ([]ListStudioCompletenessRow, error)
+	// Every pair, by name, ordered: the shape the version snapshot is built from and what an
+	// operator reads to see the whole ontology at once.
+	ListTagImplications(ctx context.Context) ([]ListTagImplicationsRow, error)
 	// The pool a collage generation samples from.
 	//
 	// Excludes snapshots already committed to a collage. On a REgeneration the old
@@ -1797,6 +1847,8 @@ type Querier interface {
 	// candidates at the same time is a real race, and last-write-wins would silently
 	// discard one person's work.
 	ResolveIdentificationQuery(ctx context.Context, arg ResolveIdentificationQueryParams) (IdentificationQuery, error)
+	RetargetTagImplicationHeads(ctx context.Context, arg RetargetTagImplicationHeadsParams) error
+	RetargetTagImplicationTails(ctx context.Context, arg RetargetTagImplicationTailsParams) error
 	// Replaces the hash. The OLD secret stops working immediately, which is the point:
 	// a rotation is what a user does after suspecting a leak, and a rotation that
 	// left the old secret valid would give no protection at all.

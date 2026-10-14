@@ -105,3 +105,5 @@ internal/database/migrations/postgres/107_shareable_lists.up.sql
 internal/database/migrations/postgres/108_content_sources.up.sql
 internal/database/migrations/postgres/109_scene_origin_and_ingest_queue.up.sql
 internal/database/migrations/postgres/110_content_source_normalized_url.up.sql
+internal/database/migrations/postgres/111_tag_implications.up.sql
+internal/database/migrations/postgres/112_ontology_versions.up.sql

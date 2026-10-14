@@ -54,6 +54,18 @@ type Query {
   """Incremental feed of tags changed since a keyset cursor"""
   tagChangelog(since: Time!, after_id: ID, limit: Int = 5000): [EntityChange!]! @hasRole(role: READ)
 
+  """The tag ontology: every implication, by name, ordered."""
+  tagImplications: [TagImplication!]! @hasRole(role: READ)
+
+  """The version of the tag ontology in force, for a client that must say which one produced an answer."""
+  ontologyVersion: Int! @hasRole(role: READ)
+
+  """Ontology versions, newest first. Snapshots are empty here; ask for one by number."""
+  ontologyVersions(limit: Int! = 20): [OntologyVersion!]! @hasRole(role: READ)
+
+  """One ontology version, with the whole graph as it stood at that version."""
+  findOntologyVersion(version: Int!): OntologyVersion @hasRole(role: READ)
+
   #### Scenes ####
 
   # ids should be unique

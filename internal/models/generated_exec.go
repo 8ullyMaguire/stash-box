@@ -42,6 +42,7 @@ type ResolverRoot interface {
 	ModAudit() ModAuditResolver
 	Mutation() MutationResolver
 	Notification() NotificationResolver
+	OntologyVersion() OntologyVersionResolver
 	Performer() PerformerResolver
 	PerformerDraft() PerformerDraftResolver
 	PerformerEdit() PerformerEditResolver
@@ -622,6 +623,13 @@ type ComplexityRoot struct {
 		Read    func(childComplexity int) int
 	}
 
+	OntologyVersion struct {
+		Created  func(childComplexity int) int
+		Note     func(childComplexity int) int
+		Snapshot func(childComplexity int) int
+		Version  func(childComplexity int) int
+	}
+
 	Performer struct {
 		Age                   func(childComplexity int) int
 		Aliases               func(childComplexity int) int
@@ -779,6 +787,7 @@ type ComplexityRoot struct {
 		FindDraft                      func(childComplexity int, id uuid.UUID) int
 		FindDrafts                     func(childComplexity int) int
 		FindEdit                       func(childComplexity int, id uuid.UUID) int
+		FindOntologyVersion            func(childComplexity int, version int) int
 		FindPerformer                  func(childComplexity int, id uuid.UUID) int
 		FindPerformers                 func(childComplexity int, ids []uuid.UUID) int
 		FindScene                      func(childComplexity int, id uuid.UUID) int
@@ -803,6 +812,8 @@ type ComplexityRoot struct {
 		Lists                          func(childComplexity int, userID *uuid.UUID, perPage *int, page *int) int
 		Me                             func(childComplexity int) int
 		MyIdentificationDetectiveScore func(childComplexity int) int
+		OntologyVersion                func(childComplexity int) int
+		OntologyVersions               func(childComplexity int, limit int) int
 		PerformerChangelog             func(childComplexity int, since time.Time, afterID *uuid.UUID, limit *int) int
 		PublishedLists                 func(childComplexity int, perPage *int, page *int) int
 		QueryEdits                     func(childComplexity int, input EditQueryInput) int
@@ -832,6 +843,7 @@ type ComplexityRoot struct {
 		SearchTag                      func(childComplexity int, term string, limit *int) int
 		StudioChangelog                func(childComplexity int, since time.Time, afterID *uuid.UUID, limit *int) int
 		TagChangelog                   func(childComplexity int, since time.Time, afterID *uuid.UUID, limit *int) int
+		TagImplications                func(childComplexity int) int
 		UnderSnapshottedScenes         func(childComplexity int, minimum *int, limit *int) int
 		UserStreak                     func(childComplexity int) int
 		Version                        func(childComplexity int) int
@@ -1092,16 +1104,25 @@ type ComplexityRoot struct {
 	}
 
 	Tag struct {
-		Aliases     func(childComplexity int) int
-		Category    func(childComplexity int) int
-		Completion  func(childComplexity int) int
-		Created     func(childComplexity int) int
-		Deleted     func(childComplexity int) int
-		Description func(childComplexity int) int
-		Edits       func(childComplexity int) int
-		ID          func(childComplexity int) int
-		Name        func(childComplexity int) int
-		Updated     func(childComplexity int) int
+		Aliases             func(childComplexity int) int
+		Category            func(childComplexity int) int
+		Completion          func(childComplexity int) int
+		Created             func(childComplexity int) int
+		Deleted             func(childComplexity int) int
+		Description         func(childComplexity int) int
+		Edits               func(childComplexity int) int
+		ID                  func(childComplexity int) int
+		ImpliedBy           func(childComplexity int) int
+		ImpliedByTransitive func(childComplexity int) int
+		Implies             func(childComplexity int) int
+		ImpliesTransitive   func(childComplexity int) int
+		Name                func(childComplexity int) int
+		Updated             func(childComplexity int) int
+	}
+
+	TagAtDepth struct {
+		Depth func(childComplexity int) int
+		Tag   func(childComplexity int) int
 	}
 
 	TagCategory struct {
@@ -1121,12 +1142,22 @@ type ComplexityRoot struct {
 	}
 
 	TagEdit struct {
-		AddedAliases   func(childComplexity int) int
-		Aliases        func(childComplexity int) int
-		Category       func(childComplexity int) int
-		Description    func(childComplexity int) int
-		Name           func(childComplexity int) int
-		RemovedAliases func(childComplexity int) int
+		AddedAliases        func(childComplexity int) int
+		AddedImplications   func(childComplexity int) int
+		Aliases             func(childComplexity int) int
+		Category            func(childComplexity int) int
+		Description         func(childComplexity int) int
+		Name                func(childComplexity int) int
+		RemovedAliases      func(childComplexity int) int
+		RemovedImplications func(childComplexity int) int
+	}
+
+	TagImplication struct {
+		CreatedAt    func(childComplexity int) int
+		ImpliedName  func(childComplexity int) int
+		ImpliedTagID func(childComplexity int) int
+		TagID        func(childComplexity int) int
+		TagName      func(childComplexity int) int
 	}
 
 	URL struct {
@@ -1404,6 +1435,9 @@ type NotificationResolver interface {
 	Level(ctx context.Context, obj *Notification) (NotificationLevel, error)
 	Data(ctx context.Context, obj *Notification) (NotificationData, error)
 }
+type OntologyVersionResolver interface {
+	Created(ctx context.Context, obj *OntologyVersion) (*time.Time, error)
+}
 type PerformerResolver interface {
 	Timeline(ctx context.Context, obj *Performer) (*PerformerTimeline, error)
 
@@ -1475,6 +1509,10 @@ type QueryResolver interface {
 	FindTagCategory(ctx context.Context, id uuid.UUID) (*TagCategory, error)
 	QueryTagCategories(ctx context.Context) (*QueryTagCategoriesResultType, error)
 	TagChangelog(ctx context.Context, since time.Time, afterID *uuid.UUID, limit *int) ([]EntityChange, error)
+	TagImplications(ctx context.Context) ([]TagImplication, error)
+	OntologyVersion(ctx context.Context) (int, error)
+	OntologyVersions(ctx context.Context, limit int) ([]OntologyVersion, error)
+	FindOntologyVersion(ctx context.Context, version int) (*OntologyVersion, error)
 	FindScene(ctx context.Context, id uuid.UUID) (*Scene, error)
 	FindScenes(ctx context.Context, ids []uuid.UUID) ([]*Scene, error)
 	FindScenesBySceneFingerprints(ctx context.Context, fingerprints [][]FingerprintQueryInput) ([][]*Scene, error)
@@ -1644,6 +1682,10 @@ type TagResolver interface {
 	Edits(ctx context.Context, obj *Tag) ([]Edit, error)
 	Category(ctx context.Context, obj *Tag) (*TagCategory, error)
 
+	Implies(ctx context.Context, obj *Tag) ([]Tag, error)
+	ImpliedBy(ctx context.Context, obj *Tag) ([]Tag, error)
+	ImpliesTransitive(ctx context.Context, obj *Tag) ([]TagAtDepth, error)
+	ImpliedByTransitive(ctx context.Context, obj *Tag) ([]TagAtDepth, error)
 	Completion(ctx context.Context, obj *Tag) (*Completion, error)
 }
 type TagCategoryResolver interface {
@@ -1655,6 +1697,8 @@ type TagCategoryResolver interface {
 	Ancestors(ctx context.Context, obj *TagCategory) ([]TagCategoryTreeNode, error)
 }
 type TagEditResolver interface {
+	AddedImplications(ctx context.Context, obj *TagEdit) ([]Tag, error)
+	RemovedImplications(ctx context.Context, obj *TagEdit) ([]Tag, error)
 	Category(ctx context.Context, obj *TagEdit) (*TagCategory, error)
 	Aliases(ctx context.Context, obj *TagEdit) ([]string, error)
 }
@@ -4411,6 +4455,31 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.Notification.Read(childComplexity), true
 
+	case "OntologyVersion.created":
+		if e.ComplexityRoot.OntologyVersion.Created == nil {
+			break
+		}
+
+		return e.ComplexityRoot.OntologyVersion.Created(childComplexity), true
+	case "OntologyVersion.note":
+		if e.ComplexityRoot.OntologyVersion.Note == nil {
+			break
+		}
+
+		return e.ComplexityRoot.OntologyVersion.Note(childComplexity), true
+	case "OntologyVersion.snapshot":
+		if e.ComplexityRoot.OntologyVersion.Snapshot == nil {
+			break
+		}
+
+		return e.ComplexityRoot.OntologyVersion.Snapshot(childComplexity), true
+	case "OntologyVersion.version":
+		if e.ComplexityRoot.OntologyVersion.Version == nil {
+			break
+		}
+
+		return e.ComplexityRoot.OntologyVersion.Version(childComplexity), true
+
 	case "Performer.age":
 		if e.ComplexityRoot.Performer.Age == nil {
 			break
@@ -5264,6 +5333,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.FindEdit(childComplexity, args["id"].(uuid.UUID)), true
+	case "Query.findOntologyVersion":
+		if e.ComplexityRoot.Query.FindOntologyVersion == nil {
+			break
+		}
+
+		args, err := ec.field_Query_findOntologyVersion_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.FindOntologyVersion(childComplexity, args["version"].(int)), true
 	case "Query.findPerformer":
 		if e.ComplexityRoot.Query.FindPerformer == nil {
 			break
@@ -5509,6 +5589,23 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.MyIdentificationDetectiveScore(childComplexity), true
+	case "Query.ontologyVersion":
+		if e.ComplexityRoot.Query.OntologyVersion == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Query.OntologyVersion(childComplexity), true
+	case "Query.ontologyVersions":
+		if e.ComplexityRoot.Query.OntologyVersions == nil {
+			break
+		}
+
+		args, err := ec.field_Query_ontologyVersions_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.OntologyVersions(childComplexity, args["limit"].(int)), true
 	case "Query.performerChangelog":
 		if e.ComplexityRoot.Query.PerformerChangelog == nil {
 			break
@@ -5813,6 +5910,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.TagChangelog(childComplexity, args["since"].(time.Time), args["after_id"].(*uuid.UUID), args["limit"].(*int)), true
+	case "Query.tagImplications":
+		if e.ComplexityRoot.Query.TagImplications == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Query.TagImplications(childComplexity), true
 	case "Query.underSnapshottedScenes":
 		if e.ComplexityRoot.Query.UnderSnapshottedScenes == nil {
 			break
@@ -6953,6 +7056,30 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Tag.ID(childComplexity), true
+	case "Tag.implied_by":
+		if e.ComplexityRoot.Tag.ImpliedBy == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Tag.ImpliedBy(childComplexity), true
+	case "Tag.implied_by_transitive":
+		if e.ComplexityRoot.Tag.ImpliedByTransitive == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Tag.ImpliedByTransitive(childComplexity), true
+	case "Tag.implies":
+		if e.ComplexityRoot.Tag.Implies == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Tag.Implies(childComplexity), true
+	case "Tag.implies_transitive":
+		if e.ComplexityRoot.Tag.ImpliesTransitive == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Tag.ImpliesTransitive(childComplexity), true
 	case "Tag.name":
 		if e.ComplexityRoot.Tag.Name == nil {
 			break
@@ -6965,6 +7092,19 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Tag.Updated(childComplexity), true
+
+	case "TagAtDepth.depth":
+		if e.ComplexityRoot.TagAtDepth.Depth == nil {
+			break
+		}
+
+		return e.ComplexityRoot.TagAtDepth.Depth(childComplexity), true
+	case "TagAtDepth.tag":
+		if e.ComplexityRoot.TagAtDepth.Tag == nil {
+			break
+		}
+
+		return e.ComplexityRoot.TagAtDepth.Tag(childComplexity), true
 
 	case "TagCategory.ancestors":
 		if e.ComplexityRoot.TagCategory.Ancestors == nil {
@@ -7034,6 +7174,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.TagEdit.AddedAliases(childComplexity), true
+	case "TagEdit.added_implications":
+		if e.ComplexityRoot.TagEdit.AddedImplications == nil {
+			break
+		}
+
+		return e.ComplexityRoot.TagEdit.AddedImplications(childComplexity), true
 	case "TagEdit.aliases":
 		if e.ComplexityRoot.TagEdit.Aliases == nil {
 			break
@@ -7064,6 +7210,43 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.TagEdit.RemovedAliases(childComplexity), true
+	case "TagEdit.removed_implications":
+		if e.ComplexityRoot.TagEdit.RemovedImplications == nil {
+			break
+		}
+
+		return e.ComplexityRoot.TagEdit.RemovedImplications(childComplexity), true
+
+	case "TagImplication.created_at":
+		if e.ComplexityRoot.TagImplication.CreatedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.TagImplication.CreatedAt(childComplexity), true
+	case "TagImplication.implied_name":
+		if e.ComplexityRoot.TagImplication.ImpliedName == nil {
+			break
+		}
+
+		return e.ComplexityRoot.TagImplication.ImpliedName(childComplexity), true
+	case "TagImplication.implied_tag_id":
+		if e.ComplexityRoot.TagImplication.ImpliedTagID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.TagImplication.ImpliedTagID(childComplexity), true
+	case "TagImplication.tag_id":
+		if e.ComplexityRoot.TagImplication.TagID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.TagImplication.TagID(childComplexity), true
+	case "TagImplication.tag_name":
+		if e.ComplexityRoot.TagImplication.TagName == nil {
+			break
+		}
+
+		return e.ComplexityRoot.TagImplication.TagName(childComplexity), true
 
 	case "URL.site":
 		if e.ComplexityRoot.URL.Site == nil {
@@ -11141,6 +11324,63 @@ type Tag {
   category: TagCategory
   created: Time!
   updated: Time!
+
+  """
+  Direct implications: applying this tag also applies these.
+
+  An implication is changed only through a tag edit (` + "`" + `added_implications` + "`" + ` /
+  ` + "`" + `removed_implications` + "`" + ` on ` + "`" + `TagEditDetailsInput` + "`" + `), because tag data is shared data and the
+  edit system is this instance's proposal-discussion-vote machine.
+  """
+  implies: [Tag!]!
+
+  "Direct: the tags that imply this one."
+  implied_by: [Tag!]!
+
+  """
+  Everything below this tag, at any depth, with how far below.
+
+  Read this instead of walking ` + "`" + `implies` + "`" + ` when the question is "what will a filter on this
+  tag actually return": it is one round trip and it is the set the search expands to.
+  """
+  implies_transitive: [TagAtDepth!]!
+
+  "Everything above this tag: every tag a reader could filter by and still find this one."
+  implied_by_transitive: [TagAtDepth!]!
+}
+
+"""
+A tag and how far it is from the tag that was asked about.
+
+` + "`" + `depth` + "`" + ` is what makes a flat list usable: without it a client cannot tell a direct
+implication from one three levels down without walking the graph itself. 1 is direct.
+"""
+type TagAtDepth {
+  tag: Tag!
+  depth: Int!
+}
+
+"""
+One row of the ontology, by name.
+"""
+type TagImplication {
+  tag_id: ID!
+  tag_name: String!
+  implied_tag_id: ID!
+  implied_name: String!
+  created_at: Time!
+}
+
+"""
+One version of the tag ontology, written when the graph changes.
+"""
+type OntologyVersion {
+  version: Int!
+  note: String
+  created: Time!
+
+  "The whole ontology at this version, as a JSON list of {\"tag\": ..., \"implies\": ...} pairs by name. Empty for a listing."
+  snapshot: String
 }
 
 input TagCreateInput {
@@ -11167,6 +11407,16 @@ input TagEditDetailsInput {
   description: String
   aliases: [String!]
   category_id: ID
+
+  """
+  Tags this tag implies, added by this edit. Both lists are relative to the tag being
+  edited, and both are applied when the edit is approved.
+
+  An edit that would create a cycle is refused when it is submitted, so the submitter gets
+  the reason while they can still change it; the database refuses it again on apply.
+  """
+  added_implications: [ID!]
+  removed_implications: [ID!]
 }
 
 input TagEditInput {
@@ -11180,6 +11430,8 @@ type TagEdit {
   description: String
   added_aliases: [String!]
   removed_aliases: [String!]
+  added_implications: [Tag!]
+  removed_implications: [Tag!]
   category: TagCategory
 
   aliases: [String!]!
@@ -11638,6 +11890,18 @@ type Query {
   queryTagCategories: QueryTagCategoriesResultType! @hasRole(role: READ)
   """Incremental feed of tags changed since a keyset cursor"""
   tagChangelog(since: Time!, after_id: ID, limit: Int = 5000): [EntityChange!]! @hasRole(role: READ)
+
+  """The tag ontology: every implication, by name, ordered."""
+  tagImplications: [TagImplication!]! @hasRole(role: READ)
+
+  """The version of the tag ontology in force, for a client that must say which one produced an answer."""
+  ontologyVersion: Int! @hasRole(role: READ)
+
+  """Ontology versions, newest first. Snapshots are empty here; ask for one by number."""
+  ontologyVersions(limit: Int! = 20): [OntologyVersion!]! @hasRole(role: READ)
+
+  """One ontology version, with the whole graph as it stood at that version."""
+  findOntologyVersion(version: Int!): OntologyVersion @hasRole(role: READ)
 
   #### Scenes ####
 
@@ -12725,6 +12989,20 @@ func (ec *executionContext) childFields_Notification(ctx context.Context, field 
 	return nil, fmt.Errorf("no field named %q was found under type Notification", field.Name)
 }
 
+func (ec *executionContext) childFields_OntologyVersion(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "version":
+		return ec.fieldContext_OntologyVersion_version(ctx, field)
+	case "note":
+		return ec.fieldContext_OntologyVersion_note(ctx, field)
+	case "created":
+		return ec.fieldContext_OntologyVersion_created(ctx, field)
+	case "snapshot":
+		return ec.fieldContext_OntologyVersion_snapshot(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type OntologyVersion", field.Name)
+}
+
 func (ec *executionContext) childFields_Performer(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 	switch field.Name {
 	case "id":
@@ -13301,10 +13579,28 @@ func (ec *executionContext) childFields_Tag(ctx context.Context, field graphql.C
 		return ec.fieldContext_Tag_created(ctx, field)
 	case "updated":
 		return ec.fieldContext_Tag_updated(ctx, field)
+	case "implies":
+		return ec.fieldContext_Tag_implies(ctx, field)
+	case "implied_by":
+		return ec.fieldContext_Tag_implied_by(ctx, field)
+	case "implies_transitive":
+		return ec.fieldContext_Tag_implies_transitive(ctx, field)
+	case "implied_by_transitive":
+		return ec.fieldContext_Tag_implied_by_transitive(ctx, field)
 	case "completion":
 		return ec.fieldContext_Tag_completion(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type Tag", field.Name)
+}
+
+func (ec *executionContext) childFields_TagAtDepth(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "tag":
+		return ec.fieldContext_TagAtDepth_tag(ctx, field)
+	case "depth":
+		return ec.fieldContext_TagAtDepth_depth(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type TagAtDepth", field.Name)
 }
 
 func (ec *executionContext) childFields_TagCategory(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -13337,6 +13633,22 @@ func (ec *executionContext) childFields_TagCategoryTreeNode(ctx context.Context,
 		return ec.fieldContext_TagCategoryTreeNode_depth(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type TagCategoryTreeNode", field.Name)
+}
+
+func (ec *executionContext) childFields_TagImplication(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "tag_id":
+		return ec.fieldContext_TagImplication_tag_id(ctx, field)
+	case "tag_name":
+		return ec.fieldContext_TagImplication_tag_name(ctx, field)
+	case "implied_tag_id":
+		return ec.fieldContext_TagImplication_implied_tag_id(ctx, field)
+	case "implied_name":
+		return ec.fieldContext_TagImplication_implied_name(ctx, field)
+	case "created_at":
+		return ec.fieldContext_TagImplication_created_at(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type TagImplication", field.Name)
 }
 
 func (ec *executionContext) childFields_URL(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -15341,6 +15653,20 @@ func (ec *executionContext) field_Query_findEdit_args(ctx context.Context, rawAr
 	return args, nil
 }
 
+func (ec *executionContext) field_Query_findOntologyVersion_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "version",
+		func(ctx context.Context, v any) (int, error) {
+			return ec.unmarshalNInt2int(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["version"] = arg0
+	return args, nil
+}
+
 func (ec *executionContext) field_Query_findPerformer_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -15666,6 +15992,20 @@ func (ec *executionContext) field_Query_lists_args(ctx context.Context, rawArgs 
 		return nil, err
 	}
 	args["page"] = arg2
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_ontologyVersions_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "limit",
+		func(ctx context.Context, v any) (int, error) {
+			return ec.unmarshalNInt2int(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["limit"] = arg0
 	return args, nil
 }
 
@@ -28822,6 +29162,98 @@ func (ec *executionContext) fieldContext_Notification_data(_ context.Context, fi
 	return graphql.NewScalarFieldContext("Notification", field, true, true, errors.New("field of type NotificationData does not have child fields"))
 }
 
+func (ec *executionContext) _OntologyVersion_version(ctx context.Context, field graphql.CollectedField, obj *OntologyVersion) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_OntologyVersion_version(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Version, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_OntologyVersion_version(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("OntologyVersion", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _OntologyVersion_note(ctx context.Context, field graphql.CollectedField, obj *OntologyVersion) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_OntologyVersion_note(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Note, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
+			return ec.marshalOString2ᚖstring(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_OntologyVersion_note(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("OntologyVersion", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _OntologyVersion_created(ctx context.Context, field graphql.CollectedField, obj *OntologyVersion) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_OntologyVersion_created(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.OntologyVersion().Created(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *time.Time) graphql.Marshaler {
+			return ec.marshalNTime2ᚖtimeᚐTime(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_OntologyVersion_created(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("OntologyVersion", field, true, true, errors.New("field of type Time does not have child fields"))
+}
+
+func (ec *executionContext) _OntologyVersion_snapshot(ctx context.Context, field graphql.CollectedField, obj *OntologyVersion) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_OntologyVersion_snapshot(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Snapshot, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalOString2string(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_OntologyVersion_snapshot(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("OntologyVersion", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
 func (ec *executionContext) _Performer_id(ctx context.Context, field graphql.CollectedField, obj *Performer) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -32875,6 +33307,221 @@ func (ec *executionContext) fieldContext_Query_tagChangelog(ctx context.Context,
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Query_tagChangelog_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_tagImplications(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_tagImplications(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Query().TagImplications(ctx)
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal []TagImplication
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal []TagImplication
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v []TagImplication) graphql.Marshaler {
+			return ec.marshalNTagImplication2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTagImplicationᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_tagImplications(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_TagImplication(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_ontologyVersion(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_ontologyVersion(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Query().OntologyVersion(ctx)
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal int
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal int
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_ontologyVersion(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Query", field, true, true, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _Query_ontologyVersions(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_ontologyVersions(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().OntologyVersions(ctx, fc.Args["limit"].(int))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal []OntologyVersion
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal []OntologyVersion
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v []OntologyVersion) graphql.Marshaler {
+			return ec.marshalNOntologyVersion2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐOntologyVersionᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_ontologyVersions(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_OntologyVersion(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_ontologyVersions_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_findOntologyVersion(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_findOntologyVersion(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().FindOntologyVersion(ctx, fc.Args["version"].(int))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal *OntologyVersion
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *OntologyVersion
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *OntologyVersion) graphql.Marshaler {
+			return ec.marshalOOntologyVersion2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐOntologyVersion(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_Query_findOntologyVersion(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_OntologyVersion(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_findOntologyVersion_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -40858,6 +41505,134 @@ func (ec *executionContext) fieldContext_Tag_updated(_ context.Context, field gr
 	return graphql.NewScalarFieldContext("Tag", field, false, false, errors.New("field of type Time does not have child fields"))
 }
 
+func (ec *executionContext) _Tag_implies(ctx context.Context, field graphql.CollectedField, obj *Tag) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Tag_implies(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Tag().Implies(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []Tag) graphql.Marshaler {
+			return ec.marshalNTag2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTagᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Tag_implies(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Tag",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_Tag(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Tag_implied_by(ctx context.Context, field graphql.CollectedField, obj *Tag) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Tag_implied_by(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Tag().ImpliedBy(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []Tag) graphql.Marshaler {
+			return ec.marshalNTag2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTagᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Tag_implied_by(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Tag",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_Tag(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Tag_implies_transitive(ctx context.Context, field graphql.CollectedField, obj *Tag) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Tag_implies_transitive(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Tag().ImpliesTransitive(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []TagAtDepth) graphql.Marshaler {
+			return ec.marshalNTagAtDepth2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTagAtDepthᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Tag_implies_transitive(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Tag",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_TagAtDepth(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Tag_implied_by_transitive(ctx context.Context, field graphql.CollectedField, obj *Tag) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Tag_implied_by_transitive(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Tag().ImpliedByTransitive(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []TagAtDepth) graphql.Marshaler {
+			return ec.marshalNTagAtDepth2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTagAtDepthᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Tag_implied_by_transitive(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Tag",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_TagAtDepth(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Tag_completion(ctx context.Context, field graphql.CollectedField, obj *Tag) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -40888,6 +41663,61 @@ func (ec *executionContext) fieldContext_Tag_completion(_ context.Context, field
 		},
 	}
 	return fc, nil
+}
+
+func (ec *executionContext) _TagAtDepth_tag(ctx context.Context, field graphql.CollectedField, obj *TagAtDepth) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_TagAtDepth_tag(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Tag, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v Tag) graphql.Marshaler {
+			return ec.marshalNTag2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTag(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_TagAtDepth_tag(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "TagAtDepth",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_Tag(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _TagAtDepth_depth(ctx context.Context, field graphql.CollectedField, obj *TagAtDepth) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_TagAtDepth_depth(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Depth, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_TagAtDepth_depth(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("TagAtDepth", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
 func (ec *executionContext) _TagCategory_id(ctx context.Context, field graphql.CollectedField, obj *TagCategory) (ret graphql.Marshaler) {
@@ -41257,6 +42087,70 @@ func (ec *executionContext) fieldContext_TagEdit_removed_aliases(_ context.Conte
 	return graphql.NewScalarFieldContext("TagEdit", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
+func (ec *executionContext) _TagEdit_added_implications(ctx context.Context, field graphql.CollectedField, obj *TagEdit) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_TagEdit_added_implications(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.TagEdit().AddedImplications(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []Tag) graphql.Marshaler {
+			return ec.marshalOTag2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTagᚄ(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_TagEdit_added_implications(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "TagEdit",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_Tag(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _TagEdit_removed_implications(ctx context.Context, field graphql.CollectedField, obj *TagEdit) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_TagEdit_removed_implications(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.TagEdit().RemovedImplications(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []Tag) graphql.Marshaler {
+			return ec.marshalOTag2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTagᚄ(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_TagEdit_removed_implications(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "TagEdit",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_Tag(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _TagEdit_category(ctx context.Context, field graphql.CollectedField, obj *TagEdit) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -41310,6 +42204,121 @@ func (ec *executionContext) _TagEdit_aliases(ctx context.Context, field graphql.
 }
 func (ec *executionContext) fieldContext_TagEdit_aliases(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("TagEdit", field, true, true, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _TagImplication_tag_id(ctx context.Context, field graphql.CollectedField, obj *TagImplication) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_TagImplication_tag_id(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.TagID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v uuid.UUID) graphql.Marshaler {
+			return ec.marshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_TagImplication_tag_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("TagImplication", field, false, false, errors.New("field of type ID does not have child fields"))
+}
+
+func (ec *executionContext) _TagImplication_tag_name(ctx context.Context, field graphql.CollectedField, obj *TagImplication) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_TagImplication_tag_name(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.TagName, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_TagImplication_tag_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("TagImplication", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _TagImplication_implied_tag_id(ctx context.Context, field graphql.CollectedField, obj *TagImplication) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_TagImplication_implied_tag_id(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ImpliedTagID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v uuid.UUID) graphql.Marshaler {
+			return ec.marshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_TagImplication_implied_tag_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("TagImplication", field, false, false, errors.New("field of type ID does not have child fields"))
+}
+
+func (ec *executionContext) _TagImplication_implied_name(ctx context.Context, field graphql.CollectedField, obj *TagImplication) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_TagImplication_implied_name(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ImpliedName, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_TagImplication_implied_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("TagImplication", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _TagImplication_created_at(ctx context.Context, field graphql.CollectedField, obj *TagImplication) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_TagImplication_created_at(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.CreatedAt, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v time.Time) graphql.Marshaler {
+			return ec.marshalNTime2timeᚐTime(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_TagImplication_created_at(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("TagImplication", field, false, false, errors.New("field of type Time does not have child fields"))
 }
 
 func (ec *executionContext) _URL_url(ctx context.Context, field graphql.CollectedField, obj *URL) (ret graphql.Marshaler) {
@@ -49683,7 +50692,7 @@ func (ec *executionContext) unmarshalInputTagEditDetailsInput(ctx context.Contex
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"name", "description", "aliases", "category_id"}
+	fieldsInOrder := [...]string{"name", "description", "aliases", "category_id", "added_implications", "removed_implications"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -49718,6 +50727,20 @@ func (ec *executionContext) unmarshalInputTagEditDetailsInput(ctx context.Contex
 				return it, err
 			}
 			it.CategoryID = data
+		case "added_implications":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("added_implications"))
+			data, err := ec.unmarshalOID2ᚕgithubᚗcomᚋgofrsᚋuuidᚐUUIDᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.AddedImplications = data
+		case "removed_implications":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("removed_implications"))
+			data, err := ec.unmarshalOID2ᚕgithubᚗcomᚋgofrsᚋuuidᚐUUIDᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.RemovedImplications = data
 		}
 	}
 	return it, nil
@@ -56450,6 +57473,92 @@ func (ec *executionContext) _Notification(ctx context.Context, sel ast.Selection
 	return out
 }
 
+var ontologyVersionImplementors = []string{"OntologyVersion"}
+
+func (ec *executionContext) _OntologyVersion(ctx context.Context, sel ast.SelectionSet, obj *OntologyVersion) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, ontologyVersionImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("OntologyVersion")
+		case "version":
+			out.Values[i] = ec._OntologyVersion_version(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "note":
+			out.Values[i] = ec._OntologyVersion_note(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "created":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._OntologyVersion_created(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "snapshot":
+			out.Values[i] = ec._OntologyVersion_snapshot(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
 var performerImplementors = []string{"Performer", "EditTarget", "SceneDraftPerformer"}
 
 func (ec *executionContext) _Performer(ctx context.Context, sel ast.SelectionSet, obj *Performer) graphql.Marshaler {
@@ -58892,6 +60001,94 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 				}()
 				res = ec._Query_tagChangelog(ctx, field)
 				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "tagImplications":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_tagImplications(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "ontologyVersion":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_ontologyVersion(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "ontologyVersions":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_ontologyVersions(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "findOntologyVersion":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_findOntologyVersion(ctx, field)
+				if res == graphql.RequiredNull {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
 				return res
@@ -64443,6 +65640,158 @@ func (ec *executionContext) _Tag(ctx context.Context, sel ast.SelectionSet, obj 
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
+		case "implies":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Tag_implies(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "implied_by":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Tag_implied_by(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "implies_transitive":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Tag_implies_transitive(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "implied_by_transitive":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Tag_implied_by_transitive(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "completion":
 			field := field
 
@@ -64481,6 +65830,49 @@ func (ec *executionContext) _Tag(ctx context.Context, sel ast.SelectionSet, obj 
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var tagAtDepthImplementors = []string{"TagAtDepth"}
+
+func (ec *executionContext) _TagAtDepth(ctx context.Context, sel ast.SelectionSet, obj *TagAtDepth) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, tagAtDepthImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("TagAtDepth")
+		case "tag":
+			out.Values[i] = ec._TagAtDepth_tag(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "depth":
+			out.Values[i] = ec._TagAtDepth_depth(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -64815,6 +66207,82 @@ func (ec *executionContext) _TagEdit(ctx context.Context, sel ast.SelectionSet, 
 			if out.Values[i] == graphql.RequiredNull {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
+		case "added_implications":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._TagEdit_added_implications(ctx, field, obj)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "removed_implications":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._TagEdit_removed_implications(ctx, field, obj)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "category":
 			field := field
 
@@ -64891,6 +66359,64 @@ func (ec *executionContext) _TagEdit(ctx context.Context, sel ast.SelectionSet, 
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var tagImplicationImplementors = []string{"TagImplication"}
+
+func (ec *executionContext) _TagImplication(ctx context.Context, sel ast.SelectionSet, obj *TagImplication) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, tagImplicationImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("TagImplication")
+		case "tag_id":
+			out.Values[i] = ec._TagImplication_tag_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "tag_name":
+			out.Values[i] = ec._TagImplication_tag_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "implied_tag_id":
+			out.Values[i] = ec._TagImplication_implied_tag_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "implied_name":
+			out.Values[i] = ec._TagImplication_implied_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "created_at":
+			out.Values[i] = ec._TagImplication_created_at(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -68078,6 +69604,26 @@ func (ec *executionContext) marshalNNotificationLevel2githubᚗcomᚋstashappᚋ
 	return v
 }
 
+func (ec *executionContext) marshalNOntologyVersion2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐOntologyVersion(ctx context.Context, sel ast.SelectionSet, v OntologyVersion) graphql.Marshaler {
+	return ec._OntologyVersion(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNOntologyVersion2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐOntologyVersionᚄ(ctx context.Context, sel ast.SelectionSet, v []OntologyVersion) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNOntologyVersion2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐOntologyVersion(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
 func (ec *executionContext) unmarshalNOperationEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐOperationEnum(ctx context.Context, v any) (OperationEnum, error) {
 	var res OperationEnum
 	err := res.UnmarshalGQL(v)
@@ -68965,6 +70511,26 @@ func (ec *executionContext) marshalNTag2ᚕᚖgithubᚗcomᚋstashappᚋstashᚑ
 	return ret
 }
 
+func (ec *executionContext) marshalNTagAtDepth2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTagAtDepth(ctx context.Context, sel ast.SelectionSet, v TagAtDepth) graphql.Marshaler {
+	return ec._TagAtDepth(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNTagAtDepth2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTagAtDepthᚄ(ctx context.Context, sel ast.SelectionSet, v []TagAtDepth) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNTagAtDepth2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTagAtDepth(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
 func (ec *executionContext) marshalNTagCategory2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTagCategory(ctx context.Context, sel ast.SelectionSet, v TagCategory) graphql.Marshaler {
 	return ec._TagCategory(ctx, sel, &v)
 }
@@ -69058,6 +70624,26 @@ func (ec *executionContext) unmarshalNTagGroupEnum2githubᚗcomᚋstashappᚋsta
 
 func (ec *executionContext) marshalNTagGroupEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTagGroupEnum(ctx context.Context, sel ast.SelectionSet, v TagGroupEnum) graphql.Marshaler {
 	return v
+}
+
+func (ec *executionContext) marshalNTagImplication2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTagImplication(ctx context.Context, sel ast.SelectionSet, v TagImplication) graphql.Marshaler {
+	return ec._TagImplication(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNTagImplication2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTagImplicationᚄ(ctx context.Context, sel ast.SelectionSet, v []TagImplication) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNTagImplication2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTagImplication(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
 }
 
 func (ec *executionContext) unmarshalNTagQueryInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTagQueryInput(ctx context.Context, v any) (TagQueryInput, error) {
@@ -70340,6 +71926,13 @@ func (ec *executionContext) marshalONotificationEnum2ᚖgithubᚗcomᚋstashapp�
 		return graphql.Null
 	}
 	return v
+}
+
+func (ec *executionContext) marshalOOntologyVersion2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐOntologyVersion(ctx context.Context, sel ast.SelectionSet, v *OntologyVersion) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._OntologyVersion(ctx, sel, v)
 }
 
 func (ec *executionContext) unmarshalOOperationEnum2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐOperationEnum(ctx context.Context, v any) (*OperationEnum, error) {

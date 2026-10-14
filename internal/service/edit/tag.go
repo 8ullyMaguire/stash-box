@@ -11,6 +11,7 @@ import (
 	"github.com/stashapp/stash-box/internal/converter"
 	"github.com/stashapp/stash-box/internal/models"
 	"github.com/stashapp/stash-box/internal/queries"
+	"github.com/stashapp/stash-box/internal/service/tagontology"
 	"github.com/stashapp/stash-box/pkg/utils"
 )
 
@@ -79,6 +80,14 @@ func (m *TagEditProcessor) modifyEdit(input models.TagEditInput, inputArgs utils
 		return ErrNoChanges
 	}
 
+	// Refused here as well as at the database, so the submitter is told while they can still
+	// change the edit instead of reading it from a bot's comment on a failed apply.
+	if input.Details != nil {
+		if err := tagontology.New(m.queries).ValidateImplications(m.context, tagID, input.Details.AddedImplications, input.Details.RemovedImplications); err != nil {
+			return err
+		}
+	}
+
 	return m.edit.SetData(tagEdit)
 }
 
@@ -125,6 +134,12 @@ func (m *TagEditProcessor) mergeEdit(input models.TagEditInput, inputArgs utils.
 
 	tagEdit.New.AddedAliases, tagEdit.New.RemovedAliases = utils.SliceCompare(input.Details.Aliases, aliases)
 
+	if input.Details != nil {
+		if err := tagontology.New(m.queries).ValidateImplications(m.context, tagID, input.Details.AddedImplications, input.Details.RemovedImplications); err != nil {
+			return err
+		}
+	}
+
 	return m.edit.SetData(tagEdit)
 }
 
@@ -162,6 +177,19 @@ func (m *TagEditProcessor) CreateJoin(input models.TagEditInput) error {
 	}
 
 	return nil
+}
+
+// applyImplications writes the edit's implication change to the tag.
+//
+// It runs inside the apply's transaction, so a refusal by the cycle trigger leaves the edit
+// Failed with the reason recorded and nothing half-applied -- there is no state in which the
+// graph has some of an edit's implications.
+func (m *TagEditProcessor) applyImplications(tagID uuid.UUID, data *models.TagEditData) error {
+	if data == nil || data.New == nil {
+		return nil
+	}
+
+	return tagontology.New(m.queries).SetImplications(m.context, tagID, data.New.AddedImplications, data.New.RemovedImplications)
 }
 
 func (m *TagEditProcessor) updateAliasesFromEdit(tag *models.Tag, data *models.TagEditData) error {
@@ -240,6 +268,10 @@ func (m *TagEditProcessor) apply() error {
 			}
 		}
 
+		if err := m.applyImplications(newTag.ID, data); err != nil {
+			return err
+		}
+
 		return m.queries.CreateTagEdit(m.context, queries.CreateTagEditParams{
 			EditID: m.edit.ID,
 			TagID:  newTag.ID,
@@ -269,6 +301,10 @@ func (m *TagEditProcessor) apply() error {
 			return err
 		}
 
+		if err := m.applyImplications(tag.ID, data); err != nil {
+			return err
+		}
+
 		return m.updateAliasesFromEdit(tag, data)
 	case models.OperationEnumMerge:
 		if err := tag.ValidateModifyEdit(*data); err != nil {
@@ -285,6 +321,10 @@ func (m *TagEditProcessor) apply() error {
 			if err := m.mergeInto(sourceID, tag.ID); err != nil {
 				return err
 			}
+		}
+
+		if err := m.applyImplications(tag.ID, data); err != nil {
+			return err
 		}
 
 		return m.updateAliasesFromEdit(tag, data)
@@ -323,6 +363,14 @@ func (m *TagEditProcessor) mergeInto(sourceID uuid.UUID, targetID uuid.UUID) err
 
 	// Delete any remaining old tags (these are scenes that already had the target tag)
 	if err = m.queries.DeleteSceneTagsByTag(m.context, sourceID); err != nil {
+		return err
+	}
+
+	// The ontology. Implications touching the merged-away tag move to the survivor, with the
+	// pairs that would collapse into a self-implication or a duplicate removed first. Dropping
+	// them instead would take a merge's implied tags with it silently -- the graph would just
+	// be smaller, and nothing on the page would say so.
+	if err = tagontology.New(m.queries).Retarget(m.context, sourceID, targetID); err != nil {
 		return err
 	}
 

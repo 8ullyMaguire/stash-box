@@ -1781,6 +1781,13 @@ type TagEditDetailsInput struct {
 	Description *string    `json:"description,omitempty"`
 	Aliases     []string   `json:"aliases,omitempty"`
 	CategoryID  *uuid.UUID `json:"category_id,omitempty"`
+	// Tags this tag implies, added by this edit. Both lists are relative to the tag being
+	// edited, and both are applied when the edit is approved.
+	//
+	// An edit that would create a cycle is refused when it is submitted, so the submitter gets
+	// the reason while they can still change it; the database refuses it again on apply.
+	AddedImplications   []uuid.UUID `json:"added_implications,omitempty"`
+	RemovedImplications []uuid.UUID `json:"removed_implications,omitempty"`
 }
 
 type TagEditInput struct {

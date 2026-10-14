@@ -46,3 +46,22 @@ func (r *tagResolver) Created(ctx context.Context, obj *models.Tag) (*time.Time,
 func (r *tagResolver) Updated(ctx context.Context, obj *models.Tag) (*time.Time, error) {
 	return &obj.Updated, nil
 }
+
+// The ontology. These are service reads rather than dataloader reads: a tag page asks for
+// them once, per tag, and the graph is not a bulk field a list page walks (which is what the
+// dataloaders exist for).
+func (r *tagResolver) Implies(ctx context.Context, obj *models.Tag) ([]models.Tag, error) {
+	return r.services.TagOntology().Implies(ctx, obj.ID)
+}
+
+func (r *tagResolver) ImpliedBy(ctx context.Context, obj *models.Tag) ([]models.Tag, error) {
+	return r.services.TagOntology().ImpliedBy(ctx, obj.ID)
+}
+
+func (r *tagResolver) ImpliesTransitive(ctx context.Context, obj *models.Tag) ([]models.TagAtDepth, error) {
+	return r.services.TagOntology().ImpliesTransitive(ctx, obj.ID)
+}
+
+func (r *tagResolver) ImpliedByTransitive(ctx context.Context, obj *models.Tag) ([]models.TagAtDepth, error) {
+	return r.services.TagOntology().ImpliedByTransitive(ctx, obj.ID)
+}

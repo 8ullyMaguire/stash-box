@@ -11,6 +11,7 @@ import (
 	"github.com/stashapp/stash-box/internal/auth"
 	"github.com/stashapp/stash-box/internal/models"
 	queryhelper "github.com/stashapp/stash-box/internal/service/query"
+	"github.com/stashapp/stash-box/internal/service/tagontology"
 )
 
 func (s *Scene) Query(ctx context.Context, input models.SceneQueryInput) ([]models.Scene, error) {
@@ -21,7 +22,7 @@ func (s *Scene) QueryForPerformer(ctx context.Context, input models.SceneQueryIn
 	user := auth.GetCurrentUser(ctx)
 
 	psql := sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
-	query, err := s.buildSceneQuery(psql, input, performerID, user.ID, false)
+	query, err := s.buildSceneQuery(ctx, psql, input, performerID, user.ID, false)
 	if err != nil {
 		return nil, err
 	}
@@ -56,7 +57,7 @@ func (s *Scene) QueryCountForPerformer(ctx context.Context, input models.SceneQu
 
 	psql := sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
 
-	innerQuery, err := s.buildSceneQuery(psql, input, performerID, user.ID, true)
+	innerQuery, err := s.buildSceneQuery(ctx, psql, input, performerID, user.ID, true)
 	if err != nil {
 		return 0, err
 	}
@@ -68,7 +69,7 @@ func (s *Scene) QueryCountForPerformer(ctx context.Context, input models.SceneQu
 	return queryhelper.ExecuteCountCustomPlan(ctx, countQuery, s.queries.DB(), "QueryScenesCount")
 }
 
-func (s *Scene) buildSceneQuery(psql sq.StatementBuilderType, input models.SceneQueryInput, performerID *uuid.UUID, userID uuid.UUID, forCount bool) (sq.SelectBuilder, error) {
+func (s *Scene) buildSceneQuery(ctx context.Context, psql sq.StatementBuilderType, input models.SceneQueryInput, performerID *uuid.UUID, userID uuid.UUID, forCount bool) (sq.SelectBuilder, error) {
 	query := psql.Select("scenes.id").From("scenes")
 
 	// Scope to a single performer
@@ -102,7 +103,16 @@ func (s *Scene) buildSceneQuery(psql sq.StatementBuilderType, input models.Scene
 
 	// Filter by tags
 	if input.Tags != nil && len(input.Tags.Value) > 0 {
-		if err := queryhelper.ApplyMultiIDCriterion(&query, "scenes", "scene_tags", "scene_id", "tag_id", input.Tags); err != nil {
+		// The tag ontology is a hierarchy, so a tag filter names what a reader MEANS and the
+		// criterion matches anything that implies it: filtering by `woman_on_top` has to
+		// return the things tagged `cowgirl_position`. One query expands the whole filter
+		// (tagontology.Expand); an empty expansion would leave the criterion as itself, which
+		// is what it did before the hierarchy existed.
+		expansion, err := tagontology.New(s.queries).Expand(ctx, input.Tags.Value)
+		if err != nil {
+			return query, err
+		}
+		if err := queryhelper.ApplyMultiIDCriterionExpanded(&query, "scenes", "scene_tags", "scene_id", "tag_id", input.Tags, expansion); err != nil {
 			return query, err
 		}
 	}

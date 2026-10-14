@@ -498,6 +498,15 @@ type Notification struct {
 	Data      *json.RawMessage `db:"data" json:"data"`
 }
 
+// One row per change to the tag ontology, written by ontology_version_trg in the same transaction as the change. snapshot is the full implication set by tag name at that version.
+type OntologyVersion struct {
+	Version int `db:"version" json:"version"`
+	// The implication graph by tag NAME, ordered, e.g. [{"tag":"cowgirl_position","implies":"woman_on_top"}]. Names and not ids because the readers are people reviewing an ontology change and tags.name is unique. LIMIT: this is the implication graph only -- tag renames and category changes are not in it.
+	Snapshot  json.RawMessage `db:"snapshot" json:"snapshot"`
+	Note      *string         `db:"note" json:"note"`
+	CreatedAt time.Time       `db:"created_at" json:"created_at"`
+}
+
 type Performer struct {
 	ID              uuid.UUID              `db:"id" json:"id"`
 	Name            string                 `db:"name" json:"name"`
@@ -817,6 +826,13 @@ type TagCategory struct {
 type TagEdit struct {
 	EditID uuid.UUID `db:"edit_id" json:"edit_id"`
 	TagID  uuid.UUID `db:"tag_id" json:"tag_id"`
+}
+
+// The tag DAG: tag_id implies implied_tag_id (specific -> general). Read through a recursive CTE, never materialised onto scene_tags. Cycles are refused by tag_implications_no_cycle_trg.
+type TagImplication struct {
+	TagID        uuid.UUID `db:"tag_id" json:"tag_id"`
+	ImpliedTagID uuid.UUID `db:"implied_tag_id" json:"implied_tag_id"`
+	CreatedAt    time.Time `db:"created_at" json:"created_at"`
 }
 
 type TagRedirect struct {
