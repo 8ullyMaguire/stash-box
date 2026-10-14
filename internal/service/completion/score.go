@@ -50,11 +50,16 @@ const (
 	EntityStudio    EntityType = "studio"
 	EntitySite      EntityType = "site"
 	EntityTag       EntityType = "tag"
+	// EntityContentItem is the five non-video content kinds (aggregator phase 3).
+	// One type, not six: the kind is a column on the row, and everything that
+	// enumerates entity types stays one entry long.
+	EntityContentItem EntityType = "content_item"
 )
 
 // AllEntityTypes is every type the package scores.
 var AllEntityTypes = []EntityType{
 	EntityPerformer, EntityScene, EntityStudio, EntitySite, EntityTag,
+	EntityContentItem,
 }
 
 // Field is one named piece of metadata a score can be missing.
@@ -233,6 +238,30 @@ var (
 		{FieldName, 40},
 		{FieldDetails, 60},
 	}
+
+	// A content item (aggregator phase 3). The weights are the same numbers as the
+	// content_item branch in internal/queries/sql/completion.sql, and the two are
+	// held together by TestTheSQLWeightsMatchTheGoWeights.
+	//
+	// `title` is weight 0 because the table's CHECK makes a blank one
+	// unrepresentable -- it is listed for the same reason `name` is.
+	contentItemFields = []fieldWeight{
+		{FieldName, 0},
+		// A describable item is findable by reading; this is the field that says
+		// WHAT the item is beyond its title.
+		{FieldDetails, 20},
+		// Nullable on purpose (an undated release is normal), so it is scored:
+		// a bounded discovery pool ordered by release date is exactly the trap
+		// phase 7 slice 6 recorded, and knowing how many items lack one is how
+		// that stays visible.
+		{FieldDate, 15},
+		// No media row means no URL: a catalogue entry with nothing behind it.
+		{FieldURLs, 30},
+		// Weighted highest, above the media URL: an item nobody can discover is
+		// the failure the discovery surfaces exist to prevent, and the tag is what
+		// connects it to everything else.
+		{FieldTags, 35},
+	}
 )
 
 // fieldWeight is one scored field and how much it is worth.
@@ -332,11 +361,12 @@ var ErrUnknownField = errors.New("field is not scored for this entity type")
 // scorable, so a field cannot be valid for one type and absent from another's
 // definition without the difference being visible here.
 var specs = map[EntityType][]fieldWeight{
-	EntityPerformer: performerFields,
-	EntityScene:     sceneFields,
-	EntityStudio:    studioFields,
-	EntitySite:      siteFields,
-	EntityTag:       tagFields,
+	EntityPerformer:   performerFields,
+	EntityScene:       sceneFields,
+	EntityStudio:      studioFields,
+	EntitySite:        siteFields,
+	EntityTag:         tagFields,
+	EntityContentItem: contentItemFields,
 }
 
 // TotalWeight is the weight an entity type can earn in total.

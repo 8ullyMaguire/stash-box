@@ -11,6 +11,54 @@ import (
 	"github.com/gofrs/uuid"
 )
 
+const contentItemCompletionInputs = `-- name: ContentItemCompletionInputs :one
+SELECT
+    ci.id,
+    COALESCE(btrim(ci.title) <> '', FALSE) AS has_name,
+    COALESCE(ci.details IS NOT NULL AND btrim(ci.details) <> '', FALSE) AS has_details,
+    COALESCE(ci.release_date IS NOT NULL, FALSE) AS has_date,
+    EXISTS (SELECT 1 FROM content_item_media cim WHERE cim.content_item_id = ci.id) AS has_urls,
+    EXISTS (SELECT 1 FROM content_item_tags cit WHERE cit.content_item_id = ci.id) AS has_tags
+FROM content_items ci
+WHERE ci.id = $1 AND ci.deleted = false
+`
+
+type ContentItemCompletionInputsRow struct {
+	ID         uuid.UUID   `db:"id" json:"id"`
+	HasName    interface{} `db:"has_name" json:"has_name"`
+	HasDetails interface{} `db:"has_details" json:"has_details"`
+	HasDate    interface{} `db:"has_date" json:"has_date"`
+	HasUrls    bool        `db:"has_urls" json:"has_urls"`
+	HasTags    bool        `db:"has_tags" json:"has_tags"`
+}
+
+// Which content-item fields are filled (aggregator phase 3).
+//
+// The weights this feeds live in internal/service/completion/score.go and are
+// duplicated here as constants for the same reason the other types are: the
+// COUNT comparison happens in the service, and recomputing the score in SQL would
+// put the formula in two places. `TestTheSQLWeightsMatchTheGoWeights` fails when
+// the copies disagree, which is what makes the duplication survivable.
+//
+// `title` is NOT NULL by the table's own constraint, so it carries weight 0: it is
+// in the list so every type's list has the same shape, not because it can be
+// missing. Media counts as the URL of a content item -- without one there is
+// nothing behind the catalogue entry -- and tags are weighted above it because an
+// item nobody can find is the failure the discovery surfaces exist to prevent.
+func (q *Queries) ContentItemCompletionInputs(ctx context.Context, id uuid.UUID) (ContentItemCompletionInputsRow, error) {
+	row := q.db.QueryRow(ctx, contentItemCompletionInputs, id)
+	var i ContentItemCompletionInputsRow
+	err := row.Scan(
+		&i.ID,
+		&i.HasName,
+		&i.HasDetails,
+		&i.HasDate,
+		&i.HasUrls,
+		&i.HasTags,
+	)
+	return i, err
+}
+
 const countEntitiesWithCompletionBelow = `-- name: CountEntitiesWithCompletionBelow :one
 SELECT
     CASE $1::text
@@ -71,6 +119,16 @@ SELECT
             WHERE NOT t.deleted AND (
                 + (NOT (t.name IS NOT NULL AND t.name <> ''))::int * 40
                 + (NOT (t.description IS NOT NULL AND t.description <> ''))::int * 60
+            ) >= $2::int
+        )
+        WHEN 'content_item' THEN (
+            SELECT count(*) FROM content_items ci
+            WHERE NOT ci.deleted AND (
+                + (NOT (ci.title IS NOT NULL AND btrim(ci.title) <> ''))::int * 0
+                + (NOT (ci.details IS NOT NULL AND btrim(ci.details) <> ''))::int * 20
+                + (NOT (ci.release_date IS NOT NULL))::int * 15
+                + (NOT (EXISTS (SELECT 1 FROM content_item_media cim WHERE cim.content_item_id = ci.id)))::int * 30
+                + (NOT (EXISTS (SELECT 1 FROM content_item_tags cit WHERE cit.content_item_id = ci.id)))::int * 35
             ) >= $2::int
         )
         ELSE 0
@@ -155,6 +213,18 @@ WHERE $2::text = 'scene' AND NOT s.deleted
   ) >= $3::int
   AND s.id > COALESCE($4::uuid,
                       '00000000-0000-0000-0000-000000000000'::uuid)
+
+UNION ALL
+SELECT ci.id
+FROM content_items ci
+WHERE $2::text = 'content_item' AND NOT ci.deleted
+  AND (
+      + (NOT (ci.title IS NOT NULL AND btrim(ci.title) <> ''))::int * 0
+      + (NOT (ci.details IS NOT NULL AND btrim(ci.details) <> ''))::int * 20
+      + (NOT (ci.release_date IS NOT NULL))::int * 15
+      + (NOT (EXISTS (SELECT 1 FROM content_item_media cim WHERE cim.content_item_id = ci.id)))::int * 30
+      + (NOT (EXISTS (SELECT 1 FROM content_item_tags cit WHERE cit.content_item_id = ci.id)))::int * 35
+    ) >= $3::int
 
 ORDER BY id
 LIMIT $1::int

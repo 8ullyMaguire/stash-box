@@ -128,6 +128,20 @@ type Querier interface {
 	// one).
 	ClearDownvoteEditNotifications(ctx context.Context, id uuid.UUID) error
 	ClearScenePerformerAlias(ctx context.Context, arg ClearScenePerformerAliasParams) error
+	// Which content-item fields are filled (aggregator phase 3).
+	//
+	// The weights this feeds live in internal/service/completion/score.go and are
+	// duplicated here as constants for the same reason the other types are: the
+	// COUNT comparison happens in the service, and recomputing the score in SQL would
+	// put the formula in two places. `TestTheSQLWeightsMatchTheGoWeights` fails when
+	// the copies disagree, which is what makes the duplication survivable.
+	//
+	// `title` is NOT NULL by the table's own constraint, so it carries weight 0: it is
+	// in the list so every type's list has the same shape, not because it can be
+	// missing. Media counts as the URL of a content item -- without one there is
+	// nothing behind the catalogue entry -- and tags are weighted above it because an
+	// item nobody can find is the failure the discovery surfaces exist to prevent.
+	ContentItemCompletionInputs(ctx context.Context, id uuid.UUID) (ContentItemCompletionInputsRow, error)
 	// Archive-wide counts (SPEC §7.7, growth item 9 "State of the Archive").
 	//
 	// One query, five rows. A page whose entire job is "how much is catalogued"
@@ -163,6 +177,9 @@ type Querier interface {
 	// The entity_type values are the GraphQL EntityType enum spellings, so the
 	// resolver can pass the rows through without a second mapping table that could
 	// drift from the enum.
+	// content items carry `deleted` (migration 117), so they take the same
+	// predicate as every other curated table: a denominator that counted
+	// soft-deleted items would report a permanently incomplete archive.
 	CountArchiveEntities(ctx context.Context) ([]CountArchiveEntitiesRow, error)
 	// The count of items a quest holds, used to refuse authoring more than the
 	// target rather than silently truncating.

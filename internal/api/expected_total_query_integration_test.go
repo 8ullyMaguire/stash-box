@@ -11,6 +11,7 @@ import (
 
 	"github.com/stashapp/stash-box/internal/database/testutil"
 	"github.com/stashapp/stash-box/internal/queries"
+	"github.com/stashapp/stash-box/internal/service/completion"
 )
 
 // These tests call the sqlc-GENERATED queries, not a copy of the SQL pasted into
@@ -252,7 +253,7 @@ func TestArchiveCountsCoverEveryScoredType(t *testing.T) {
 		got[r.EntityType] = r.Count
 	}
 
-	assert.Len(t, rows, 5,
+	assert.Len(t, rows, len(completion.AllEntityTypes),
 		"always five rows: a client given four has to decide what the fifth "+
 			"means, and \"none exist\" and \"could not count them\" produce "+
 			"different pages")

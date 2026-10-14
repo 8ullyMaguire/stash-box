@@ -20,6 +20,8 @@ UNION ALL
 SELECT 'site', count(*)::bigint FROM sites
 UNION ALL
 SELECT 'tag', count(*)::bigint FROM tags WHERE NOT deleted
+UNION ALL
+SELECT 'content_item', count(*)::bigint FROM content_items WHERE NOT deleted
 ORDER BY entity_type ASC
 `
 
@@ -63,6 +65,9 @@ type CountArchiveEntitiesRow struct {
 // The entity_type values are the GraphQL EntityType enum spellings, so the
 // resolver can pass the rows through without a second mapping table that could
 // drift from the enum.
+// content items carry `deleted` (migration 117), so they take the same
+// predicate as every other curated table: a denominator that counted
+// soft-deleted items would report a permanently incomplete archive.
 func (q *Queries) CountArchiveEntities(ctx context.Context) ([]CountArchiveEntitiesRow, error) {
 	rows, err := q.db.Query(ctx, countArchiveEntities)
 	if err != nil {

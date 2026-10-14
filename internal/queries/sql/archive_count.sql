@@ -44,4 +44,9 @@ UNION ALL
 SELECT 'site', count(*)::bigint FROM sites
 UNION ALL
 SELECT 'tag', count(*)::bigint FROM tags WHERE NOT deleted
+UNION ALL
+-- content items carry `deleted` (migration 117), so they take the same
+-- predicate as every other curated table: a denominator that counted
+-- soft-deleted items would report a permanently incomplete archive.
+SELECT 'content_item', count(*)::bigint FROM content_items WHERE NOT deleted
 ORDER BY entity_type ASC;

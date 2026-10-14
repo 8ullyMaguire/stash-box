@@ -109,6 +109,25 @@ func (s *Service) Scene(ctx context.Context, id uuid.UUID) (Result, error) {
 	})
 }
 
+// ContentItem scores a content item (aggregator phase 3).
+//
+// The missing half of phase 3's decision is here rather than in the tables: a kind
+// the vocabularies do not know is a row that is written and never counted, so the
+// scoring path is what makes the new kind first-class rather than merely storable.
+func (s *Service) ContentItem(ctx context.Context, id uuid.UUID) (Result, error) {
+	row, err := s.queries.ContentItemCompletionInputs(ctx, id)
+	if err != nil {
+		return Result{}, notFoundOr(err)
+	}
+	return Score(EntityContentItem, map[Field]bool{
+		FieldName:    asBool(row.HasName),
+		FieldDetails: asBool(row.HasDetails),
+		FieldDate:    asBool(row.HasDate),
+		FieldURLs:    row.HasUrls,
+		FieldTags:    row.HasTags,
+	})
+}
+
 // Studio scores a studio.
 func (s *Service) Studio(ctx context.Context, id uuid.UUID) (Result, error) {
 	row, err := s.queries.StudioCompletionInputs(ctx, id)
