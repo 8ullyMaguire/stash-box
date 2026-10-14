@@ -167,8 +167,19 @@ func TestATierAboveTheCeilingStaysAbsent(t *testing.T) {
 	_, err = twoTier.resolver.Mutation().UserSetVisibleTiers(twoTier.ctx, []int{1, 2, 3})
 	require.NoError(t, err)
 
+	// THIS test measures the CEILING, not the cooling period, so it does not wait for one: the
+	// consent is backdated past it. Without this the test asserts that consenting to tier 3 works
+	// immediately -- which is exactly what the cooling period exists to prevent, and it failed the
+	// first time the cooling landed. The cooling has its own test
+	// (`TestTierThreeCoolsBeforeItTakesEffect`), which asserts the delay and then backdates for the
+	// same reason inverted.
+	_, err = dbtest.DB().Exec(context.Background(),
+		`UPDATE user_trust SET t3_consented_at = now() - interval '25 hours' WHERE user_id = $1`,
+		userDB.read.ID)
+	require.NoError(t, err, "backdating the consent past the cooling period")
+
 	visible := tierProbeSearch(t, twoTier, title)
-	require.Len(t, visible, 1, "opting into tier 3 must make a tier-3 scene visible")
+	require.Len(t, visible, 1, "a tier-3 consent past its cooling period must make the scene visible")
 }
 
 // --- the similarity path: a RECOMMENDATION, which is where a tier matters most ---
