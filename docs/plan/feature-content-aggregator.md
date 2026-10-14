@@ -111,7 +111,7 @@ The two hard constraints survive this reordering intact:
 
 ---
 
-## Phase 1 — the source layer (the aggregator's first brick)
+## Phase 1 — the source layer (the aggregator's first brick) — **DONE**
 
 **Goal:** a scene can be a record of content that exists at a URL and nobody here
 owns, with the URL's health tracked. NexusXXX §3.2 `sources[]` + §7.3's status
@@ -142,7 +142,8 @@ adding a sixth is a schema change other code reads, so Phase 1 does not.
   with a `scene_urls` compatibility trigger, because the alternative is two sources
   of truth that disagree on the first write).
 
-**Files:** `internal/database/migrations/postgres/108_content_sources.{up,down}.sql`,
+**Files:** `internal/database/migrations/postgres/108_content_sources.up.sql` (and its
+`.down.sql`),
 `internal/queries/sql/content_source.sql` (+ its generated `content_source.sql.go` and
 `querier.go`), `internal/models/content_source.go` (the read model, hand-written — the
 generated row struct is not the API shape), `internal/service/content/source.go`,
@@ -166,7 +167,7 @@ service never asked"), then `go test -tags=integration -p 1 ./internal/api/
 scene query with that status; a duplicate URL for the same entity is rejected; a
 `dmca` source is not served to a `READ`-only caller.
 
-## Phase 2 — ingestion pipeline
+## Phase 2 — ingestion pipeline — **DONE**
 
 **Goal:** submit a URL and get a content record — NexusXXX §7.2's pipeline, §7.1's
 eight source classes, §3.3's dedup, §3.4's versioning.
@@ -183,8 +184,9 @@ thumbnail + preview via the existing `collage` service → auto-tier (Phase 5's 
 defaulting T0 until it lands) → `pending` review when confidence is low, auto-approve
 when the source site is trusted and confidence is high → archive submission.
 
-**Files:** `internal/database/migrations/postgres/109_scene_origin_and_ingest_queue.{up,down}.sql`,
-`110_content_source_normalized_url.{up,down}.sql`,
+**Files:** `internal/database/migrations/postgres/109_scene_origin_and_ingest_queue.up.sql`,
+`internal/database/migrations/postgres/110_content_source_normalized_url.up.sql` (both with
+their `.down.sql`),
 `internal/queries/sql/ingest.sql` (+ generated), `scripts/verify-109.sh`,
 `internal/service/ingest/` (normalise + dedup decision as pure functions, then the
 pipeline), `internal/service/ingest/extract/` (the extractor interface, the production
@@ -266,7 +268,7 @@ enumerates the type list and asserts each has a completion mapping, which is how
 **Verification:** integration test that a text item takes tags, a review, an elo
 matchup and a list entry with no new plumbing.
 
-## Phase 4 — the tag ontology
+## Phase 4 — the tag ontology — **DONE**
 
 **Goal:** NexusXXX §4.1–§4.6. **Verified:** `tags` has `name, description, aliases,
 deleted, category_id, created_at, updated_at`; `tag_categories` nests (migration 106,
@@ -286,9 +288,43 @@ duplicated onto tag rows. The fork's §3.2 "generated vs hand-written — know w
 which" is the rule; a materialised implication list is a second source of truth that
 disagrees on the first merge.
 
-**Verification:** a cycle attempt is rejected by the database (not by the service);
-applying `cowgirl_position` in the UI/search surface returns items tagged
-`woman_on_top`; `docs/plan-verify.py` still passes.
+**Status:** LANDED — phase 4 is complete. Migrations **111** `tag_implications` (the pair, the
+uniqueness, the implied-tag index, the cycle trigger) and **112** `ontology_versions` (the
+version table and `record_ontology_version`); `internal/queries/sql/tag_ontology.sql`;
+`internal/service/tagontology/` (the reader: the closure, the recursive SQL, the merge
+retarget); the surface in `graphql/schema/types/tag.graphql` (`Tag.implies`, `implied_by`,
+`implies_transitive`, `implied_by_transitive` with `TagAtDepth`, `TagImplication`,
+`OntologyVersion`, and `added_implications`/`removed_implications` on the edit details); and
+`ApplyMultiIDCriterionExpanded` in `internal/service/query/criterion.go`.
+
+Three things the implementation decided, each also recorded where it is made:
+
+1. **`INCLUDES_ALL` is one `EXISTS` per REQUESTED tag, not a count over an expanded list.**
+   "All of these" is a per-requested-tag question: an item tagged only `cowgirl_position`
+   satisfies both `woman_on_top` and `vaginal_sex` — which it implies — while contributing
+   ONE join row, so `COUNT(*) = len(expanded)` refuses it. The counting form stays for the
+   no-hierarchy case, where it is correct and equivalent.
+2. **The version bump is a DATABASE trigger, not applier code.** One version per change
+   STATEMENT covers the edit applier, a merge's retarget, a tag deletion's cascade and a
+   future seeding migration — a counter maintained in Go would miss the paths that do not go
+   through it, which is this project's recurring bug class. The cost is in the migration: a
+   merge that retargets three implications writes three versions. The bump takes
+   `LOCK TABLE ontology_versions IN EXCLUSIVE MODE`, because a concurrent writer otherwise
+   computes the same `MAX(version)+1` and dies on the primary key.
+3. **The expansion is wired into the scene query, which is the only tag-filtered item
+   surface this codebase has.** `SceneQueryInput.Tags` is the one tag criterion
+   (`PerformerScenesInput.Tags` builds a `SceneQueryInput` and flows through the same
+   builder), so "search" here means that builder rather than five call sites.
+
+**Verification:** `scripts/verify-111.sh` (21/21) and `scripts/verify-112.sh` (28/28) against
+`sbx-scratch`, covering the constraints, the trigger's two arms, the cascade, the ordering of
+the merge retarget (the statements extracted BY NAME from the query file, so the harness
+tests what sqlc generates from), and the version lock; `criterion_expansion_test.go` for the
+SQL shape per modifier; `tag_ontology_integration_test.go` — six tests through GraphQL against
+a real database, each asserting the negative before the implication exists; two mutations,
+each reddening exactly one test and no neighbour; and the lock proven by dropping `LOCK TABLE`
+from the LIVE function and watching the duplicate-key failure it exists to prevent.
+`docs/plan-verify.py` and `docs/goal-check.py` are run over this file and the track row.
 
 ## Phase 5 — tiers, warnings and gates
 
@@ -492,3 +528,29 @@ not Built), C6b (integration suite — now runnable, so this becomes PASS or FAI
 C7 (5 files unformatted, one of them the last committed test file). C7 is a
 one-command fix and it blocks a clause that otherwise says nothing about the new
 programme.
+
+## Deviations
+
+Decisions this plan did not carry, newest-first. Each is recorded where it is made as
+well as here (in the spec or in the phase's own Status block); this is the index, and a
+reader who only reads this section still knows what changed.
+
+1. **Phase 4's migrations are 111 and 112, not 110 and 111.** 110 was taken by phase 2
+   (`content_source_normalized_url`). The files that exist are
+   `111_tag_implications.up.sql` and `112_ontology_versions.up.sql`; the phase 4 text above
+   still shows the numbers it was written with, deliberately, so the reversal is visible.
+2. **`ontology_changes` is not a table.** The plan lists one with its own proposal →
+   discussion → vote → implement status machine. The edit system IS that machine
+   (`edits`, `edit_comments`, `edit_votes`, and the implication fields on
+   `TagEditDetailsInput`), and a second state machine would be a second place a change's
+   state lives. Phase 4 contributed the half the edit system does not have:
+   `ontology_versions`.
+3. **Phase 1's frontend half is deferred to phase 16.** The phase 1 file list ends with
+   "and later `frontend/src/graphql/...`": `sources` is served by GraphQL and consumed by
+   nothing in the UI yet, recorded in phase 1's Status.
+4. **The extractor is not yt-dlp** (phase 2's Status): OpenGraph tags over `net/http`, no
+   media toolchain, no download, no fingerprints. The `Extractor` interface is what keeps a
+   yt-dlp-backed implementation a small change later.
+5. **A URL that is gone closes as `failed`, not `done`** (phase 2's Status and the spec's
+   §5): `gone` and a policy refusal are different outcomes, and the fetch happens only when
+   a record might be created.
