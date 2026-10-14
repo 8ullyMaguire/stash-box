@@ -607,6 +607,10 @@ it — the rule migration 87 states and the reason an allowlist was refused.
 **Also:** the onboarding wizard (frontend), the warnings-vs-gates split, and the
 cooling period for T3.
 
+**PHASE 5 STATUS: the server work is done** (slices 5a-5i, migrations 120-123). The onboarding wizard's
+SCREEN is explicitly out of scope here -- `frontend/` is the vendored application and this repository owns
+the query it reads. Nothing remains in phase 5 that this repository owns.
+
 **Verification:** a T2-tagged scene is absent from search, feeds, recommendations and
 similar-to for a member who has not opted in — all four paths asserted separately,
 because "invisible" is an absence claim and this repo already had an absence
@@ -913,6 +917,16 @@ operator surface is a guess), and the value is DATA so a fixture backdates it in
 
 #### C. The onboarding wizard
 
+**SERVER HALF BUILT — slice 5i.** As designed, with three differences the build chose deliberately:
+`optedIn` rather than `optInSet` (it names what it is: the member's own switch toggling content viewing
+at all), `contributionScore { current, required, met }` rather than `{ current, threshold }` (the
+comparison is made server-side so a client cannot re-implement the gate's arithmetic), and the tier
+ladder gained `availableAt` reporting the cooling period. Migration 123 also gave the gate's terms
+condition its first column: until then `ReasonTerms` was a refusal NO MEMBER COULD SATISFY, because
+nothing in the instance recorded acceptance. `userAcceptContentTerms` (READ) records it and keeps the
+FIRST acceptance, so re-reading the terms cannot rewrite when a member first agreed.
+
+
 **Design, and a scope decision.** The wizard's SERVER half is what this repository owns. A query
 `contentAccessSetup: ContentAccessSetup!` (READ) reports, for each condition of the gate, whether THIS
 viewer satisfies it and what remains: `termsAccepted`, `optInSet`,
@@ -974,7 +988,35 @@ search assertion and the recommendation assertion, since they share the predicat
 visible), the feed's `dropDenied` call unwired, and the similarity candidate's tag arm removed in the
 generated statement.
 
-### Slice 5g — the denylist on DIRECT access — DESIGNED, not built
+### Slice 5g — the denylist on DIRECT access — DONE
+
+**As built**, and the design below held with four additions the build forced:
+
+* **One helper, four call sites, fail closed.** `scene.deniedSceneIDs` returns the denied subset as a set
+  (one `DeniedSceneIDs` batch, the same query the feed uses). Every arm checks it, and an error in the
+  check FAILS the read rather than proceeding -- a gate that serves content when its own check errored is
+  not a gate. In `LoadIds` that error is repeated per requested id, because the loader's contract is one
+  error per key.
+* **The four arms are `FindByID`, `LoadIds` (which is what the `SceneByID` dataloader's fetch calls, so
+  the loader is gated rather than the query), `FindScenesBySceneFingerprints` and `Changelog`.** Gating
+  `LoadIds` is what makes `findScenes(ids: [...])` not a bypass; the fingerprint arm drops denied matches
+  from their group; the changelog drops denied entries.
+* **THE CHANGELOG PAGE GETS SHORTER, deliberately.** Dropping entries does not backfill to keep the page
+  size steady: a query loop whose only purpose is to hide a hole is worse than a short page, and a client
+  paginates by the cursor it was given, so a short page is not a stall.
+* **The edit path and the operator report stay open, and the test says so.** Editing a denied scene works
+  (keeping its denied tag), which is also how an operator un-denylists something: the denylist names
+  ENTITIES, so the same mutation that keeps a scene denied lifts it when the denied tag is removed -- the
+  test asserts both directions. And `AccessRules` still lists the rule, with `EnforcedBy` corrected to
+  name BOTH halves (`internal/service/query` for the enumerating paths, `internal/service/scene` for the
+  direct ones), because naming only the first was true of enumeration and quiet about the rest.
+
+**Probes: five, all killed, each with its own message** -- one per arm, including the shared predicate
+from 5f. Two harness lessons came out of them: a needle written with two tabs matches inside a four-tab
+line, so a mutation can hit the WRONG arm while reporting KILLED (the loader's arm had to be re-probed
+with an anchor that included its body), and the arm you did not probe is the arm that is not covered.
+
+### The design as written before the build
 
 Slice 5f gates the four ENUMERATING paths. Direct access still serves a denylisted scene, and that is a
 gap with a different character from the tier gap: a tier removes a thing from a VIEW (and `findScene(id)`

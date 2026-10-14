@@ -9655,7 +9655,14 @@ type TierStanding {
   "The tier number, from 0 (always visible) to the model's maximum."
   tier: Int!
 
-  "Whether this member has opted into this tier. The consent is recorded immediately."
+  """
+  Whether this tier is in this member's record of consent, which is written immediately.
+
+  TIER 0 IS NEVER IN IT, and that is not a gap: tier 0 is always visible, so there is nothing to
+  consent to, and an array listing it would imply a consent nobody gave. This field reports the
+  record rather than a ceiling -- a client wanting "how far can I see" takes the highest tier that is
+  opted in AND has no ` + "`" + `availableAt` + "`" + `.
+  """
   optedIn: Boolean!
 
   """

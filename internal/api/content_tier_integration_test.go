@@ -4,7 +4,12 @@ package api_test
 
 import (
 	"context"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/stashapp/stash-box/internal/auth"
+	"github.com/stashapp/stash-box/internal/queries"
+	"github.com/stashapp/stash-box/internal/service/trust"
 	"reflect"
+	"strconv"
 	"testing"
 	"time"
 
@@ -1078,4 +1083,413 @@ func TestAWarningIsNotShownForASceneTheViewerCannotSee(t *testing.T) {
 	if found {
 		assert.Empty(t, warnings, "out of the view, a warning is a disclosure and is withheld")
 	}
+}
+
+// --- the access setup query (phase 5 slice 5i) ---
+
+type accessSetupOutput struct {
+	TermsAccepted     bool `json:"termsAccepted"`
+	OptedIn           bool `json:"optedIn"`
+	ContributionScore struct {
+		Current  int  `json:"current"`
+		Required int  `json:"required"`
+		Met      bool `json:"met"`
+	} `json:"contributionScore"`
+	Tiers []struct {
+		Tier        int     `json:"tier"`
+		OptedIn     bool    `json:"optedIn"`
+		AvailableAt *string `json:"availableAt"`
+	} `json:"tiers"`
+}
+
+const accessSetupQuery = `
+query AccessSetup {
+	contentAccessSetup {
+		termsAccepted
+		optedIn
+		contributionScore { current required met }
+		tiers { tier optedIn availableAt }
+	}
+}`
+
+func (r *testRunner) accessSetup(t *testing.T) accessSetupOutput {
+	t.Helper()
+	var resp struct {
+		ContentAccessSetup accessSetupOutput `json:"contentAccessSetup"`
+	}
+	require.NoError(t, r.client.Post(accessSetupQuery, &resp))
+	return resp.ContentAccessSetup
+}
+
+func (r *testRunner) acceptContentTerms(t *testing.T) accessSetupOutput {
+	t.Helper()
+	var resp struct {
+		UserAcceptContentTerms accessSetupOutput `json:"userAcceptContentTerms"`
+	}
+	require.NoError(t, r.client.Post(`mutation { userAcceptContentTerms {
+		termsAccepted optedIn contributionScore { current required met } tiers { tier optedIn availableAt } } }`, &resp))
+	return resp.UserAcceptContentTerms
+}
+
+// THE DRIFT GUARD, and the reason this query exists at all: every field it reports is checked against
+// the gate's OWN verdict for the same member. A wizard that drifts from the gate tells people to satisfy
+// conditions that will not let them in -- and until this slice the gate had no caller, so "the wizard
+// agrees with the gate" was not a proposition anyone could test.
+//
+// The two directions are asserted separately, because a comparison that always says "refused" would
+// pass a one-sided test while telling every member they were blocked.
+func TestAccessSetupAgreesWithTheGate(t *testing.T) {
+	viewer := asRead(t)
+	userID := auth.GetCurrentUser(viewer.ctx).ID
+
+	// Reset the parts of the standing that other tests in this package also use.
+	_, err := viewer.resolver.Mutation().UserSetVisibleTiers(viewer.ctx, []int{})
+	require.NoError(t, err)
+
+	// A distinctive contribution mix: four accepted kinds sum, and REJECTIONS ARE EXCLUDED (the elo
+	// query's own comment explains why -- a binding of rejections is the count of them, not a negative
+	// tally). 7 + 5 + 3 + 2 = 17 with 99 rejections: if the copy of that expression in UserAccessSetup
+	// ever grew a rejection term, or lost one of the four, this number moves.
+	var prev [5]int
+	row := dbtest.DB().QueryRow(context.Background(),
+		`SELECT approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted
+		 FROM user_trust WHERE user_id = $1`, userID)
+	require.NoError(t, row.Scan(&prev[0], &prev[1], &prev[2], &prev[3], &prev[4]))
+	t.Cleanup(func() {
+		_, err := dbtest.DB().Exec(context.Background(),
+			`UPDATE user_trust SET approved_edits = $2, rejected_edits = $3, identification_solves = $4,
+			 quests_completed = $5, replicas_hosted = $6 WHERE user_id = $1`,
+			userID, prev[0], prev[1], prev[2], prev[3], prev[4])
+		require.NoError(t, err)
+	})
+	_, err = dbtest.DB().Exec(context.Background(),
+		`UPDATE user_trust SET approved_edits = 7, rejected_edits = 99, identification_solves = 5,
+		 quests_completed = 3, replicas_hosted = 2 WHERE user_id = $1`, userID)
+	require.NoError(t, err)
+
+	setup := viewer.accessSetup(t)
+
+	// THE SAME EXPRESSION, READ BY THE OTHER QUERY THAT DEFINES IT (elo.sql). Two copies with an
+	// assertion that they agree is one definition; two copies without is two.
+	elo, err := queries.New(dbtest.DB()).GetVoterWeightInputs(viewer.ctx, userID)
+	require.NoError(t, err)
+	assert.Equal(t, int(elo.ContributionScore), setup.ContributionScore.Current,
+		"the setup query's contribution total must be the same expression elo.sql uses")
+	assert.Equal(t, 17, setup.ContributionScore.Current,
+		"seven approvals, five identifications, three quests, two replicas -- and rejections excluded")
+	assert.Equal(t, int(trust.MinContribution), setup.ContributionScore.Required,
+		"the required floor must be the constant the gate is handed")
+	assert.True(t, setup.ContributionScore.Met, "17 is past a floor of 10")
+
+	// Both directions of the gate, against the same numbers the query just reported.
+	base := trust.AccessRequest{
+		Level:             trust.LevelContentViewing,
+		OptedIn:           setup.OptedIn,
+		TermsAccepted:     setup.TermsAccepted,
+		EntityTier:        0,
+		VisibleTier:       0,
+		ContributionScore: int64(setup.ContributionScore.Current),
+		MinContribution:   int64(setup.ContributionScore.Required),
+	}
+	assert.NotContains(t, trust.EvaluateContentAccess(base).Failed, trust.ReasonContribution,
+		"the query says the floor is met, so the gate must not refuse for the score")
+
+	below := base
+	below.ContributionScore = int64(setup.ContributionScore.Required) - 1
+	assert.Contains(t, trust.EvaluateContentAccess(below).Failed, trust.ReasonContribution,
+		"and one short of the floor the gate reports the query says it would")
+
+	// BELOW THE FLOOR, so `met` is asserted in both directions. Without this, a `met` that was
+	// hardcoded true would pass every other assertion in this test: the gate comparisons above read
+	// current and required directly.
+	_, err = dbtest.DB().Exec(context.Background(),
+		`UPDATE user_trust SET approved_edits = 0, identification_solves = 0, quests_completed = 0,
+		 replicas_hosted = 0 WHERE user_id = $1`, userID)
+	require.NoError(t, err)
+	empty := viewer.accessSetup(t)
+	assert.Equal(t, 0, empty.ContributionScore.Current)
+	assert.False(t, empty.ContributionScore.Met, "an empty record is below a floor of ten")
+	belowFloor := base
+	belowFloor.ContributionScore = 0
+	assert.Contains(t, trust.EvaluateContentAccess(belowFloor).Failed, trust.ReasonContribution,
+		"and the gate agrees that an empty record is refused")
+
+	// THE TERMS CONDITION, both directions. This is the one the query's absence of a column used to make
+	// unsatisfiable: the gate refused for terms and nothing in the instance could record acceptance.
+	noTerms := base
+	noTerms.TermsAccepted = false
+	assert.Contains(t, trust.EvaluateContentAccess(noTerms).Failed, trust.ReasonTerms)
+
+	accepted := viewer.acceptContentTerms(t)
+	assert.True(t, accepted.TermsAccepted, "accepting the terms is reported afterwards")
+	assert.Equal(t, empty.ContributionScore, accepted.ContributionScore,
+		"and accepting terms changes nothing else about the standing")
+
+	var first pgtype.Timestamptz
+	require.NoError(t, dbtest.DB().QueryRow(context.Background(),
+		`SELECT content_terms_accepted_at FROM user_trust WHERE user_id = $1`, userID).Scan(&first))
+	require.True(t, first.Valid, "acceptance is recorded")
+
+	// Accepting again leaves the FIRST acceptance alone: "when did you first agree" is not rewritten by
+	// a member re-reading the terms, and a revision needs its own field rather than this one's history.
+	viewer.acceptContentTerms(t)
+	var second pgtype.Timestamptz
+	require.NoError(t, dbtest.DB().QueryRow(context.Background(),
+		`SELECT content_terms_accepted_at FROM user_trust WHERE user_id = $1`, userID).Scan(&second))
+	assert.Equal(t, first.Time, second.Time, "the first acceptance stands")
+
+	setup = viewer.accessSetup(t)
+	assert.True(t, setup.TermsAccepted)
+	withTerms := base
+	withTerms.TermsAccepted = true
+	assert.NotContains(t, trust.EvaluateContentAccess(withTerms).Failed, trust.ReasonTerms,
+		"the query reports acceptance and the gate accepts it")
+}
+
+// The tier ladder, with the cooling period reported rather than hidden. Order-independent: it sets and
+// clears the ceiling itself, because the READ user is shared with every other test in the package.
+func TestTheTierLadderReportsTheCooling(t *testing.T) {
+	viewer := asRead(t)
+	userID := auth.GetCurrentUser(viewer.ctx).ID
+	_, err := viewer.resolver.Mutation().UserSetVisibleTiers(viewer.ctx, []int{})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, err := viewer.resolver.Mutation().UserSetVisibleTiers(viewer.ctx, []int{})
+		require.NoError(t, err)
+	})
+
+	// COUNT THE SUBJECT FIRST: a ladder of no rungs would satisfy "every rung is opted out of" and
+	// "no rung is cooling" vacuously.
+	setup := viewer.accessSetup(t)
+	require.Len(t, setup.Tiers, trust.MaxContentTier+1, "the ladder has every tier the model defines")
+	for _, tier := range setup.Tiers {
+		assert.False(t, tier.OptedIn, "a cleared ceiling is opted into nothing")
+		assert.Nil(t, tier.AvailableAt, "and nothing is cooling")
+	}
+
+	_, err = viewer.resolver.Mutation().UserSetVisibleTiers(viewer.ctx, []int{1, 2})
+	require.NoError(t, err)
+	setup = viewer.accessSetup(t)
+	for _, tier := range setup.Tiers {
+		// EXACT membership, not a ceiling: the ladder reports the record of consent, and tier 0 is
+		// absent from it because tier 0 is always visible -- there is nothing to consent to. A test
+		// asserting "tier <= 2" would pass against a query that invented a ceiling.
+		assert.Equal(t, tier.Tier == 1 || tier.Tier == 2, tier.OptedIn, "tier %d", tier.Tier)
+		assert.Nil(t, tier.AvailableAt, "no consent to the cooled tier, so nothing is pending")
+	}
+
+	// Opting into 3 is recorded at once and effective 24 hours later, and the ladder says WHEN rather
+	// than telling the member to do what they just did.
+	_, err = viewer.resolver.Mutation().UserSetVisibleTiers(viewer.ctx, []int{1, 2, 3})
+	require.NoError(t, err)
+	setup = viewer.accessSetup(t)
+	tier3 := setup.Tiers[len(setup.Tiers)-1]
+	require.Equal(t, trust.MaxContentTier, tier3.Tier)
+	require.True(t, tier3.OptedIn, "the consent is recorded immediately")
+	require.NotNil(t, tier3.AvailableAt, "and it is pending, so the ladder reports when it takes effect")
+	availableAt, err := time.Parse(time.RFC3339, *tier3.AvailableAt)
+	require.NoError(t, err)
+	assert.WithinDuration(t, time.Now().Add(trust.T3CoolingHours*time.Hour), availableAt, 5*time.Minute)
+
+	// Backdate the consent past the period: the same field goes quiet, so it is reporting the cooling
+	// and not merely echoing "there is a timestamp".
+	_, err = dbtest.DB().Exec(context.Background(),
+		`UPDATE user_trust SET t3_consented_at = now() - interval '25 hours' WHERE user_id = $1`, userID)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, err := dbtest.DB().Exec(context.Background(),
+			`UPDATE user_trust SET t3_consented_at = NULL WHERE user_id = $1`, userID)
+		require.NoError(t, err)
+	})
+	setup = viewer.accessSetup(t)
+	assert.Nil(t, setup.Tiers[len(setup.Tiers)-1].AvailableAt,
+		"past the period the consent is effective, so there is nothing left to wait for")
+}
+
+// --- the four direct paths (phase 5 slice 5g) ---
+
+func findSceneExists(t *testing.T, r *testRunner, id uuid.UUID) bool {
+	t.Helper()
+	var resp struct {
+		FindScene *struct {
+			ID string `json:"id"`
+		} `json:"findScene"`
+	}
+	require.NoError(t, r.client.Post(`query S($id: ID!) { findScene(id: $id) { id } }`, &resp, client.Var("id", id)))
+	return resp.FindScene != nil
+}
+
+func findScenesIDs(t *testing.T, r *testRunner, ids []uuid.UUID) []string {
+	t.Helper()
+	var resp struct {
+		FindScenes []*struct {
+			ID string `json:"id"`
+		} `json:"findScenes"`
+	}
+	require.NoError(t, r.client.Post(`query S($ids: [ID!]!) { findScenes(ids: $ids) { id } }`, &resp, client.Var("ids", ids)))
+	var got []string
+	for _, scene := range resp.FindScenes {
+		if scene != nil {
+			got = append(got, scene.ID)
+		}
+	}
+	return got
+}
+
+func fingerprintSceneIDs(t *testing.T, r *testRunner, fp models.FingerprintEditInput) []string {
+	t.Helper()
+	var resp struct {
+		FindScenesBySceneFingerprints [][]*struct {
+			ID string `json:"id"`
+		} `json:"findScenesBySceneFingerprints"`
+	}
+	// THE HASH GOES AS A HEX STRING, which is what the `FingerprintHash` scalar is: it requires a
+	// string (a number is refused with "fingerprint hash must be a string") and reads it in base 16.
+	// Sending the decimal rendering of 15 asked for fingerprint 21 and the lookup came back empty --
+	// which read exactly like a gate that was too eager, and cost an afternoon of arithmetic theories.
+	// The other tests in this package never see this because they hand the typed input to a client that
+	// marshals it with the scalar's own encoder.
+	require.NoError(t, r.client.Post(`
+	query F($fingerprints: [[FingerprintQueryInput!]!]!) {
+		findScenesBySceneFingerprints(fingerprints: $fingerprints) { id }
+	}`, &resp, client.Var("fingerprints", [][]map[string]any{
+		{{"hash": strconv.FormatInt(int64(fp.Hash), 16), "algorithm": string(fp.Algorithm)}},
+	})))
+
+	var got []string
+	for _, group := range resp.FindScenesBySceneFingerprints {
+		for _, scene := range group {
+			if scene != nil {
+				got = append(got, scene.ID)
+			}
+		}
+	}
+	return got
+}
+
+func changelogIDs(t *testing.T, r *testRunner, since string) []string {
+	t.Helper()
+	var resp struct {
+		SceneChangelog []struct {
+			ID string `json:"id"`
+		} `json:"sceneChangelog"`
+	}
+	require.NoError(t, r.client.Post(`query C($since: Time!) { sceneChangelog(since: $since) { id } }`, &resp, client.Var("since", since)))
+
+	got := make([]string, 0, len(resp.SceneChangelog))
+	for _, change := range resp.SceneChangelog {
+		got = append(got, change.ID)
+	}
+	return got
+}
+
+// THE FOUR DIRECT PATHS. Slice 5f gated the four enumerating ones; this is the other half, and the
+// subject is counted on EVERY path before anything is denied -- "nothing is returned" and "the query
+// was never wired" are the same observation otherwise, which is the trap that makes a gate look tested
+// when it is not.
+func TestADenylistedSceneReadsAsNotFound(t *testing.T) {
+	admin := asAdmin(t)
+	viewer := asRead(t)
+	_, err := viewer.resolver.Mutation().UserSetVisibleTiers(viewer.ctx, []int{})
+	require.NoError(t, err)
+
+	tag, err := admin.createTestTag(&models.TagCreateInput{Name: admin.generateSceneName() + " denied tag"})
+	require.NoError(t, err)
+	title := admin.generateSceneName()
+	scene, err := admin.createTestScene(&models.SceneCreateInput{
+		Title:        &title,
+		TagIds:       []uuid.UUID{tag.UUID()},
+		Fingerprints: []models.FingerprintEditInput{admin.generateSceneFingerprint(nil)},
+	})
+	require.NoError(t, err)
+
+	// THE LOOKUP USES WHAT IS STORED, read back from the row, rather than the hash this test put in
+	// the create input. The harness owns how a fingerprint is written (and rewrites are its business);
+	// what this test is about is whether the FINGERPRINT PATH serves a denied scene, and the path
+	// matches on the stored value. Asking with the input value made the arm depend on the harness's
+	// internals -- and the fixture's counter shares values with fingerprints whose scenes other tests
+	// deleted, so the request could match a row the lookup then discards as deleted.
+	var storedHash int64
+	var storedAlgorithm string
+	require.NoError(t, dbtest.DB().QueryRow(context.Background(),
+		`SELECT f.hash, f.algorithm FROM scene_fingerprints sf JOIN fingerprints f ON f.id = sf.fingerprint_id
+		 WHERE sf.scene_id = $1 LIMIT 1`, scene.UUID()).Scan(&storedHash, &storedAlgorithm))
+	fingerprint := models.FingerprintEditInput{
+		Algorithm: models.FingerprintAlgorithm(storedAlgorithm),
+		Hash:      models.FingerprintHash(storedHash),
+	}
+	require.NoError(t, err)
+	since := time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)
+
+	// The fixture's precondition, asserted rather than assumed: the lookup below can only report a
+	// missing scene if the scene HAS the fingerprint. Without this, "the fingerprint path found
+	// nothing" and "the fingerprint was never attached" are the same observation.
+	var attached int
+	require.NoError(t, dbtest.DB().QueryRow(context.Background(),
+		`SELECT count(*) FROM scene_fingerprints sf JOIN fingerprints f ON f.id = sf.fingerprint_id
+		 WHERE sf.scene_id = $1 AND f.hash = $2`, scene.UUID(), int64(fingerprint.Hash)).Scan(&attached))
+	require.Equal(t, 1, attached, "the fixture's fingerprint must be attached to the scene")
+
+	require.True(t, findSceneExists(t, viewer, scene.UUID()), "findScene, before")
+	require.Equal(t, []string{scene.UUID().String()}, findScenesIDs(t, viewer, []uuid.UUID{scene.UUID()}), "findScenes, before")
+	require.Equal(t, []string{scene.UUID().String()}, fingerprintSceneIDs(t, viewer, fingerprint), "fingerprints, before")
+	require.Contains(t, changelogIDs(t, viewer, since), scene.UUID().String(), "changelog, before")
+
+	denyTag(t, tag.UUID())
+
+	assert.False(t, findSceneExists(t, viewer, scene.UUID()),
+		"a denied scene reads as NOT FOUND, not as an error and not as 'denied'")
+	assert.Empty(t, findScenesIDs(t, viewer, []uuid.UUID{scene.UUID()}),
+		"findScenes(ids) must not be a bypass of findScene")
+	assert.Empty(t, fingerprintSceneIDs(t, viewer, fingerprint),
+		"nor the fingerprint path, which is how a client reaches a scene with a file of its own")
+	assert.NotContains(t, changelogIDs(t, viewer, since), scene.UUID().String(),
+		"nor the changelog, which carries the same id and update times by a slower route")
+
+	// THE TWO THINGS THAT MUST STAY OPEN. The edit path first: if moderation of a denied scene were
+	// gated too, the only way to un-denylist something would be to bypass the API.
+	updated := title + " (edited while denied)"
+	_, err = admin.resolver.Mutation().SceneUpdate(admin.ctx, models.SceneUpdateInput{
+		ID:     scene.UUID(),
+		Title:  &updated,
+		TagIds: []uuid.UUID{tag.UUID()},
+	})
+	require.NoError(t, err, "the edit path must not be gated by the content denylist")
+	assert.False(t, findSceneExists(t, viewer, scene.UUID()), "and editing it did not make it readable")
+
+	// THE OTHER DIRECTION, and it is the mechanism an operator un-denylists with: the denylist names
+	// ENTITIES, not scene ids, so the same mutation that keeps a scene denied can lift it by removing
+	// the denied tag. (This is also why the edit above had to keep the tag: a nil TagIds replaces the
+	// set, which would have un-denied the scene as a side effect of a title change.)
+	_, err = admin.resolver.Mutation().SceneUpdate(admin.ctx, models.SceneUpdateInput{
+		ID:     scene.UUID(),
+		TagIds: []uuid.UUID{},
+	})
+	require.NoError(t, err)
+	assert.True(t, findSceneExists(t, viewer, scene.UUID()),
+		"removing the denied tag serves the scene again, without touching the denylist")
+
+	// And the operator surface: an operator audits their own denylist, so the rule must still be
+	// reported -- with `Enforced` true, which is now true of enumeration AND of direct access.
+	var rules struct {
+		AccessRules struct {
+			Rules []struct {
+				Name     string `json:"name"`
+				Enforced bool   `json:"enforced"`
+			} `json:"rules"`
+		} `json:"accessRules"`
+	}
+	require.NoError(t, admin.client.Post(`query { accessRules { rules { name enforced } } }`, &rules))
+	require.NotEmpty(t, rules.AccessRules.Rules, "the report must list the rules at all")
+	var found *struct {
+		Name     string `json:"name"`
+		Enforced bool   `json:"enforced"`
+	}
+	for i := range rules.AccessRules.Rules {
+		if rules.AccessRules.Rules[i].Name == "per_entity_denylist" {
+			found = &rules.AccessRules.Rules[i]
+		}
+	}
+	require.NotNil(t, found, "the per-entity denylist must be reported to an operator")
+	assert.True(t, found.Enforced, "and reported as enforced, which it now is on every path")
 }

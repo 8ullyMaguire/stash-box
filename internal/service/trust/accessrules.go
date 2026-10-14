@@ -175,9 +175,13 @@ type AccessRuleSet struct {
 // input rather than reading it, so the function stays pure and testable.
 func NewAccessRuleSet(mfaConfiguredByProvider bool, perEntity PerEntityRule) AccessRuleSet {
 	perEntityStatus := AccessRule{
-		Name:       "per_entity_denylist",
-		Enforced:   true,
-		EnforcedBy: "internal/service/trust",
+		Name:     "per_entity_denylist",
+		Enforced: true,
+		// Both halves, because they are two different components: the enumerating paths filter in
+		// internal/service/query's shared predicate, and the direct paths (findScene, the id loader, the
+		// fingerprint lookup and the changelog) filter in internal/service/scene. Naming only the first
+		// was true of enumeration and quiet about the rest.
+		EnforcedBy: "internal/service/query (enumerating paths) and internal/service/scene (direct paths)",
 	}
 	if perEntity.IsEmpty() {
 		// Not unenforced — an empty denylist is a denylist that denies nothing

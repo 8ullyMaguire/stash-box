@@ -110,6 +110,16 @@ func (s *Scene) RefreshFreshness(ctx context.Context) error {
 // Queries
 
 func (s *Scene) FindByID(ctx context.Context, id uuid.UUID) (*models.Scene, error) {
+	// A denied scene reads as NOT FOUND here too, and the check is on the ID rather than on the row:
+	// this path must answer the same way whether the instance denies the scene or the scene is gone.
+	denied, err := s.deniedSceneIDs(ctx, []uuid.UUID{id})
+	if err != nil {
+		return nil, err
+	}
+	if _, isDenied := denied[id]; isDenied {
+		return nil, nil
+	}
+
 	scene, err := s.queries.FindScene(ctx, id)
 	if err != nil {
 		return nil, errutil.IgnoreNotFound(err)
@@ -130,6 +140,7 @@ func (s *Scene) Changelog(ctx context.Context, since time.Time, afterID uuid.UUI
 	}
 
 	changes := make([]models.EntityChange, len(rows))
+	ids := make([]uuid.UUID, len(rows))
 	for i, row := range rows {
 		changes[i] = models.EntityChange{
 			ID:         row.ID,
@@ -137,8 +148,26 @@ func (s *Scene) Changelog(ctx context.Context, since time.Time, afterID uuid.UUI
 			Deleted:    row.Deleted,
 			RedirectTo: converter.NullUUIDToPtr(row.RedirectTo),
 		}
+		ids[i] = row.ID
 	}
-	return changes, nil
+
+	// The changelog is the fourth direct path: it carries a scene's id, its update times and whether it
+	// was deleted, which is the same disclosure by a slower route. Dropping entries makes a page
+	// SHORTER than its limit rather than backfilling it, and that is the honest trade: the alternative
+	// is a query loop whose only purpose is to keep a page size steady while hiding a hole in it. A
+	// client paginates by the cursor it was given, so a short page is not a stall.
+	denied, err := s.deniedSceneIDs(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	kept := changes[:0]
+	for _, change := range changes {
+		if _, isDenied := denied[change.ID]; isDenied {
+			continue
+		}
+		kept = append(kept, change)
+	}
+	return kept, nil
 }
 
 func (s *Scene) FindByURL(ctx context.Context, url string, limit int) ([]models.Scene, error) {
@@ -211,6 +240,38 @@ func (s *Scene) FindScenesBySceneFingerprints(ctx context.Context, sceneFingerpr
 					}
 				}
 			}
+		}
+	}
+
+	// A DENIED SCENE IS NOT OFFERED AS A FINGERPRINT MATCH. This is the fourth direct path and the one
+	// a client reaches with a file of its own: leaving it ungated would have made the other three a
+	// formality. Applied after the groups are built, so the shape of the answer is untouched -- a
+	// denied match is dropped from its group rather than replaced by a hole.
+	allIDs := make([]uuid.UUID, 0, len(rows))
+	for _, group := range result {
+		for _, scene := range group {
+			if scene != nil {
+				allIDs = append(allIDs, scene.ID)
+			}
+		}
+	}
+	denied, err := s.deniedSceneIDs(ctx, allIDs)
+	if err != nil {
+		return nil, err
+	}
+	if len(denied) > 0 {
+		for i, group := range result {
+			kept := make([]*models.Scene, 0, len(group))
+			for _, scene := range group {
+				if scene == nil {
+					continue
+				}
+				if _, isDenied := denied[scene.ID]; isDenied {
+					continue
+				}
+				kept = append(kept, scene)
+			}
+			result[i] = kept
 		}
 	}
 
@@ -1149,9 +1210,36 @@ func isSameHash(f models.SceneFingerprint, ff models.FingerprintEditInput) bool 
 }
 
 func (s *Scene) LoadIds(ctx context.Context, ids []uuid.UUID) ([]*models.Scene, []error) {
-	return loadutil.One(ids,
+	scenes, errs := loadutil.One(ids,
 		func(ids []uuid.UUID) ([]queries.Scene, error) { return s.queries.GetScenes(ctx, ids) },
 		func(scene queries.Scene) uuid.UUID { return scene.ID },
 		converter.SceneToModelPtr,
 	)
+	if len(errs) > 0 && errs[0] != nil {
+		return scenes, errs
+	}
+
+	// Gated at the LOADER, which is why findScenes(ids: [...]) is not a bypass: this is the single
+	// place the resolver layer loads scenes by id, for findScenes, for every entity embedding a scene,
+	// and for the notifications and clusters that reference one. A denied scene comes back as the nil
+	// slot the loader already uses for a missing id -- "not found" and "not served" are one answer.
+	denied, err := s.deniedSceneIDs(ctx, ids)
+	if err != nil {
+		// Fail closed, per key: the loader's contract is one error per requested id, and a batch that
+		// could not be checked must not be served as if it had been.
+		errs := make([]error, len(ids))
+		for i := range errs {
+			errs[i] = err
+		}
+		return nil, errs
+	}
+	for i, scene := range scenes {
+		if scene == nil {
+			continue
+		}
+		if _, isDenied := denied[scene.ID]; isDenied {
+			scenes[i] = nil
+		}
+	}
+	return scenes, errs
 }
