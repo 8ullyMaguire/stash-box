@@ -1210,6 +1210,71 @@ Six probes, all killed: the runs ignoring the covered days; a covered day counti
 activity; an empty cover window; a single active day earning a freeze; today being
 coverable; and the allowance not being checked before a spend.
 
+### Slice 6e — the contribution heatmap (BUILT)
+
+**It lives in the streak service because the streak already owns the one derivation
+that matters here:** which calendar day a contribution fell on. A heatmap with its own
+answer to that would eventually show a member a grid contradicting the run displayed
+beside it, and the disagreement would be invisible until somebody compared them by hand.
+The two queries are the same rule in two shapes -- that one asks WHICH days, this one
+asks HOW MANY -- and they carry the same `date_trunc` and the same `timestamp` cast for
+the same hard-won reasons.
+
+**What it adds is the count, and the count is where the two differ on purpose.** Forty
+approvals in one afternoon is **one** active day and **forty** contributions, and both
+are true: a streak measures showing up and a heatmap measures how much. The count is of
+ROWS and not of deltas, so **a rejection is a contribution** -- the member showed up and
+did the work, and the outcome is not this column's business. A grid that went blank for a
+member whose edits were all rejected would erase the days they spent.
+
+**Only days with contributions are returned.** The grid's empty cells are the client's to
+draw, since it knows the window it asked for; a year of zero-rows would be 365 objects
+saying nothing.
+
+**The window is inclusive of today** (`days - 1` back, so a window of 1 is today alone),
+and it is CLAMPED rather than refused: an absent argument becomes a year — an omitted
+argument is not a request for an empty grid, and `days: 0` is what a client sends when it
+has no value — and anything longer than a year and a day is cut to that, because the cost
+of the query is the window and a client asking for ten years is asking for a grid nobody
+can read.
+
+**"Today" is the DATABASE's day**, not the server's and not the caller's, following the
+streak's own rule: a heatmap whose last column was a day off from the streak's would be
+exactly the confusion this service exists to prevent.
+
+**Owner-gated**, like `trust` and for the same reason. The visibility rule says a
+member's standing is public and the work behind it is not, and this is the work at a
+glance, in more detail than any single number.
+
+**Verification (DONE).** Pure: the clamp, including the wire case of an omitted argument;
+the window's inclusivity; a month boundary (the arithmetic is on the DATE, not on a
+division by 24 hours); and the zone preserved, since re-zoning a day truncated in the
+database's frame would move the boundary.
+
+Against a database: three contributions on one day and one on another come back as 3 and
+1, **and the days agree with the streak's `totalActiveDays`** — the assertion that keeps
+the two readings of one log from drifting apart; a rejection counts as a contribution; the
+window excludes a 400-day-old day and includes today in a one-day window; and a new member
+gets an empty grid rather than an error.
+
+**Through the real handler**, because a directive lives in GENERATED code: the member
+reads their own heatmap and gets the real numbers, and the same query for the same member
+from somebody else FAILS. **The proof is the pair** -- a field that did not exist would
+fail for both, so asserting only the failure would call an unwired field a working gate.
+
+**The fixture had to be rebuilt around the clock it is measured by.** The first version
+anchored its events to a fixed date, which is inside the freeze suite's world and OUTSIDE
+the heatmap's: the window ends on the database's today, so every count came back empty
+against a working query. Fixtures now backdate from the database's own clock, at the same
+time of day.
+
+Five probes, all killed: the window forgetting today (the off-by-one); a window of zero
+served as asked; an over-long window served as asked; the cutoff compared the wrong way;
+and the count made a count of DAYS instead of contributions. One mutation is deliberately
+NOT probed: dropping the `timestamp` cast would let the driver re-zone the day, and the
+fixtures are not near midnight, so the suite would not catch it -- the same avoided case
+the activity-days query documents.
+
 ### Slice 6d — vouching, at most three active (BUILT)
 
 **THE CAP IS THE FEATURE.** A member may hold at most three ACTIVE vouches and the

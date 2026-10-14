@@ -94,3 +94,29 @@ SELECT day FROM streak_freezes WHERE user_id = $1 ORDER BY day DESC;
 INSERT INTO streak_freezes (user_id, day) VALUES ($1, sqlc.arg(day)::DATE)
 ON CONFLICT DO NOTHING
 RETURNING *;
+
+-- name: ListUserContributionDays :many
+-- How many trust events a user recorded on each calendar day since a cutoff,
+-- newest first. Backs the contribution heatmap (plan phase 6 slice 6e).
+--
+-- THE DAY IS DERIVED EXACTLY AS ListUserActivityDays DERIVES IT -- same
+-- date_trunc, same `timestamp` cast, same reasons -- because a heatmap that
+-- disagreed with the streak about which day an event fell on would show a member a
+-- grid that contradicts the run beside it. The two queries are the same rule in two
+-- shapes: that one asks WHICH days, this one asks HOW MANY.
+--
+-- And they differ on one thing deliberately: this counts EVENTS where the streak
+-- counts distinct DAYS. A curator who approves forty edits in an afternoon has ONE
+-- active day and forty contributions, and both of those are true -- a streak
+-- measures showing up, and a heatmap measures how much. The count is of ROWS and
+-- not of deltas, so a rejection is a contribution too: the member showed up and did
+-- the work, and the outcome of the work is not this column's business.
+--
+-- The cutoff is truncated in the DATABASE's zone, on both sides of the comparison,
+-- so the window boundary cannot land on a different day than the rows it selects.
+SELECT date_trunc('day', created_at)::timestamp AS day, count(*) AS count
+FROM trust_events
+WHERE user_id = $1
+  AND date_trunc('day', created_at)::timestamp >= date_trunc('day', sqlc.arg(since)::timestamptz)::timestamp
+GROUP BY day
+ORDER BY day DESC;

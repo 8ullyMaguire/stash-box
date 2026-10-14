@@ -99,3 +99,40 @@ extend type Mutation {
   """
   spendStreakFreeze: Streak! @hasRole(role: READ)
 }
+
+# The contribution heatmap (plan phase 6 slice 6e).
+#
+# One member's per-day contribution counts. Owner-gated, like the counters it is
+# made of: the STANDING a member has is public and the WORK BEHIND IT is not, and a
+# grid of how much somebody did on each day of the last year is the work, at a
+# glance, in more detail than any single number.
+type ContributionDay {
+  """
+  The calendar day, in the database's timezone -- the same day the streak counts.
+  """
+  day: Date!
+
+  """
+  How many contributions were recorded that day.
+
+  Contributions, not active days: a member who does forty edits in an afternoon has
+  one day here and forty contributions, and both are true. The count includes days
+  whose work was rejected -- the member showed up and did it, and the outcome is not
+  this column's business.
+  """
+  count: Int!
+}
+
+extend type User {
+  """
+  The member's contribution counts, newest day first, over a window ending today.
+
+  Only days with contributions are returned; the empty cells in a rendered grid are
+  the client's to draw, since it knows the window it asked for.
+
+  `days` defaults to a year and is CLAMPED to a year and a day rather than refused:
+  the cost of the query is the window, and a client asking for ten years is asking
+  for a grid nobody can read.
+  """
+  contributionHeatmap(days: Int): [ContributionDay!]! @isUserOwner
+}

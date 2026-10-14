@@ -90,3 +90,31 @@ func (r *mutationResolver) SpendStreakFreeze(ctx context.Context) (*models.Strea
 	}
 	return streakModel(result), nil
 }
+
+// ContributionHeatmap returns the member's per-day contribution counts.
+//
+// The @isUserOwner directive has already rejected anybody but the member, so there is
+// no check here -- the same shape as the owner-gated trust object. The counters rule
+// is why: the level a member has is public, and the work behind it is not.
+func (r *userResolver) ContributionHeatmap(ctx context.Context, user *models.User, days *int) ([]models.ContributionDay, error) {
+	window := 0
+	if days != nil {
+		window = *days
+	}
+
+	rows, err := r.services.Streak().ContributionHeatmap(ctx, user.ID, window)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]models.ContributionDay, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, models.ContributionDay{
+			// The same rendering the streak's own day uses: a calendar day in the
+			// database's zone, not an instant for a client to interpret in its own.
+			Day:   row.Day.Format("2006-01-02"),
+			Count: row.Count,
+		})
+	}
+	return out, nil
+}

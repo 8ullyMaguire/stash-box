@@ -463,6 +463,18 @@ type ContentWarning struct {
 	Source string `json:"source"`
 }
 
+type ContributionDay struct {
+	// The calendar day, in the database's timezone -- the same day the streak counts.
+	Day string `json:"day"`
+	// How many contributions were recorded that day.
+	//
+	// Contributions, not active days: a member who does forty edits in an afternoon has
+	// one day here and forty contributions, and both are true. The count includes days
+	// whose work was rejected -- the member showed up and did it, and the outcome is not
+	// this column's business.
+	Count int `json:"count"`
+}
+
 // A member's contribution standing.
 type ContributionStanding struct {
 	// The member's contribution score.

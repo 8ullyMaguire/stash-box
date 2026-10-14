@@ -264,6 +264,11 @@ type ComplexityRoot struct {
 		Source func(childComplexity int) int
 	}
 
+	ContributionDay struct {
+		Count func(childComplexity int) int
+		Day   func(childComplexity int) int
+	}
+
 	ContributionStanding struct {
 		Current  func(childComplexity int) int
 		Met      func(childComplexity int) int
@@ -1420,6 +1425,7 @@ type ComplexityRoot struct {
 		APICalls                  func(childComplexity int) int
 		APIKey                    func(childComplexity int) int
 		ActiveInviteCodes         func(childComplexity int) int
+		ContributionHeatmap       func(childComplexity int, days *int) int
 		EditCount                 func(childComplexity int) int
 		Email                     func(childComplexity int) int
 		ID                        func(childComplexity int) int
@@ -2019,6 +2025,7 @@ type UserResolver interface {
 	InviteCodes(ctx context.Context, obj *User) ([]InviteKey, error)
 	Trust(ctx context.Context, obj *User) (*UserTrust, error)
 	TrustLevel(ctx context.Context, obj *User) (int, error)
+	ContributionHeatmap(ctx context.Context, obj *User, days *int) ([]ContributionDay, error)
 	Vouches(ctx context.Context, obj *User) ([]Vouch, error)
 }
 type VouchResolver interface {
@@ -2715,6 +2722,19 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.ContentWarning.Source(childComplexity), true
+
+	case "ContributionDay.count":
+		if e.ComplexityRoot.ContributionDay.Count == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContributionDay.Count(childComplexity), true
+	case "ContributionDay.day":
+		if e.ComplexityRoot.ContributionDay.Day == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContributionDay.Day(childComplexity), true
 
 	case "ContributionStanding.current":
 		if e.ComplexityRoot.ContributionStanding.Current == nil {
@@ -8693,6 +8713,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.User.ActiveInviteCodes(childComplexity), true
+	case "User.contributionHeatmap":
+		if e.ComplexityRoot.User.ContributionHeatmap == nil {
+			break
+		}
+
+		args, err := ec.field_User_contributionHeatmap_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.User.ContributionHeatmap(childComplexity, args["days"].(*int)), true
 	case "User.edit_count":
 		if e.ComplexityRoot.User.EditCount == nil {
 			break
@@ -13894,7 +13925,45 @@ extend type Mutation {
   accuses a member of nothing, the other of having spent something.
   """
   spendStreakFreeze: Streak! @hasRole(role: READ)
-}`, BuiltIn: false},
+}
+
+# The contribution heatmap (plan phase 6 slice 6e).
+#
+# One member's per-day contribution counts. Owner-gated, like the counters it is
+# made of: the STANDING a member has is public and the WORK BEHIND IT is not, and a
+# grid of how much somebody did on each day of the last year is the work, at a
+# glance, in more detail than any single number.
+type ContributionDay {
+  """
+  The calendar day, in the database's timezone -- the same day the streak counts.
+  """
+  day: Date!
+
+  """
+  How many contributions were recorded that day.
+
+  Contributions, not active days: a member who does forty edits in an afternoon has
+  one day here and forty contributions, and both are true. The count includes days
+  whose work was rejected -- the member showed up and did it, and the outcome is not
+  this column's business.
+  """
+  count: Int!
+}
+
+extend type User {
+  """
+  The member's contribution counts, newest day first, over a window ending today.
+
+  Only days with contributions are returned; the empty cells in a rendered grid are
+  the client's to draw, since it knows the window it asked for.
+
+  ` + "`" + `days` + "`" + ` defaults to a year and is CLAMPED to a year and a day rather than refused:
+  the cost of the query is the window, and a client asking for ten years is asking
+  for a grid nobody can read.
+  """
+  contributionHeatmap(days: Int): [ContributionDay!]! @isUserOwner
+}
+`, BuiltIn: false},
 	{Name: "../../graphql/schema/types/studio.graphql", Input: `type Studio {
   id: ID!
   name: String!
@@ -15423,6 +15492,16 @@ func (ec *executionContext) childFields_ContentWarning(ctx context.Context, fiel
 		return ec.fieldContext_ContentWarning_source(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type ContentWarning", field.Name)
+}
+
+func (ec *executionContext) childFields_ContributionDay(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "day":
+		return ec.fieldContext_ContributionDay_day(ctx, field)
+	case "count":
+		return ec.fieldContext_ContributionDay_count(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type ContributionDay", field.Name)
 }
 
 func (ec *executionContext) childFields_ContributionStanding(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -16995,6 +17074,8 @@ func (ec *executionContext) childFields_User(ctx context.Context, field graphql.
 		return ec.fieldContext_User_trust(ctx, field)
 	case "trust_level":
 		return ec.fieldContext_User_trust_level(ctx, field)
+	case "contributionHeatmap":
+		return ec.fieldContext_User_contributionHeatmap(ctx, field)
 	case "vouches":
 		return ec.fieldContext_User_vouches(ctx, field)
 	}
@@ -20341,6 +20422,20 @@ func (ec *executionContext) field_Studio_sub_studios_args(ctx context.Context, r
 	return args, nil
 }
 
+func (ec *executionContext) field_User_contributionHeatmap_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "days",
+		func(ctx context.Context, v any) (*int, error) {
+			return ec.unmarshalOInt2ᚖint(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["days"] = arg0
+	return args, nil
+}
+
 func (ec *executionContext) field___Directive_args_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -23081,6 +23176,52 @@ func (ec *executionContext) _ContentWarning_source(ctx context.Context, field gr
 }
 func (ec *executionContext) fieldContext_ContentWarning_source(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("ContentWarning", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _ContributionDay_day(ctx context.Context, field graphql.CollectedField, obj *ContributionDay) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContributionDay_day(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Day, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNDate2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ContributionDay_day(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContributionDay", field, false, false, errors.New("field of type Date does not have child fields"))
+}
+
+func (ec *executionContext) _ContributionDay_count(ctx context.Context, field graphql.CollectedField, obj *ContributionDay) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContributionDay_count(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Count, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ContributionDay_count(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContributionDay", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
 func (ec *executionContext) _ContributionStanding_current(ctx context.Context, field graphql.CollectedField, obj *ContributionStanding) (ret graphql.Marshaler) {
@@ -51674,6 +51815,63 @@ func (ec *executionContext) fieldContext_User_trust_level(_ context.Context, fie
 	return graphql.NewScalarFieldContext("User", field, true, true, errors.New("field of type Int does not have child fields"))
 }
 
+func (ec *executionContext) _User_contributionHeatmap(ctx context.Context, field graphql.CollectedField, obj *User) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_User_contributionHeatmap(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.User().ContributionHeatmap(ctx, obj, fc.Args["days"].(*int))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				if ec.Directives.IsUserOwner == nil {
+					var zeroVal []ContributionDay
+					return zeroVal, errors.New("directive isUserOwner is not implemented")
+				}
+				return ec.Directives.IsUserOwner(ctx, obj, directive0)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v []ContributionDay) graphql.Marshaler {
+			return ec.marshalNContributionDay2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContributionDayᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_User_contributionHeatmap(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "User",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ContributionDay(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_User_contributionHeatmap_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _User_vouches(ctx context.Context, field graphql.CollectedField, obj *User) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -62793,6 +62991,49 @@ func (ec *executionContext) _ContentWarning(ctx context.Context, sel ast.Selecti
 			}
 		case "source":
 			out.Values[i] = ec._ContentWarning_source(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var contributionDayImplementors = []string{"ContributionDay"}
+
+func (ec *executionContext) _ContributionDay(ctx context.Context, sel ast.SelectionSet, obj *ContributionDay) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, contributionDayImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ContributionDay")
+		case "day":
+			out.Values[i] = ec._ContributionDay_day(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "count":
+			out.Values[i] = ec._ContributionDay_count(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -78779,6 +79020,44 @@ func (ec *executionContext) _User(ctx context.Context, sel ast.SelectionSet, obj
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "contributionHeatmap":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._User_contributionHeatmap(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "vouches":
 			field := field
 
@@ -80053,6 +80332,26 @@ func (ec *executionContext) marshalNContentWarning2ᚕgithubᚗcomᚋstashappᚋ
 		fc := graphql.GetFieldContext(ctx)
 		fc.Result = &v[i]
 		return ec.marshalNContentWarning2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentWarning(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNContributionDay2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContributionDay(ctx context.Context, sel ast.SelectionSet, v ContributionDay) graphql.Marshaler {
+	return ec._ContributionDay(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNContributionDay2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContributionDayᚄ(ctx context.Context, sel ast.SelectionSet, v []ContributionDay) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNContributionDay2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContributionDay(ctx, sel, v[i])
 	})
 
 	for _, e := range ret {
