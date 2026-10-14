@@ -230,7 +230,10 @@ func (c Cron) sweepContentSources() {
 	ctx, span := otel.Tracer(tracerName).Start(context.Background(), "cron.sweepContentSources")
 	defer span.End()
 
-	checked, err := c.fac.Content().Sweep(ctx, time.Now(), content.SweepBatch, content.NewHTTPChecker())
+	now := time.Now()
+	checker := content.NewHTTPChecker()
+
+	checked, err := c.fac.Content().Sweep(ctx, now, content.SweepBatch, checker)
 	tracing.RecordError(span, err)
 	if err != nil {
 		// Logged WITH the count: a run that checked nine sources and then failed is a different
@@ -241,6 +244,26 @@ func (c Cron) sweepContentSources() {
 
 	if checked > 0 {
 		logger.Debugf("Content sweep checked %d source(s)", checked)
+	}
+
+	// The resurrection queue (slice 9c) runs in the same tick and on its own cadence: a dead source
+	// is asked about once a month, not once an hour, and the rows it considers are disjoint from the
+	// sweep's (the sweep's query excludes dead, this one considers only dead).
+	resurrected, err := c.fac.Content().SweepResurrections(ctx, now, content.SweepBatch, checker)
+	tracing.RecordError(span, err)
+	if err != nil {
+		logger.Errorf("Error working the resurrection queue: %s", err)
+		return
+	}
+
+	// Logged by NAME and by how long the gap was, not counted: a source this instance recorded as
+	// dead is serving again, and "which one, gone since when" is the whole content of that news.
+	for _, source := range resurrected {
+		if source.LastAliveAt == nil {
+			logger.Infof("Content source resurrected (never known alive before this): %s", source.URL)
+			continue
+		}
+		logger.Infof("Content source resurrected after %s: %s", now.Sub(*source.LastAliveAt).Round(time.Hour), source.URL)
 	}
 }
 

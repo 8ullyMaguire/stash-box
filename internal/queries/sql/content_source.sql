@@ -210,3 +210,21 @@ FROM content_sources cs
 WHERE cs.status IN ('unknown', 'live', 'intermittent')
 ORDER BY cs.last_checked ASC NULLS FIRST, cs.first_seen ASC
 LIMIT @lim;
+
+-- name: FindContentSourcesDueForResurrection :many
+-- The resurrection queue's candidates (slice 9c).
+--
+-- A dead source is excluded from the sweep's index on purpose: dead rows are the majority over time,
+-- and a sweep that considered them would spend its bound on rows that are not going to answer. So
+-- coming back is its own queue, on a cadence of its own -- long, because the alternative is asking a
+-- site that has been gone for months every day.
+--
+-- Ordered oldest-checked first for the same reason as the sweep: the caller skips rows whose interval
+-- has not elapsed, and only this ordering makes skipping safe.
+SELECT cs.*, (
+    SELECT count(*) FROM scene_urls su WHERE su.url = cs.url
+)::int AS claimant_count
+FROM content_sources cs
+WHERE cs.status = 'dead'
+ORDER BY cs.last_checked ASC NULLS FIRST, cs.first_seen ASC
+LIMIT @lim;

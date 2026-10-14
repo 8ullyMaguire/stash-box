@@ -383,6 +383,83 @@ func (q *Queries) FindContentSourcesDueForCheck(ctx context.Context, lim int32) 
 	return items, nil
 }
 
+const findContentSourcesDueForResurrection = `-- name: FindContentSourcesDueForResurrection :many
+SELECT cs.id, cs.entity_type, cs.entity_id, cs.url, cs.site_id, cs.platform, cs.status, cs.canonical, cs.first_seen, cs.last_checked, cs.last_ok, cs.check_failures, cs.archived_url, cs.archived_at, cs.created_by, cs.url_normalized, (
+    SELECT count(*) FROM scene_urls su WHERE su.url = cs.url
+)::int AS claimant_count
+FROM content_sources cs
+WHERE cs.status = 'dead'
+ORDER BY cs.last_checked ASC NULLS FIRST, cs.first_seen ASC
+LIMIT $1
+`
+
+type FindContentSourcesDueForResurrectionRow struct {
+	ID            uuid.UUID          `db:"id" json:"id"`
+	EntityType    string             `db:"entity_type" json:"entity_type"`
+	EntityID      uuid.UUID          `db:"entity_id" json:"entity_id"`
+	Url           string             `db:"url" json:"url"`
+	SiteID        uuid.NullUUID      `db:"site_id" json:"site_id"`
+	Platform      *string            `db:"platform" json:"platform"`
+	Status        string             `db:"status" json:"status"`
+	Canonical     bool               `db:"canonical" json:"canonical"`
+	FirstSeen     pgtype.Timestamptz `db:"first_seen" json:"first_seen"`
+	LastChecked   pgtype.Timestamptz `db:"last_checked" json:"last_checked"`
+	LastOk        pgtype.Timestamptz `db:"last_ok" json:"last_ok"`
+	CheckFailures int                `db:"check_failures" json:"check_failures"`
+	ArchivedUrl   *string            `db:"archived_url" json:"archived_url"`
+	ArchivedAt    pgtype.Timestamptz `db:"archived_at" json:"archived_at"`
+	CreatedBy     uuid.NullUUID      `db:"created_by" json:"created_by"`
+	UrlNormalized *string            `db:"url_normalized" json:"url_normalized"`
+	ClaimantCount int                `db:"claimant_count" json:"claimant_count"`
+}
+
+// The resurrection queue's candidates (slice 9c).
+//
+// A dead source is excluded from the sweep's index on purpose: dead rows are the majority over time,
+// and a sweep that considered them would spend its bound on rows that are not going to answer. So
+// coming back is its own queue, on a cadence of its own -- long, because the alternative is asking a
+// site that has been gone for months every day.
+//
+// Ordered oldest-checked first for the same reason as the sweep: the caller skips rows whose interval
+// has not elapsed, and only this ordering makes skipping safe.
+func (q *Queries) FindContentSourcesDueForResurrection(ctx context.Context, lim int32) ([]FindContentSourcesDueForResurrectionRow, error) {
+	rows, err := q.db.Query(ctx, findContentSourcesDueForResurrection, lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []FindContentSourcesDueForResurrectionRow{}
+	for rows.Next() {
+		var i FindContentSourcesDueForResurrectionRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.EntityType,
+			&i.EntityID,
+			&i.Url,
+			&i.SiteID,
+			&i.Platform,
+			&i.Status,
+			&i.Canonical,
+			&i.FirstSeen,
+			&i.LastChecked,
+			&i.LastOk,
+			&i.CheckFailures,
+			&i.ArchivedUrl,
+			&i.ArchivedAt,
+			&i.CreatedBy,
+			&i.UrlNormalized,
+			&i.ClaimantCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const findContentSourcesForEntity = `-- name: FindContentSourcesForEntity :many
 SELECT id, entity_type, entity_id, url, site_id, platform, status, canonical, first_seen, last_checked, last_ok, check_failures, archived_url, archived_at, created_by, url_normalized FROM content_sources
 WHERE entity_type = $1 AND entity_id = $2

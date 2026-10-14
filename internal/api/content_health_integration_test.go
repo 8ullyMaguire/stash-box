@@ -232,3 +232,105 @@ func TestSweepLeavesARecentlyCheckedSourceAlone(t *testing.T) {
 		"a source checked an hour ago is inside its interval, and calling the site anyway is the bug "+
 			"the cadence exists to prevent")
 }
+
+// The resurrection queue (slice 9c): its own cadence, its own candidate list, and the one piece of
+// evidence that the resurrection itself destroys.
+func TestSweepResurrectionsBringsBackADeadSourceThatAnswers(t *testing.T) {
+	db := dbtest.DB()
+	svc := content.NewService(queries.New(db), nil)
+	ctx := context.Background()
+	now := time.Now()
+
+	url := "https://resurrect-test.invalid/" + uuid.Must(uuid.NewV4()).String()
+	lastAlive := now.Add(-50 * 24 * time.Hour)
+	var id uuid.UUID
+	require.NoError(t, db.QueryRow(ctx, `
+		INSERT INTO content_sources (entity_type, entity_id, url, status, check_failures, last_checked, last_ok, first_seen)
+		VALUES ('scene', $1, $2, 'dead', 12, $3, $4, $5) RETURNING id`,
+		uuid.Must(uuid.NewV4()), url, now.Add(-40*24*time.Hour), lastAlive, now.Add(-200*24*time.Hour)).Scan(&id))
+	t.Cleanup(func() {
+		_, err := db.Exec(ctx, `DELETE FROM content_sources WHERE id = $1`, id)
+		require.NoError(t, err)
+	})
+
+	resurrected, err := svc.SweepResurrections(ctx, now, 10, fakeChecker{})
+	require.NoError(t, err)
+	require.Len(t, resurrected, 1)
+	assert.Equal(t, url, resurrected[0].URL)
+	require.NotNil(t, resurrected[0].LastAliveAt)
+	assert.WithinDuration(t, lastAlive, *resurrected[0].LastAliveAt, time.Second,
+		"the gap is the evidence, and the successful check is about to overwrite the only record of it")
+
+	var status string
+	var failures int
+	var lastOK time.Time
+	require.NoError(t, db.QueryRow(ctx,
+		`SELECT status, check_failures, last_ok FROM content_sources WHERE id = $1`, id).
+		Scan(&status, &failures, &lastOK))
+	assert.Equal(t, content.StatusLive, status, "it answered, so it is live")
+	assert.Equal(t, 0, failures, "and the counter resets with the resurrection")
+	assert.True(t, lastOK.After(lastAlive), "last_ok now means 'alive as of this check'")
+}
+
+func TestSweepResurrectionsLeavesARecentlyDeadSourceAlone(t *testing.T) {
+	db := dbtest.DB()
+	svc := content.NewService(queries.New(db), nil)
+	ctx := context.Background()
+	now := time.Now()
+
+	url := "https://resurrect-recent.invalid/" + uuid.Must(uuid.NewV4()).String()
+	var id uuid.UUID
+	require.NoError(t, db.QueryRow(ctx, `
+		INSERT INTO content_sources (entity_type, entity_id, url, status, check_failures, last_checked)
+		VALUES ('scene', $1, $2, 'dead', 12, $3) RETURNING id`,
+		uuid.Must(uuid.NewV4()), url, now.Add(-2*24*time.Hour)).Scan(&id))
+	t.Cleanup(func() {
+		_, err := db.Exec(ctx, `DELETE FROM content_sources WHERE id = $1`, id)
+		require.NoError(t, err)
+	})
+
+	checker := &recordingChecker{}
+	resurrected, err := svc.SweepResurrections(ctx, now, 10, checker)
+	require.NoError(t, err)
+	assert.Empty(t, resurrected)
+	assert.Empty(t, checker.checked,
+		"a dead source is asked about once a month: asking a site that has been gone for two days "+
+			"every tick is exactly what this cadence exists to stop")
+}
+
+// A dead source that is asked and still does not answer stays dead, keeps its counter, and keeps the
+// date it was last alive. The alternative -- resetting anything on a failed retry -- would slowly
+// erase the record that this link ever worked.
+func TestSweepResurrectionsKeepsAFailingSourceDead(t *testing.T) {
+	db := dbtest.DB()
+	svc := content.NewService(queries.New(db), nil)
+	ctx := context.Background()
+	now := time.Now()
+
+	url := "https://resurrect-still-dead.invalid/" + uuid.Must(uuid.NewV4()).String()
+	lastAlive := now.Add(-90 * 24 * time.Hour)
+	var id uuid.UUID
+	require.NoError(t, db.QueryRow(ctx, `
+		INSERT INTO content_sources (entity_type, entity_id, url, status, check_failures, last_checked, last_ok)
+		VALUES ('scene', $1, $2, 'dead', 12, $3, $4) RETURNING id`,
+		uuid.Must(uuid.NewV4()), url, now.Add(-40*24*time.Hour), lastAlive).Scan(&id))
+	t.Cleanup(func() {
+		_, err := db.Exec(ctx, `DELETE FROM content_sources WHERE id = $1`, id)
+		require.NoError(t, err)
+	})
+
+	resurrected, err := svc.SweepResurrections(ctx, now, 10, fakeChecker{err: errors.New("still gone")})
+	require.NoError(t, err)
+	assert.Empty(t, resurrected)
+
+	var status string
+	var failures int
+	var lastOK time.Time
+	require.NoError(t, db.QueryRow(ctx,
+		`SELECT status, check_failures, last_ok FROM content_sources WHERE id = $1`, id).
+		Scan(&status, &failures, &lastOK))
+	assert.Equal(t, content.StatusDead, status, "dead is sticky: only answering leaves it")
+	assert.Greater(t, failures, 12, "the failed attempt is counted")
+	assert.WithinDuration(t, lastAlive, lastOK, time.Second,
+		"and the date it was last alive survives the attempt")
+}

@@ -44,3 +44,16 @@ func TestCheckInterval(t *testing.T) {
 func TestCheckIntervalNeverExceedsTheBackoffCap(t *testing.T) {
 	assert.LessOrEqual(t, CheckInterval(1000, 1), BaseCheckInterval*time.Duration(1<<MaxCheckBackoff))
 }
+
+// The resurrection cadence. Two claims: a month for a quiet source, and -- the one that is easy to get
+// wrong -- that reliability is NOT fed back in. A dead source's failure count is saturated, so applying
+// the sweep's backoff to it would schedule the next attempt a year out, and a source nobody asks is a
+// source that never comes back.
+func TestResurrectionInterval(t *testing.T) {
+	assert.Equal(t, 30*24*time.Hour, ResurrectionInterval(1))
+	assert.Equal(t, 30*24*time.Hour, ResurrectionInterval(0))
+	assert.Equal(t, 90*time.Hour, ResurrectionInterval(8), "a popular dead source is still asked sooner")
+	assert.LessOrEqual(t, ResurrectionInterval(1),
+		BaseCheckInterval*time.Duration(1<<MaxCheckBackoff)*ResurrectionMultiplier,
+		"the resurrection interval must stay inside the bound the backoff cap promises")
+}

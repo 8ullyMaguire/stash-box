@@ -869,6 +869,16 @@ type Querier interface {
 	// 9c), on a cadence of its own, and `content_sources_sweep_idx` (migration 108) is a partial index
 	// over exactly the three statuses below -- the query and the index are the same list.
 	FindContentSourcesDueForCheck(ctx context.Context, lim int32) ([]FindContentSourcesDueForCheckRow, error)
+	// The resurrection queue's candidates (slice 9c).
+	//
+	// A dead source is excluded from the sweep's index on purpose: dead rows are the majority over time,
+	// and a sweep that considered them would spend its bound on rows that are not going to answer. So
+	// coming back is its own queue, on a cadence of its own -- long, because the alternative is asking a
+	// site that has been gone for months every day.
+	//
+	// Ordered oldest-checked first for the same reason as the sweep: the caller skips rows whose interval
+	// has not elapsed, and only this ordering makes skipping safe.
+	FindContentSourcesDueForResurrection(ctx context.Context, lim int32) ([]FindContentSourcesDueForResurrectionRow, error)
 	// The polymorphic read, for every entity kind that is not a scene. Phase 3's
 	// content_items use this; scenes use FindSceneSources above, because only scenes have
 	// a membership table to join.

@@ -1438,15 +1438,30 @@ recent source fetched and skipped -- each with a recording checker, because "thr
 is not the assertion worth making and "these three and not those two" is. Four probes, all killed with
 their own messages: the due-check removed, DEAD swept, the bound ignored, the ordering reversed.
 
-### Slice 9c — the resurrection queue
+### Slice 9c — the resurrection queue — DONE
 
-A `dead` source is excluded from the sweep index on purpose (terminal rows are the majority over time).
-Resurrecting one is therefore its own queue: dead sources are retried on a long cadence, and a success
-writes `live` with the counter reset. `last_ok` is the evidence, which is why 9a never overwrites it and
-why a resurrection does NOT erase it.
+A `dead` source is excluded from the sweep's index on purpose (dead rows are the majority over time, and
+a sweep that considered them would spend its bound on rows that will not answer). Coming back is its own
+queue on its own cadence: `ResurrectionInterval(claimants)` = thirty ordinary intervals (a month for a
+quiet source, sooner for a popular one).
 
-**Verification:** a dead source due for retry is selected and a fake success resurrects it, with
-`last_ok` still the ORIGINAL timestamp and `check_failures` at 0.
+**RELIABILITY IS DELIBERATELY NOT APPLIED HERE**, and that is the subtlety the slice exists around: a
+dead source's failure count is saturated by definition -- death requires seven days of failures -- so
+feeding it back through the sweep's backoff would multiply sixteen days by thirty and schedule the next
+attempt a year out, and a source nobody asks is a source that never comes back.
+
+**The evidence is read BEFORE the check, because the check destroys it.** A successful resurrection sets
+`last_ok` to now -- correctly, it is alive now -- so "when was it last alive before this" has to be
+captured first; `SweepResurrections` returns it alongside the URL (`Resurrection{URL, LastAliveAt}`),
+and the cron tick logs the gap by name and by duration, because a resurrection is news and "which one,
+gone since when" is the whole content of it. A dead source that is asked and still does not answer stays
+dead, keeps its counter and keeps the date it was last alive.
+
+**Verification (DONE):** the interval table including the bound claim; three integration tests (a
+40-day-dead source resurrected with the pre-check evidence asserted, a two-day-dead source fetched and
+left alone, a still-failing source staying dead with its `last_ok` intact). Three probes, all killed:
+the saturated failure count fed back in, the queue considering everything but dead, and the gap read
+after the check had overwritten it.
 
 ### Slice 9d — mirror resolution through the fingerprint cluster
 
