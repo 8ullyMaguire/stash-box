@@ -1101,6 +1101,7 @@ type ComplexityRoot struct {
 		Fingerprints   func(childComplexity int, isSubmitted *bool) int
 		ID             func(childComplexity int) int
 		Images         func(childComplexity int) int
+		Mirror         func(childComplexity int) int
 		Performers     func(childComplexity int) int
 		ProductionDate func(childComplexity int) int
 		ReleaseDate    func(childComplexity int) int
@@ -1856,6 +1857,7 @@ type SceneResolver interface {
 	Created(ctx context.Context, obj *Scene) (*time.Time, error)
 	Updated(ctx context.Context, obj *Scene) (*time.Time, error)
 	Completion(ctx context.Context, obj *Scene) (*Completion, error)
+	Mirror(ctx context.Context, obj *Scene) (*ContentSource, error)
 	SimilarScenes(ctx context.Context, obj *Scene, limit *int) ([]SimilarScene, error)
 	Warnings(ctx context.Context, obj *Scene) ([]ContentWarning, error)
 }
@@ -7243,6 +7245,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Scene.Images(childComplexity), true
+	case "Scene.mirror":
+		if e.ComplexityRoot.Scene.Mirror == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Scene.Mirror(childComplexity), true
 	case "Scene.performers":
 		if e.ComplexityRoot.Scene.Performers == nil {
 			break
@@ -9615,6 +9623,22 @@ enum ContentSourceStatus {
   DEAD
   DMCA
   ARCHIVED
+}
+
+extend type Scene {
+  """
+  A live URL for the same content on ANOTHER scene, or null.
+
+  Null is the ordinary case and means one of three things, all of which are answers: this scene has a
+  live source of its own, or it has none anywhere (nothing is known to be serving it), or its source
+  was taken down -- in which case no mirror is offered ON PURPOSE, because a takedown is a decision
+  rather than a hosting problem, and routing around one through a fingerprint cluster would be
+  circumventing it by accident.
+
+  The match is by PHASH cluster, so this is a claim that the other scene is the SAME content, not
+  merely a similar one; the distance the server uses is deliberately tight for that reason.
+  """
+  mirror: ContentSource
 }
 `, BuiltIn: false},
 	{Name: "../../graphql/schema/types/content_access_setup.graphql", Input: `# Content access setup (aggregator phase 5 slice 5i; NexusXXX section 10).
@@ -15931,6 +15955,8 @@ func (ec *executionContext) childFields_Scene(ctx context.Context, field graphql
 		return ec.fieldContext_Scene_updated(ctx, field)
 	case "completion":
 		return ec.fieldContext_Scene_completion(ctx, field)
+	case "mirror":
+		return ec.fieldContext_Scene_mirror(ctx, field)
 	case "similarScenes":
 		return ec.fieldContext_Scene_similarScenes(ctx, field)
 	case "warnings":
@@ -44757,6 +44783,38 @@ func (ec *executionContext) fieldContext_Scene_completion(_ context.Context, fie
 	return fc, nil
 }
 
+func (ec *executionContext) _Scene_mirror(ctx context.Context, field graphql.CollectedField, obj *Scene) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Scene_mirror(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Scene().Mirror(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *ContentSource) graphql.Marshaler {
+			return ec.marshalOContentSource2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentSource(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_Scene_mirror(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Scene",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ContentSource(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Scene_similarScenes(ctx context.Context, field graphql.CollectedField, obj *Scene) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -72331,6 +72389,44 @@ func (ec *executionContext) _Scene(ctx context.Context, sel ast.SelectionSet, ob
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "mirror":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Scene_mirror(ctx, field, obj)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "similarScenes":
 			field := field
 
@@ -81503,6 +81599,13 @@ func (ec *executionContext) marshalOContentItemKind2ᚖgithubᚗcomᚋstashapp�
 		return graphql.Null
 	}
 	return v
+}
+
+func (ec *executionContext) marshalOContentSource2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentSource(ctx context.Context, sel ast.SelectionSet, v *ContentSource) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._ContentSource(ctx, sel, v)
 }
 
 func (ec *executionContext) unmarshalOCropGuideRoleEnum2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐCropGuideRoleEnum(ctx context.Context, v any) (*CropGuideRoleEnum, error) {

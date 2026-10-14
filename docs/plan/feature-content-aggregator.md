@@ -1463,13 +1463,37 @@ left alone, a still-failing source staying dead with its `last_ok` intact). Thre
 the saturated failure count fed back in, the queue considering everything but dead, and the gap read
 after the check had overwritten it.
 
-### Slice 9d — mirror resolution through the fingerprint cluster
+### Slice 9d — mirror resolution through the fingerprint cluster — DONE
 
-**Goal:** a dead canonical source hands the reader to a mirror: the same content on another source,
-resolved by fingerprint (the cluster tables, migration 63) rather than by matching URLs.
+**CORRECTION to this slice's original wording:** there is no "cluster table" and migration 63 is not
+this. The machinery is `internal/service/fingerprint.Fingerprint.ClusterScenes` (`ClusterScenes(ctx,
+seedScene, distance)`), which expands the seed scene's PHASH fingerprints through the bktree operator
+into clusters of scenes (`fingerprints` + `scene_fingerprints`, migrations 01 and 34).
 
-**Verification:** two sources whose scenes share a fingerprint cluster; one goes dead; the entity's
-serving source is the live mirror, and the dead one keeps its row.
+**The split is deliberate:** the fingerprint service answers "which scenes hold the same content" and
+does not know what a source is; `content.Mirror` answers "is there a live URL to hand over, and is
+handing over appropriate at all" and does not know what a cluster is. The resolver composes them, and
+`MirrorDistance` is a CONTENT-side constant (4, tight on purpose: being generous costs a moderator a
+glance on the identification board, where the distance is a client argument, and would cost a reader
+the wrong scene here).
+
+**Three rules, each with its own test:**
+* A live source of the scene's own means nothing is handed over (`nil`).
+* **A canonical source under DMCA or in the archive means NO mirror**, and this is the branch worth
+  arguing for: a takedown is a decision the instance has made, not a hosting problem, and routing around
+  it through a fingerprint cluster would be circumventing it by accident. It is the one branch where a
+  mirror that exists is deliberately not offered.
+* Otherwise the first LIVE source among the candidates wins. Live strictly: an `unknown` source has
+  never been checked, and a mirror that is itself an unverified link is worth nothing.
+
+**Verification (DONE):** four wire-level tests (the clustered live source is offered and the playable
+scene gets nothing; a dmca source is not routed around; an unrelated live scene is NOT offered; an
+unchecked source is not offered), each written against the wire rather than the resolver method, because
+`mirror` is force-resolved and calling `Query().FindScene` would return the field unpopulated and every
+assertion would pass for the wrong reason. Three probes killed: an unchecked source counting as a
+mirror, the takedown branch removed, and the same-content requirement dropped (the last one surfaces in
+the neighbouring test, because with the entity filter gone a leftover live source from another test
+becomes an eligible "mirror" -- the same invariant, observed one assertion over).
 
 ### Slice 9e — Wayback submission
 

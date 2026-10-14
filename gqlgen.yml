@@ -32,6 +32,12 @@ models:
       # rather than an error. Declared external on purpose.
       completion:
         resolver: true
+  Scene:
+    fields:
+      # `mirror` is a cross-service lookup (the fingerprint cluster, then this service's own rule),
+      # so there is no struct field to bind it to.
+      mirror:
+        resolver: true
   ContentSource:
     fields:
       # The model carries the DATABASE's string (`content_sources.status` is lower case) and the

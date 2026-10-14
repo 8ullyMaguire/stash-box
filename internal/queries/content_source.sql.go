@@ -511,6 +511,66 @@ func (q *Queries) FindContentSourcesForEntity(ctx context.Context, arg FindConte
 	return items, nil
 }
 
+const findLiveSourcesBySceneIDs = `-- name: FindLiveSourcesBySceneIDs :many
+SELECT cs.id, cs.entity_type, cs.entity_id, cs.url, cs.site_id, cs.platform, cs.status, cs.canonical, cs.first_seen, cs.last_checked, cs.last_ok, cs.check_failures, cs.archived_url, cs.archived_at, cs.created_by, cs.url_normalized
+FROM content_sources cs
+WHERE cs.entity_type = 'scene'
+  AND cs.entity_id = ANY($1::UUID[])
+  AND cs.status = 'live'
+ORDER BY cs.canonical DESC, cs.check_failures ASC
+LIMIT $2
+`
+
+type FindLiveSourcesBySceneIDsParams struct {
+	SceneIds []uuid.UUID `db:"scene_ids" json:"scene_ids"`
+	Lim      int32       `db:"lim" json:"lim"`
+}
+
+// The mirror lookup (slice 9d): the live sources of a set of scenes, best first.
+//
+// "Live" STRICTLY. An `unknown` source has never been checked, and sending a reader to a URL nobody
+// has verified is not a mirror -- it is a second broken link. `unknown` is a legitimate status for a
+// row and an illegitimate answer to this question.
+//
+// Canonical first, then fewest failed checks: the ordering a reader would choose if they could see
+// the rows.
+func (q *Queries) FindLiveSourcesBySceneIDs(ctx context.Context, arg FindLiveSourcesBySceneIDsParams) ([]ContentSource, error) {
+	rows, err := q.db.Query(ctx, findLiveSourcesBySceneIDs, arg.SceneIds, arg.Lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ContentSource{}
+	for rows.Next() {
+		var i ContentSource
+		if err := rows.Scan(
+			&i.ID,
+			&i.EntityType,
+			&i.EntityID,
+			&i.Url,
+			&i.SiteID,
+			&i.Platform,
+			&i.Status,
+			&i.Canonical,
+			&i.FirstSeen,
+			&i.LastChecked,
+			&i.LastOk,
+			&i.CheckFailures,
+			&i.ArchivedUrl,
+			&i.ArchivedAt,
+			&i.CreatedBy,
+			&i.UrlNormalized,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const findSceneSources = `-- name: FindSceneSources :many
 SELECT scene_id, url, site_id, status, canonical, platform, first_seen, last_checked, last_ok, check_failures, archived_url, source_id FROM scene_sources
 WHERE scene_id = $1

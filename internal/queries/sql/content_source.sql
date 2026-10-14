@@ -228,3 +228,20 @@ FROM content_sources cs
 WHERE cs.status = 'dead'
 ORDER BY cs.last_checked ASC NULLS FIRST, cs.first_seen ASC
 LIMIT @lim;
+
+-- name: FindLiveSourcesBySceneIDs :many
+-- The mirror lookup (slice 9d): the live sources of a set of scenes, best first.
+--
+-- "Live" STRICTLY. An `unknown` source has never been checked, and sending a reader to a URL nobody
+-- has verified is not a mirror -- it is a second broken link. `unknown` is a legitimate status for a
+-- row and an illegitimate answer to this question.
+--
+-- Canonical first, then fewest failed checks: the ordering a reader would choose if they could see
+-- the rows.
+SELECT cs.*
+FROM content_sources cs
+WHERE cs.entity_type = 'scene'
+  AND cs.entity_id = ANY(sqlc.arg('scene_ids')::UUID[])
+  AND cs.status = 'live'
+ORDER BY cs.canonical DESC, cs.check_failures ASC
+LIMIT sqlc.arg('lim');

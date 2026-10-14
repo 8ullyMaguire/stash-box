@@ -92,3 +92,33 @@ func (r *contentSourceResolver) Site(ctx context.Context, obj *models.ContentSou
 	}
 	return dataloader.For(ctx).SiteByID.Load(obj.SiteID)
 }
+
+// Mirror is where else this scene's content can be watched (slice 9d).
+//
+// The composition is here rather than in either service because the two halves are deliberately
+// ignorant of each other: the fingerprint cluster answers "which scenes hold the same content", and
+// content.Mirror answers "is there a live URL to hand over, and is handing over appropriate at all".
+// The distance is a content-side constant, so that the meaning of "the same content" is one number in
+// one place rather than a value a client happens to pass.
+func (r *sceneResolver) Mirror(ctx context.Context, obj *models.Scene) (*models.ContentSource, error) {
+	cluster, err := r.services.Fingerprint().ClusterScenes(ctx, obj.ID, content.MirrorDistance)
+	if err != nil {
+		return nil, err
+	}
+
+	var candidates []uuid.UUID
+	for _, c := range cluster.Clusters {
+		for _, member := range c.Members {
+			for _, submission := range member.SceneSubmissions {
+				// The hand-written cluster model carries the scene's ID; the SDL `scene` field
+				// beside it is resolved elsewhere, and walking it here would load a scene per
+				// candidate to read one uuid.
+				if submission.SceneID != obj.ID {
+					candidates = append(candidates, submission.SceneID)
+				}
+			}
+		}
+	}
+
+	return r.services.Content().Mirror(ctx, obj.ID, candidates)
+}

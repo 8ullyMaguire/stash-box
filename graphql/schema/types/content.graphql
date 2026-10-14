@@ -154,3 +154,19 @@ enum ContentSourceStatus {
   DMCA
   ARCHIVED
 }
+
+extend type Scene {
+  """
+  A live URL for the same content on ANOTHER scene, or null.
+
+  Null is the ordinary case and means one of three things, all of which are answers: this scene has a
+  live source of its own, or it has none anywhere (nothing is known to be serving it), or its source
+  was taken down -- in which case no mirror is offered ON PURPOSE, because a takedown is a decision
+  rather than a hosting problem, and routing around one through a fingerprint cluster would be
+  circumventing it by accident.
+
+  The match is by PHASH cluster, so this is a claim that the other scene is the SAME content, not
+  merely a similar one; the distance the server uses is deliberately tight for that reason.
+  """
+  mirror: ContentSource
+}

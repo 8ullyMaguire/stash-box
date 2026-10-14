@@ -965,6 +965,15 @@ type Querier interface {
 	// Everything an owner has, drafts included. This is the one listing that shows private
 	// lists, and it is reachable only by someone entitled to see that owner's drafts.
 	FindListsByOwner(ctx context.Context, ownerID uuid.UUID) ([]List, error)
+	// The mirror lookup (slice 9d): the live sources of a set of scenes, best first.
+	//
+	// "Live" STRICTLY. An `unknown` source has never been checked, and sending a reader to a URL nobody
+	// has verified is not a mirror -- it is a second broken link. `unknown` is a legitimate status for a
+	// row and an illegitimate answer to this question.
+	//
+	// Canonical first, then fewest failed checks: the ordering a reader would choose if they could see
+	// the rows.
+	FindLiveSourcesBySceneIDs(ctx context.Context, arg FindLiveSourcesBySceneIDsParams) ([]ContentSource, error)
 	// Find merge target IDs for performers (for merges where these are sources)
 	FindMergeIDsByPerformerIds(ctx context.Context, performerIds []uuid.UUID) ([]FindMergeIDsByPerformerIdsRow, error)
 	// Find merge source IDs for performers (for merges where these are targets)
