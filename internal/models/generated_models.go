@@ -887,6 +887,29 @@ type ImageUpdateInput struct {
 	Date  *string         `json:"date,omitempty"`
 }
 
+// What happened to a submitted URL, as the submitter needs to hear it.
+//
+// Two outcomes and neither is a failure: `queued` means the URL is now work for the
+// pipeline, and `duplicate` means this instance already has it. Reporting a duplicate as an
+// error is how submitters learn to stop submitting, and a queue that nobody feeds is a queue
+// that does not work (spec §5).
+type IngestSubmission struct {
+	// `queued`, `duplicate`, or `invalid` when the URL could not be parsed at all.
+	Status string `json:"status"`
+	// The queue row, when one was created. Absent for a duplicate: nothing was enqueued, and
+	// an id here would say otherwise.
+	QueueID *uuid.UUID `json:"queue_id,omitempty"`
+	// What the submitted URL was reduced to -- the key dedup runs on.
+	//
+	// Returned because the interesting duplicate is the one where the submitter's URL LOOKS
+	// different from last week's: seeing `https://x.invalid/a` come back for
+	// `https://www.x.invalid/a/?utm_source=nl#t=30` is the difference between "the aggregator
+	// is broken" and "it already has this".
+	NormalizedURL string `json:"normalized_url"`
+	// A sentence for the submitter: the refusal reason, or that the URL is already known.
+	Message *string `json:"message,omitempty"`
+}
+
 type IntCriterionInput struct {
 	Value    int               `json:"value"`
 	Modifier CriterionModifier `json:"modifier"`

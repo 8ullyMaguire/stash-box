@@ -59,8 +59,73 @@ func (q *Queries) ClearCanonicalSourceExcept(ctx context.Context, arg ClearCanon
 	return err
 }
 
+const ensureIngestSite = `-- name: EnsureIngestSite :one
+INSERT INTO sites (id, name, url, regex, valid_types, highlighted, created_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, now(), now())
+ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
+RETURNING id, name, description, url, regex, valid_types, created_at, updated_at, category_id, highlighted
+`
+
+type EnsureIngestSiteParams struct {
+	ID          uuid.UUID `db:"id" json:"id"`
+	Name        string    `db:"name" json:"name"`
+	Url         *string   `db:"url" json:"url"`
+	Regex       *string   `db:"regex" json:"regex"`
+	ValidTypes  []string  `db:"valid_types" json:"valid_types"`
+	Highlighted bool      `db:"highlighted" json:"highlighted"`
+}
+
+// The aggregator's directory entry for a host it has never seen (plan phase 2).
+//
+// WHY THE INGEST PATH CREATES SITES AT ALL. scene_urls.site_id is NOT NULL, so a source
+// with no site cannot be recorded as a MEMBERSHIP -- and the scene page, the completion
+// score and every other reader of a scene's URLs read scene_urls, not content_sources. A
+// pipeline that skipped the membership for an uncatalogued host produced sources that
+// existed in one table and appeared in no view; asking a created record for its source list
+// returned an empty list.
+//
+// So the pipeline grows the directory, one row per HOST, and the row is a fact rather than
+// a judgement: the name is the host, the url is where it was found, valid_types is what was
+// observed (a page with a scene on it), and `highlighted` is passed in as FALSE --
+// deliberately overriding the column's true default, because the directory's highlighted
+// sites are a curated list and a crawler that highlighted every host it touched would fill
+// it with whatever it crawled.
+//
+// ON CONFLICT (name) DO UPDATE is the upsert-that-returns-the-EXISTING-row trick:
+// sites.name is UNIQUE and NOT NULL, so it is the only safe key, and DO NOTHING would
+// return no row at all -- leaving the caller to re-select, which is exactly the race (two
+// workers draining two URLs from the same new host) this statement closes. The no-op UPDATE
+// writes the name the row already has.
+//
+// `regex` is what makes this run ONCE per host: FindSiteForURL matches on regex only, so a
+// row with a NULL regex resolves nothing and every URL from that host would come back here.
+func (q *Queries) EnsureIngestSite(ctx context.Context, arg EnsureIngestSiteParams) (Site, error) {
+	row := q.db.QueryRow(ctx, ensureIngestSite,
+		arg.ID,
+		arg.Name,
+		arg.Url,
+		arg.Regex,
+		arg.ValidTypes,
+		arg.Highlighted,
+	)
+	var i Site
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Description,
+		&i.Url,
+		&i.Regex,
+		&i.ValidTypes,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CategoryID,
+		&i.Highlighted,
+	)
+	return i, err
+}
+
 const findContentSourceByEntityAndURL = `-- name: FindContentSourceByEntityAndURL :one
-SELECT id, entity_type, entity_id, url, site_id, platform, status, canonical, first_seen, last_checked, last_ok, check_failures, archived_url, archived_at, created_by FROM content_sources
+SELECT id, entity_type, entity_id, url, site_id, platform, status, canonical, first_seen, last_checked, last_ok, check_failures, archived_url, archived_at, created_by, url_normalized FROM content_sources
 WHERE entity_type = $1 AND entity_id = $2 AND url = $3
 `
 
@@ -92,12 +157,78 @@ func (q *Queries) FindContentSourceByEntityAndURL(ctx context.Context, arg FindC
 		&i.ArchivedUrl,
 		&i.ArchivedAt,
 		&i.CreatedBy,
+		&i.UrlNormalized,
 	)
 	return i, err
 }
 
+const findContentSourcesByNormalizedURL = `-- name: FindContentSourcesByNormalizedURL :many
+SELECT id, entity_type, entity_id, url, site_id, platform, status, canonical, first_seen, last_checked, last_ok, check_failures, archived_url, archived_at, created_by, url_normalized FROM content_sources
+WHERE entity_type = $1
+  AND (url_normalized = $2 OR LOWER(url) = LOWER($2))
+ORDER BY (url_normalized = $2) DESC NULLS LAST, first_seen
+`
+
+type FindContentSourcesByNormalizedURLParams struct {
+	EntityType    string  `db:"entity_type" json:"entity_type"`
+	UrlNormalized *string `db:"url_normalized" json:"url_normalized"`
+}
+
+// "Has anything already claimed this URL?" (spec §1 stage 3) -- the question the
+// pipeline asks before it creates a record.
+//
+// TWO ARMS, and the second is not redundant. `url_normalized` is written only by the
+// ingest path; a row written by the scene_urls mirror carries NULL, because the mirror
+// is a SQL trigger and normalisation is Go (migration 110 says why at length). Matching
+// only the first arm would report "nothing claims this URL" for every row the edit path
+// ever wrote, and the pipeline would then create a second scene for a page that is
+// already on one -- the exact failure the normaliser exists to prevent.
+//
+// Both arms are indexed (content_sources_url_normalized_idx, content_sources_url_lower_idx),
+// so this is a bitmap OR of two index scans rather than a sequential scan.
+//
+// The entity_type filter is a parameter rather than a constant: phase 3's content_items
+// are the same question with a different answer set, and a hardcoded 'scene' here would
+// be the second place to change when they land.
+func (q *Queries) FindContentSourcesByNormalizedURL(ctx context.Context, arg FindContentSourcesByNormalizedURLParams) ([]ContentSource, error) {
+	rows, err := q.db.Query(ctx, findContentSourcesByNormalizedURL, arg.EntityType, arg.UrlNormalized)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ContentSource{}
+	for rows.Next() {
+		var i ContentSource
+		if err := rows.Scan(
+			&i.ID,
+			&i.EntityType,
+			&i.EntityID,
+			&i.Url,
+			&i.SiteID,
+			&i.Platform,
+			&i.Status,
+			&i.Canonical,
+			&i.FirstSeen,
+			&i.LastChecked,
+			&i.LastOk,
+			&i.CheckFailures,
+			&i.ArchivedUrl,
+			&i.ArchivedAt,
+			&i.CreatedBy,
+			&i.UrlNormalized,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const findContentSourcesByURL = `-- name: FindContentSourcesByURL :many
-SELECT id, entity_type, entity_id, url, site_id, platform, status, canonical, first_seen, last_checked, last_ok, check_failures, archived_url, archived_at, created_by FROM content_sources WHERE url = $1
+SELECT id, entity_type, entity_id, url, site_id, platform, status, canonical, first_seen, last_checked, last_ok, check_failures, archived_url, archived_at, created_by, url_normalized FROM content_sources WHERE url = $1
 `
 
 // The same URL across every entity that claims it. This is what makes a single health
@@ -127,6 +258,7 @@ func (q *Queries) FindContentSourcesByURL(ctx context.Context, url string) ([]Co
 			&i.ArchivedUrl,
 			&i.ArchivedAt,
 			&i.CreatedBy,
+			&i.UrlNormalized,
 		); err != nil {
 			return nil, err
 		}
@@ -139,7 +271,7 @@ func (q *Queries) FindContentSourcesByURL(ctx context.Context, url string) ([]Co
 }
 
 const findContentSourcesForEntity = `-- name: FindContentSourcesForEntity :many
-SELECT id, entity_type, entity_id, url, site_id, platform, status, canonical, first_seen, last_checked, last_ok, check_failures, archived_url, archived_at, created_by FROM content_sources
+SELECT id, entity_type, entity_id, url, site_id, platform, status, canonical, first_seen, last_checked, last_ok, check_failures, archived_url, archived_at, created_by, url_normalized FROM content_sources
 WHERE entity_type = $1 AND entity_id = $2
 ORDER BY canonical DESC, first_seen DESC NULLS LAST, url
 `
@@ -177,6 +309,7 @@ func (q *Queries) FindContentSourcesForEntity(ctx context.Context, arg FindConte
 			&i.ArchivedUrl,
 			&i.ArchivedAt,
 			&i.CreatedBy,
+			&i.UrlNormalized,
 		); err != nil {
 			return nil, err
 		}
@@ -284,6 +417,99 @@ func (q *Queries) FindSceneSourcesByIds(ctx context.Context, sceneIds []uuid.UUI
 	return items, nil
 }
 
+const findSiteForURL = `-- name: FindSiteForURL :one
+SELECT id, name FROM sites
+WHERE regex IS NOT NULL AND regex <> '' AND $1 ~ regex
+ORDER BY length(regex) DESC
+LIMIT 1
+`
+
+type FindSiteForURLRow struct {
+	ID   uuid.UUID `db:"id" json:"id"`
+	Name string    `db:"name" json:"name"`
+}
+
+// Resolve a URL to a directory entry, so an ingested source carries its site.
+//
+// Longest regex wins: the directory holds both `example.com` and
+// `example.com/studio/`-shaped patterns, and the more specific one is the better answer.
+// Both are POSIX extended regular expressions as far as Postgres is concerned, so a
+// pattern written for the frontend's JavaScript engine may not match here -- that is a
+// MISS, not an error: site_id is nullable, the source is still recorded, and a source
+// with no site is a normal state rather than a failure.
+//
+// The regex is user data (imported with the directory), so this is evaluated by
+// Postgres's own engine and never by the Go layer.
+func (q *Queries) FindSiteForURL(ctx context.Context, url *string) (FindSiteForURLRow, error) {
+	row := q.db.QueryRow(ctx, findSiteForURL, url)
+	var i FindSiteForURLRow
+	err := row.Scan(&i.ID, &i.Name)
+	return i, err
+}
+
+const insertContentSource = `-- name: InsertContentSource :one
+INSERT INTO content_sources (
+    entity_type, entity_id, url, url_normalized, site_id, platform, created_by
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7
+)
+ON CONFLICT (entity_type, entity_id, url) DO NOTHING
+RETURNING id, entity_type, entity_id, url, site_id, platform, status, canonical, first_seen, last_checked, last_ok, check_failures, archived_url, archived_at, created_by, url_normalized
+`
+
+type InsertContentSourceParams struct {
+	EntityType    string        `db:"entity_type" json:"entity_type"`
+	EntityID      uuid.UUID     `db:"entity_id" json:"entity_id"`
+	Url           string        `db:"url" json:"url"`
+	UrlNormalized *string       `db:"url_normalized" json:"url_normalized"`
+	SiteID        uuid.NullUUID `db:"site_id" json:"site_id"`
+	Platform      *string       `db:"platform" json:"platform"`
+	CreatedBy     uuid.NullUUID `db:"created_by" json:"created_by"`
+}
+
+// The pipeline's attach: record that an entity is reachable at a URL.
+//
+// ON CONFLICT DO NOTHING against the (entity_type, entity_id, url) constraint, so an
+// attach that has already happened is a no-op rather than an error: re-attaching is the
+// ordinary outcome of a duplicate submission, and the caller cannot tell (nor should it)
+// whether the row was there before. ErrNoRows here means "already attached".
+//
+// `canonical` is NOT set. Electing a canonical source is a separate decision with its
+// own statement and a partial unique index behind it (phase 1), and a pipeline that
+// silently claimed canonicality for whatever it happened to ingest first would make the
+// reader's destination depend on queue order.
+func (q *Queries) InsertContentSource(ctx context.Context, arg InsertContentSourceParams) (ContentSource, error) {
+	row := q.db.QueryRow(ctx, insertContentSource,
+		arg.EntityType,
+		arg.EntityID,
+		arg.Url,
+		arg.UrlNormalized,
+		arg.SiteID,
+		arg.Platform,
+		arg.CreatedBy,
+	)
+	var i ContentSource
+	err := row.Scan(
+		&i.ID,
+		&i.EntityType,
+		&i.EntityID,
+		&i.Url,
+		&i.SiteID,
+		&i.Platform,
+		&i.Status,
+		&i.Canonical,
+		&i.FirstSeen,
+		&i.LastChecked,
+		&i.LastOk,
+		&i.CheckFailures,
+		&i.ArchivedUrl,
+		&i.ArchivedAt,
+		&i.CreatedBy,
+		&i.UrlNormalized,
+	)
+	return i, err
+}
+
 const promoteSourceToCanonical = `-- name: PromoteSourceToCanonical :exec
 UPDATE content_sources SET canonical = true WHERE id = $1
 `
@@ -301,7 +527,7 @@ UPDATE content_sources SET
     last_ok = COALESCE($3::timestamptz, last_ok),
     check_failures = $4
 WHERE id = $1
-RETURNING id, entity_type, entity_id, url, site_id, platform, status, canonical, first_seen, last_checked, last_ok, check_failures, archived_url, archived_at, created_by
+RETURNING id, entity_type, entity_id, url, site_id, platform, status, canonical, first_seen, last_checked, last_ok, check_failures, archived_url, archived_at, created_by, url_normalized
 `
 
 type RecordSourceCheckParams struct {
@@ -345,6 +571,7 @@ func (q *Queries) RecordSourceCheck(ctx context.Context, arg RecordSourceCheckPa
 		&i.ArchivedUrl,
 		&i.ArchivedAt,
 		&i.CreatedBy,
+		&i.UrlNormalized,
 	)
 	return i, err
 }

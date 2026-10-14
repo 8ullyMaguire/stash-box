@@ -46,6 +46,95 @@ WHERE entity_type = $1 AND entity_id = $2 AND url = $3;
 -- check answer for all of them: check once, write every row.
 SELECT * FROM content_sources WHERE url = $1;
 
+-- name: FindContentSourcesByNormalizedURL :many
+-- "Has anything already claimed this URL?" (spec §1 stage 3) -- the question the
+-- pipeline asks before it creates a record.
+--
+-- TWO ARMS, and the second is not redundant. `url_normalized` is written only by the
+-- ingest path; a row written by the scene_urls mirror carries NULL, because the mirror
+-- is a SQL trigger and normalisation is Go (migration 110 says why at length). Matching
+-- only the first arm would report "nothing claims this URL" for every row the edit path
+-- ever wrote, and the pipeline would then create a second scene for a page that is
+-- already on one -- the exact failure the normaliser exists to prevent.
+--
+-- Both arms are indexed (content_sources_url_normalized_idx, content_sources_url_lower_idx),
+-- so this is a bitmap OR of two index scans rather than a sequential scan.
+--
+-- The entity_type filter is a parameter rather than a constant: phase 3's content_items
+-- are the same question with a different answer set, and a hardcoded 'scene' here would
+-- be the second place to change when they land.
+SELECT * FROM content_sources
+WHERE entity_type = @entity_type
+  AND (url_normalized = @url_normalized OR LOWER(url) = LOWER(@url_normalized))
+ORDER BY (url_normalized = @url_normalized) DESC NULLS LAST, first_seen;
+
+-- name: InsertContentSource :one
+-- The pipeline's attach: record that an entity is reachable at a URL.
+--
+-- ON CONFLICT DO NOTHING against the (entity_type, entity_id, url) constraint, so an
+-- attach that has already happened is a no-op rather than an error: re-attaching is the
+-- ordinary outcome of a duplicate submission, and the caller cannot tell (nor should it)
+-- whether the row was there before. ErrNoRows here means "already attached".
+--
+-- `canonical` is NOT set. Electing a canonical source is a separate decision with its
+-- own statement and a partial unique index behind it (phase 1), and a pipeline that
+-- silently claimed canonicality for whatever it happened to ingest first would make the
+-- reader's destination depend on queue order.
+INSERT INTO content_sources (
+    entity_type, entity_id, url, url_normalized, site_id, platform, created_by
+) VALUES (
+    @entity_type, @entity_id, @url, @url_normalized, @site_id, @platform, @created_by
+)
+ON CONFLICT (entity_type, entity_id, url) DO NOTHING
+RETURNING *;
+
+-- name: FindSiteForURL :one
+-- Resolve a URL to a directory entry, so an ingested source carries its site.
+--
+-- Longest regex wins: the directory holds both `example.com` and
+-- `example.com/studio/`-shaped patterns, and the more specific one is the better answer.
+-- Both are POSIX extended regular expressions as far as Postgres is concerned, so a
+-- pattern written for the frontend's JavaScript engine may not match here -- that is a
+-- MISS, not an error: site_id is nullable, the source is still recorded, and a source
+-- with no site is a normal state rather than a failure.
+--
+-- The regex is user data (imported with the directory), so this is evaluated by
+-- Postgres's own engine and never by the Go layer.
+SELECT id, name FROM sites
+WHERE regex IS NOT NULL AND regex <> '' AND @url ~ regex
+ORDER BY length(regex) DESC
+LIMIT 1;
+
+-- name: EnsureIngestSite :one
+-- The aggregator's directory entry for a host it has never seen (plan phase 2).
+--
+-- WHY THE INGEST PATH CREATES SITES AT ALL. scene_urls.site_id is NOT NULL, so a source
+-- with no site cannot be recorded as a MEMBERSHIP -- and the scene page, the completion
+-- score and every other reader of a scene's URLs read scene_urls, not content_sources. A
+-- pipeline that skipped the membership for an uncatalogued host produced sources that
+-- existed in one table and appeared in no view; asking a created record for its source list
+-- returned an empty list.
+--
+-- So the pipeline grows the directory, one row per HOST, and the row is a fact rather than
+-- a judgement: the name is the host, the url is where it was found, valid_types is what was
+-- observed (a page with a scene on it), and `highlighted` is passed in as FALSE --
+-- deliberately overriding the column's true default, because the directory's highlighted
+-- sites are a curated list and a crawler that highlighted every host it touched would fill
+-- it with whatever it crawled.
+--
+-- ON CONFLICT (name) DO UPDATE is the upsert-that-returns-the-EXISTING-row trick:
+-- sites.name is UNIQUE and NOT NULL, so it is the only safe key, and DO NOTHING would
+-- return no row at all -- leaving the caller to re-select, which is exactly the race (two
+-- workers draining two URLs from the same new host) this statement closes. The no-op UPDATE
+-- writes the name the row already has.
+--
+-- `regex` is what makes this run ONCE per host: FindSiteForURL matches on regex only, so a
+-- row with a NULL regex resolves nothing and every URL from that host would come back here.
+INSERT INTO sites (id, name, url, regex, valid_types, highlighted, created_at, updated_at)
+VALUES (@id, @name, @url, @regex, @valid_types, @highlighted, now(), now())
+ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
+RETURNING *;
+
 -- name: RecordSourceCheck :one
 -- The health sweep's write, and the only statement that may move `status`.
 --

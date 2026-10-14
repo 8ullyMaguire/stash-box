@@ -191,6 +191,8 @@ type ContentSource struct {
 	ArchivedUrl   *string            `db:"archived_url" json:"archived_url"`
 	ArchivedAt    pgtype.Timestamptz `db:"archived_at" json:"archived_at"`
 	CreatedBy     uuid.NullUUID      `db:"created_by" json:"created_by"`
+	// The Go normaliser's key for this URL, written only by the ingest path. NULL means the row came from the edit path (scene_urls mirror) or predates this column; match those on LOWER(url).
+	UrlNormalized *string `db:"url_normalized" json:"url_normalized"`
 }
 
 type Draft struct {
@@ -424,6 +426,8 @@ type IngestQueue struct {
 	StartedAt     pgtype.Timestamptz `db:"started_at" json:"started_at"`
 	FinishedAt    pgtype.Timestamptz `db:"finished_at" json:"finished_at"`
 	CreatedAt     pgtype.Timestamptz `db:"created_at" json:"created_at"`
+	// The scene a submission named, when a reader submitted the URL from that scene's page. NULL means the submitter named no target and the pipeline decides from the URL and its fingerprint.
+	TargetEntityID uuid.NullUUID `db:"target_entity_id" json:"target_entity_id"`
 }
 
 type InviteKey struct {

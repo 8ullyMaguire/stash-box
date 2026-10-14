@@ -448,6 +448,13 @@ type ComplexityRoot struct {
 		Types       func(childComplexity int) int
 	}
 
+	IngestSubmission struct {
+		Message       func(childComplexity int) int
+		NormalizedURL func(childComplexity int) int
+		QueueID       func(childComplexity int) int
+		Status        func(childComplexity int) int
+	}
+
 	InviteKey struct {
 		Expires func(childComplexity int) int
 		ID      func(childComplexity int) int
@@ -581,6 +588,7 @@ type ComplexityRoot struct {
 		StudioEdit                        func(childComplexity int, input StudioEditInput) int
 		StudioEditUpdate                  func(childComplexity int, id uuid.UUID, input StudioEditInput) int
 		StudioUpdate                      func(childComplexity int, input StudioUpdateInput) int
+		SubmitContentURL                  func(childComplexity int, url string, sceneID *uuid.UUID) int
 		SubmitFingerprint                 func(childComplexity int, input FingerprintSubmission) int
 		SubmitFingerprints                func(childComplexity int, input []FingerprintBatchSubmission) int
 		SubmitPerformerDraft              func(childComplexity int, input PerformerDraftInput) int
@@ -1368,6 +1376,7 @@ type MutationResolver interface {
 	UpdateImageTypePreferences(ctx context.Context, input ImageTypePreferencesInput) (bool, error)
 	AddSnapshot(ctx context.Context, sceneID uuid.UUID, timestamp int) (*CollageSnapshot, error)
 	GenerateCollage(ctx context.Context, sceneID uuid.UUID, frameCount *int) (*Collage, error)
+	SubmitContentURL(ctx context.Context, url string, sceneID *uuid.UUID) (*IngestSubmission, error)
 	VoteElo(ctx context.Context, input EloVoteInput) (*EloVoteResult, error)
 	FederationPeerCreate(ctx context.Context, input FederationPeerCreateInput) (*FederationPeer, error)
 	FederationPeerUpdate(ctx context.Context, input FederationPeerUpdateInput) (*FederationPeer, error)
@@ -3043,6 +3052,31 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.ImageTypeGroup.Types(childComplexity), true
 
+	case "IngestSubmission.message":
+		if e.ComplexityRoot.IngestSubmission.Message == nil {
+			break
+		}
+
+		return e.ComplexityRoot.IngestSubmission.Message(childComplexity), true
+	case "IngestSubmission.normalized_url":
+		if e.ComplexityRoot.IngestSubmission.NormalizedURL == nil {
+			break
+		}
+
+		return e.ComplexityRoot.IngestSubmission.NormalizedURL(childComplexity), true
+	case "IngestSubmission.queue_id":
+		if e.ComplexityRoot.IngestSubmission.QueueID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.IngestSubmission.QueueID(childComplexity), true
+	case "IngestSubmission.status":
+		if e.ComplexityRoot.IngestSubmission.Status == nil {
+			break
+		}
+
+		return e.ComplexityRoot.IngestSubmission.Status(childComplexity), true
+
 	case "InviteKey.expires":
 		if e.ComplexityRoot.InviteKey.Expires == nil {
 			break
@@ -4076,6 +4110,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.StudioUpdate(childComplexity, args["input"].(StudioUpdateInput)), true
+	case "Mutation.submitContentUrl":
+		if e.ComplexityRoot.Mutation.SubmitContentURL == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_submitContentUrl_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.SubmitContentURL(childComplexity, args["url"].(string), args["sceneId"].(*uuid.UUID)), true
 	case "Mutation.submitFingerprint":
 		if e.ComplexityRoot.Mutation.SubmitFingerprint == nil {
 			break
@@ -7991,6 +8036,56 @@ type ContentSource {
   """
   archived_url: String
 }
+
+"""
+What happened to a submitted URL, as the submitter needs to hear it.
+
+Two outcomes and neither is a failure: ` + "`" + `queued` + "`" + ` means the URL is now work for the
+pipeline, and ` + "`" + `duplicate` + "`" + ` means this instance already has it. Reporting a duplicate as an
+error is how submitters learn to stop submitting, and a queue that nobody feeds is a queue
+that does not work (spec §5).
+"""
+type IngestSubmission {
+  "` + "`" + `queued` + "`" + `, ` + "`" + `duplicate` + "`" + `, or ` + "`" + `invalid` + "`" + ` when the URL could not be parsed at all."
+  status: String!
+
+  """
+  The queue row, when one was created. Absent for a duplicate: nothing was enqueued, and
+  an id here would say otherwise.
+  """
+  queue_id: ID
+
+  """
+  What the submitted URL was reduced to -- the key dedup runs on.
+
+  Returned because the interesting duplicate is the one where the submitter's URL LOOKS
+  different from last week's: seeing ` + "`" + `https://x.invalid/a` + "`" + ` come back for
+  ` + "`" + `https://www.x.invalid/a/?utm_source=nl#t=30` + "`" + ` is the difference between "the aggregator
+  is broken" and "it already has this".
+  """
+  normalized_url: String!
+
+  "A sentence for the submitter: the refusal reason, or that the URL is already known."
+  message: String
+}
+
+extend type Mutation {
+  """
+  Submit a URL for aggregation: fetch it, decide whether this instance already has the
+  content, and either record a source or create a record for it (spec §1).
+
+  EDIT, because that is the act: proposing a change to the shared record. BOT may also
+  submit (the crawler is a client), and a bot's submissions go through the same dedup and
+  review gates as anyone else's.
+
+  ` + "`" + `sceneId` + "`" + ` says which scene the URL is a source FOR, when the submission comes from a
+  scene page. It outranks the pipeline's own inference: a person naming a destination is
+  an instruction, and a fingerprint match is a guess (see ` + "`" + `Known.Target` + "`" + `).
+  """
+  submitContentUrl(url: String!, sceneId: ID): IngestSubmission!
+    @hasRole(role: EDIT)
+}
+
 `, BuiltIn: false},
 	{Name: "../../graphql/schema/types/draft.graphql", Input: `type DraftSubmissionStatus {
   id: ID
@@ -12484,6 +12579,20 @@ func (ec *executionContext) childFields_ImageTypeGroup(ctx context.Context, fiel
 	return nil, fmt.Errorf("no field named %q was found under type ImageTypeGroup", field.Name)
 }
 
+func (ec *executionContext) childFields_IngestSubmission(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "status":
+		return ec.fieldContext_IngestSubmission_status(ctx, field)
+	case "queue_id":
+		return ec.fieldContext_IngestSubmission_queue_id(ctx, field)
+	case "normalized_url":
+		return ec.fieldContext_IngestSubmission_normalized_url(ctx, field)
+	case "message":
+		return ec.fieldContext_IngestSubmission_message(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type IngestSubmission", field.Name)
+}
+
 func (ec *executionContext) childFields_InviteKey(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 	switch field.Name {
 	case "id":
@@ -14605,6 +14714,28 @@ func (ec *executionContext) field_Mutation_studioUpdate_args(ctx context.Context
 		return nil, err
 	}
 	args["input"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_submitContentUrl_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "url",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNString2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["url"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "sceneId",
+		func(ctx context.Context, v any) (*uuid.UUID, error) {
+			return ec.unmarshalOID2ᚖgithubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["sceneId"] = arg1
 	return args, nil
 }
 
@@ -21606,6 +21737,98 @@ func (ec *executionContext) fieldContext_ImageTypeGroup_types(_ context.Context,
 	return fc, nil
 }
 
+func (ec *executionContext) _IngestSubmission_status(ctx context.Context, field graphql.CollectedField, obj *IngestSubmission) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_IngestSubmission_status(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Status, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_IngestSubmission_status(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("IngestSubmission", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _IngestSubmission_queue_id(ctx context.Context, field graphql.CollectedField, obj *IngestSubmission) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_IngestSubmission_queue_id(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.QueueID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *uuid.UUID) graphql.Marshaler {
+			return ec.marshalOID2ᚖgithubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_IngestSubmission_queue_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("IngestSubmission", field, false, false, errors.New("field of type ID does not have child fields"))
+}
+
+func (ec *executionContext) _IngestSubmission_normalized_url(ctx context.Context, field graphql.CollectedField, obj *IngestSubmission) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_IngestSubmission_normalized_url(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.NormalizedURL, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_IngestSubmission_normalized_url(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("IngestSubmission", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _IngestSubmission_message(ctx context.Context, field graphql.CollectedField, obj *IngestSubmission) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_IngestSubmission_message(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Message, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
+			return ec.marshalOString2ᚖstring(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_IngestSubmission_message(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("IngestSubmission", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
 func (ec *executionContext) _InviteKey_id(ctx context.Context, field graphql.CollectedField, obj *InviteKey) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -27199,6 +27422,68 @@ func (ec *executionContext) fieldContext_Mutation_generateCollage(ctx context.Co
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Mutation_generateCollage_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_submitContentUrl(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_submitContentUrl(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().SubmitContentURL(ctx, fc.Args["url"].(string), fc.Args["sceneId"].(*uuid.UUID))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "EDIT")
+				if err != nil {
+					var zeroVal *IngestSubmission
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *IngestSubmission
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *IngestSubmission) graphql.Marshaler {
+			return ec.marshalNIngestSubmission2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIngestSubmission(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_submitContentUrl(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_IngestSubmission(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_submitContentUrl_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -54713,6 +54998,59 @@ func (ec *executionContext) _ImageTypeGroup(ctx context.Context, sel ast.Selecti
 	return out
 }
 
+var ingestSubmissionImplementors = []string{"IngestSubmission"}
+
+func (ec *executionContext) _IngestSubmission(ctx context.Context, sel ast.SelectionSet, obj *IngestSubmission) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, ingestSubmissionImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("IngestSubmission")
+		case "status":
+			out.Values[i] = ec._IngestSubmission_status(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "queue_id":
+			out.Values[i] = ec._IngestSubmission_queue_id(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		case "normalized_url":
+			out.Values[i] = ec._IngestSubmission_normalized_url(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "message":
+			out.Values[i] = ec._IngestSubmission_message(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
 var inviteKeyImplementors = []string{"InviteKey"}
 
 func (ec *executionContext) _InviteKey(ctx context.Context, sel ast.SelectionSet, obj *InviteKey) graphql.Marshaler {
@@ -55757,6 +56095,13 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 				return ec._Mutation_generateCollage(ctx, field)
 			})
 			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		case "submitContentUrl":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_submitContentUrl(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
 		case "voteElo":
@@ -67412,6 +67757,16 @@ func (ec *executionContext) marshalNImageTypeScopeEnum2ᚕgithubᚗcomᚋstashap
 func (ec *executionContext) unmarshalNImageUpdateInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐImageUpdateInput(ctx context.Context, v any) (ImageUpdateInput, error) {
 	res, err := ec.unmarshalInputImageUpdateInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNIngestSubmission2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐIngestSubmission(ctx context.Context, sel ast.SelectionSet, v *IngestSubmission) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._IngestSubmission(ctx, sel, v)
 }
 
 func (ec *executionContext) unmarshalNInt2int(ctx context.Context, v any) (int, error) {

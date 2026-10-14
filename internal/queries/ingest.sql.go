@@ -29,7 +29,7 @@ SET status     = 'running',
     attempts   = q.attempts + 1
 FROM claimed
 WHERE q.id = claimed.id
-RETURNING q.id, q.url, q.url_normalized, q.status, q.outcome, q.attempts, q.confidence, q.result_scene_id, q.submitted_by, q.reason, q.last_error, q.next_attempt_at, q.claimed_at, q.started_at, q.finished_at, q.created_at
+RETURNING q.id, q.url, q.url_normalized, q.status, q.outcome, q.attempts, q.confidence, q.result_scene_id, q.submitted_by, q.reason, q.last_error, q.next_attempt_at, q.claimed_at, q.started_at, q.finished_at, q.created_at, q.target_entity_id
 `
 
 func (q *Queries) ClaimIngestJob(ctx context.Context) (IngestQueue, error) {
@@ -52,22 +52,87 @@ func (q *Queries) ClaimIngestJob(ctx context.Context) (IngestQueue, error) {
 		&i.StartedAt,
 		&i.FinishedAt,
 		&i.CreatedAt,
+		&i.TargetEntityID,
+	)
+	return i, err
+}
+
+const createAggregateScene = `-- name: CreateAggregateScene :one
+INSERT INTO scenes (
+    id, title, details, date, production_date, duration, origin, created_at, updated_at
+) VALUES (
+    $1, $2, $3, $4, $5, $6, 'aggregate', now(), now()
+)
+RETURNING id, title, details, studio_id, created_at, updated_at, duration, director, deleted, code, date, production_date, origin
+`
+
+type CreateAggregateSceneParams struct {
+	ID             uuid.UUID `db:"id" json:"id"`
+	Title          *string   `db:"title" json:"title"`
+	Details        *string   `db:"details" json:"details"`
+	Date           *string   `db:"date" json:"date"`
+	ProductionDate *string   `db:"production_date" json:"production_date"`
+	Duration       *int      `db:"duration" json:"duration"`
+}
+
+// Stage 6: a record for content this instance points at and does not host.
+//
+// `origin = 'aggregate'` is the whole point of the row and is hardcoded here rather than
+// passed in: this statement exists to create aggregated content, and a caller able to
+// write 'library' through it would be creating a scene that claims a member uploaded
+// something they did not.
+//
+// studio_id is left NULL on purpose, and it is the decision in this statement worth
+// stating. The extractor reads a studio NAME off a page; `studio_id` is a foreign key into
+// a directory that a human curates. Populating it would mean creating studios on the
+// strength of a machine's parse -- the fork's own rule that a guess is evidence and not
+// authority -- and the name is not lost: it goes in `details`, where a curator can promote
+// it deliberately (or an edit can, through the normal path).
+//
+// No fingerprint is attached here either; the pipeline adds one only when the extractor
+// produced a real hash, and only attributed to a submitting user, because
+// scene_fingerprints.user_id is NOT NULL and "extracted by a machine" is not a user.
+func (q *Queries) CreateAggregateScene(ctx context.Context, arg CreateAggregateSceneParams) (Scene, error) {
+	row := q.db.QueryRow(ctx, createAggregateScene,
+		arg.ID,
+		arg.Title,
+		arg.Details,
+		arg.Date,
+		arg.ProductionDate,
+		arg.Duration,
+	)
+	var i Scene
+	err := row.Scan(
+		&i.ID,
+		&i.Title,
+		&i.Details,
+		&i.StudioID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Duration,
+		&i.Director,
+		&i.Deleted,
+		&i.Code,
+		&i.Date,
+		&i.ProductionDate,
+		&i.Origin,
 	)
 	return i, err
 }
 
 const enqueueIngest = `-- name: EnqueueIngest :one
 
-INSERT INTO ingest_queue (url, url_normalized, submitted_by)
-VALUES ($1, $2, $3)
+INSERT INTO ingest_queue (url, url_normalized, submitted_by, target_entity_id)
+VALUES ($1, $2, $3, $4)
 ON CONFLICT (url_normalized) WHERE status IN ('pending', 'running', 'done') DO NOTHING
-RETURNING id, url, url_normalized, status, outcome, attempts, confidence, result_scene_id, submitted_by, reason, last_error, next_attempt_at, claimed_at, started_at, finished_at, created_at
+RETURNING id, url, url_normalized, status, outcome, attempts, confidence, result_scene_id, submitted_by, reason, last_error, next_attempt_at, claimed_at, started_at, finished_at, created_at, target_entity_id
 `
 
 type EnqueueIngestParams struct {
-	Url           string        `db:"url" json:"url"`
-	UrlNormalized string        `db:"url_normalized" json:"url_normalized"`
-	SubmittedBy   uuid.NullUUID `db:"submitted_by" json:"submitted_by"`
+	Url            string        `db:"url" json:"url"`
+	UrlNormalized  string        `db:"url_normalized" json:"url_normalized"`
+	SubmittedBy    uuid.NullUUID `db:"submitted_by" json:"submitted_by"`
+	TargetEntityID uuid.NullUUID `db:"target_entity_id" json:"target_entity_id"`
 }
 
 // The ingest queue's statements (migration 109, spec §3).
@@ -89,7 +154,12 @@ type EnqueueIngestParams struct {
 // absence. That is deliberate: a duplicate submission is not a failure and must not be
 // reported as one (spec §5), so this is the one place where ErrNoRows is a success.
 func (q *Queries) EnqueueIngest(ctx context.Context, arg EnqueueIngestParams) (IngestQueue, error) {
-	row := q.db.QueryRow(ctx, enqueueIngest, arg.Url, arg.UrlNormalized, arg.SubmittedBy)
+	row := q.db.QueryRow(ctx, enqueueIngest,
+		arg.Url,
+		arg.UrlNormalized,
+		arg.SubmittedBy,
+		arg.TargetEntityID,
+	)
 	var i IngestQueue
 	err := row.Scan(
 		&i.ID,
@@ -108,6 +178,7 @@ func (q *Queries) EnqueueIngest(ctx context.Context, arg EnqueueIngestParams) (I
 		&i.StartedAt,
 		&i.FinishedAt,
 		&i.CreatedAt,
+		&i.TargetEntityID,
 	)
 	return i, err
 }
@@ -119,7 +190,7 @@ SET status          = CASE WHEN $1::boolean THEN 'failed' ELSE 'pending' END,
     reason          = $3,
     next_attempt_at = now() + make_interval(secs => $4::int)
 WHERE id = $5
-RETURNING id, url, url_normalized, status, outcome, attempts, confidence, result_scene_id, submitted_by, reason, last_error, next_attempt_at, claimed_at, started_at, finished_at, created_at
+RETURNING id, url, url_normalized, status, outcome, attempts, confidence, result_scene_id, submitted_by, reason, last_error, next_attempt_at, claimed_at, started_at, finished_at, created_at, target_entity_id
 `
 
 type FailIngestJobParams struct {
@@ -167,8 +238,62 @@ func (q *Queries) FailIngestJob(ctx context.Context, arg FailIngestJobParams) (I
 		&i.StartedAt,
 		&i.FinishedAt,
 		&i.CreatedAt,
+		&i.TargetEntityID,
 	)
 	return i, err
+}
+
+const findScenesByFingerprint = `-- name: FindScenesByFingerprint :many
+SELECT DISTINCT sf.scene_id
+FROM scene_fingerprints sf
+JOIN fingerprints f ON sf.fingerprint_id = f.id
+WHERE f.hash = $1
+  AND f.algorithm = $2
+  AND (sf.vote IS NULL OR sf.vote >= 0)
+ORDER BY sf.scene_id
+LIMIT 20
+`
+
+type FindScenesByFingerprintParams struct {
+	Hash      int64  `db:"hash" json:"hash"`
+	Algorithm string `db:"algorithm" json:"algorithm"`
+}
+
+// Stage 5: "is this content already here under another URL?" (spec §1).
+//
+// Fingerprints are per (scene, fingerprint, USER): the same scene can carry the same hash
+// from several submitters, and `vote` records whether they corroborated it. So a match is
+// any row at all, deduplicated by scene, and deliberately NOT filtered on `vote = 1`: a
+// single submission of a hash is evidence the content is there, which is all dedup needs,
+// and requiring corroboration would make the merge path depend on a second person having
+// submitted the same file.
+//
+// A NEGATIVE vote is excluded, because that is the one value that means "this hash is NOT
+// that scene". That is the fork's own corroboration rule (the same distinction
+// SubmittedHashExists draws in the other direction).
+//
+// Ordered by scene_id so the caller's pick of a merge target is deterministic rather than
+// whichever row the planner returned first -- an unordered LIMIT 1 makes the same
+// submission land on different scenes on different runs, which is unreproducible in a bug
+// report and visible in production as a source that moves.
+func (q *Queries) FindScenesByFingerprint(ctx context.Context, arg FindScenesByFingerprintParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, findScenesByFingerprint, arg.Hash, arg.Algorithm)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var scene_id uuid.UUID
+		if err := rows.Scan(&scene_id); err != nil {
+			return nil, err
+		}
+		items = append(items, scene_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const finishIngestJob = `-- name: FinishIngestJob :one
@@ -180,7 +305,7 @@ SET status          = 'done',
     finished_at     = now(),
     last_error      = NULL
 WHERE id = $4
-RETURNING id, url, url_normalized, status, outcome, attempts, confidence, result_scene_id, submitted_by, reason, last_error, next_attempt_at, claimed_at, started_at, finished_at, created_at
+RETURNING id, url, url_normalized, status, outcome, attempts, confidence, result_scene_id, submitted_by, reason, last_error, next_attempt_at, claimed_at, started_at, finished_at, created_at, target_entity_id
 `
 
 type FinishIngestJobParams struct {
@@ -218,6 +343,63 @@ func (q *Queries) FinishIngestJob(ctx context.Context, arg FinishIngestJobParams
 		&i.StartedAt,
 		&i.FinishedAt,
 		&i.CreatedAt,
+		&i.TargetEntityID,
+	)
+	return i, err
+}
+
+const rejectIngestJob = `-- name: RejectIngestJob :one
+UPDATE ingest_queue
+SET status      = 'rejected',
+    last_error  = $1,
+    reason      = $2,
+    finished_at = now()
+WHERE id = $3
+RETURNING id, url, url_normalized, status, outcome, attempts, confidence, result_scene_id, submitted_by, reason, last_error, next_attempt_at, claimed_at, started_at, finished_at, created_at, target_entity_id
+`
+
+type RejectIngestJobParams struct {
+	LastError *string   `db:"last_error" json:"last_error"`
+	Reason    *string   `db:"reason" json:"reason"`
+	ID        uuid.UUID `db:"id" json:"id"`
+}
+
+// A refusal, which is not a failure and gets its own status because of what the two mean.
+//
+// A `rejected` row says the pipeline DECLINED the URL before asking the network anything: a
+// takedown, a host with no site. Nothing went wrong and there is nothing to retry -- asking
+// again would ask a question that has already been answered. A `failed` row is a fetch
+// outcome: the attempt was made and did not succeed, which is why FailIngestJob computes a
+// backoff and why the transient arm returns the row to 'pending'.
+//
+// The distinction is the one the spec argues for at §3. Lumping them meant "how many of the
+// last hundred submissions were refused rather than broken" was a string comparison over
+// `reason` -- on a table that has a column built to answer it.
+//
+// `finished_at` is set, because a refusal IS finished work. No outcome and no backoff: a
+// rejected row ran nothing to completion (`ingest_queue_done_has_outcome` keeps those two
+// facts from drifting), and its retry is a person's decision, not a timer.
+func (q *Queries) RejectIngestJob(ctx context.Context, arg RejectIngestJobParams) (IngestQueue, error) {
+	row := q.db.QueryRow(ctx, rejectIngestJob, arg.LastError, arg.Reason, arg.ID)
+	var i IngestQueue
+	err := row.Scan(
+		&i.ID,
+		&i.Url,
+		&i.UrlNormalized,
+		&i.Status,
+		&i.Outcome,
+		&i.Attempts,
+		&i.Confidence,
+		&i.ResultSceneID,
+		&i.SubmittedBy,
+		&i.Reason,
+		&i.LastError,
+		&i.NextAttemptAt,
+		&i.ClaimedAt,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.CreatedAt,
+		&i.TargetEntityID,
 	)
 	return i, err
 }

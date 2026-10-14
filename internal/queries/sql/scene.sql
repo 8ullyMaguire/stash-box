@@ -238,6 +238,23 @@ JOIN scenes ON scenes.id = matches.id AND scenes.deleted = FALSE;
 -- name: CreateSceneURLs :copyfrom
 INSERT INTO scene_urls (scene_id, url, site_id) VALUES ($1, $2, $3);
 
+-- name: AttachSceneURL :exec
+-- The ingest path's membership write (plan phase 2).
+--
+-- WHY THE PIPELINE WRITES BOTH TABLES. content_sources owns the URL's health and
+-- scene_urls owns the claim; the scene page reads the scene_sources VIEW, which JOINs
+-- them (migration 108). A pipeline that wrote only the health row produced sources that
+-- existed, were queryable by hand, and appeared on NO page -- found by an integration
+-- test that asked a created record for its source list and got an empty list back, which
+-- every table-level assertion passes straight over.
+--
+-- ON CONFLICT DO NOTHING, not an upsert: a URL the scene already claims is already
+-- correct, and rewriting site_id here would be this statement editing a membership it was
+-- not asked to change. (The edit path replaces a scene's list wholesale; that remains the
+-- path for corrections.)
+INSERT INTO scene_urls (scene_id, url, site_id) VALUES (@scene_id, @url, @site_id)
+ON CONFLICT (scene_id, url) DO NOTHING;
+
 -- name: DeleteSceneURLs :exec
 DELETE FROM scene_urls WHERE scene_id = $1;
 

@@ -72,6 +72,20 @@ type Querier interface {
 	// array_unnest over a UUID[] is how sqlc passes a set; there is no variadic form
 	// in Postgres and unnest is the idiomatic one.
 	AssignSnapshotsToCollage(ctx context.Context, arg AssignSnapshotsToCollageParams) (int64, error)
+	// The ingest path's membership write (plan phase 2).
+	//
+	// WHY THE PIPELINE WRITES BOTH TABLES. content_sources owns the URL's health and
+	// scene_urls owns the claim; the scene page reads the scene_sources VIEW, which JOINs
+	// them (migration 108). A pipeline that wrote only the health row produced sources that
+	// existed, were queryable by hand, and appeared on NO page -- found by an integration
+	// test that asked a created record for its source list and got an empty list back, which
+	// every table-level assertion passes straight over.
+	//
+	// ON CONFLICT DO NOTHING, not an upsert: a URL the scene already claims is already
+	// correct, and rewriting site_id here would be this statement editing a membership it was
+	// not asked to change. (The edit path replaces a scene's list wholesale; that remains the
+	// path for corrections.)
+	AttachSceneURL(ctx context.Context, arg AttachSceneURLParams) error
 	CancelUserEdits(ctx context.Context, userID uuid.NullUUID) error
 	// THE CLAIM. A guarded UPDATE, never a check-then-write.
 	//
@@ -282,6 +296,24 @@ type Querier interface {
 	// How many are still pending for an endpoint. Shown on the settings page so a user
 	// can see their queue is backing up BEFORE deliveries start failing.
 	CountWebhookDeliveries(ctx context.Context, endpointID uuid.UUID) (int, error)
+	// Stage 6: a record for content this instance points at and does not host.
+	//
+	// `origin = 'aggregate'` is the whole point of the row and is hardcoded here rather than
+	// passed in: this statement exists to create aggregated content, and a caller able to
+	// write 'library' through it would be creating a scene that claims a member uploaded
+	// something they did not.
+	//
+	// studio_id is left NULL on purpose, and it is the decision in this statement worth
+	// stating. The extractor reads a studio NAME off a page; `studio_id` is a foreign key into
+	// a directory that a human curates. Populating it would mean creating studios on the
+	// strength of a machine's parse -- the fork's own rule that a guess is evidence and not
+	// authority -- and the name is not lost: it goes in `details`, where a curator can promote
+	// it deliberately (or an edit can, through the normal path).
+	//
+	// No fingerprint is attached here either; the pipeline adds one only when the extractor
+	// produced a real hash, and only attributed to a submitting user, because
+	// scene_fingerprints.user_id is NOT NULL and "extracted by a machine" is not a user.
+	CreateAggregateScene(ctx context.Context, arg CreateAggregateSceneParams) (Scene, error)
 	// Authored quests, bounties and claiming (SPEC §7.7).
 	//
 	// GENERATED quests (internal/service/quest) are a pure function of the archive and
@@ -620,6 +652,31 @@ type Querier interface {
 	// absence. That is deliberate: a duplicate submission is not a failure and must not be
 	// reported as one (spec §5), so this is the one place where ErrNoRows is a success.
 	EnqueueIngest(ctx context.Context, arg EnqueueIngestParams) (IngestQueue, error)
+	// The aggregator's directory entry for a host it has never seen (plan phase 2).
+	//
+	// WHY THE INGEST PATH CREATES SITES AT ALL. scene_urls.site_id is NOT NULL, so a source
+	// with no site cannot be recorded as a MEMBERSHIP -- and the scene page, the completion
+	// score and every other reader of a scene's URLs read scene_urls, not content_sources. A
+	// pipeline that skipped the membership for an uncatalogued host produced sources that
+	// existed in one table and appeared in no view; asking a created record for its source list
+	// returned an empty list.
+	//
+	// So the pipeline grows the directory, one row per HOST, and the row is a fact rather than
+	// a judgement: the name is the host, the url is where it was found, valid_types is what was
+	// observed (a page with a scene on it), and `highlighted` is passed in as FALSE --
+	// deliberately overriding the column's true default, because the directory's highlighted
+	// sites are a curated list and a crawler that highlighted every host it touched would fill
+	// it with whatever it crawled.
+	//
+	// ON CONFLICT (name) DO UPDATE is the upsert-that-returns-the-EXISTING-row trick:
+	// sites.name is UNIQUE and NOT NULL, so it is the only safe key, and DO NOTHING would
+	// return no row at all -- leaving the caller to re-select, which is exactly the race (two
+	// workers draining two URLs from the same new host) this statement closes. The no-op UPDATE
+	// writes the name the row already has.
+	//
+	// `regex` is what makes this run ONCE per host: FindSiteForURL matches on regex only, so a
+	// row with a NULL regex resolves nothing and every URL from that host would come back here.
+	EnsureIngestSite(ctx context.Context, arg EnsureIngestSiteParams) (Site, error)
 	// The pg-spgist_hamming custom-scan hook turns this UNNEST + <@ into a single
 	// batch BK-tree traversal when ≤64 hashes are supplied; caller must chunk.
 	// The scene_id join is intentionally NOT here: the planner overestimates the
@@ -675,6 +732,23 @@ type Querier interface {
 	// (plan Phase 2). Scoped to the entity, because the same URL on two different scenes
 	// is two sources: the URL's health is one fact, but the membership is per entity.
 	FindContentSourceByEntityAndURL(ctx context.Context, arg FindContentSourceByEntityAndURLParams) (ContentSource, error)
+	// "Has anything already claimed this URL?" (spec §1 stage 3) -- the question the
+	// pipeline asks before it creates a record.
+	//
+	// TWO ARMS, and the second is not redundant. `url_normalized` is written only by the
+	// ingest path; a row written by the scene_urls mirror carries NULL, because the mirror
+	// is a SQL trigger and normalisation is Go (migration 110 says why at length). Matching
+	// only the first arm would report "nothing claims this URL" for every row the edit path
+	// ever wrote, and the pipeline would then create a second scene for a page that is
+	// already on one -- the exact failure the normaliser exists to prevent.
+	//
+	// Both arms are indexed (content_sources_url_normalized_idx, content_sources_url_lower_idx),
+	// so this is a bitmap OR of two index scans rather than a sequential scan.
+	//
+	// The entity_type filter is a parameter rather than a constant: phase 3's content_items
+	// are the same question with a different answer set, and a hardcoded 'scene' here would
+	// be the second place to change when they land.
+	FindContentSourcesByNormalizedURL(ctx context.Context, arg FindContentSourcesByNormalizedURLParams) ([]ContentSource, error)
 	// The same URL across every entity that claims it. This is what makes a single health
 	// check answer for all of them: check once, write every row.
 	FindContentSourcesByURL(ctx context.Context, url string) ([]ContentSource, error)
@@ -814,6 +888,24 @@ type Querier interface {
 	FindSceneSourcesByIds(ctx context.Context, sceneIds []uuid.UUID) ([]SceneSource, error)
 	// Get URLs for multiple scenes
 	FindSceneUrlsByIds(ctx context.Context, sceneIds []uuid.UUID) ([]SceneUrl, error)
+	// Stage 5: "is this content already here under another URL?" (spec §1).
+	//
+	// Fingerprints are per (scene, fingerprint, USER): the same scene can carry the same hash
+	// from several submitters, and `vote` records whether they corroborated it. So a match is
+	// any row at all, deduplicated by scene, and deliberately NOT filtered on `vote = 1`: a
+	// single submission of a hash is evidence the content is there, which is all dedup needs,
+	// and requiring corroboration would make the merge path depend on a second person having
+	// submitted the same file.
+	//
+	// A NEGATIVE vote is excluded, because that is the one value that means "this hash is NOT
+	// that scene". That is the fork's own corroboration rule (the same distinction
+	// SubmittedHashExists draws in the other direction).
+	//
+	// Ordered by scene_id so the caller's pick of a merge target is deterministic rather than
+	// whichever row the planner returned first -- an unordered LIMIT 1 makes the same
+	// submission land on different scenes on different runs, which is unreproducible in a bug
+	// report and visible in production as a source that moves.
+	FindScenesByFingerprint(ctx context.Context, arg FindScenesByFingerprintParams) ([]uuid.UUID, error)
 	FindScenesByFingerprintsExactWithHash(ctx context.Context, hashes []int64) ([]FindScenesByFingerprintsExactWithHashRow, error)
 	// Scene fingerprints (use fingerprint.sql for most fingerprint operations)
 	FindScenesByFullFingerprintsWithHash(ctx context.Context, arg FindScenesByFullFingerprintsWithHashParams) ([]FindScenesByFullFingerprintsWithHashRow, error)
@@ -866,6 +958,18 @@ type Querier interface {
 	// generated Go and executed -- sqlc only type-checks, it never runs.
 	FindSimilarPerformers(ctx context.Context, arg FindSimilarPerformersParams) ([]FindSimilarPerformersRow, error)
 	FindSiteCategory(ctx context.Context, id int) (SiteCategory, error)
+	// Resolve a URL to a directory entry, so an ingested source carries its site.
+	//
+	// Longest regex wins: the directory holds both `example.com` and
+	// `example.com/studio/`-shaped patterns, and the more specific one is the better answer.
+	// Both are POSIX extended regular expressions as far as Postgres is concerned, so a
+	// pattern written for the frontend's JavaScript engine may not match here -- that is a
+	// MISS, not an error: site_id is nullable, the source is still recorded, and a source
+	// with no site is a normal state rather than a failure.
+	//
+	// The regex is user data (imported with the directory), so this is evaluated by
+	// Postgres's own engine and never by the Go layer.
+	FindSiteForURL(ctx context.Context, url *string) (FindSiteForURLRow, error)
 	FindSitesByIds(ctx context.Context, dollar_1 []uuid.UUID) ([]Site, error)
 	FindStudio(ctx context.Context, id uuid.UUID) (Studio, error)
 	// Get aliases for multiple studios
@@ -1233,6 +1337,18 @@ type Querier interface {
 	// Whether THIS user already voted, so the UI can render a vote button as a state
 	// rather than as an action that silently does nothing.
 	HasVotedForCandidate(ctx context.Context, arg HasVotedForCandidateParams) (bool, error)
+	// The pipeline's attach: record that an entity is reachable at a URL.
+	//
+	// ON CONFLICT DO NOTHING against the (entity_type, entity_id, url) constraint, so an
+	// attach that has already happened is a no-op rather than an error: re-attaching is the
+	// ordinary outcome of a duplicate submission, and the caller cannot tell (nor should it)
+	// whether the row was there before. ErrNoRows here means "already attached".
+	//
+	// `canonical` is NOT set. Electing a canonical source is a separate decision with its
+	// own statement and a partial unique index behind it (phase 1), and a pipeline that
+	// silently claimed canonicality for whatever it happened to ingest first would make the
+	// reader's destination depend on queue order.
+	InsertContentSource(ctx context.Context, arg InsertContentSourceParams) (ContentSource, error)
 	InviteKeyUsed(ctx context.Context, id uuid.UUID) (*int, error)
 	IsImageUnused(ctx context.Context, id uuid.UUID) (bool, error)
 	// The frames of a collage, in playback order.
@@ -1640,6 +1756,22 @@ type Querier interface {
 	// Returning the row means a duplicate insert reports no rows, which the
 	// service treats as "already recorded" rather than as an error.
 	RecordTrustEvent(ctx context.Context, arg RecordTrustEventParams) (TrustEvent, error)
+	// A refusal, which is not a failure and gets its own status because of what the two mean.
+	//
+	// A `rejected` row says the pipeline DECLINED the URL before asking the network anything: a
+	// takedown, a host with no site. Nothing went wrong and there is nothing to retry -- asking
+	// again would ask a question that has already been answered. A `failed` row is a fetch
+	// outcome: the attempt was made and did not succeed, which is why FailIngestJob computes a
+	// backoff and why the transient arm returns the row to 'pending'.
+	//
+	// The distinction is the one the spec argues for at §3. Lumping them meant "how many of the
+	// last hundred submissions were refused rather than broken" was a string comparison over
+	// `reason` -- on a table that has a column built to answer it.
+	//
+	// `finished_at` is set, because a refusal IS finished work. No outcome and no backoff: a
+	// rejected row ran nothing to completion (`ingest_queue_done_has_outcome` keeps those two
+	// facts from drifting), and its retry is a person's decision, not a timer.
+	RejectIngestJob(ctx context.Context, arg RejectIngestJobParams) (IngestQueue, error)
 	// Releasing a claim. Restricted to the claimer's own rows by the WHERE, so one
 	// curator cannot release another's work.
 	ReleaseAuthoredQuestItem(ctx context.Context, arg ReleaseAuthoredQuestItemParams) (AuthoredQuestItem, error)

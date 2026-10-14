@@ -12,6 +12,35 @@ import (
 	"github.com/gofrs/uuid"
 )
 
+const attachSceneURL = `-- name: AttachSceneURL :exec
+INSERT INTO scene_urls (scene_id, url, site_id) VALUES ($1, $2, $3)
+ON CONFLICT (scene_id, url) DO NOTHING
+`
+
+type AttachSceneURLParams struct {
+	SceneID uuid.UUID `db:"scene_id" json:"scene_id"`
+	Url     string    `db:"url" json:"url"`
+	SiteID  uuid.UUID `db:"site_id" json:"site_id"`
+}
+
+// The ingest path's membership write (plan phase 2).
+//
+// WHY THE PIPELINE WRITES BOTH TABLES. content_sources owns the URL's health and
+// scene_urls owns the claim; the scene page reads the scene_sources VIEW, which JOINs
+// them (migration 108). A pipeline that wrote only the health row produced sources that
+// existed, were queryable by hand, and appeared on NO page -- found by an integration
+// test that asked a created record for its source list and got an empty list back, which
+// every table-level assertion passes straight over.
+//
+// ON CONFLICT DO NOTHING, not an upsert: a URL the scene already claims is already
+// correct, and rewriting site_id here would be this statement editing a membership it was
+// not asked to change. (The edit path replaces a scene's list wholesale; that remains the
+// path for corrections.)
+func (q *Queries) AttachSceneURL(ctx context.Context, arg AttachSceneURLParams) error {
+	_, err := q.db.Exec(ctx, attachSceneURL, arg.SceneID, arg.Url, arg.SiteID)
+	return err
+}
+
 const countSceneSearchDrift = `-- name: CountSceneSearchDrift :one
 SELECT
     (SELECT COUNT(*) FROM scenes WHERE deleted = false) AS scene_count,
