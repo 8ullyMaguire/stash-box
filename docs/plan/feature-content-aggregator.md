@@ -1354,6 +1354,109 @@ pointer resolve to a `content_sources` row.
 `live → intermittent → dead` at the documented thresholds and that the entity's
 completion score drops; restore, assert resurrection.
 
+### Slice 9a — the transition rule, and one source's check
+
+**The rule is already documented in the database and has no implementation.** Migration 108's own
+comment writes the machine: `live → intermittent` at 3+ consecutive failures, `intermittent → dead`
+after 7+ days unreachable, and `any → dmca`, "terminal as far as serving is concerned". `RecordSourceCheck`
+(migration 108) is the write and says in its comment that it takes `check_failures` as an argument
+"rather than incremented, so the caller owns the transition rule ... and this statement stays a write and
+not a policy". This slice is that policy.
+
+**`internal/service/content/health.go`:**
+
+* `FailuresToIntermittent = 3` and `UnreachableToDead = 7 * 24 * time.Hour`, named once, with the
+  migration's comment quoted, because a second copy of a threshold is a second rule.
+* `func NextStatus(current string, failures int, lastOK *time.Time, firstSeen time.Time, now time.Time, ok bool) string`
+  — pure, no I/O, so every boundary is a unit test:
+  * `dmca` and `archived` are TERMINAL: a successful check does not resurrect them. "Terminal as far as
+    serving is concerned" is the migration's wording, and a sweep that flipped a takedown back to `live`
+    on the first 200 would be the worst bug in the phase.
+  * success → `live`, whatever the current status (including `dead`: that IS the resurrection, and the
+    caller resets the counter with it).
+  * failure → `failures+1`; `dead` when unreachable for 7+ days (measured from `last_ok`, falling back to
+    `first_seen` for a source that has never been ok), else `intermittent` at 3+, else unchanged.
+* `type Checker interface { Check(ctx context.Context, url string) error }` injected into the service, so
+  the tests are hermetic. The production `HTTPChecker` is a HEAD request with the ingest drain's own
+  20-second timeout (a second timeout constant would be a second policy).
+* `func (s *Content) CheckSource(ctx context.Context, id uuid.UUID, now time.Time) (models.ContentSource, error)`
+  — reads the row, checks, then writes through the EXISTING `RecordSourceCheck` with
+  `last_ok = &now` only on success (the statement's `COALESCE` keeps the previous value otherwise, which
+  is the whole reason it is written that way).
+
+**The GraphQL status becomes an enum** (`ContentSourceStatus`, mirroring the CHECK's six values). The
+model's comment says the string was deliberate "because the transition rules ... are Phase 9's health
+daemon, and an enum published before the rules exist would freeze a vocabulary nobody has agreed to",
+and this slice is when the rules exist.
+
+**Verification:**
+* `go test ./internal/service/content/` — the boundary table: 2 failures → live; 3 → intermittent; a
+  success from intermittent → live with 0 failures; `last_ok` 6d23h ago + a failure → not dead; exactly
+  7d → dead; never-ok + first_seen 8d ago → dead; `dmca` + success → still `dmca`; `archived` +
+  failure → still `archived`.
+* An integration test drives `CheckSource` with a fake checker and asserts the ROW: status, `last_ok`
+  unchanged by a failure (the resurrection evidence), `check_failures` reset by a success, and the
+  terminal statuses untouched.
+* An httptest server for `HTTPChecker`: 200 → nil; 404 → an error; a hung handler → the timeout, not a
+  hang.
+* Probes: the terminal guard removed (a dmca source resurrected), the dead threshold off by an hour, the
+  failure counter reset on failure instead of on success.
+
+### Slice 9b — the sweep, and its cadence
+
+**The selection is what "frequency by popularity × reliability" means in code**, and it needs no new
+column: popularity is the entity's source count and its entity's activity, reliability is
+`check_failures`. The sweep selects rows whose computed next check is due, worst first, in a bounded
+batch (`content_sources_sweep_idx` is the partial index migration 108 built for exactly this query:
+`WHERE status IN ('unknown','live','intermittent')`), and runs from `internal/cron` with its own
+semaphore, following `processEdits`.
+
+**Verification:** a seeded, aged set of sources comes back in the order the cadence promises; a batch
+limit is honoured; a run with the semaphore held is a no-op.
+
+### Slice 9c — the resurrection queue
+
+A `dead` source is excluded from the sweep index on purpose (terminal rows are the majority over time).
+Resurrecting one is therefore its own queue: dead sources are retried on a long cadence, and a success
+writes `live` with the counter reset. `last_ok` is the evidence, which is why 9a never overwrites it and
+why a resurrection does NOT erase it.
+
+**Verification:** a dead source due for retry is selected and a fake success resurrects it, with
+`last_ok` still the ORIGINAL timestamp and `check_failures` at 0.
+
+### Slice 9d — mirror resolution through the fingerprint cluster
+
+**Goal:** a dead canonical source hands the reader to a mirror: the same content on another source,
+resolved by fingerprint (the cluster tables, migration 63) rather than by matching URLs.
+
+**Verification:** two sources whose scenes share a fingerprint cluster; one goes dead; the entity's
+serving source is the live mirror, and the dead one keeps its row.
+
+### Slice 9e — Wayback submission
+
+`archived_url`/`archived_at` exist as a pair with a CHECK. This slice submits a URL to the archive and
+records the pair, and it is the only writer of those columns.
+
+**Verification:** a submission writes both columns or neither (the CHECK is the test), and a source with
+an archive is not resubmitted.
+
+### Slice 9f — `expected_totals` integration
+
+Migration 97's totals point at a URL row via `(source_entity_type, source_url)`; this slice makes that
+pointer resolve to a `content_sources` row, so a dead source LOWERS the entity's completion score and
+raises a quest, which is the phase's own acceptance criterion.
+
+**Verification:** a studio's totals with a live source and with a dead one, and the completion score
+drops; the quest appears with the source named.
+
+### Slice 9g — performer profile snapshots
+
+**Goal:** a performer's profile page as captured from an external site, stored as evidence of what the
+instance knew and when, for the identification board.
+
+**Verification:** a snapshot round-trips with its capture time, and a second capture does not overwrite
+the first (a snapshot is a record, not a cache).
+
 ## Phase 10 — media plane
 
 **Placed elsewhere (2026-10-14):** the local models this phase wants — a face matcher
