@@ -392,7 +392,7 @@ spec's §14.
 **Seven slices, in order.** Each is one commit with one verification command whose output is
 part of the commit message.
 
-1. **The query language. DONE** (the `aggregator phase 7 slice 1` commit).
+1. **The query language. DONE** (commit `35ddd125`).
    `internal/service/search/query_language.go`
    (`Parse`, `Render`, `Equal`, the `Expr` tree), `lower.go` (`Lower`: the expression merged into
    a `models.SceneQueryInput` through a `Resolver` interface, plus the `Diagnostic`s and
