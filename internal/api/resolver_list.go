@@ -12,15 +12,15 @@
 //
 // THE TWO THINGS A RESOLVER MUST NOT DO:
 //
-//	1. Turn a permission error into a null. `list` returns nil for a draft that is not
-//	   yours AND for a list that does not exist -- the same answer, on purpose. Reporting
-//	   them differently is what turns ids into an enumeration oracle.
-//	2. Re-implement the visibility rule. Owner, publishedBy, items, itemCount and
-//	   auditTrail are all resolved by EAGERLY loading them here, because gqlgen found no
-//	   field resolver to generate for them -- so if they are not filled in at this layer they
-//	   are simply empty, and a second implementation of the rule is the only way they could
-//	   ever get filled. That is the design: one place decides visibility, and the model's
-//	   zero values are what a caller sees when it decides no.
+//  1. Turn a permission error into a null. `list` returns nil for a draft that is not
+//     yours AND for a list that does not exist -- the same answer, on purpose. Reporting
+//     them differently is what turns ids into an enumeration oracle.
+//  2. Re-implement the visibility rule. Owner, publishedBy, items, itemCount and
+//     auditTrail are all resolved by EAGERLY loading them here, because gqlgen found no
+//     field resolver to generate for them -- so if they are not filled in at this layer they
+//     are simply empty, and a second implementation of the rule is the only way they could
+//     ever get filled. That is the design: one place decides visibility, and the model's
+//     zero values are what a caller sees when it decides no.
 package api
 
 import (

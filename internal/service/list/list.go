@@ -91,7 +91,7 @@ const (
 
 // nullableString converts an empty string to SQL NULL.
 //
-// A nullable column set to '' and set to NULL are different states, and the difference is
+// A nullable column set to ” and set to NULL are different states, and the difference is
 // visible in the API: a list with no description should serialise as null so a client can
 // tell "no description given" from "description is the empty string". The
 // lists_description_blank_is_not_null CHECK forbids the blank case at the column level;
@@ -557,9 +557,9 @@ var ErrNotPublished = errors.New("this list is not published")
 
 // Audit actions recorded in list_audit.
 const (
-	ActionPublish   = "publish"
-	ActionUnpublish = "unpublish"
-	ActionAddItem   = "add_item"
+	ActionPublish    = "publish"
+	ActionUnpublish  = "unpublish"
+	ActionAddItem    = "add_item"
 	ActionRemoveItem = "remove_item"
 )
 

@@ -145,10 +145,10 @@ func TestAuditTrailActionIsAMemberOfTheDeclaredEnum(t *testing.T) {
 //
 // Two ways this could be fixed, both product decisions, so neither is made here:
 //
-//	1. lists.owner_id ON DELETE SET NULL too, and treat an ownerless list as undeletable.
-//	   Larger blast radius: every ownership check has to handle a null owner.
-//	2. Drop the "or null" wording and render nothing for a missing actor, accepting that the
-//	   column is nullable only so the FK can be SET NULL for a row that never renders.
+//  1. lists.owner_id ON DELETE SET NULL too, and treat an ownerless list as undeletable.
+//     Larger blast radius: every ownership check has to handle a null owner.
+//  2. Drop the "or null" wording and render nothing for a missing actor, accepting that the
+//     column is nullable only so the FK can be SET NULL for a row that never renders.
 //
 // Until one of those is chosen, the honest thing is to pin the behaviour that DOES hold and
 // say plainly that the documented case is dead.
