@@ -13,6 +13,21 @@ predicate, and a phase left undone keeps the goal incomplete.
 State values: `not started` | `in progress` | `done`. Evidence must name a commit
 or a file that exists.
 
+**Priority (owner instruction 2026-10-14: *"content aggregation and discovery
+(algorithms, search, etc) should be the priority"*).** The work order is the
+priority order, not the numbering below, and not the dependency order the first cut
+of the plan carried:
+
+1. the aggregation spine — **1 → 2**
+2. discovery — **4 → 7**
+3. breadth and durability — **3 → 9**
+4. the supporting features — **5 → 8 → 6 → 11 → 13 → 14 → 10 → 12 → 15 → 16**, with
+   **17** threaded through every phase
+
+This table stays ordered by phase number so it can be read against the spec's parity
+table and `goal-check.py` clause C8. The reversal and its cost are recorded in
+`docs/spec/feature-content-aggregator.md` §0 and §4.
+
 | Phase | Name | State | Evidence |
 |---|---|---|---|
 | 1 | source layer (`content_sources`, health, GraphQL) | in progress | schema + reads done: `108_content_sources.{up,down}.sql`, `internal/queries/sql/content_source.sql`, `scripts/verify-108.sh` (49/49, mutation-tested). NOT done: service, GraphQL `Scene.sources`, integration test |

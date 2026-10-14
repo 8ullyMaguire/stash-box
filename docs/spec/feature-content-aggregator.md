@@ -13,7 +13,7 @@ and every existing spec section. And nothing in the NexusXXX draft may be droppe
 as "not applicable": the owner has explicitly opted in to the material this
 fork's own vision had kept out (§7.19's rejected content layer, monetization,
 ActivityPub). Where an earlier section of this SPEC says a thing is out of scope,
-**that section is superseded here, not contradicted quietly.** §5 below lists
+**that section is superseded here, not contradicted quietly.** §4 below lists
 every such reversal with what it costs, because a reversal nobody recorded is how
 a spec starts lying about itself.
 
@@ -22,6 +22,41 @@ Source draft: `~/secondbrain/10-Projects/nexusxxx/2026-10-14-nexusxxx-spec-v2.md
 `~/secondbrain/10-Projects/nexusxxx/2026-10-14-nexusxxx-stash-box-crosswalk.md`;
 where it recommended *not* transferring an item, this spec overrides it and says
 so.
+
+---
+
+## 0. Priority — aggregation and discovery lead, and nothing else outranks them
+
+Owner instruction, 2026-10-14, after reading the first cut of this programme:
+
+> *"content aggregation and discovery (algorithms, search, etc) should be the
+> priority"*
+
+The first cut of the plan did not say that. It sequenced the phases by dependency
+alone — source layer, ingestion, tag ontology, tiers, trust, then discovery at
+position seven — and §4 below now records that as a reversal rather than letting
+it stand. The priority is:
+
+1. **The aggregation spine.** A URL becomes a content record with sources,
+   deduplication, metadata and tracked health. Phases 1 and 2. Without this there
+   is nothing to discover.
+2. **Discovery.** Search that is more than free text: the query language, tags as
+   filters and as a graph, saved searches, freshness and trending, then the
+   algorithmic half — content DNA and similarity, taste profiles, For You, the
+   serendipity parameter, social and "where I left off". Phases 4 and 7, and they
+   are the reason the programme exists.
+3. **Everything else supports those two.** Breadth of content kinds, preservation
+   at scale, tiers, social, trust, growth, media hosting, federation, monetisation
+   and the UI are all in this programme and none of them may be dropped — the
+   no-loss rule still binds. They are ordered behind the two things that make the
+   platform worth opening, not ahead of them.
+
+Two consequences of this ordering that are decisions, not accidents, and their
+costs are stated in §4: **tag ontology lands before tiers** (faceted discovery is
+the differentiator §1's own table names first, and the current tag model already
+carries aliases and nested categories), and **discovery ships before the content
+gate**, so the default is everything visible and the gate lands before any public
+launch.
 
 ---
 
@@ -145,6 +180,7 @@ not discover it as a surprise.
 | **Taste profiles are federated, not local-first** | §8.6 "storage: local_only" default | Mesh peering (§7.17.3) ranks peers *by* taste similarity, which needs the fingerprint server-side. Opt-in, with the local-only mode kept for members who decline. |
 | **ActivityPub federation** | crosswalk §5 "not transferred" | A second identity model next to §7.17's signed relationships. Deferred to Phase 12 and only after the mesh protocol is published. |
 | **Facial recognition at ingest** | §7.25.3 "a vote is evidence, never authority" | The draft auto-applies a performer above 90% confidence. Phase 10 adopts the *pipeline* but keeps the fork's rule: a face match opens an edit or a board entry, it never writes a performer link. |
+| **Aggregation and discovery lead the programme** (§0) | this plan's original dependency-only sequence, which put discovery seventh | Tag ontology lands before tiers; tiers, social, trust, growth, hosting, federation and monetisation all land after discovery. The cost, stated: **discovery ships before the content gate**, so the default is everything visible until Phase 5, and the gate is a precondition for any public launch rather than something launched with. The second cost: no phase of discovery may be paused waiting for a governance feature, which means the tag ontology (Phase 4) has to be finished rather than sampled. |
 
 ---
 

@@ -39,21 +39,75 @@ host does not, and migration 56 fails without them.
 
 ## Order
 
-**1 → 2 → 4 → 5 → 3 → 6 → 7 → 9 → 8 → 11 → 13 → 14 → 10 → 12 → 15 → 16**, with 17
-(a goal-check clause per phase) threaded through every phase rather than left to the
+**Priority order, and it is not the dependency order.** Owner instruction
+2026-10-14: *"content aggregation and discovery (algorithms, search, etc) should be
+the priority"* — so this section supersedes the sequence the first cut of this plan
+carried (which was dependency-ordered and put discovery seventh). Phase NUMBERS are
+unchanged, because the spec's parity table and `goal-check.py`'s clause C8 both
+reference them; only the order they are worked in changes.
+
+### 1. The aggregation spine, first and uninterrupted
+
+**Phase 1** (source layer — half landed) → **Phase 2** (ingestion pipeline).
+
+A URL becomes a content record: normalised, deduplicated against URL and
+fingerprint, metadata extracted, tiered, health tracked. Nothing else in this
+programme can be evaluated without it, and it is the one thing where "does it
+work?" has an unambiguous answer a test can give.
+
+### 2. Discovery, second — and this is the point of the programme
+
+**Phase 4** (tag ontology: implications, hierarchy, ontology versioning) →
+**Phase 7** (discovery: the query language, saved searches, tag explorer, freshness
+and trending, then similarity, taste profiles, For You, serendipity, social
+discovery, "where I left off").
+
+Why 4 before 7 rather than after, which is also a reversal of the first cut:
+faceted, structured tag search is the single differentiator §1's comparison table
+names first, and the ontology is what makes a tag a query term instead of a string.
+The current model already has aliases and nested categories, so this is an
+extension, not a rebuild — and the discovery query language is written against the
+finished model instead of being retrofitted onto a changing one.
+
+Why the algorithm half (7.5 onwards) rather than a separate phase: it consumes the
+same tag graph and the same search surface, and a similarity feature that cannot be
+reached from a query is a feature nobody finds.
+
+### 3. Breadth and durability, in parallel with the end of discovery
+
+**Phase 3** (image/gallery/text/audio/comic on `content_items`) → **Phase 9**
+(health daemon at scale, mirror resolution, resurrection, `expected_totals`
+integration).
+
+3 is deliberately after 7: the discovery machinery works over any content kind, so
+it is built once against scenes and then extends uniformly to five more — the
+repo's own "extend, do not fork per kind" rule. Aggregated content that is indexed
+but never checked goes stale silently, so 9 follows immediately.
+
+### 4. The supporting tiers, then everything else
+
+**Phase 5** (tiers and gates; **before any public launch**, and its cost is recorded
+in the spec) → **Phase 8** (social: typed comments that write edits, forums,
+playlist extensions) → **Phase 6** (trust, sub-scores, gamification) → **Phase 11**
+(growth) → **Phase 13** (API, interop, exports) → **Phase 14** (policy text) →
+**Phase 10** (media plane) → **Phase 12** (federation extensions) → **Phase 15**
+(monetisation) → **Phase 16** (UI, metrics, accessibility), with **Phase 17** (a
+goal-check clause per phase) threaded through every phase rather than left to the
 end.
 
-The two hard constraints:
+The two hard constraints survive this reordering intact:
 
 - **14's policy text precedes 10's first stored byte.** The moment this instance
   holds content it is a host, and §7.18 already schedules replication of member
   files across peers. Legal text after the fact is legal text that was never
-  written.
+  written. Note that this is *not* licence to store bytes before the gate (5) or
+  the policy: discovery links to content that lives elsewhere, which is the whole
+  reason the aggregator model was chosen.
 - **`frontend` builds before `go build`, always.** `frontend/embed.go` is
   `//go:embed build`, so a stale SPA serves HTTP 200 and a blank page with no
-  console error. The project's own remedy is `scripts/fe.sh`-style ordering; the
-  ordering rule is stated in `docs/plan/growth-items-19-20-21-24-28-29.md` and it
-  applies to every phase below that touches the UI.
+  console error. The ordering rule is stated in
+  `docs/plan/growth-items-19-20-21-24-28-29.md` and it applies to every phase below
+  that touches the UI.
 
 ---
 

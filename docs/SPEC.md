@@ -1775,6 +1775,17 @@ This section is a pointer, not the specification. The programme lives in:
   commit; `docs/goal-check.py` clause C8 reads it, so the programme's completion
   is checkable and not a claim.
 
+**Priority, restated here because it decides what gets built first** (owner
+instruction 2026-10-14: *"content aggregation and discovery (algorithms, search, etc)
+should be the priority"*): the aggregation spine (Phases 1–2) first and
+uninterrupted, then discovery (Phases 4 and 7), then breadth and durability (3, 9),
+then the supporting features. The plan is therefore priority-ordered and not
+dependency-ordered, which reverses the sequence this section's first cut carried —
+discovery was seventh behind tag ontology, tiers and trust. The reversal, and its
+cost — **discovery ships before the content gate, so the gate becomes a precondition
+for any public launch rather than something launched with** — is recorded in the
+programme spec's §0 and §4 rather than left implicit.
+
 **The no-loss rule is binding on both sides.** Nothing in this fork regresses —
 the public GraphQL contract, every existing migration and every passing clause
 of `goal-check.py`. And nothing in the NexusXXX draft is dropped as "not
