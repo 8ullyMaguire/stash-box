@@ -274,6 +274,42 @@ enumerates the type list and asserts each has a completion mapping, which is how
 **Verification:** integration test that a text item takes tags, a review, an elo
 matchup and a list entry with no new plumbing.
 
+### Slice 3a — the tables and the data layer — DONE (`ac5b8791`)
+
+Migration 117 (`content_items`, `content_item_chapters`, `content_item_media`,
+`content_item_tags`), the generated statements for all four, and four integration
+tests (10 cases) written over those statements rather than over a service — the
+repository's rule, because a service-level test cannot tell "the constraint refused
+this" from "the service never asked". 3/3 mutations killed, two of them editing the
+MIGRATION itself (the harness re-runs migrations, so a schema mutation is genuinely
+applied on the next run).
+
+**Three places this slice departs from the text above, each recorded:**
+
+1. **`deleted` is in the table now, not in a later migration.** `scenes` has carried
+   it since the initial schema and every read filters it; retrofitting that filter
+   across N queries is the omission class this codebase keeps finding. The plan's
+   column list did not name it.
+2. **Tags needed a link table, so "no new plumbing" is true of the polymorphic
+   surfaces and NOT of tags.** `scene_tags` is scene-only (migration 01), and the
+   verification above asks that a text item take tags. `content_item_tags` mirrors
+   `scene_tags` rather than replacing it with a generic `entity_tags`: the tag
+   queries, facet counts and the implication closure are all scene-shaped and
+   hot-path, and rewriting them for one new kind is the larger cost. The migration's
+   own comment states the trade and the point at which it flips (a third taggable
+   kind).
+3. **The polymorphism claim is measured, not test-proven at this layer.** The
+   planning note said to check `rg 'EntityType' internal/` before writing; the
+   measurement is stronger than that — **no migration enumerates entity kinds in a
+   CHECK**, and 108's `content_sources_entity_type_check` already accepts
+   `('scene', 'content_item')`, so the kind needed no constraint change anywhere.
+   What is NOT yet true is acceptance by the Go vocabularies that enumerate types
+   (`completion.AllEntityTypes`, `EloEntityType`, the review validator). Those are
+   closed lists in code, so slice 3b adds the member and the compiler plus
+   `completion_weight_parity_test.go` force every site. A DB row that no vocabulary
+   knows about is a row that is written and never counted, which is why 3b is next
+   and why this slice deliberately did not expose the kind on the GraphQL enum yet.
+
 ## Phase 4 — the tag ontology — **DONE**
 
 **Goal:** NexusXXX §4.1–§4.6. **Verified:** `tags` has `name, description, aliases,
