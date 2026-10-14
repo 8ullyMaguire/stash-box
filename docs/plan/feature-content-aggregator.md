@@ -143,9 +143,21 @@ adding a sixth is a schema change other code reads, so Phase 1 does not.
   of truth that disagree on the first write).
 
 **Files:** `internal/database/migrations/postgres/108_content_sources.{up,down}.sql`,
-`internal/queries/sql/content_source.sql`, `internal/service/content/source.go`,
-`graphql/schema/types/content.graphql`, `internal/api/resolver_content.go`,
-`frontend/src/graphql/{queries,types.generated}`.
+`internal/queries/sql/content_source.sql` (+ its generated `content_source.sql.go` and
+`querier.go`), `internal/models/content_source.go` (the read model, hand-written — the
+generated row struct is not the API shape), `internal/service/content/source.go`,
+`internal/service/factory.go` (the `Content()` accessor), `internal/dataloader/
+contentsourcesloader_gen.go` + `loaders.go` + the `Makefile` loader target,
+`graphql/schema/types/content.graphql`, `graphql/schema/types/scene.graphql` (the
+`sources` field), `internal/api/resolver_content.go`, `internal/api/resolver.go` (the
+`ContentSource()` resolver accessor), `internal/api/scene_sources_integration_test.go`,
+`scripts/verify-108.sh`, and later `frontend/src/graphql/{queries,types.generated}`.
+
+**Status:** schema, reads, service, dataloader and the GraphQL field are landed and
+covered by both harnesses. The frontend consuming `sources` is not, and there is no
+mutation yet: electing a canonical source and recording a check result are phase 9's
+callers, so the queries exist and nothing calls them (see the note on inert code in
+phase 9).
 
 **Verification:** `./scripts/verify-108.sh` (CHECK constraints proven against the
 schema directly — a service test cannot tell "the database rejected this" from "the

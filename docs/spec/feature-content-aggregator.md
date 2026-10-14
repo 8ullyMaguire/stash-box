@@ -83,6 +83,8 @@ an integration test).
 | `list` + `list_items` + publication audit (107) | built | §9.3 playlists |
 | `federation` peers, mesh roles, replication (§7.17/§7.18), `webhook`, `image` (local/S3), `site` directory `scene_search` (BM25, migration 103 recall columns) | built | §8, §12, §13, §15 |
 | `scene_urls (scene_id, url, site_id)` — **the only source/URL record for content** | built, no health, no status, no platform beyond the site FK | §2 source layer — this is the aggregator's seed |
+| `content_sources` + the `scene_sources` view + the one-way `scene_urls` mirror (migration 108, phase 1) | **built** — status machine as a CHECK, one canonical source per scene, health columns, backfilled; membership stays owned by `scene_urls` | §2, §3.2 `sources[]`, §7.3's status machine (the sweep itself is phase 9) |
+| `Scene.sources` on the GraphQL API | **built** — batched through a dataloader, reading the view so health survives an edit | §3.2, §8's discovery surfaces |
 
 **The single biggest gap:** there is no content that this repo knows about which a
 member does not already own. `scene_urls` records where a *member's own file* came

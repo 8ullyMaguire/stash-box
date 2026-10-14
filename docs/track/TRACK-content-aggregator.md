@@ -30,7 +30,7 @@ table and `goal-check.py` clause C8. The reversal and its cost are recorded in
 
 | Phase | Name | State | Evidence |
 |---|---|---|---|
-| 1 | source layer (`content_sources`, health, GraphQL) | in progress | schema + reads done: `108_content_sources.{up,down}.sql`, `internal/queries/sql/content_source.sql`, `scripts/verify-108.sh` (49/49, mutation-tested). NOT done: service, GraphQL `Scene.sources`, integration test |
+| 1 | source layer (`content_sources`, health, GraphQL) | done | migration 108 + `scripts/verify-108.sh` (49/49, mutation-tested); `internal/service/content/source.go`, `ContentSourcesLoader`, `Scene.sources`, `internal/api/scene_sources_integration_test.go` (4 cases, 3 mutations each naming its own failure). Frontend does not consume `sources` yet — that is phase 16, not this phase's surface |
 | 2 | ingestion pipeline (URL → content record) | not started | — |
 | 3 | the other five content kinds (`content_items`) | not started | — |
 | 4 | tag ontology (implications, versions, RFC) | not started | — |
