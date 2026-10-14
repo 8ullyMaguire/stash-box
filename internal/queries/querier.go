@@ -128,6 +128,10 @@ type Querier interface {
 	// one).
 	ClearDownvoteEditNotifications(ctx context.Context, id uuid.UUID) error
 	ClearScenePerformerAlias(ctx context.Context, arg ClearScenePerformerAliasParams) error
+	// Whether this instance denylists anything at all. The scene query's optimized trending path LIMITs
+	// its subquery before the filters run, so a page that must exclude denylisted scenes cannot take it
+	// -- the same guard the tiers need, and it needs the same answer to "is there anything to exclude".
+	ContentDenylistActive(ctx context.Context) (bool, error)
 	// Which content-item fields are filled (aggregator phase 3).
 	//
 	// The weights this feeds live in internal/service/completion/score.go and are
@@ -707,6 +711,10 @@ type Querier interface {
 	DeleteUserToken(ctx context.Context, id uuid.UUID) error
 	// Returns the row so the caller can report WHICH endpoint was removed.
 	DeleteWebhookEndpoint(ctx context.Context, arg DeleteWebhookEndpointParams) (WebhookEndpoint, error)
+	// Which of these scenes are denylisted, for the paths that assemble a page in Go (the activity feed)
+	// rather than in one statement. A batch of ids is what this table shape is good for; a filtered page
+	// over the whole table excludes with a NOT EXISTS (query.ApplySceneDenylist) instead.
+	DeniedSceneIDs(ctx context.Context, sceneIds []uuid.UUID) ([]uuid.UUID, error)
 	DestroyExpiredInvites(ctx context.Context) error
 	DestroyExpiredNotifications(ctx context.Context) error
 	// The ingest queue's statements (migration 109, spec §3).

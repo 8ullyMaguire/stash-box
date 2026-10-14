@@ -117,6 +117,23 @@ WHERE c.id <> sqlc.arg(subject_id)::uuid
       JOIN tags t2 ON t2.id = st2.tag_id
       WHERE st2.scene_id = c.id AND t2.content_tier > sqlc.arg(visible_tier)::int
   )
+  -- The per-entity denylist (phase 5, slice 5f), the same three arms as
+  -- query.ApplySceneDenylist and spelled out here because the aliases in the CTEs above are already
+  -- taken. A recommendation of a denylisted scene is worse than a search result for one: nobody
+  -- asked for it.
+  AND NOT EXISTS (
+      SELECT 1 FROM scene_tags den_st
+      JOIN content_denylist_tag den_dt ON den_dt.tag_id = den_st.tag_id
+      WHERE den_st.scene_id = c.id
+  )
+  AND NOT EXISTS (
+      SELECT 1 FROM scene_performers den_sp
+      JOIN content_denylist_performer den_dp ON den_dp.performer_id = den_sp.performer_id
+      WHERE den_sp.scene_id = c.id
+  )
+  AND NOT EXISTS (
+      SELECT 1 FROM content_denylist_studio den_ds WHERE den_ds.studio_id = c.studio_id
+  )
   AND ss.subject_exists = 1
   AND (
         EXISTS (SELECT 1 FROM scene_tags cst WHERE cst.scene_id = c.id AND cst.tag_id IN (SELECT tag_id FROM reach_down))

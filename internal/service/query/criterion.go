@@ -350,3 +350,30 @@ func ApplySceneTierCeiling(query *sq.SelectBuilder, visibleTier int) {
 		`NOT EXISTS (SELECT 1 FROM scene_tags st JOIN tags t ON t.id = st.tag_id WHERE st.scene_id = scenes.id AND t.content_tier > ?)`,
 		visibleTier))
 }
+
+// ApplySceneDenylist excludes scenes whose TAG, STUDIO or PERFORMER is on this instance's
+// per-entity content denylist (migration 87).
+//
+// `sceneID` and `studioID` are the SQL expressions for the scene's id and studio column at the call
+// site -- "scenes.id"/"scenes.studio_id" in a scene query, "c.id"/"c.studio_id" in the similarity
+// candidate CTE. One predicate with the columns named by the caller rather than two copies, because
+// the mistake that matters here is a copy that checks two of the three tables and silently stops
+// denying the third.
+//
+// A NOT EXISTS per link table, not a join: the denylist tables are tiny and primary-keyed, so each
+// is an index probe, where a join would need DISTINCT to survive a scene with two denied tags.
+//
+// The STUDIO arm compares the denylisted studio to the scene's own studio column -- not to the scene
+// id, and not to every performer's studio. NULL is handled for free: a scene with no studio matches
+// nothing, so NOT EXISTS is true and the scene is kept.
+//
+// This is a GATE. The `warn` mode (plan phase 5, slice 5g) is a separate column and a separate
+// surface, and it must not be smuggled in here by making this predicate conditional.
+func ApplySceneDenylist(query *sq.SelectBuilder, sceneID, studioID string) {
+	*query = query.Where(sq.Expr(
+		`NOT EXISTS (SELECT 1 FROM scene_tags st JOIN content_denylist_tag dt ON dt.tag_id = st.tag_id WHERE st.scene_id = ` + sceneID + `)`))
+	*query = query.Where(sq.Expr(
+		`NOT EXISTS (SELECT 1 FROM scene_performers sp JOIN content_denylist_performer dp ON dp.performer_id = sp.performer_id WHERE sp.scene_id = ` + sceneID + `)`))
+	*query = query.Where(sq.Expr(
+		`NOT EXISTS (SELECT 1 FROM content_denylist_studio ds WHERE ds.studio_id = ` + studioID + `)`))
+}

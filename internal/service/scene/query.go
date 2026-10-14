@@ -377,6 +377,21 @@ func (s *Scene) buildSceneQuery(ctx context.Context, psql sq.StatementBuilderTyp
 		queryhelper.ApplySceneTierCeiling(&query, int(visibleTier))
 	}
 
+	// The per-entity denylist (phase 5, slice 5f). This is the INSTANCE's gate rather than the
+	// viewer's -- it is the same for everybody, which is why it takes no viewer argument -- and it
+	// had never been applied to a read path at all: the operator report has claimed
+	// `per_entity_denylist: enforced here` while nothing consulted these three tables.
+	queryhelper.ApplySceneDenylist(&query, "scenes.id", "scenes.studio_id")
+
+	// The trending path LIMITs its subquery before the filters run, so a non-empty denylist also
+	// disqualifies it -- the same starvation the tiers cause. This is a runtime question, not a
+	// property of the request, which is why it is asked here rather than listed with the user's
+	// filters in hasOtherFilters.
+	denylistActive, err := s.queries.ContentDenylistActive(ctx)
+	if err != nil {
+		return query, fmt.Errorf("reading whether the content denylist has entries: %w", err)
+	}
+
 	// Apply sort and pagination
 	switch input.Sort {
 	case models.SceneSortEnumFresh, models.SceneSortEnumRising:
@@ -427,7 +442,7 @@ func (s *Scene) buildSceneQuery(ctx context.Context, psql sq.StatementBuilderTyp
 		// trending subquery BEFORE the filters run -- so a page that must exclude tiered
 		// scenes cannot take it. Omitting tierFiltered here returns a page whose first
 		// entry is a scene the reader must not see, which looks like a bug in the tier.
-		hasOtherFilters := tierFiltered ||
+		hasOtherFilters := tierFiltered || denylistActive ||
 			performerID != nil ||
 			input.URL != nil || input.ParentStudio != nil ||
 			(input.Performers != nil && len(input.Performers.Value) > 0) ||

@@ -349,5 +349,62 @@ func (s *Service) Feed(ctx context.Context, input FeedInput) ([]Item, error) {
 	// Content tiers (phase 5, migration 120), last: an item whose scene the loader dropped is
 	// already gone, so the tier lookup runs over the page that survived rather than over the
 	// page as fetched.
-	return s.dropAboveTier(ctx, input.ViewerID, out)
+	visible, err := s.dropAboveTier(ctx, input.ViewerID, out)
+	if err != nil {
+		return nil, err
+	}
+
+	// The per-entity denylist (phase 5, slice 5f), after the tiers. Two batch lookups rather than
+	// one statement carrying both rules: they have different subjects (the viewer's ceiling, and the
+	// instance's own list), and a query that answered both would be the place a future edit drops one.
+	return s.dropDenied(ctx, visible)
+}
+
+// dropDenied removes items whose scene is on this instance's per-entity denylist, which until slice
+// 5f no read path consulted at all.
+//
+// The lookup is a batch over the page's scene ids (DeniedSceneIDs) rather than the NOT EXISTS the
+// scene query uses: this feed is assembled in Go from three arms, so there is no statement to hang a
+// predicate on. The cost is the same the tier filter already pays -- a page can come back SHORT.
+func (s *Service) dropDenied(ctx context.Context, items []Item) ([]Item, error) {
+	if len(items) == 0 {
+		return items, nil
+	}
+
+	ids := make([]uuid.UUID, 0, len(items))
+	for _, item := range items {
+		if item.Scene != nil {
+			ids = append(ids, item.Scene.ID)
+		}
+	}
+
+	denied, err := s.queries.DeniedSceneIDs(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("reading whether the feed's scenes are denylisted: %w", err)
+	}
+
+	byScene := make(map[uuid.UUID]struct{}, len(denied))
+	for _, id := range denied {
+		byScene[id] = struct{}{}
+	}
+	return filterDenied(items, byScene), nil
+}
+
+// filterDenied keeps the items whose scene is not on the denylist.
+//
+// PURE, and separate from the lookup above, for the reason filterAboveCeiling is: the decision is
+// what can be wrong, and a decision shows up in a table rather than in a database. An item with NO
+// scene is kept -- "has no scene" is not evidence about the denylist, and dropping it here would be
+// this function refusing something for a reason it is not about.
+func filterDenied(items []Item, denied map[uuid.UUID]struct{}) []Item {
+	kept := items[:0]
+	for _, item := range items {
+		if item.Scene != nil {
+			if _, bad := denied[item.Scene.ID]; bad {
+				continue
+			}
+		}
+		kept = append(kept, item)
+	}
+	return kept
 }

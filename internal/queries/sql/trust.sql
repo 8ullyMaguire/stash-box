@@ -197,3 +197,23 @@ RETURNING *;
 -- over the whole table, which excludes with a NOT EXISTS instead.
 SELECT "entity_id", "tier" FROM "entity_effective_tier"
 WHERE "entity_type" = 'scene' AND "entity_id" = ANY(@scene_ids::uuid[]);
+
+-- name: ContentDenylistActive :one
+-- Whether this instance denylists anything at all. The scene query's optimized trending path LIMITs
+-- its subquery before the filters run, so a page that must exclude denylisted scenes cannot take it
+-- -- the same guard the tiers need, and it needs the same answer to "is there anything to exclude".
+SELECT (
+    EXISTS (SELECT 1 FROM "content_denylist_tag")
+    OR EXISTS (SELECT 1 FROM "content_denylist_studio")
+    OR EXISTS (SELECT 1 FROM "content_denylist_performer")
+)::bool AS "active";
+
+-- name: DeniedSceneIDs :many
+-- Which of these scenes are denylisted, for the paths that assemble a page in Go (the activity feed)
+-- rather than in one statement. A batch of ids is what this table shape is good for; a filtered page
+-- over the whole table excludes with a NOT EXISTS (query.ApplySceneDenylist) instead.
+SELECT DISTINCT s."id"::uuid AS "scene_id"
+FROM unnest(@scene_ids::uuid[]) AS s("id")
+WHERE EXISTS (SELECT 1 FROM "scene_tags" st JOIN "content_denylist_tag" dt ON dt."tag_id" = st."tag_id" WHERE st."scene_id" = s."id")
+   OR EXISTS (SELECT 1 FROM "scene_performers" sp JOIN "content_denylist_performer" dp ON dp."performer_id" = sp."performer_id" WHERE sp."scene_id" = s."id")
+   OR EXISTS (SELECT 1 FROM "scenes" sc JOIN "content_denylist_studio" ds ON ds."studio_id" = sc."studio_id" WHERE sc."id" = s."id");

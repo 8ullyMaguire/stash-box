@@ -925,6 +925,52 @@ the programme this plan describes.
 the drift guard: if `termsAccepted` is false, `EvaluateContentAccess` must refuse that member with
 `ReasonTerms`. A wizard that is right about everything except what the gate does is the failure mode.
 
+### Slice 5f — the denylist wired into the four paths — DONE
+
+Slice 5e found that the per-entity denylist was enforced by nothing. This is the wiring, and it is the
+first half of A: `mode` and the warnings list follow, because they are only meaningful once something
+reads the table.
+
+**One predicate, three arms, columns named by the caller.** `query.ApplySceneDenylist(query, sceneID,
+studioID)` excludes a scene whose tag, studio or performer is denylisted, and the caller supplies the
+id expressions (`"scenes.id"`/`"scenes.studio_id"` in the scene query, `"c.id"`/`"c.studio_id"` in the
+similarity CTE). The alternative — the predicate written twice — is exactly the shape that fails
+silently, because a copy that checks two of the three tables looks perfectly healthy from outside.
+
+**The studio arm compares the denylisted studio to the scene's OWN studio column**, not to the scene id
+and not to each performer's studio. That is the arm most likely to be got wrong, and the test asserts
+each arm separately for that reason.
+
+**Where it went:**
+
+* **the scene query** (search, facets, performer-scene lists, the discovery language): the predicate,
+  plus a new `ContentDenylistActive` query feeding `hasOtherFilters`. A non-empty denylist causes the
+  same STARVATION the tiers do — the optimized trending path LIMITs its subquery before the filters
+  run, so the page would come back short rather than wrong. The guard's input is a runtime fact, not a
+  property of the request, which is why it is asked there instead of listed with the user's filters.
+* **the similarity candidate pool**: the same three arms spelled out in SQL, with `den_*` aliases
+  because the CTEs already own `st` and `t`. A recommended denylisted scene is worse than a searched
+  one: nobody asked for it.
+* **the activity feed**: `DeniedSceneIDs` (a batch over the page's ids) plus the pure `filterDenied`,
+  because this feed is assembled in Go from three arms and has no statement to hang a predicate on.
+  The cost is the one the tier filter already pays — a short page.
+* **For You**: inherited through `scenes.Query`, and asserted anyway.
+
+**A fixture trap worth keeping:** the recommendation test denylists a tag in its similarity half and
+then measures For You in the same function. The For You candidate had to be a DIFFERENT scene with a
+DIFFERENT denied tag, because the count-first assertion in the second half was otherwise unpassable for
+a reason that had nothing to do with the second half. Two halves, two subjects.
+
+**The denylist is instance-wide state, so the fixtures clean up after themselves.** A row left behind
+makes `ContentDenylistActive` true for every later test in the package, which changes which path the
+trending query takes — the same class of cross-test surprise as a consent left on the shared user. Each
+deny helper registers a `t.Cleanup` that deletes exactly the row it added.
+
+**Probes, three, all killed:** the tag arm of the shared predicate removed (which reddened BOTH the
+search assertion and the recommendation assertion, since they share the predicate — the sharing made
+visible), the feed's `dropDenied` call unwired, and the similarity candidate's tag arm removed in the
+generated statement.
+
 ## Phase 6 — trust, sub-scores, gamification
 
 **Goal:** NexusXXX §5.2–§5.4, §6.1–§6.5. **Verified:** `trust` is derived by a curve

@@ -323,9 +323,13 @@ func (r *testRunner) followSomeoneAndSignalTheirs(t *testing.T, viewerID, sceneI
 	ctx := context.Background()
 
 	var actorID uuid.UUID
+	// ON CONFLICT: the follow row is unique per (follower, followed), and a second test in this
+	// package following the same user would otherwise fail on the constraint rather than on anything
+	// it is about. The grant is re-asserted, since another test may have narrowed it.
 	err := dbtest.DB().QueryRow(ctx, `
 		INSERT INTO user_follows (follower_id, followed_id, activity_visibility)
 		SELECT $1, u.id, 'public' FROM users u WHERE u.id <> $1 ORDER BY u.id LIMIT 1
+		ON CONFLICT (follower_id, followed_id) DO UPDATE SET activity_visibility = 'public'
 		RETURNING followed_id`, viewerID).Scan(&actorID)
 	require.NoError(t, err, "following a user, with a grant that makes their activity visible")
 
@@ -686,4 +690,236 @@ func TestTierThreeCoolsBeforeItTakesEffect(t *testing.T) {
 	_, err = viewer.resolver.Mutation().UserSetVisibleTiers(viewer.ctx, []int{1, 2})
 	require.NoError(t, err)
 	assert.Empty(t, found(tier3Title), "a consent without tier 3 cannot see tier 3")
+}
+
+// --- the per-entity content denylist (migration 87), which no read path consulted until now ---
+
+// The denylist is an OPERATOR action with no mutation in this repo, so the fixture writes the row.
+// Each of the three arms is denied separately: the risk this wiring carries is a predicate that
+// checks two of the three tables and silently stops denying the third.
+func denyTag(t *testing.T, tagID uuid.UUID) {
+	t.Helper()
+	_, err := dbtest.DB().Exec(context.Background(),
+		`INSERT INTO content_denylist_tag (tag_id, reason) VALUES ($1, 'integration fixture')
+		 ON CONFLICT (tag_id) DO NOTHING`, tagID)
+	require.NoError(t, err, "denylisting a tag")
+
+	// The denylist is instance-wide state, not per-test: a row left behind makes
+	// `ContentDenylistActive` true for every later test in this package, which changes which path the
+	// trending query takes. Deleting the row this fixture added leaves the instance as it was found.
+	t.Cleanup(func() {
+		_, err := dbtest.DB().Exec(context.Background(),
+			`DELETE FROM content_denylist_tag WHERE tag_id = $1`, tagID)
+		require.NoError(t, err, "removing the fixture's denylist row")
+	})
+}
+
+func denyStudio(t *testing.T, studioID uuid.UUID) {
+	t.Helper()
+	_, err := dbtest.DB().Exec(context.Background(),
+		`INSERT INTO content_denylist_studio (studio_id, reason) VALUES ($1, 'integration fixture')
+		 ON CONFLICT (studio_id) DO NOTHING`, studioID)
+	require.NoError(t, err, "denylisting a studio")
+	t.Cleanup(func() {
+		_, err := dbtest.DB().Exec(context.Background(),
+			`DELETE FROM content_denylist_studio WHERE studio_id = $1`, studioID)
+		require.NoError(t, err, "removing the fixture's denylist row")
+	})
+}
+
+func denyPerformer(t *testing.T, performerID uuid.UUID) {
+	t.Helper()
+	_, err := dbtest.DB().Exec(context.Background(),
+		`INSERT INTO content_denylist_performer (performer_id, reason) VALUES ($1, 'integration fixture')
+		 ON CONFLICT (performer_id) DO NOTHING`, performerID)
+	require.NoError(t, err, "denylisting a performer")
+	t.Cleanup(func() {
+		_, err := dbtest.DB().Exec(context.Background(),
+			`DELETE FROM content_denylist_performer WHERE performer_id = $1`, performerID)
+		require.NoError(t, err, "removing the fixture's denylist row")
+	})
+}
+
+func titleSearch(t *testing.T, r *testRunner, title string) []string {
+	t.Helper()
+	got, err := r.client.queryScenes(models.SceneQueryInput{
+		Title: &title, Sort: models.SceneSortEnumDate, Direction: models.SortDirectionEnumDesc, PerPage: 10,
+	})
+	require.NoError(t, err)
+	ids := make([]string, 0, len(got.Scenes))
+	for _, s := range got.Scenes {
+		ids = append(ids, s.UUID().String())
+	}
+	return ids
+}
+
+// Three arms, three assertions, because a predicate that checks two of the three tables looks
+// perfectly healthy from the outside. Each arm counts its subject FIRST (the scene is returned
+// before it is denylisted), so an absence cannot be a query that never worked.
+func TestDenylistedEntitiesAreRemovedFromSearch(t *testing.T) {
+	admin := asAdmin(t)
+	viewer := asRead(t)
+
+	// --- tag ---
+	tagName := admin.generateSceneName() + " denied tag"
+	tag, err := admin.createTestTag(&models.TagCreateInput{Name: tagName})
+	require.NoError(t, err)
+	byTagTitle := admin.generateSceneName()
+	byTag, err := admin.createTestScene(&models.SceneCreateInput{
+		Title: &byTagTitle, TagIds: []uuid.UUID{tag.UUID()},
+	})
+	require.NoError(t, err)
+
+	require.Equal(t, []string{byTag.UUID().String()}, titleSearch(t, viewer, byTagTitle),
+		"the scene must be returned before the denylist is the reason it is not")
+	denyTag(t, tag.UUID())
+	assert.Empty(t, titleSearch(t, viewer, byTagTitle),
+		"a scene whose TAG is denylisted must not be served")
+
+	// --- studio ---
+	studioName := admin.generateSceneName() + " denied studio"
+	studio, err := admin.createTestStudio(&models.StudioCreateInput{Name: studioName})
+	require.NoError(t, err)
+	byStudioTitle := admin.generateSceneName()
+	studioID := studio.UUID()
+	byStudio, err := admin.createTestScene(&models.SceneCreateInput{
+		Title: &byStudioTitle, StudioID: &studioID,
+	})
+	require.NoError(t, err)
+
+	require.Equal(t, []string{byStudio.UUID().String()}, titleSearch(t, viewer, byStudioTitle))
+	denyStudio(t, studio.UUID())
+	assert.Empty(t, titleSearch(t, viewer, byStudioTitle),
+		"a scene whose STUDIO is denylisted must not be served")
+
+	// --- performer ---
+	performerName := admin.generateSceneName() + " denied performer"
+	performer, err := admin.createTestPerformer(&models.PerformerCreateInput{Name: performerName})
+	require.NoError(t, err)
+	byPerformerTitle := admin.generateSceneName()
+	byPerformer, err := admin.createTestScene(&models.SceneCreateInput{
+		Title:      &byPerformerTitle,
+		Performers: []models.PerformerAppearanceInput{{PerformerID: performer.UUID()}},
+	})
+	require.NoError(t, err)
+
+	require.Equal(t, []string{byPerformer.UUID().String()}, titleSearch(t, viewer, byPerformerTitle))
+	denyPerformer(t, performer.UUID())
+	assert.Empty(t, titleSearch(t, viewer, byPerformerTitle),
+		"a scene whose PERFORMER is denylisted must not be served")
+}
+
+// The denylist on the other three paths. Each fixture is arranged so the DENIED tag is on the
+// candidate and NOT on the subject, which is what makes these tests about the denylist rather than
+// about a scene that happened to disappear.
+func TestDenylistedScenesAreNotRecommended(t *testing.T) {
+	admin := asAdmin(t)
+
+	sharedName := admin.generateSceneName() + " shared"
+	shared, err := admin.createTestTag(&models.TagCreateInput{Name: sharedName})
+	require.NoError(t, err)
+	deniedName := admin.generateSceneName() + " denied"
+	deniedTag, err := admin.createTestTag(&models.TagCreateInput{Name: deniedName})
+	require.NoError(t, err)
+
+	subjectTitle := admin.generateSceneName()
+	subject, err := admin.createTestScene(&models.SceneCreateInput{
+		Title: &subjectTitle, TagIds: []uuid.UUID{shared.UUID()},
+	})
+	require.NoError(t, err)
+	candidateTitle := admin.generateSceneName()
+	candidate, err := admin.createTestScene(&models.SceneCreateInput{
+		Title: &candidateTitle, TagIds: []uuid.UUID{shared.UUID(), deniedTag.UUID()},
+	})
+	require.NoError(t, err)
+
+	// --- similarity ---
+	viewer := asRead(t)
+	before, err := viewer.client.similarScenes(subject.UUID(), 10)
+	require.NoError(t, err)
+	require.Contains(t, similarSceneIDs(before), candidate.UUID().String(),
+		"the candidate must be offered before the denylist is the reason it is not")
+
+	denyTag(t, deniedTag.UUID())
+	assert.Empty(t, similarSceneIDs(func() []similarSceneOutput {
+		got, err := viewer.client.similarScenes(subject.UUID(), 10)
+		require.NoError(t, err)
+		return got
+	}()), "similar-to must not offer a denylisted scene: nobody asked for it")
+
+	// --- For You ---
+	// MODIFY for the list add that creates the affinity signal; the denied tag is again only on the
+	// recommendation -- and it is a DIFFERENT tag from the one above, because that one is already
+	// denylisted by the time this half runs, so reusing it would make the count-first assertion below
+	// unpassable for a reason that is not this test.
+	forYouDeniedName := admin.generateSceneName() + " denied for you"
+	forYouDeniedTag, err := admin.createTestTag(&models.TagCreateInput{Name: forYouDeniedName})
+	require.NoError(t, err)
+	forYouTitle := admin.generateSceneName()
+	forYouCandidate, err := admin.createTestScene(&models.SceneCreateInput{
+		Title: &forYouTitle, TagIds: []uuid.UUID{shared.UUID(), forYouDeniedTag.UUID()},
+	})
+	require.NoError(t, err)
+
+	signalTitle := admin.generateSceneName()
+	signal, err := admin.createTestScene(&models.SceneCreateInput{
+		Title: &signalTitle, TagIds: []uuid.UUID{shared.UUID()},
+	})
+	require.NoError(t, err)
+	viewerWithLists := asModify(t)
+	_, err = viewerWithLists.resolver.Mutation().UserSetVisibleTiers(viewerWithLists.ctx, []int{})
+	require.NoError(t, err)
+	list, err := viewerWithLists.resolver.Mutation().ListCreate(viewerWithLists.ctx, models.ListCreateInput{Name: "denylist for you"})
+	require.NoError(t, err)
+	_, err = viewerWithLists.resolver.Mutation().ListAddItem(viewerWithLists.ctx, models.ListItemInput{
+		ListID: list.ID, EntityType: models.ListEntityTypeEnumScene, EntityID: signal.UUID(),
+	})
+	require.NoError(t, err)
+
+	forYouBefore, err := viewerWithLists.client.forYou(20, 0)
+	require.NoError(t, err)
+	require.Contains(t, forYouSceneIDs(forYouBefore), forYouCandidate.UUID().String(),
+		"the affinity from the shared tag must surface the candidate first")
+
+	denyTag(t, forYouDeniedTag.UUID())
+
+	assert.NotContains(t, forYouSceneIDs(func() []forYouSceneOutput {
+		got, err := viewerWithLists.client.forYou(20, 0)
+		require.NoError(t, err)
+		return got
+	}()), forYouCandidate.UUID().String(), "For You must not recommend a denylisted scene")
+}
+
+// The activity feed's denylist arm runs in Go (a batch lookup over the page), so it is the one that
+// can be wired and still not fire: the tier filter and the denylist filter are separate calls.
+func TestTheActivityFeedDropsDenylistedScenes(t *testing.T) {
+	admin := asAdmin(t)
+	viewer := asRead(t)
+
+	_, err := viewer.resolver.Mutation().UserSetVisibleTiers(viewer.ctx, []int{})
+	require.NoError(t, err)
+
+	deniedName := admin.generateSceneName() + " feed denied"
+	deniedTag, err := admin.createTestTag(&models.TagCreateInput{Name: deniedName})
+	require.NoError(t, err)
+
+	title := admin.generateSceneName()
+	scene, err := admin.createTestScene(&models.SceneCreateInput{
+		Title: &title, TagIds: []uuid.UUID{deniedTag.UUID()},
+	})
+	require.NoError(t, err)
+
+	viewer.followSomeoneAndSignalTheirs(t, userDB.read.ID, scene.UUID())
+
+	before, err := viewer.client.activityFeed(20)
+	require.NoError(t, err)
+	require.Contains(t, feedSceneIDs(before), scene.UUID().String(),
+		"the followed user's activity must be in the feed before the denylist is the reason it is not")
+
+	denyTag(t, deniedTag.UUID())
+
+	after, err := viewer.client.activityFeed(20)
+	require.NoError(t, err)
+	assert.NotContains(t, feedSceneIDs(after), scene.UUID().String(),
+		"the feed must not show a denylisted scene")
 }

@@ -163,3 +163,33 @@ func TestTheTierFilterIsNotAnItemFilter(t *testing.T) {
 	kept := filterAboveCeiling([]Item{{Kind: KindReview}}, map[uuid.UUID]int16{}, 0)
 	assert.Len(t, kept, 1)
 }
+
+// The denylist filter (phase 5, slice 5f). A table again, and for the same reason: the mistake is a
+// comparison of set membership, and "drop the ones that are IN the set" and "drop the ones that are
+// NOT in it" are one character apart and completely different products.
+func TestTheDenylistFilterDropsExactlyTheDeniedScenes(t *testing.T) {
+	denied, kept, untagged := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+
+	item := func(id uuid.UUID) Item {
+		return Item{Kind: KindFingerprint, Scene: &models.Scene{ID: id}}
+	}
+	items := []Item{item(denied), item(kept), item(untagged)}
+
+	got := filterDenied(items, map[uuid.UUID]struct{}{denied: {}})
+
+	require.Len(t, got, 2, "exactly the denied scene is dropped")
+	ids := make([]uuid.UUID, 0, len(got))
+	for _, k := range got {
+		ids = append(ids, k.Scene.ID)
+	}
+	assert.NotContains(t, ids, denied, "a denylisted scene must not be served")
+	assert.Contains(t, ids, kept, "an unrelated scene must not be caught by it")
+	assert.Contains(t, ids, untagged, "and neither must one the denylist does not mention")
+}
+
+func TestTheDenylistFilterIsNotAnItemFilter(t *testing.T) {
+	// An item with no scene is kept whatever the denylist says: this function is about scenes, and
+	// "has no scene" is not evidence about one.
+	kept := filterDenied([]Item{{Kind: KindReview}}, map[uuid.UUID]struct{}{})
+	assert.Len(t, kept, 1)
+}

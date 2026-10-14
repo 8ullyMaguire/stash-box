@@ -82,6 +82,24 @@ func (q *Queries) ApplyTrustEvent(ctx context.Context, arg ApplyTrustEventParams
 	return i, err
 }
 
+const contentDenylistActive = `-- name: ContentDenylistActive :one
+SELECT (
+    EXISTS (SELECT 1 FROM "content_denylist_tag")
+    OR EXISTS (SELECT 1 FROM "content_denylist_studio")
+    OR EXISTS (SELECT 1 FROM "content_denylist_performer")
+)::bool AS "active"
+`
+
+// Whether this instance denylists anything at all. The scene query's optimized trending path LIMITs
+// its subquery before the filters run, so a page that must exclude denylisted scenes cannot take it
+// -- the same guard the tiers need, and it needs the same answer to "is there anything to exclude".
+func (q *Queries) ContentDenylistActive(ctx context.Context) (bool, error) {
+	row := q.db.QueryRow(ctx, contentDenylistActive)
+	var active bool
+	err := row.Scan(&active)
+	return active, err
+}
+
 const countUserTrustEvents = `-- name: CountUserTrustEvents :one
 SELECT count(*) FROM trust_events WHERE user_id = $1
 `
@@ -91,6 +109,37 @@ func (q *Queries) CountUserTrustEvents(ctx context.Context, userID uuid.UUID) (i
 	var count int64
 	err := row.Scan(&count)
 	return count, err
+}
+
+const deniedSceneIDs = `-- name: DeniedSceneIDs :many
+SELECT DISTINCT s."id"::uuid AS "scene_id"
+FROM unnest($1::uuid[]) AS s("id")
+WHERE EXISTS (SELECT 1 FROM "scene_tags" st JOIN "content_denylist_tag" dt ON dt."tag_id" = st."tag_id" WHERE st."scene_id" = s."id")
+   OR EXISTS (SELECT 1 FROM "scene_performers" sp JOIN "content_denylist_performer" dp ON dp."performer_id" = sp."performer_id" WHERE sp."scene_id" = s."id")
+   OR EXISTS (SELECT 1 FROM "scenes" sc JOIN "content_denylist_studio" ds ON ds."studio_id" = sc."studio_id" WHERE sc."id" = s."id")
+`
+
+// Which of these scenes are denylisted, for the paths that assemble a page in Go (the activity feed)
+// rather than in one statement. A batch of ids is what this table shape is good for; a filtered page
+// over the whole table excludes with a NOT EXISTS (query.ApplySceneDenylist) instead.
+func (q *Queries) DeniedSceneIDs(ctx context.Context, sceneIds []uuid.UUID) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, deniedSceneIDs, sceneIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var scene_id uuid.UUID
+		if err := rows.Scan(&scene_id); err != nil {
+			return nil, err
+		}
+		items = append(items, scene_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const getAllUserTrust = `-- name: GetAllUserTrust :many
