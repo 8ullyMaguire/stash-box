@@ -32,6 +32,15 @@ models:
       # rather than an error. Declared external on purpose.
       completion:
         resolver: true
+  ContentSource:
+    fields:
+      # The model carries the DATABASE's string (`content_sources.status` is lower case) and the
+      # schema publishes an enum. Left bound, gqlgen would hand the column's value to the enum's
+      # marshaller, which answers "" for a name it does not know -- a silent empty status for every
+      # source, in both directions of the mismatch. Force-resolved so the mapping is explicit,
+      # testable, and an error when a status has no name.
+      status:
+        resolver: true
   ID:
     model: github.com/stashapp/stash-box/internal/models.ID
   IdentificationQuery:

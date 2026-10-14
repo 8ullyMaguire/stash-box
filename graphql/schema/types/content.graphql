@@ -34,17 +34,20 @@ type ContentSource {
   platform: String
 
   """
-  One of `unknown`, `live`, `intermittent`, `dead`, `dmca`, `archived`.
+  The source's health: one of `UNKNOWN`, `LIVE`, `INTERMITTENT`, `DEAD`, `DMCA`, `ARCHIVED`.
 
-  A plain string rather than an enum, for now and on purpose: the transition rules that
-  would give those words meaning (three consecutive failures to `intermittent`, seven days
-  unreachable to `dead`) are phase 9's health daemon. An enum published before the rules
-  exist freezes a vocabulary nobody has agreed to, and a client that switches on it would
-  have to be rewritten when the rules land.
+  An enum now, because the rules it was waiting for exist. It was a plain string while the
+  transition rules were unbuilt -- "an enum published before the rules exist freezes a
+  vocabulary nobody has agreed to" -- and the change from string to enum was always going to
+  break a client, which is the price of publishing a vocabulary late rather than a wrong one.
 
-  `unknown` is the honest default: nothing has checked this URL yet. It is not `live`.
+  The database's column is lowercase and these values are uppercase, because GraphQL enums
+  are. The resolver maps the two EXPLICITLY rather than by upper-casing, so a status added to
+  the column without a name here is an error rather than a value no client can switch on.
+
+  `UNKNOWN` is the honest default: nothing has checked this URL yet. It is not `LIVE`.
   """
-  status: String!
+  status: ContentSourceStatus!
 
   """
   Whether this is the source a reader should be sent to.
@@ -136,3 +139,18 @@ extend type Mutation {
     @hasRole(role: EDIT)
 }
 
+"""
+A content source's health, as the sweep records it.
+
+The six values mirror `content_sources.status`'s CHECK constraint exactly. The mirroring is enforced
+in one direction by the resolver -- a status with no name here is an error, not a value passed
+through -- and in the other by the column itself, which cannot hold a value this enum does not list.
+"""
+enum ContentSourceStatus {
+  UNKNOWN
+  LIVE
+  INTERMITTENT
+  DEAD
+  DMCA
+  ARCHIVED
+}

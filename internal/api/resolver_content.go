@@ -2,10 +2,12 @@ package api
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/gofrs/uuid"
 	"github.com/stashapp/stash-box/internal/dataloader"
 	"github.com/stashapp/stash-box/internal/models"
+	"github.com/stashapp/stash-box/internal/service/content"
 )
 
 // The aggregator programme's read surface: a scene's URLs, with what is known about
@@ -28,6 +30,36 @@ func (r *sceneResolver) Sources(ctx context.Context, obj *models.Scene) ([]model
 }
 
 type contentSourceResolver struct{ *Resolver }
+
+// Status maps the database's lowercase status onto the enumerated vocabulary the API publishes.
+//
+// EXPLICIT, and not strings.ToUpper: the two vocabularies are the column's CHECK constraint and this
+// enum, and a seventh status added to the column has to be an error here. Upper-casing would pass it
+// through as a value no client has a name for, and the failure would surface in somebody's client
+// months later instead of in this function.
+//
+// The zero value is deliberately NOT a valid answer (the generated type's zero value is ""), so a
+// source whose status this function cannot name fails the read rather than reporting `UNKNOWN` --
+// which would be a lie: UNKNOWN means "nothing has checked this URL", not "this instance does not
+// understand the answer".
+func (r *contentSourceResolver) Status(ctx context.Context, obj *models.ContentSource) (models.ContentSourceStatus, error) {
+	switch obj.Status {
+	case content.StatusUnknown:
+		return models.ContentSourceStatusUnknown, nil
+	case content.StatusLive:
+		return models.ContentSourceStatusLive, nil
+	case content.StatusIntermittent:
+		return models.ContentSourceStatusIntermittent, nil
+	case content.StatusDead:
+		return models.ContentSourceStatusDead, nil
+	case content.StatusDMCA:
+		return models.ContentSourceStatusDmca, nil
+	case content.StatusArchived:
+		return models.ContentSourceStatusArchived, nil
+	default:
+		return "", fmt.Errorf("content source %s has status %q, which has no name in the API's vocabulary", obj.URL, obj.Status)
+	}
+}
 
 // ID is the source record's id, or nil when the scene claims a URL for which no health
 // row exists yet.

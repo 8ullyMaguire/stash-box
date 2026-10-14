@@ -139,8 +139,12 @@ func TestSceneSourcesAreReachableFromASceneQuery(t *testing.T) {
 	// Nothing has ever checked this URL -- the trigger creates the row, migration 108 sets
 	// no status of its own, and the default is 'unknown' rather than 'live' precisely so a
 	// client cannot read an unverified claim as a verified one.
-	assert.Equal(t, "unknown", source.Status,
-		"a source nothing has checked must report 'unknown', not 'live'")
+	// The field is an ENUM now (`ContentSourceStatus`), and the database's column is lowercase while
+	// the enum is not: this assertion is the one that would catch a mapping that passed the column's
+	// string through instead of reading it, because the wire value would come back as "" rather than
+	// failing.
+	assert.Equal(t, "UNKNOWN", source.Status,
+		"a source nothing has checked must report UNKNOWN, not LIVE")
 	assert.False(t, source.Canonical, "no canonical source has been elected for this scene")
 	assert.Equal(t, 0, source.CheckFailures)
 
@@ -171,8 +175,9 @@ func TestSceneSourceReportsTheHealthStateTheRowCarries(t *testing.T) {
 	require.Len(t, sources, 1)
 
 	source := sources[0]
-	assert.Equal(t, "dead", source.Status,
-		"the status came from the row; if this says 'unknown' the field is not reading health")
+	assert.Equal(t, "DEAD", source.Status,
+		"the status came from the row; if this says UNKNOWN the field is not reading health, and a "+
+			"lowercase 'dead' here means the enum mapping passed the column straight through")
 	assert.Equal(t, 9, source.CheckFailures)
 	assert.True(t, source.Canonical, "canonical is the row's, not a constant")
 	require.NotNil(t, source.ID)
@@ -200,8 +205,9 @@ func TestSceneSourceWithNoHealthRowStillAppears(t *testing.T) {
 	require.Len(t, sources, 1, "the URL is still claimed by the scene, so it must still appear")
 
 	assert.Equal(t, url, sources[0].URL)
-	assert.Equal(t, "unknown", sources[0].Status,
-		"with no health row the only honest status is 'unknown'")
+	assert.Equal(t, "UNKNOWN", sources[0].Status,
+		"with no health row the only honest status is UNKNOWN, and it must survive the enum mapping "+
+			"rather than erroring the read")
 	assert.Nil(t, sources[0].ID,
 		"there is no source row to identify, and a zero uuid would tell a client the opposite")
 	assert.Nil(t, sources[0].FirstSeen)

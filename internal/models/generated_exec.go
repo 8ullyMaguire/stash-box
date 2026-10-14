@@ -1477,6 +1477,8 @@ type ContentSourceResolver interface {
 	ID(ctx context.Context, obj *ContentSource) (*uuid.UUID, error)
 
 	Site(ctx context.Context, obj *ContentSource) (*Site, error)
+
+	Status(ctx context.Context, obj *ContentSource) (ContentSourceStatus, error)
 }
 type DraftResolver interface {
 	Created(ctx context.Context, obj *Draft) (*time.Time, error)
@@ -9494,17 +9496,20 @@ type ContentSource {
   platform: String
 
   """
-  One of ` + "`" + `unknown` + "`" + `, ` + "`" + `live` + "`" + `, ` + "`" + `intermittent` + "`" + `, ` + "`" + `dead` + "`" + `, ` + "`" + `dmca` + "`" + `, ` + "`" + `archived` + "`" + `.
+  The source's health: one of ` + "`" + `UNKNOWN` + "`" + `, ` + "`" + `LIVE` + "`" + `, ` + "`" + `INTERMITTENT` + "`" + `, ` + "`" + `DEAD` + "`" + `, ` + "`" + `DMCA` + "`" + `, ` + "`" + `ARCHIVED` + "`" + `.
 
-  A plain string rather than an enum, for now and on purpose: the transition rules that
-  would give those words meaning (three consecutive failures to ` + "`" + `intermittent` + "`" + `, seven days
-  unreachable to ` + "`" + `dead` + "`" + `) are phase 9's health daemon. An enum published before the rules
-  exist freezes a vocabulary nobody has agreed to, and a client that switches on it would
-  have to be rewritten when the rules land.
+  An enum now, because the rules it was waiting for exist. It was a plain string while the
+  transition rules were unbuilt -- "an enum published before the rules exist freezes a
+  vocabulary nobody has agreed to" -- and the change from string to enum was always going to
+  break a client, which is the price of publishing a vocabulary late rather than a wrong one.
 
-  ` + "`" + `unknown` + "`" + ` is the honest default: nothing has checked this URL yet. It is not ` + "`" + `live` + "`" + `.
+  The database's column is lowercase and these values are uppercase, because GraphQL enums
+  are. The resolver maps the two EXPLICITLY rather than by upper-casing, so a status added to
+  the column without a name here is an error rather than a value no client can switch on.
+
+  ` + "`" + `UNKNOWN` + "`" + ` is the honest default: nothing has checked this URL yet. It is not ` + "`" + `LIVE` + "`" + `.
   """
-  status: String!
+  status: ContentSourceStatus!
 
   """
   Whether this is the source a reader should be sent to.
@@ -9596,6 +9601,21 @@ extend type Mutation {
     @hasRole(role: EDIT)
 }
 
+"""
+A content source's health, as the sweep records it.
+
+The six values mirror ` + "`" + `content_sources.status` + "`" + `'s CHECK constraint exactly. The mirroring is enforced
+in one direction by the resolver -- a status with no name here is an error, not a value passed
+through -- and in the other by the column itself, which cannot hold a value this enum does not list.
+"""
+enum ContentSourceStatus {
+  UNKNOWN
+  LIVE
+  INTERMITTENT
+  DEAD
+  DMCA
+  ARCHIVED
+}
 `, BuiltIn: false},
 	{Name: "../../graphql/schema/types/content_access_setup.graphql", Input: `# Content access setup (aggregator phase 5 slice 5i; NexusXXX section 10).
 #
@@ -21820,18 +21840,18 @@ func (ec *executionContext) _ContentSource_status(ctx context.Context, field gra
 			return ec.fieldContext_ContentSource_status(ctx, field)
 		},
 		func(ctx context.Context) (any, error) {
-			return obj.Status, nil
+			return ec.Resolvers.ContentSource().Status(ctx, obj)
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
-			return ec.marshalNString2string(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v ContentSourceStatus) graphql.Marshaler {
+			return ec.marshalNContentSourceStatus2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentSourceStatus(ctx, selections, v)
 		},
 		true,
 		true,
 	)
 }
 func (ec *executionContext) fieldContext_ContentSource_status(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("ContentSource", field, false, false, errors.New("field of type String does not have child fields"))
+	return graphql.NewScalarFieldContext("ContentSource", field, true, true, errors.New("field of type ContentSourceStatus does not have child fields"))
 }
 
 func (ec *executionContext) _ContentSource_canonical(ctx context.Context, field graphql.CollectedField, obj *ContentSource) (ret graphql.Marshaler) {
@@ -60964,10 +60984,43 @@ func (ec *executionContext) _ContentSource(ctx context.Context, sel ast.Selectio
 				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "status":
-			out.Values[i] = ec._ContentSource_status(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._ContentSource_status(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
 			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "canonical":
 			out.Values[i] = ec._ContentSource_canonical(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -77979,6 +78032,16 @@ func (ec *executionContext) marshalNContentSource2ᚕgithubᚗcomᚋstashappᚋs
 	}
 
 	return ret
+}
+
+func (ec *executionContext) unmarshalNContentSourceStatus2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentSourceStatus(ctx context.Context, v any) (ContentSourceStatus, error) {
+	var res ContentSourceStatus
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNContentSourceStatus2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentSourceStatus(ctx context.Context, sel ast.SelectionSet, v ContentSourceStatus) graphql.Marshaler {
+	return v
 }
 
 func (ec *executionContext) marshalNContentWarning2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentWarning(ctx context.Context, sel ast.SelectionSet, v ContentWarning) graphql.Marshaler {

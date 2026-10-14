@@ -1384,12 +1384,19 @@ not a policy". This slice is that policy.
   `last_ok = &now` only on success (the statement's `COALESCE` keeps the previous value otherwise, which
   is the whole reason it is written that way).
 
-**The GraphQL status becomes an enum** (`ContentSourceStatus`, mirroring the CHECK's six values). The
-model's comment says the string was deliberate "because the transition rules ... are Phase 9's health
-daemon, and an enum published before the rules exist would freeze a vocabulary nobody has agreed to",
-and this slice is when the rules exist.
+**The GraphQL status is an enum** (`ContentSourceStatus`, mirroring the CHECK's six values) -- DONE, in
+this slice. The model's comment said the string was deliberate "because the transition rules ... are
+Phase 9's health daemon, and an enum published before the rules exist would freeze a vocabulary nobody
+has agreed to", and this slice is when the rules exist. It is force-resolved in `gqlgen.yml` rather than
+bound, because the model carries the COLUMN's string: bound, gqlgen hands the column's value to the
+enum's marshaller, which answers `""` for a name it does not know -- an empty status for every source,
+in whichever direction the two vocabularies are out of step. The resolver maps explicitly and ERRORS on
+a status with no name, rather than reporting `UNKNOWN`, which would be a lie ("nothing has checked this
+URL" is not "this instance does not understand the answer"). `scene_sources_integration_test.go`'s three
+wire assertions moved to the enum's spelling in the same commit: the change is a client-visible break,
+and the test that notices is the point.
 
-**Verification:**
+**Verification (both halves DONE):**
 * `go test ./internal/service/content/` — the boundary table: 2 failures → live; 3 → intermittent; a
   success from intermittent → live with 0 failures; `last_ok` 6d23h ago + a failure → not dead; exactly
   7d → dead; never-ok + first_seen 8d ago → dead; `dmca` + success → still `dmca`; `archived` +

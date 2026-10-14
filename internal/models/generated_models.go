@@ -2751,6 +2751,74 @@ func (e ContentItemMediaKind) MarshalJSON() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// A content source's health, as the sweep records it.
+//
+// The six values mirror `content_sources.status`'s CHECK constraint exactly. The mirroring is enforced
+// in one direction by the resolver -- a status with no name here is an error, not a value passed
+// through -- and in the other by the column itself, which cannot hold a value this enum does not list.
+type ContentSourceStatus string
+
+const (
+	ContentSourceStatusUnknown      ContentSourceStatus = "UNKNOWN"
+	ContentSourceStatusLive         ContentSourceStatus = "LIVE"
+	ContentSourceStatusIntermittent ContentSourceStatus = "INTERMITTENT"
+	ContentSourceStatusDead         ContentSourceStatus = "DEAD"
+	ContentSourceStatusDmca         ContentSourceStatus = "DMCA"
+	ContentSourceStatusArchived     ContentSourceStatus = "ARCHIVED"
+)
+
+var AllContentSourceStatus = []ContentSourceStatus{
+	ContentSourceStatusUnknown,
+	ContentSourceStatusLive,
+	ContentSourceStatusIntermittent,
+	ContentSourceStatusDead,
+	ContentSourceStatusDmca,
+	ContentSourceStatusArchived,
+}
+
+func (e ContentSourceStatus) IsValid() bool {
+	switch e {
+	case ContentSourceStatusUnknown, ContentSourceStatusLive, ContentSourceStatusIntermittent, ContentSourceStatusDead, ContentSourceStatusDmca, ContentSourceStatusArchived:
+		return true
+	}
+	return false
+}
+
+func (e ContentSourceStatus) String() string {
+	return string(e)
+}
+
+func (e *ContentSourceStatus) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = ContentSourceStatus(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid ContentSourceStatus", str)
+	}
+	return nil
+}
+
+func (e ContentSourceStatus) MarshalGQL(w io.Writer) {
+	_, _ = fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *ContentSourceStatus) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e ContentSourceStatus) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
 type CriterionModifier string
 
 const (
