@@ -14,6 +14,15 @@ autobind:
   - "github.com/stashapp/stash-box/internal/models"
 
 models:
+  ContentItem:
+    fields:
+      # The schema generates this type, so unlike the hand-written models the field
+      # WOULD be generated into the struct, and the resolver in
+      # internal/api/resolver_content_item.go would never be called -- the schema
+      # would answer with an unpopulated generated field, which is a silent null
+      # rather than an error. Declared external on purpose.
+      completion:
+        resolver: true
   ID:
     model: github.com/stashapp/stash-box/internal/models.ID
   IdentificationQuery:

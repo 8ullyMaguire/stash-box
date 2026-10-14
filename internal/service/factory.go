@@ -35,6 +35,7 @@ import (
 	"github.com/stashapp/stash-box/internal/service/collage"
 	"github.com/stashapp/stash-box/internal/service/completion"
 	"github.com/stashapp/stash-box/internal/service/content"
+	"github.com/stashapp/stash-box/internal/service/contentitem"
 	"github.com/stashapp/stash-box/internal/service/draft"
 	"github.com/stashapp/stash-box/internal/service/edit"
 	"github.com/stashapp/stash-box/internal/service/elo"
@@ -231,6 +232,14 @@ func (f *Factory) resolveEntityName(ctx context.Context, entityType quest.Entity
 	default:
 		return "", nil
 	}
+}
+
+// ContentItem returns the content-item reader (aggregator phase 3).
+//
+// Read-only: creation belongs to ingestion and to the edit system, which is the only
+// path that writes shared metadata.
+func (f *Factory) ContentItem() *contentitem.Service {
+	return contentitem.NewService(queries.New(f.db))
 }
 
 // Identification returns an IdentificationService instance

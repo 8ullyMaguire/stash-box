@@ -32,6 +32,7 @@ type ResolverRoot interface {
 	ClusterSceneSubmission() ClusterSceneSubmissionResolver
 	Collage() CollageResolver
 	CollageFrame() CollageFrameResolver
+	ContentItem() ContentItemResolver
 	ContentSource() ContentSourceResolver
 	Draft() DraftResolver
 	Edit() EditResolver
@@ -176,6 +177,16 @@ type ComplexityRoot struct {
 		Missing    func(childComplexity int) int
 		Score      func(childComplexity int) int
 		Total      func(childComplexity int) int
+	}
+
+	ContentItem struct {
+		Completion  func(childComplexity int) int
+		CreatedAt   func(childComplexity int) int
+		Details     func(childComplexity int) int
+		ID          func(childComplexity int) int
+		Kind        func(childComplexity int) int
+		ReleaseDate func(childComplexity int) int
+		Title       func(childComplexity int) int
 	}
 
 	ContentSource struct {
@@ -835,6 +846,7 @@ type ComplexityRoot struct {
 		AccessRules                    func(childComplexity int) int
 		ActivityFeed                   func(childComplexity int, input *ActivityFeedInput) int
 		ArchiveEntityCounts            func(childComplexity int) int
+		ContentItem                    func(childComplexity int, id uuid.UUID) int
 		CountIncompleteEntities        func(childComplexity int, entityType EntityType, below int) int
 		EloLeaderboard                 func(childComplexity int, entityType EloEntityType, limit *int) int
 		EloMatchup                     func(childComplexity int, entityType EloEntityType) int
@@ -879,6 +891,7 @@ type ComplexityRoot struct {
 		OntologyVersions               func(childComplexity int, limit int) int
 		PerformerChangelog             func(childComplexity int, since time.Time, afterID *uuid.UUID, limit *int) int
 		PublishedLists                 func(childComplexity int, perPage *int, page *int) int
+		QueryContentItems              func(childComplexity int, kind *ContentItemKind, limit *int) int
 		QueryEdits                     func(childComplexity int, input EditQueryInput) int
 		QueryExistingPerformer         func(childComplexity int, input QueryExistingPerformerInput) int
 		QueryExistingScene             func(childComplexity int, input QueryExistingSceneInput) int
@@ -1394,6 +1407,9 @@ type CollageFrameResolver interface {
 	Fraction(ctx context.Context, obj *CollageFrame) (*float64, error)
 	Snapshot(ctx context.Context, obj *CollageFrame) (*CollageSnapshot, error)
 }
+type ContentItemResolver interface {
+	Completion(ctx context.Context, obj *ContentItem) (*Completion, error)
+}
 type ContentSourceResolver interface {
 	ID(ctx context.Context, obj *ContentSource) (*uuid.UUID, error)
 
@@ -1693,6 +1709,8 @@ type QueryResolver interface {
 	SceneCollage(ctx context.Context, sceneID uuid.UUID) (*Collage, error)
 	UnderSnapshottedScenes(ctx context.Context, minimum *int, limit *int) ([]UnderSnapshottedScene, error)
 	CountIncompleteEntities(ctx context.Context, entityType EntityType, below int) (int, error)
+	ContentItem(ctx context.Context, id uuid.UUID) (*ContentItem, error)
+	QueryContentItems(ctx context.Context, kind *ContentItemKind, limit *int) ([]ContentItem, error)
 	EloMatchup(ctx context.Context, entityType EloEntityType) (*EloMatchup, error)
 	EloRating(ctx context.Context, entityType EloEntityType, id uuid.UUID) (*EloRating, error)
 	EloLeaderboard(ctx context.Context, entityType EloEntityType, limit *int) (*EloLeaderboard, error)
@@ -2222,6 +2240,49 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Completion.Total(childComplexity), true
+
+	case "ContentItem.completion":
+		if e.ComplexityRoot.ContentItem.Completion == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentItem.Completion(childComplexity), true
+	case "ContentItem.createdAt":
+		if e.ComplexityRoot.ContentItem.CreatedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentItem.CreatedAt(childComplexity), true
+	case "ContentItem.details":
+		if e.ComplexityRoot.ContentItem.Details == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentItem.Details(childComplexity), true
+	case "ContentItem.id":
+		if e.ComplexityRoot.ContentItem.ID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentItem.ID(childComplexity), true
+	case "ContentItem.kind":
+		if e.ComplexityRoot.ContentItem.Kind == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentItem.Kind(childComplexity), true
+	case "ContentItem.releaseDate":
+		if e.ComplexityRoot.ContentItem.ReleaseDate == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentItem.ReleaseDate(childComplexity), true
+	case "ContentItem.title":
+		if e.ComplexityRoot.ContentItem.Title == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentItem.Title(childComplexity), true
 
 	case "ContentSource.archived_url":
 		if e.ComplexityRoot.ContentSource.ArchivedURL == nil {
@@ -5653,6 +5714,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.ArchiveEntityCounts(childComplexity), true
+	case "Query.contentItem":
+		if e.ComplexityRoot.Query.ContentItem == nil {
+			break
+		}
+
+		args, err := ec.field_Query_contentItem_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.ContentItem(childComplexity, args["id"].(uuid.UUID)), true
 	case "Query.countIncompleteEntities":
 		if e.ComplexityRoot.Query.CountIncompleteEntities == nil {
 			break
@@ -6088,6 +6160,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.PublishedLists(childComplexity, args["perPage"].(*int), args["page"].(*int)), true
+	case "Query.queryContentItems":
+		if e.ComplexityRoot.Query.QueryContentItems == nil {
+			break
+		}
+
+		args, err := ec.field_Query_queryContentItems_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.QueryContentItems(childComplexity, args["kind"].(*ContentItemKind), args["limit"].(*int)), true
 	case "Query.queryEdits":
 		if e.ComplexityRoot.Query.QueryEdits == nil {
 			break
@@ -8966,6 +9049,8 @@ enum EntityType {
   studio
   site
   tag
+  "The five non-video content kinds (aggregator phase 3). One member, not six."
+  content_item
 }
 
 extend type Performer {
@@ -9170,6 +9255,78 @@ extend type Mutation {
     @hasRole(role: EDIT)
 }
 
+`, BuiltIn: false},
+	{Name: "../../graphql/schema/types/content_item.graphql", Input: `"""
+A content item: one of the five content kinds that are not video (aggregator phase 3).
+
+Video is still a ` + "`" + `Scene` + "`" + `, here and everywhere else: the split is by what the content
+IS, not by when it arrived, because every existing client, every fingerprint and the
+whole collage machinery are scene-shaped, and the programme's no-loss rule is binding.
+"""
+type ContentItem {
+  id: ID!
+  kind: ContentItemKind!
+
+  "What the item is called. Non-blank by the table's own CHECK."
+  title: String!
+
+  "Free text about the item."
+  details: String
+
+  "When it was released, if that is known. Nullable: undated items are normal here."
+  releaseDate: Date
+
+  createdAt: Time!
+
+  """
+  How complete this item is.
+
+  Reads the database on demand rather than being stored, so it is correct the moment
+  an edit lands rather than whenever something remembered to refresh it. The weights
+  are the content item's own (see internal/service/completion/score.go): tags and
+  media dominate, because an item nobody can find and nothing can fetch is the failure
+  the discovery surfaces exist to prevent.
+  """
+  completion: Completion
+}
+
+"""
+Which of the six kinds an item is.
+
+Closed, and enforced by the table's CHECK as well: an unknown kind would be a row
+nothing can render, nothing can filter on, and nothing counts.
+"""
+enum ContentItemKind {
+  image
+  gallery
+  animation
+  text
+  audio
+  comic
+}
+
+extend type Query {
+  """
+  Read one content item.
+
+  Null for a missing or soft-deleted item rather than an error: following a stale link
+  is a normal outcome, and every client already renders an empty state for a null.
+  """
+  contentItem(id: ID!): ContentItem @hasRole(role: READ)
+
+  """
+  The newest content items, optionally of one kind.
+
+  Ordered by creation, not by release date. A bounded pool ordered by a NULLABLE field
+  silently omits every row that lacks it -- the defect phase 7 slice 6 recorded -- and
+  undated items are normal here.
+
+  A limit above 100 is refused rather than clamped, so a caller never receives a
+  truncated list that looks complete.
+  """
+  queryContentItems(kind: ContentItemKind, limit: Int): [ContentItem!]!
+    @hasRole(role: READ)
+}
 `, BuiltIn: false},
 	{Name: "../../graphql/schema/types/draft.graphql", Input: `type DraftSubmissionStatus {
   id: ID
@@ -13899,6 +14056,26 @@ func (ec *executionContext) childFields_Completion(ctx context.Context, field gr
 	return nil, fmt.Errorf("no field named %q was found under type Completion", field.Name)
 }
 
+func (ec *executionContext) childFields_ContentItem(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "id":
+		return ec.fieldContext_ContentItem_id(ctx, field)
+	case "kind":
+		return ec.fieldContext_ContentItem_kind(ctx, field)
+	case "title":
+		return ec.fieldContext_ContentItem_title(ctx, field)
+	case "details":
+		return ec.fieldContext_ContentItem_details(ctx, field)
+	case "releaseDate":
+		return ec.fieldContext_ContentItem_releaseDate(ctx, field)
+	case "createdAt":
+		return ec.fieldContext_ContentItem_createdAt(ctx, field)
+	case "completion":
+		return ec.fieldContext_ContentItem_completion(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type ContentItem", field.Name)
+}
+
 func (ec *executionContext) childFields_ContentSource(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 	switch field.Name {
 	case "id":
@@ -17407,6 +17584,20 @@ func (ec *executionContext) field_Query_activityFeed_args(ctx context.Context, r
 	return args, nil
 }
 
+func (ec *executionContext) field_Query_contentItem_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (uuid.UUID, error) {
+			return ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	return args, nil
+}
+
 func (ec *executionContext) field_Query_countIncompleteEntities_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -17976,6 +18167,28 @@ func (ec *executionContext) field_Query_publishedLists_args(ctx context.Context,
 		return nil, err
 	}
 	args["page"] = arg1
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_queryContentItems_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "kind",
+		func(ctx context.Context, v any) (*ContentItemKind, error) {
+			return ec.unmarshalOContentItemKind2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentItemKind(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["kind"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "limit",
+		func(ctx context.Context, v any) (*int, error) {
+			return ec.unmarshalOInt2ᚖint(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["limit"] = arg1
 	return args, nil
 }
 
@@ -19998,6 +20211,176 @@ func (ec *executionContext) _Completion_earned(ctx context.Context, field graphq
 }
 func (ec *executionContext) fieldContext_Completion_earned(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("Completion", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _ContentItem_id(ctx context.Context, field graphql.CollectedField, obj *ContentItem) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentItem_id(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v uuid.UUID) graphql.Marshaler {
+			return ec.marshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ContentItem_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContentItem", field, false, false, errors.New("field of type ID does not have child fields"))
+}
+
+func (ec *executionContext) _ContentItem_kind(ctx context.Context, field graphql.CollectedField, obj *ContentItem) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentItem_kind(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Kind, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v ContentItemKind) graphql.Marshaler {
+			return ec.marshalNContentItemKind2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentItemKind(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ContentItem_kind(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContentItem", field, false, false, errors.New("field of type ContentItemKind does not have child fields"))
+}
+
+func (ec *executionContext) _ContentItem_title(ctx context.Context, field graphql.CollectedField, obj *ContentItem) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentItem_title(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Title, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ContentItem_title(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContentItem", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _ContentItem_details(ctx context.Context, field graphql.CollectedField, obj *ContentItem) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentItem_details(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Details, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
+			return ec.marshalOString2ᚖstring(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_ContentItem_details(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContentItem", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _ContentItem_releaseDate(ctx context.Context, field graphql.CollectedField, obj *ContentItem) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentItem_releaseDate(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ReleaseDate, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
+			return ec.marshalODate2ᚖstring(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_ContentItem_releaseDate(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContentItem", field, false, false, errors.New("field of type Date does not have child fields"))
+}
+
+func (ec *executionContext) _ContentItem_createdAt(ctx context.Context, field graphql.CollectedField, obj *ContentItem) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentItem_createdAt(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.CreatedAt, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v time.Time) graphql.Marshaler {
+			return ec.marshalNTime2timeᚐTime(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ContentItem_createdAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContentItem", field, false, false, errors.New("field of type Time does not have child fields"))
+}
+
+func (ec *executionContext) _ContentItem_completion(ctx context.Context, field graphql.CollectedField, obj *ContentItem) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentItem_completion(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.ContentItem().Completion(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *Completion) graphql.Marshaler {
+			return ec.marshalOCompletion2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐCompletion(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_ContentItem_completion(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ContentItem",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_Completion(ctx, field)
+		},
+	}
+	return fc, nil
 }
 
 func (ec *executionContext) _ContentSource_id(ctx context.Context, field graphql.CollectedField, obj *ContentSource) (ret graphql.Marshaler) {
@@ -39201,6 +39584,130 @@ func (ec *executionContext) fieldContext_Query_countIncompleteEntities(ctx conte
 	return fc, nil
 }
 
+func (ec *executionContext) _Query_contentItem(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_contentItem(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().ContentItem(ctx, fc.Args["id"].(uuid.UUID))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal *ContentItem
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *ContentItem
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *ContentItem) graphql.Marshaler {
+			return ec.marshalOContentItem2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentItem(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_Query_contentItem(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ContentItem(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_contentItem_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_queryContentItems(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_queryContentItems(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().QueryContentItems(ctx, fc.Args["kind"].(*ContentItemKind), fc.Args["limit"].(*int))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal []ContentItem
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal []ContentItem
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v []ContentItem) graphql.Marshaler {
+			return ec.marshalNContentItem2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentItemᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_queryContentItems(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ContentItem(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_queryContentItems_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Query_eloMatchup(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -57861,6 +58368,107 @@ func (ec *executionContext) _Completion(ctx context.Context, sel ast.SelectionSe
 	return out
 }
 
+var contentItemImplementors = []string{"ContentItem"}
+
+func (ec *executionContext) _ContentItem(ctx context.Context, sel ast.SelectionSet, obj *ContentItem) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, contentItemImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ContentItem")
+		case "id":
+			out.Values[i] = ec._ContentItem_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "kind":
+			out.Values[i] = ec._ContentItem_kind(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "title":
+			out.Values[i] = ec._ContentItem_title(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "details":
+			out.Values[i] = ec._ContentItem_details(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "releaseDate":
+			out.Values[i] = ec._ContentItem_releaseDate(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "createdAt":
+			out.Values[i] = ec._ContentItem_createdAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "completion":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._ContentItem_completion(ctx, field, obj)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
 var contentSourceImplementors = []string{"ContentSource"}
 
 func (ec *executionContext) _ContentSource(ctx context.Context, sel ast.SelectionSet, obj *ContentSource) graphql.Marshaler {
@@ -66570,6 +67178,50 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "contentItem":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_contentItem(ctx, field)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "queryContentItems":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_queryContentItems(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
 		case "eloMatchup":
 			field := field
 
@@ -74552,6 +75204,36 @@ func (ec *executionContext) marshalNCollageFrame2ᚕgithubᚗcomᚋstashappᚋst
 	return ret
 }
 
+func (ec *executionContext) marshalNContentItem2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentItem(ctx context.Context, sel ast.SelectionSet, v ContentItem) graphql.Marshaler {
+	return ec._ContentItem(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNContentItem2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentItemᚄ(ctx context.Context, sel ast.SelectionSet, v []ContentItem) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNContentItem2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentItem(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) unmarshalNContentItemKind2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentItemKind(ctx context.Context, v any) (ContentItemKind, error) {
+	var res ContentItemKind
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNContentItemKind2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentItemKind(ctx context.Context, sel ast.SelectionSet, v ContentItemKind) graphql.Marshaler {
+	return v
+}
+
 func (ec *executionContext) marshalNContentSource2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentSource(ctx context.Context, sel ast.SelectionSet, v ContentSource) graphql.Marshaler {
 	return ec._ContentSource(ctx, sel, &v)
 }
@@ -77947,6 +78629,29 @@ func (ec *executionContext) marshalOCompletion2ᚖgithubᚗcomᚋstashappᚋstas
 	return ec._Completion(ctx, sel, v)
 }
 
+func (ec *executionContext) marshalOContentItem2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentItem(ctx context.Context, sel ast.SelectionSet, v *ContentItem) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._ContentItem(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalOContentItemKind2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentItemKind(ctx context.Context, v any) (*ContentItemKind, error) {
+	if v == nil {
+		return nil, nil
+	}
+	var res = new(ContentItemKind)
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOContentItemKind2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentItemKind(ctx context.Context, sel ast.SelectionSet, v *ContentItemKind) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return v
+}
+
 func (ec *executionContext) unmarshalOCropGuideRoleEnum2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐCropGuideRoleEnum(ctx context.Context, v any) (*CropGuideRoleEnum, error) {
 	if v == nil {
 		return nil, nil
@@ -77968,6 +78673,24 @@ func (ec *executionContext) marshalOCropTemplate2ᚖgithubᚗcomᚋstashappᚋst
 		return graphql.Null
 	}
 	return ec._CropTemplate(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalODate2ᚖstring(ctx context.Context, v any) (*string, error) {
+	if v == nil {
+		return nil, nil
+	}
+	res, err := graphql.UnmarshalString(v)
+	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalODate2ᚖstring(ctx context.Context, sel ast.SelectionSet, v *string) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	_ = sel
+	_ = ctx
+	res := graphql.MarshalString(*v)
+	return res
 }
 
 func (ec *executionContext) unmarshalODateCriterionInput2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐDateCriterionInput(ctx context.Context, v any) (*DateCriterionInput, error) {

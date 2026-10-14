@@ -273,6 +273,31 @@ type Completion struct {
 	Earned int `json:"earned"`
 }
 
+// A content item: one of the five content kinds that are not video (aggregator phase 3).
+//
+// Video is still a `Scene`, here and everywhere else: the split is by what the content
+// IS, not by when it arrived, because every existing client, every fingerprint and the
+// whole collage machinery are scene-shaped, and the programme's no-loss rule is binding.
+type ContentItem struct {
+	ID   uuid.UUID       `json:"id"`
+	Kind ContentItemKind `json:"kind"`
+	// What the item is called. Non-blank by the table's own CHECK.
+	Title string `json:"title"`
+	// Free text about the item.
+	Details *string `json:"details,omitempty"`
+	// When it was released, if that is known. Nullable: undated items are normal here.
+	ReleaseDate *string   `json:"releaseDate,omitempty"`
+	CreatedAt   time.Time `json:"createdAt"`
+	// How complete this item is.
+	//
+	// Reads the database on demand rather than being stored, so it is correct the moment
+	// an edit lands rather than whenever something remembered to refresh it. The weights
+	// are the content item's own (see internal/service/completion/score.go): tags and
+	// media dominate, because an item nobody can find and nothing can fetch is the failure
+	// the discovery surfaces exist to prevent.
+	Completion *Completion `json:"completion,omitempty"`
+}
+
 // One guide line of a crop template
 type CropGuide struct {
 	Axis CropGuideAxisEnum `json:"axis"`
@@ -2469,6 +2494,73 @@ func (e BreastTypeEnum) MarshalJSON() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// Which of the six kinds an item is.
+//
+// Closed, and enforced by the table's CHECK as well: an unknown kind would be a row
+// nothing can render, nothing can filter on, and nothing counts.
+type ContentItemKind string
+
+const (
+	ContentItemKindImage     ContentItemKind = "image"
+	ContentItemKindGallery   ContentItemKind = "gallery"
+	ContentItemKindAnimation ContentItemKind = "animation"
+	ContentItemKindText      ContentItemKind = "text"
+	ContentItemKindAudio     ContentItemKind = "audio"
+	ContentItemKindComic     ContentItemKind = "comic"
+)
+
+var AllContentItemKind = []ContentItemKind{
+	ContentItemKindImage,
+	ContentItemKindGallery,
+	ContentItemKindAnimation,
+	ContentItemKindText,
+	ContentItemKindAudio,
+	ContentItemKindComic,
+}
+
+func (e ContentItemKind) IsValid() bool {
+	switch e {
+	case ContentItemKindImage, ContentItemKindGallery, ContentItemKindAnimation, ContentItemKindText, ContentItemKindAudio, ContentItemKindComic:
+		return true
+	}
+	return false
+}
+
+func (e ContentItemKind) String() string {
+	return string(e)
+}
+
+func (e *ContentItemKind) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = ContentItemKind(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid ContentItemKind", str)
+	}
+	return nil
+}
+
+func (e ContentItemKind) MarshalGQL(w io.Writer) {
+	_, _ = fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *ContentItemKind) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e ContentItemKind) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
 type CriterionModifier string
 
 const (
@@ -2851,6 +2943,8 @@ const (
 	EntityTypeStudio    EntityType = "studio"
 	EntityTypeSite      EntityType = "site"
 	EntityTypeTag       EntityType = "tag"
+	// The five non-video content kinds (aggregator phase 3). One member, not six.
+	EntityTypeContentItem EntityType = "content_item"
 )
 
 var AllEntityType = []EntityType{
@@ -2859,11 +2953,12 @@ var AllEntityType = []EntityType{
 	EntityTypeStudio,
 	EntityTypeSite,
 	EntityTypeTag,
+	EntityTypeContentItem,
 }
 
 func (e EntityType) IsValid() bool {
 	switch e {
-	case EntityTypePerformer, EntityTypeScene, EntityTypeStudio, EntityTypeSite, EntityTypeTag:
+	case EntityTypePerformer, EntityTypeScene, EntityTypeStudio, EntityTypeSite, EntityTypeTag, EntityTypeContentItem:
 		return true
 	}
 	return false

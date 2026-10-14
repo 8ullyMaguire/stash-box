@@ -1,0 +1,71 @@
+"""
+A content item: one of the five content kinds that are not video (aggregator phase 3).
+
+Video is still a `Scene`, here and everywhere else: the split is by what the content
+IS, not by when it arrived, because every existing client, every fingerprint and the
+whole collage machinery are scene-shaped, and the programme's no-loss rule is binding.
+"""
+type ContentItem {
+  id: ID!
+  kind: ContentItemKind!
+
+  "What the item is called. Non-blank by the table's own CHECK."
+  title: String!
+
+  "Free text about the item."
+  details: String
+
+  "When it was released, if that is known. Nullable: undated items are normal here."
+  releaseDate: Date
+
+  createdAt: Time!
+
+  """
+  How complete this item is.
+
+  Reads the database on demand rather than being stored, so it is correct the moment
+  an edit lands rather than whenever something remembered to refresh it. The weights
+  are the content item's own (see internal/service/completion/score.go): tags and
+  media dominate, because an item nobody can find and nothing can fetch is the failure
+  the discovery surfaces exist to prevent.
+  """
+  completion: Completion
+}
+
+"""
+Which of the six kinds an item is.
+
+Closed, and enforced by the table's CHECK as well: an unknown kind would be a row
+nothing can render, nothing can filter on, and nothing counts.
+"""
+enum ContentItemKind {
+  image
+  gallery
+  animation
+  text
+  audio
+  comic
+}
+
+extend type Query {
+  """
+  Read one content item.
+
+  Null for a missing or soft-deleted item rather than an error: following a stale link
+  is a normal outcome, and every client already renders an empty state for a null.
+  """
+  contentItem(id: ID!): ContentItem @hasRole(role: READ)
+
+  """
+  The newest content items, optionally of one kind.
+
+  Ordered by creation, not by release date. A bounded pool ordered by a NULLABLE field
+  silently omits every row that lacks it -- the defect phase 7 slice 6 recorded -- and
+  undated items are normal here.
+
+  A limit above 100 is refused rather than clamped, so a caller never receives a
+  truncated list that looks complete.
+  """
+  queryContentItems(kind: ContentItemKind, limit: Int): [ContentItem!]!
+    @hasRole(role: READ)
+}

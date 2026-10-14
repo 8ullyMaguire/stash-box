@@ -60,6 +60,8 @@ enum EntityType {
   studio
   site
   tag
+  "The five non-video content kinds (aggregator phase 3). One member, not six."
+  content_item
 }
 
 extend type Performer {
