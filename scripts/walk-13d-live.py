@@ -80,6 +80,14 @@ def report(label, description):
     print(f"   MEASURED {label}: {description}")
 
 
+def headers_of(message):
+    """A CASE-FOLDED view of a response's headers, because header names are case-insensitive and Go sends
+    them canonicalised: the middleware sets `X-RateLimit-Limit` and the wire carries `X-Ratelimit-Limit`. The
+    first version of this walk converted the headers with `dict()`, which made every lookup case-SENSITIVE,
+    and reported a middleware that sends them correctly as one that sends nothing."""
+    return {name.lower(): value for name, value in message.items()}
+
+
 def request(path, key=None):
     """One HTTP request, returning (status, headers, body). Never raises on an HTTP error status."""
     req = urllib.request.Request(BASE + path, data=None, headers={})
@@ -87,9 +95,9 @@ def request(path, key=None):
         req.add_header("ApiKey", key)
     try:
         with urllib.request.urlopen(req, timeout=60) as response:
-            return response.status, dict(response.headers), response.read().decode("utf-8", "replace")
+            return response.status, headers_of(response.headers), response.read().decode("utf-8", "replace")
     except urllib.error.HTTPError as err:
-        return err.code, dict(err.headers), err.read().decode("utf-8", "replace")
+        return err.code, headers_of(err.headers), err.read().decode("utf-8", "replace")
 
 
 def query(key, text="{ __typename }"):
@@ -99,9 +107,9 @@ def query(key, text="{ __typename }"):
         req.add_header("ApiKey", key)
     try:
         with urllib.request.urlopen(req, timeout=60) as response:
-            return response.status, dict(response.headers), response.read().decode("utf-8", "replace")
+            return response.status, headers_of(response.headers), response.read().decode("utf-8", "replace")
     except urllib.error.HTTPError as err:
-        return err.code, dict(err.headers), err.read().decode("utf-8", "replace")
+        return err.code, headers_of(err.headers), err.read().decode("utf-8", "replace")
 
 
 secret = None
@@ -158,7 +166,7 @@ try:
 
     if refused:
         headers, body = refused
-        verdict("A2", headers.get("Content-Type", "").startswith("application/json"),
+        verdict("A2", headers.get("content-type", "").startswith("application/json"),
                 f"the refusal is JSON, not HTML: {headers.get('Content-Type')}")
         try:
             parsed = json.loads(body)
@@ -173,15 +181,15 @@ try:
                     "and it names the limit and the wait, which is what a person debugging a script needs")
             verdict("B3", body.replace(" ", "").replace("\n", "").startswith('{"errors":[{'),
                     "the top-level shape is {\"errors\":[{\"message\": ...}]}")
-        wait = headers.get("Retry-After", "")
+        wait = headers.get("retry-after", "")
         verdict("C1", wait.isdigit() and int(wait) > 0,
                 f"Retry-After is a whole number of seconds a client can obey: {wait!r}")
-        verdict("C2", headers.get("X-RateLimit-Remaining") == "0", "the remaining count is exhausted")
+        verdict("C2", headers.get("x-ratelimit-remaining") == "0", "the remaining count is exhausted")
 
     if allowed_headers:
-        verdict("C3", allowed_headers.get("X-RateLimit-Limit", "").isdigit(),
+        verdict("C3", allowed_headers.get("x-ratelimit-limit", "").isdigit(),
                 f"and the limit is stated on an ALLOWED response too: "
-                f"X-RateLimit-Limit={allowed_headers.get('X-RateLimit-Limit')!r}")
+                f"X-RateLimit-Limit={allowed_headers.get('x-ratelimit-limit')!r}")
 
     print("== D. the unit is the credential, not the address ==")
     # Both requests come from this host: if the limit were per address, the second credential would be refused
@@ -201,7 +209,7 @@ try:
     front_status, front_headers, front_body = request("/")
     verdict("E1", front_status == 200 and "<" in front_body,
             f"the SPA answers ({front_status}, {len(front_body)} bytes)")
-    verdict("E2", "X-RateLimit-Limit" not in front_headers,
+    verdict("E2", "x-ratelimit-limit" not in front_headers,
             "and carries no API limit header: a member loading a page is not a caller spending a budget")
 
     print("== F. a feed reader is counted by its token ==")
@@ -213,8 +221,8 @@ try:
             break
     verdict("F1", bool(feedA), "a feed URL is limited like any other public surface")
     if feedA:
-        verdict("F2", feedA.get("Retry-After", "").isdigit(),
-                f"with the same header a client can obey: {feedA.get('Retry-After')!r}")
+        verdict("F2", feedA.get("retry-after", "").isdigit(),
+                f"with the same header a client can obey: {feedA.get('retry-after')!r}")
     # A different token is a different reader, even from the same address.
     other_status, _, _ = request("/feeds/saved-search/walk-13d-other-token")
     verdict("F3", other_status == 404,
