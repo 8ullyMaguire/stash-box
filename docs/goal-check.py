@@ -540,8 +540,18 @@ def isolated_test_db():
     caller reports as UNKNOWN rather than as a pass.
     """
     import secrets
-    container = os.environ.get("INTEGRATION_CONTAINER", "stashbox-pg-r074")
-    port = os.environ.get("INTEGRATION_PORT", "5436")
+    # The defaults name THIS host's container as it stands, and the two ports are the
+    # container's OWN (5432) and the HOST's published one (55434) -- see the note on `iport`
+    # below for why they differ.
+    #
+    # They were `stashbox-pg-r074` on 5436, which is a container that no longer exists on this
+    # machine: every clause reported UNKNOWN ("no integration database available") while a
+    # perfectly good `sbx-pg` on 55434 was running, and the failure reads as an environment
+    # problem rather than as a stale default. Override all five with INTEGRATION_CONTAINER,
+    # INTEGRATION_PORT, INTEGRATION_INTERNAL_PORT, INTEGRATION_USER and INTEGRATION_PASSWORD
+    # when the container is named or published differently.
+    container = os.environ.get("INTEGRATION_CONTAINER", "sbx-pg")
+    port = os.environ.get("INTEGRATION_PORT", "55434")
     user = os.environ.get("INTEGRATION_USER", "postgres")
     pw = os.environ.get("INTEGRATION_PASSWORD", "smoke_pw")
     # The port INSIDE the container, which is NOT the port the host publishes.
