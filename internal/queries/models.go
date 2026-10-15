@@ -545,6 +545,13 @@ type ListAudit struct {
 	CreatedAt pgtype.Timestamptz `db:"created_at" json:"created_at"`
 }
 
+type ListCollaborator struct {
+	ListID    uuid.UUID          `db:"list_id" json:"list_id"`
+	UserID    uuid.UUID          `db:"user_id" json:"user_id"`
+	AddedBy   uuid.NullUUID      `db:"added_by" json:"added_by"`
+	CreatedAt pgtype.Timestamptz `db:"created_at" json:"created_at"`
+}
+
 type ListItem struct {
 	ID         uuid.UUID          `db:"id" json:"id"`
 	ListID     uuid.UUID          `db:"list_id" json:"list_id"`

@@ -240,6 +240,14 @@ func mapListError(err error) error {
 		return errors.New("that list is too large to fork")
 	case errors.Is(err, listsvc.ErrNotPublished):
 		return errors.New("this list is not published")
+	case errors.Is(err, listsvc.ErrAlreadyCollaborator):
+		return errors.New("that member is already a collaborator on this list")
+	case errors.Is(err, listsvc.ErrNotCollaborator):
+		return errors.New("that member is not a collaborator on this list")
+	case errors.Is(err, listsvc.ErrOwnerIsNotACollaborator):
+		return errors.New("the list's owner is not a collaborator on it")
+	case errors.Is(err, listsvc.ErrUnknownUser):
+		return errors.New("no such user")
 	default:
 		return err
 	}

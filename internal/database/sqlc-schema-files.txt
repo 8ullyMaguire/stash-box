@@ -129,3 +129,4 @@ internal/database/migrations/postgres/131_performer_comment_confirmation.up.sql
 internal/database/migrations/postgres/132_list_forks.up.sql
 internal/database/migrations/postgres/133_list_source_search.up.sql
 internal/database/migrations/postgres/134_content_source_takedown.up.sql
+internal/database/migrations/postgres/135_list_collaborators.up.sql

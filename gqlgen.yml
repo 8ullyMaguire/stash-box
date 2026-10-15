@@ -14,6 +14,17 @@ autobind:
   - "github.com/stashapp/stash-box/internal/models"
 
 models:
+  # MODELS.List IS GENERATED, and these two fields have no counterpart in the struct, so they are
+  # resolved externally. `collaborators` is the write set, whose READ rule is its own (owner and
+  # members only, not the readers of a published list) -- left bound, a struct field would have to be
+  # filled by every code path that builds a list, including the public browse listing, which must not
+  # carry it. `canEdit` is computed from the same question the service asks before a write.
+  List:
+    fields:
+      collaborators:
+        resolver: true
+      canEdit:
+        resolver: true
   User:
     fields:
       # `models.User` is hand-written (this repo's User is a database row, not a generated

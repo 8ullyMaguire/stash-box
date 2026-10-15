@@ -2233,7 +2233,7 @@ expected to answer "you do not own this list" when it answers "no such list", th
 message, because a distinct answer would confirm which guessed ids are real; the test asserts that pair
 now, which is what makes it a privacy test rather than an error test.
 
-### Slice 8e — collaborative lists (DESIGNED)
+### Slice 8e — collaborative lists (BUILT 2026-10-15)
 
 **More than one writer.** The open question this slice settles before any code is **who may add**, which
 is not the same question as who may see: a collaborative list is a list whose write set is not its
@@ -2299,6 +2299,62 @@ and the owner may remove them; the cap refuses one over; a duplicate is refused;
 collaboration; removing a collaborator leaves their entries; and the trail names the actor of an entry
 write and both collaborator acts. At the wire: the mutations and the enum's new spellings, asserted by
 name.
+
+#### Built 2026-10-15 — what shipped, and the four places the design above was changed while building it
+
+**Shipped.** `internal/database/migrations/postgres/135_list_collaborators.up.sql` (the table and its
+two indexes, with the reason the owner is not a row written into the DDL); `internal/queries/sql/
+list_collaborators.sql` (five statements, `RemoveListCollaborator` as `:execrows` so "nothing to remove"
+is a fact rather than a success); `internal/service/list/collaborators.go` (`MaxCollaborators`, the four
+new sentinels, `requireWriter`, `IsCollaborator`, `AddCollaborator`, `RemoveCollaborator`,
+`Collaborators`, `CanEdit`); `canView`'s third argument in `list.go`; the audit writes on all three
+entry writes plus both collaborator acts; `List.collaborators` / `List.canEdit` and the two mutations in
+`graphql/schema/types/list.graphql` plus their gqlgen.yml `resolver: true` entries; and
+`internal/api/resolver_list_collaborators.go`.
+
+**Evidence.** Pure: four `canView` tests (five arms plus the zero viewer WITH the collaborator fact
+set — the arm that matters, because the caller only ever passes `false` there and a rule that depends on
+that is not a rule), and the new sentinels added to the distinctness test. Service against real
+Postgres: twelve tests, each named for one rule — the read/write pair, the seven refusals, the stranger's
+indistinguishability, revocation taking both halves and leaving the entries, self-removal, the owner,
+the duplicate, the unknown user, the empty removal, the inclusive bound (25 accepted, the 26th refused,
+and the 25th proved a REAL writer rather than a row that means nothing), the derived refusal, and the
+audit's two actors. Wire: seven tests through the real handler — including the two that only a wire test
+can make, the FIELD RESOLVERS (`canEdit` true for a member; an unfilled generated field answers `false`
+with no error anywhere) and the enum's exact spelling (`ADD_ITEM`, where the column stores `add_item`).
+Then 15 mutations, one per rule, each reverted and the tree re-verified: all 15 killed the test named
+for them.
+
+**Four departures from the design above, each deliberate:**
+
+1. **`List.collaborators` and `List.canEdit` were added** (the design named only the two mutations). A
+   client cannot compute `canEdit`: the owner half is readable from `owner`, and the member half is a
+   field only members may read — so without it a UI either withholds the controls from a collaborator or
+   offers them to a reader. `collaborators` is what makes the set visible to the people who maintain it.
+2. **The set's READ rule is not the list's visibility**: owner and members only, refused — not emptied —
+   for a reader of a published list. The design text only said the set extends the READ SET (which is
+   about `canView`); this is the decision that the set is not part of what publishing publishes.
+3. **Both mutations return `Boolean!`, not the list.** The act changes the set, not the list, and a
+   client that wants to re-render the set asks for `collaborators` — one query it needs anyway.
+4. **`CanEdit` as a service method returning a bool** rather than a fourth policy function: it is
+   `requireWriter` asked as a question, and a caller that cannot see the list still gets not-found
+   instead of `false`, because `false` would confirm an id the package spends its code refusing to
+   confirm.
+
+**One thing left undone, named rather than implied: the frontend, and a finding about it.** The slice is
+complete and reachable over GraphQL, and nothing in `frontend/` renders the write set, so a browser
+client cannot yet invite anybody. That is a UI slice that starts from the two fields above and adds no
+rule.
+
+**The finding, measured while checking whether this slice owes a frontend rebuild: the tracked
+`frontend/src/graphql/types.ts` is STALE, and the frontend does not typecheck either way.** Regenerating
+the tracked codegen output adds this slice's two fields (and ~1100 lines left over from earlier phases)
+and leaves `tsc --noEmit` failing on `EditCard.tsx`'s `ContentItem` edit target; running `tsc` against
+the TRACKED file as committed fails a different way, on `Notification.tsx`'s
+`MarkNotificationInput`. So the frontend was already red before this slice, the regeneration is not a
+no-risk edit, and bundling it into a backend commit would put unrelated breakage in it. Reverted, and
+recorded here instead: whoever builds the UI slice should decide what to do about those types first,
+because "regenerate and commit" is not currently a green operation.
 
 ### Slice 8f — forums (REMOVED FROM THIS PROGRAMME, 2026-10-15)
 

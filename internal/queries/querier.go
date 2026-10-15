@@ -31,6 +31,12 @@ type Querier interface {
 	// per query: re-suggesting is not more signal, and allowing it would let one
 	// person weight the vote.
 	AddIdentificationCandidate(ctx context.Context, arg AddIdentificationCandidateParams) (IdentificationCandidate, error)
+	// Collaborator queries (plan phase 8 slice 8e).
+	//
+	// Four statements, and the shape of the set is visible in all of them: the OWNER is not a row, so
+	// "may this person write this list" is never answered here alone -- see service/list's requireWriter,
+	// which is the only place that question is decided.
+	AddListCollaborator(ctx context.Context, arg AddListCollaboratorParams) error
 	AddListItem(ctx context.Context, arg AddListItemParams) (ListItem, error)
 	// Record that `alternative_site_id` is an alternative to `site_id`.
 	//
@@ -244,6 +250,7 @@ type Querier interface {
 	// deleted does not count: the vote is evidence about a question that no longer
 	// exists.
 	CountIdentificationVotesForUser(ctx context.Context, userID uuid.UUID) (int64, error)
+	CountListCollaborators(ctx context.Context, listID uuid.UUID) (int64, error)
 	CountListItems(ctx context.Context, listID uuid.UUID) (int64, error)
 	CountNotificationsByUser(ctx context.Context, arg CountNotificationsByUserParams) (int64, error)
 	CountPerformerSearchMatches(ctx context.Context, arg CountPerformerSearchMatchesParams) (interface{}, error)
@@ -1035,6 +1042,10 @@ type Querier interface {
 	// Lookup for the "you already have a list called this" check. Scoped to the owner because
 	// names are unique per owner, not globally.
 	FindListByName(ctx context.Context, arg FindListByNameParams) (List, error)
+	FindListCollaborator(ctx context.Context, arg FindListCollaboratorParams) (ListCollaborator, error)
+	// Ordered by insertion so the set is stable across reads; user_id breaks the tie for rows written
+	// inside one statement's timestamp, which is what a test doing two adds in a row produces.
+	FindListCollaborators(ctx context.Context, listID uuid.UUID) ([]ListCollaborator, error)
 	// A list's contents in display order.
 	//
 	// `position` then `id`: position is client-supplied and ties are common (every item added
@@ -2353,6 +2364,9 @@ type Querier interface {
 	// Releasing a claim. Restricted to the claimer's own rows by the WHERE, so one
 	// curator cannot release another's work.
 	ReleaseAuthoredQuestItem(ctx context.Context, arg ReleaseAuthoredQuestItemParams) (AuthoredQuestItem, error)
+	// execrows rather than exec: "removed" and "was not a collaborator" are different answers, and the
+	// service refuses the second by name instead of reporting a success that changed nothing.
+	RemoveListCollaborator(ctx context.Context, arg RemoveListCollaboratorParams) (int64, error)
 	RemoveListItem(ctx context.Context, id uuid.UUID) error
 	RemoveListItemsByEntity(ctx context.Context, arg RemoveListItemsByEntityParams) error
 	RemoveSiteAlternative(ctx context.Context, arg RemoveSiteAlternativeParams) error

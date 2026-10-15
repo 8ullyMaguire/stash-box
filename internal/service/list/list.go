@@ -173,6 +173,10 @@ func mapWriteError(err error) error {
 			return ErrNameTaken
 		case "list_items_unique_entity":
 			return fmt.Errorf("%w: that entry is already in this list", ErrDuplicateItem)
+		case "list_collaborators_pkey":
+			// The duplicate rule for the write set is the primary key. The service checks first for the
+			// useful message; this is the arm that closes the race the check cannot.
+			return ErrAlreadyCollaborator
 		case "list_items_entity_required", "lists_owner_name_required":
 			return ErrInvalidName
 		}
@@ -242,15 +246,27 @@ func (s *Service) Get(ctx context.Context, id, viewerID uuid.UUID) (*queries.Lis
 		}
 		return nil, err
 	}
-	if !canView(row, viewerID) {
-		return nil, ErrNotFound
+	if !canView(row, viewerID, false) {
+		// Visible without any collaborator row -- published, or the owner -- short-circuits here,
+		// so the query below is taken on exactly one path: somebody reading a list they do not
+		// own. That ordering is why slice 8e costs a published read nothing at all.
+		if viewerID == uuid.Nil {
+			return nil, ErrNotFound
+		}
+		isCollaborator, err := s.IsCollaborator(ctx, id, viewerID)
+		if err != nil {
+			return nil, err
+		}
+		if !canView(row, viewerID, isCollaborator) {
+			return nil, ErrNotFound
+		}
 	}
 	return &row, nil
 }
 
 // canView decides whether viewerID may read this list.
 //
-// The whole policy in four lines, kept pure so it can be tested without a database --
+// The whole policy in five lines, kept pure so it can be tested without a database --
 // this is the decision that decides whether a draft leaks, and burying it in a method
 // that needs a live pool means it is the one rule in the package that never gets a unit
 // test.
@@ -263,11 +279,20 @@ func (s *Service) Get(ctx context.Context, id, viewerID uuid.UUID) (*queries.Lis
 // ErrNotFound rather than ErrNotOwner for the invisible case, deliberately: returning
 // "exists but is not yours" would let a caller enumerate private list ids one probe at a
 // time, confirming which of a guessed uuid range are real.
-func canView(row queries.List, viewerID uuid.UUID) bool {
+//
+// THE THIRD ARGUMENT IS A FACT, NOT A LOOKUP (slice 8e). A collaborator may read a draft
+// they do not own, so the policy needs one more input -- but it stays a pure function of
+// its arguments, because "is this viewer a collaborator" is a question only a database can
+// answer and a policy that asks it cannot be unit-tested. Get answers it and hands the
+// answer over; this function stays the only place the rule is WRITTEN.
+func canView(row queries.List, viewerID uuid.UUID, isCollaborator bool) bool {
 	if row.PublishedAt.Valid {
 		return true
 	}
-	return viewerID != uuid.Nil && viewerID == row.OwnerID
+	if viewerID == uuid.Nil {
+		return false
+	}
+	return viewerID == row.OwnerID || isCollaborator
 }
 
 // ListPublished returns the public browse listing, newest publication first.
@@ -586,11 +611,24 @@ func (s *Service) Unpublish(ctx context.Context, id, actorID uuid.UUID) (*querie
 var ErrNotPublished = errors.New("this list is not published")
 
 // Audit actions recorded in list_audit.
+//
+// The first two are the publication trail. The other three exist because a list with more than one
+// writer cannot answer "who changed it" from its own state (slice 8e): Add and Remove were declared
+// here when the package was written and recorded NOWHERE, which made them a vocabulary rather than a
+// trail, and the reorder and collaborator verbs are new with the slice.
 const (
 	ActionPublish    = "publish"
 	ActionUnpublish  = "unpublish"
 	ActionAddItem    = "add_item"
 	ActionRemoveItem = "remove_item"
+	// ActionReorderItem is a content edit of the list's order -- the one edit whose ACTOR a reader
+	// cannot infer from the current state at all.
+	ActionReorderItem = "reorder_item"
+	// ActionCollaboratorAdd and ActionCollaboratorRemove record a change to WHO MAY WRITE, which is
+	// the most trust-sensitive act on a collaborative list and the one a later moderation question is
+	// really about.
+	ActionCollaboratorAdd    = "collaborator_add"
+	ActionCollaboratorRemove = "collaborator_remove"
 )
 
 // Audit returns a list's publication history, newest first.
@@ -612,6 +650,11 @@ func (s *Service) Audit(ctx context.Context, id, viewerID uuid.UUID) ([]queries.
 
 // AddItem appends an entity to a list.
 //
+// A WRITER may add: the owner, or a collaborator (slice 8e). The write is AUDITED with the ACTOR,
+// which is what makes a collaborative list answerable -- "the list says this, and this member added
+// it" -- and it is written in the same transaction as the entry, so the trail cannot describe an add
+// that was rolled back.
+//
 // Rejects duplicates rather than silently no-op'ing. The database's unique index already
 // refuses the second row, so a client that double-submits gets ErrDuplicateItem instead of
 // a list whose displayed length disagrees with its contents.
@@ -629,8 +672,8 @@ func (s *Service) AddItem(ctx context.Context, listID, entityID, actorID uuid.UU
 	if err != nil {
 		return nil, err
 	}
-	if current.OwnerID != actorID {
-		return nil, ErrNotOwner
+	if err := s.requireWriter(ctx, current, actorID); err != nil {
+		return nil, err
 	}
 	// A derived list's membership is computed, so an inserted entry would be gone on the next read.
 	// REFUSED RATHER THAN IGNORED: a write that appears to work and vanishes is the worst of the three
@@ -657,14 +700,27 @@ func (s *Service) AddItem(ctx context.Context, listID, entityID, actorID uuid.UU
 		position = int32(count) + 1
 	}
 
-	row, err := s.queries.AddListItem(ctx, queries.AddListItemParams{
-		ListID:     listID,
-		EntityType: &entityType,
-		EntityID:   uuid.NullUUID{UUID: entityID, Valid: true},
-		Position:   int(position),
+	var row queries.ListItem
+	err = s.withTxn(func(tx *queries.Queries) error {
+		added, err := tx.AddListItem(ctx, queries.AddListItemParams{
+			ListID:     listID,
+			EntityType: &entityType,
+			EntityID:   uuid.NullUUID{UUID: entityID, Valid: true},
+			Position:   int(position),
+		})
+		if err != nil {
+			return mapWriteError(err)
+		}
+		row = added
+
+		return tx.RecordListAudit(ctx, queries.RecordListAuditParams{
+			ListID:  listID,
+			ActorID: uuid.NullUUID{UUID: actorID, Valid: true},
+			Action:  ActionAddItem,
+		})
 	})
 	if err != nil {
-		return nil, mapWriteError(err)
+		return nil, err
 	}
 	return &row, nil
 }
@@ -687,9 +743,10 @@ func (s *Service) Items(ctx context.Context, listID, viewerID uuid.UUID) ([]quer
 
 // RemoveItem removes one entry.
 //
-// Not audited. Adding is audited because it changes what a public list claims; removing is
-// audited only if the item was in a published list, and that case is covered by the list's
-// publication history remaining inspectable. A per-item trail would be noise at this scale.
+// A WRITER may remove: the owner, or a collaborator. AUDITED, with the actor, since slice 8e: the
+// earlier comment here reasoned that removing is covered by the publication history, and that
+// reasoning stops holding the moment two people can write one list -- "it is gone" becomes a
+// question about WHO, and the entry carries no author column for the trail to name.
 func (s *Service) RemoveItem(ctx context.Context, itemID, actorID uuid.UUID) error {
 	// My first version passed the ITEM id to FindListItems, which takes a LIST id, and
 	// then compared the resulting list_id against actorID -- a list id against an actor id.
@@ -707,8 +764,8 @@ func (s *Service) RemoveItem(ctx context.Context, itemID, actorID uuid.UUID) err
 	if err != nil {
 		return err
 	}
-	if current.OwnerID != actorID {
-		return ErrNotOwner
+	if err := s.requireWriter(ctx, current, actorID); err != nil {
+		return err
 	}
 	// A DERIVED LIST IS NOT EDITED. This is NOT the path a derived entry's own id takes -- that id is
 	// minted from (list, entity) and resolves to no row, so it answers ErrNotFound above -- and it is
@@ -717,13 +774,26 @@ func (s *Service) RemoveItem(ctx context.Context, itemID, actorID uuid.UUID) err
 	if current.SourceSavedSearchID.Valid {
 		return ErrDerivedList
 	}
-	return s.queries.RemoveListItem(ctx, itemID)
+
+	return s.withTxn(func(tx *queries.Queries) error {
+		if err := tx.RemoveListItem(ctx, itemID); err != nil {
+			return err
+		}
+		return tx.RecordListAudit(ctx, queries.RecordListAuditParams{
+			ListID:  item.ListID,
+			ActorID: uuid.NullUUID{UUID: actorID, Valid: true},
+			Action:  ActionRemoveItem,
+		})
+	})
 }
 
 // ReorderItem sets an item's display position.
 //
-// Owner only. Reordering a PUBLIC list is a content edit, and content edits of public
-// artefacts are the same trust-sensitive act as publishing them.
+// A WRITER may reorder: the owner, or a collaborator. Reordering a PUBLIC list is a content edit, and
+// content edits of public artefacts are the same trust-sensitive act as publishing them -- which is an
+// argument about who the writer set is, not about how many people it holds.
+//
+// AUDITED with the actor (slice 8e), like the other two entry writes.
 func (s *Service) ReorderItem(ctx context.Context, itemID, actorID uuid.UUID, position int32) error {
 	if position < 0 {
 		return fmt.Errorf("position must not be negative")
@@ -744,8 +814,8 @@ func (s *Service) ReorderItem(ctx context.Context, itemID, actorID uuid.UUID, po
 	if err != nil {
 		return err
 	}
-	if current.OwnerID != actorID {
-		return ErrNotOwner
+	if err := s.requireWriter(ctx, current, actorID); err != nil {
+		return err
 	}
 	// A DERIVED LIST IS NOT REORDERED. As in RemoveItem: a derived entry's own id has no row, so it
 	// cannot arrive here; this is the guard for a stored row on a derived list, which the read path
@@ -753,8 +823,18 @@ func (s *Service) ReorderItem(ctx context.Context, itemID, actorID uuid.UUID, po
 	if current.SourceSavedSearchID.Valid {
 		return ErrDerivedList
 	}
-	return s.queries.ReorderListItems(ctx, queries.ReorderListItemsParams{
-		ID:       itemID,
-		Position: int(position),
+
+	return s.withTxn(func(tx *queries.Queries) error {
+		if err := tx.ReorderListItems(ctx, queries.ReorderListItemsParams{
+			ID:       itemID,
+			Position: int(position),
+		}); err != nil {
+			return err
+		}
+		return tx.RecordListAudit(ctx, queries.RecordListAuditParams{
+			ListID:  item.ListID,
+			ActorID: uuid.NullUUID{UUID: actorID, Valid: true},
+			Action:  ActionReorderItem,
+		})
 	})
 }

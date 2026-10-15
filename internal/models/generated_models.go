@@ -1421,6 +1421,31 @@ type List struct {
 	// Also null on an ordinary list, and null for a derived list with no source, which is every list that
 	// has been un-followed.
 	SourceSavedSearch *SavedSearch `json:"sourceSavedSearch,omitempty"`
+	// Who may change this list's CONTENTS, besides its owner.
+	//
+	// THE OWNER IS NOT IN THIS LIST. `owner` above is the owner; this field is the set of OTHER members
+	// who may add, remove and reorder entries. An owner who appears here would be a second answer to a
+	// question `owner` already answers.
+	//
+	// WHAT MEMBERSHIP DOES AND DOES NOT BUY: a collaborator may change the entries and nothing else --
+	// not renaming, not re-describing, not deleting, not publishing, not un-publishing, not changing what
+	// the list follows, and not adding or removing collaborators. They may remove THEMSELVES, which is
+	// why leaving a shared list never needs the owner's cooperation.
+	//
+	// READABLE BY THE OWNER AND BY THE COLLABORATORS, and by nobody else -- not even a reader of the
+	// published list, for whom this field is an error rather than an empty list. Who works on a list
+	// together is a relationship between members; publishing a list publishes its contents, not its
+	// authors' associations. An empty list would be a different statement ("nobody collaborates here"),
+	// which is why the refusal is not one.
+	Collaborators []User `json:"collaborators"`
+	// Whether the person asking is allowed to write this list's contents.
+	//
+	// THE ANSWER TO A QUESTION THE CLIENT WOULD OTHERWISE GUESS. A client can compare `owner.id` with its
+	// own id, and that is the only half of the rule it can compute: membership of `collaborators` is
+	// readable by exactly the people this field is for, so a client cannot decide for itself. It is not
+	// merely a convenience -- without it a UI either hides the controls from a collaborator who may write,
+	// or offers them to a reader who may not.
+	CanEdit bool `json:"canEdit"`
 }
 
 // One recorded act on a list.
@@ -1447,6 +1472,16 @@ type ListBrowseResult struct {
 	Lists []List `json:"lists"`
 	// Total published lists, across all pages.
 	Count int `json:"count"`
+}
+
+type ListCollaboratorInput struct {
+	// The list whose write set changes.
+	ListID uuid.UUID `json:"listId"`
+	// The member to add or remove.
+	//
+	// Adding the list's OWNER is refused: the owner is not a collaborator, and a second row saying so
+	// could then be removed, leaving a list whose owner is in the set on one read and not the next.
+	UserID uuid.UUID `json:"userId"`
 }
 
 type ListCreateInput struct {
@@ -4672,16 +4707,37 @@ const (
 	ListAuditActionEnumPublish ListAuditActionEnum = "PUBLISH"
 	// Returned the list to private.
 	ListAuditActionEnumUnpublish ListAuditActionEnum = "UNPUBLISH"
+	// Added an entry.
+	//
+	// The three entry verbs are recorded because a list can have more than one writer: with the actor,
+	// they are the only record of who put something in a list, since an entry itself carries no author.
+	ListAuditActionEnumAddItem ListAuditActionEnum = "ADD_ITEM"
+	// Removed an entry.
+	ListAuditActionEnumRemoveItem ListAuditActionEnum = "REMOVE_ITEM"
+	// Moved an entry to a new position.
+	ListAuditActionEnumReorderItem ListAuditActionEnum = "REORDER_ITEM"
+	// Added a member to the write set.
+	//
+	// The two collaborator verbs are the most trust-sensitive acts on a collaborative list, and the ones a
+	// moderation question is really about: who could write the list, and when did that change.
+	ListAuditActionEnumCollaboratorAdd ListAuditActionEnum = "COLLABORATOR_ADD"
+	// Removed a member from the write set, including a member removing themselves.
+	ListAuditActionEnumCollaboratorRemove ListAuditActionEnum = "COLLABORATOR_REMOVE"
 )
 
 var AllListAuditActionEnum = []ListAuditActionEnum{
 	ListAuditActionEnumPublish,
 	ListAuditActionEnumUnpublish,
+	ListAuditActionEnumAddItem,
+	ListAuditActionEnumRemoveItem,
+	ListAuditActionEnumReorderItem,
+	ListAuditActionEnumCollaboratorAdd,
+	ListAuditActionEnumCollaboratorRemove,
 }
 
 func (e ListAuditActionEnum) IsValid() bool {
 	switch e {
-	case ListAuditActionEnumPublish, ListAuditActionEnumUnpublish:
+	case ListAuditActionEnumPublish, ListAuditActionEnumUnpublish, ListAuditActionEnumAddItem, ListAuditActionEnumRemoveItem, ListAuditActionEnumReorderItem, ListAuditActionEnumCollaboratorAdd, ListAuditActionEnumCollaboratorRemove:
 		return true
 	}
 	return false

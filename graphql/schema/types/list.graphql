@@ -11,6 +11,12 @@
 # Concretely, a client cannot ask for private lists through `publishedLists` because the
 # query does not take a visibility argument. There is nothing to forget to pass, and no
 # path from this file that lists another user's drafts.
+#
+# AND A SEPARATE, SECOND RULE THAT IS NOT VISIBILITY: the WRITE SET (slice 8e). A list has one
+# owner and a named set of collaborators who may change its CONTENTS. Seeing and writing are
+# different questions asked of different people -- a collaborator may write a draft they cannot
+# publish, and the readers of a published list may read it and write nothing. So the write set is
+# not a visibility tier and is not modelled as one.
 
 """
 A user's named, ordered set of archive entities.
@@ -90,6 +96,37 @@ type List {
   has been un-followed.
   """
   sourceSavedSearch: SavedSearch
+
+  """
+  Who may change this list's CONTENTS, besides its owner.
+
+  THE OWNER IS NOT IN THIS LIST. `owner` above is the owner; this field is the set of OTHER members
+  who may add, remove and reorder entries. An owner who appears here would be a second answer to a
+  question `owner` already answers.
+
+  WHAT MEMBERSHIP DOES AND DOES NOT BUY: a collaborator may change the entries and nothing else --
+  not renaming, not re-describing, not deleting, not publishing, not un-publishing, not changing what
+  the list follows, and not adding or removing collaborators. They may remove THEMSELVES, which is
+  why leaving a shared list never needs the owner's cooperation.
+
+  READABLE BY THE OWNER AND BY THE COLLABORATORS, and by nobody else -- not even a reader of the
+  published list, for whom this field is an error rather than an empty list. Who works on a list
+  together is a relationship between members; publishing a list publishes its contents, not its
+  authors' associations. An empty list would be a different statement ("nobody collaborates here"),
+  which is why the refusal is not one.
+  """
+  collaborators: [User!]!
+
+  """
+  Whether the person asking is allowed to write this list's contents.
+
+  THE ANSWER TO A QUESTION THE CLIENT WOULD OTHERWISE GUESS. A client can compare `owner.id` with its
+  own id, and that is the only half of the rule it can compute: membership of `collaborators` is
+  readable by exactly the people this field is for, so a client cannot decide for itself. It is not
+  merely a convenience -- without it a UI either hides the controls from a collaborator who may write,
+  or offers them to a reader who may not.
+  """
+  canEdit: Boolean!
 }
 
 """
@@ -148,6 +185,26 @@ enum ListAuditActionEnum {
   PUBLISH
   "Returned the list to private."
   UNPUBLISH
+  """
+  Added an entry.
+
+  The three entry verbs are recorded because a list can have more than one writer: with the actor,
+  they are the only record of who put something in a list, since an entry itself carries no author.
+  """
+  ADD_ITEM
+  "Removed an entry."
+  REMOVE_ITEM
+  "Moved an entry to a new position."
+  REORDER_ITEM
+  """
+  Added a member to the write set.
+
+  The two collaborator verbs are the most trust-sensitive acts on a collaborative list, and the ones a
+  moderation question is really about: who could write the list, and when did that change.
+  """
+  COLLABORATOR_ADD
+  "Removed a member from the write set, including a member removing themselves."
+  COLLABORATOR_REMOVE
 }
 
 """
@@ -273,21 +330,70 @@ extend type Mutation {
   """
   Add an entry. Fails if that entity is already in the list.
 
+  A WRITER may do this: the list's owner, or a collaborator. AUDITED with the actor, which is what a
+  list with several writers has to have -- an entry carries no author of its own.
+
   Not silently ignored, because a double-submitting client would otherwise see a success
   and a list whose length disagrees with its contents.
   """
   listAddItem(input: ListItemInput!): ListItem! @hasRole(role: MODIFY)
 
-  "Remove one entry."
+  """
+  Remove one entry.
+
+  A WRITER may do this: the list's owner, or a collaborator. AUDITED with the actor, so a list with
+  several writers can answer who removed something -- entries carry no author of their own.
+  """
   listRemoveItem(id: ID!): Boolean! @hasRole(role: MODIFY)
 
   """
   Move one entry to a new position.
 
-  Owner only, even for a published list. Reordering public content is a content edit, and
-  content edits of public artefacts are the same trust-sensitive act as publishing them.
+  A WRITER may do this: the list's owner, or a collaborator. Reordering a public list is a content
+  edit, and content edits of public artefacts are the same trust-sensitive act as publishing them --
+  which is a question about who the writer set is, not about how many people it holds. AUDITED with
+  the actor.
   """
   listReorderItem(id: ID!, position: Int!): ListItem! @hasRole(role: MODIFY)
+}
+
+input ListCollaboratorInput {
+  "The list whose write set changes."
+  listId: ID!
+
+  """
+  The member to add or remove.
+
+  Adding the list's OWNER is refused: the owner is not a collaborator, and a second row saying so
+  could then be removed, leaving a list whose owner is in the set on one read and not the next.
+  """
+  userId: ID!
+}
+
+extend type Mutation {
+  """
+  Add a member to a list's write set. OWNER ONLY -- and that is half the feature.
+
+  A collaborator may change the list's CONTENTS and may not change who else may: a write set that grows
+  without its owner knowing is the thing this design exists to avoid. Refused when the member is
+  already in the set, when the member does not exist, when the target is the owner, and when the list
+  is DERIVED (a list whose contents are computed has nothing for a collaborator to write).
+  """
+  listAddCollaborator(input: ListCollaboratorInput!): Boolean! @hasRole(role: MODIFY)
+
+  """
+  Remove a member from a list's write set.
+
+  TWO callers may do this: the OWNER, who may remove anybody, and the MEMBER THEMSELVES. Leaving a
+  shared list should not require asking the person who invited you, and a member who could not remove
+  themselves would have to request it. Removing a member does NOT remove what they added -- entries
+  carry no author, so nothing is taken away with them -- which is exactly why the audit trail records
+  the actor.
+
+  Refused when the member is not in the set, rather than succeeding quietly: "removed" twice describes
+  one change, and a UI showing both would be reporting an act that did not happen.
+  """
+  listRemoveCollaborator(input: ListCollaboratorInput!): Boolean! @hasRole(role: MODIFY)
 }
 
 input ListForkInput {

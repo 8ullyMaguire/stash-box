@@ -43,6 +43,7 @@ type ResolverRoot interface {
 	Image() ImageResolver
 	ImageType() ImageTypeResolver
 	LeaderboardEntry() LeaderboardEntryResolver
+	List() ListResolver
 	ModAudit() ModAuditResolver
 	Mutation() MutationResolver
 	Notification() NotificationResolver
@@ -626,6 +627,8 @@ type ComplexityRoot struct {
 
 	List struct {
 		AuditTrail        func(childComplexity int) int
+		CanEdit           func(childComplexity int) int
+		Collaborators     func(childComplexity int) int
 		CreatedAt         func(childComplexity int) int
 		Description       func(childComplexity int) int
 		ForkedFromID      func(childComplexity int) int
@@ -719,12 +722,14 @@ type ComplexityRoot struct {
 		ImageTypeOrderUpdate              func(childComplexity int, input ImageTypeOrderInput) int
 		ImageTypeSetEnabled               func(childComplexity int, input ImageTypeEnabledInput) int
 		ImageUpdate                       func(childComplexity int, input ImageUpdateInput) int
+		ListAddCollaborator               func(childComplexity int, input ListCollaboratorInput) int
 		ListAddItem                       func(childComplexity int, input ListItemInput) int
 		ListClearSourceSearch             func(childComplexity int, listID uuid.UUID) int
 		ListCreate                        func(childComplexity int, input ListCreateInput) int
 		ListDelete                        func(childComplexity int, id uuid.UUID) int
 		ListFork                          func(childComplexity int, input ListForkInput) int
 		ListPublish                       func(childComplexity int, id uuid.UUID) int
+		ListRemoveCollaborator            func(childComplexity int, input ListCollaboratorInput) int
 		ListRemoveItem                    func(childComplexity int, id uuid.UUID) int
 		ListReorderItem                   func(childComplexity int, id uuid.UUID, position int) int
 		ListSetSourceSearch               func(childComplexity int, input ListSourceSearchInput) int
@@ -1655,6 +1660,10 @@ type ImageTypeResolver interface {
 type LeaderboardEntryResolver interface {
 	User(ctx context.Context, obj *LeaderboardEntry) (*User, error)
 }
+type ListResolver interface {
+	Collaborators(ctx context.Context, obj *List) ([]User, error)
+	CanEdit(ctx context.Context, obj *List) (bool, error)
+}
 type ModAuditResolver interface {
 	Action(ctx context.Context, obj *ModAudit) (ModAuditActionEnum, error)
 	User(ctx context.Context, obj *ModAudit) (*User, error)
@@ -1772,6 +1781,8 @@ type MutationResolver interface {
 	ListAddItem(ctx context.Context, input ListItemInput) (*ListItem, error)
 	ListRemoveItem(ctx context.Context, id uuid.UUID) (bool, error)
 	ListReorderItem(ctx context.Context, id uuid.UUID, position int) (*ListItem, error)
+	ListAddCollaborator(ctx context.Context, input ListCollaboratorInput) (bool, error)
+	ListRemoveCollaborator(ctx context.Context, input ListCollaboratorInput) (bool, error)
 	ListFork(ctx context.Context, input ListForkInput) (*List, error)
 	ListSetSourceSearch(ctx context.Context, input ListSourceSearchInput) (*List, error)
 	ListClearSourceSearch(ctx context.Context, listID uuid.UUID) (*List, error)
@@ -4133,6 +4144,18 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.List.AuditTrail(childComplexity), true
+	case "List.canEdit":
+		if e.ComplexityRoot.List.CanEdit == nil {
+			break
+		}
+
+		return e.ComplexityRoot.List.CanEdit(childComplexity), true
+	case "List.collaborators":
+		if e.ComplexityRoot.List.Collaborators == nil {
+			break
+		}
+
+		return e.ComplexityRoot.List.Collaborators(childComplexity), true
 	case "List.createdAt":
 		if e.ComplexityRoot.List.CreatedAt == nil {
 			break
@@ -4779,6 +4802,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.ImageUpdate(childComplexity, args["input"].(ImageUpdateInput)), true
+	case "Mutation.listAddCollaborator":
+		if e.ComplexityRoot.Mutation.ListAddCollaborator == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_listAddCollaborator_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.ListAddCollaborator(childComplexity, args["input"].(ListCollaboratorInput)), true
 	case "Mutation.listAddItem":
 		if e.ComplexityRoot.Mutation.ListAddItem == nil {
 			break
@@ -4845,6 +4879,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.ListPublish(childComplexity, args["id"].(uuid.UUID)), true
+	case "Mutation.listRemoveCollaborator":
+		if e.ComplexityRoot.Mutation.ListRemoveCollaborator == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_listRemoveCollaborator_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.ListRemoveCollaborator(childComplexity, args["input"].(ListCollaboratorInput)), true
 	case "Mutation.listRemoveItem":
 		if e.ComplexityRoot.Mutation.ListRemoveItem == nil {
 			break
@@ -9509,6 +9554,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputImageUpdateInput,
 		ec.unmarshalInputIntCriterionInput,
 		ec.unmarshalInputLeaderboardInput,
+		ec.unmarshalInputListCollaboratorInput,
 		ec.unmarshalInputListCreateInput,
 		ec.unmarshalInputListForkInput,
 		ec.unmarshalInputListItemInput,
@@ -12392,6 +12438,12 @@ extend type Mutation {
 # Concretely, a client cannot ask for private lists through ` + "`" + `publishedLists` + "`" + ` because the
 # query does not take a visibility argument. There is nothing to forget to pass, and no
 # path from this file that lists another user's drafts.
+#
+# AND A SEPARATE, SECOND RULE THAT IS NOT VISIBILITY: the WRITE SET (slice 8e). A list has one
+# owner and a named set of collaborators who may change its CONTENTS. Seeing and writing are
+# different questions asked of different people -- a collaborator may write a draft they cannot
+# publish, and the readers of a published list may read it and write nothing. So the write set is
+# not a visibility tier and is not modelled as one.
 
 """
 A user's named, ordered set of archive entities.
@@ -12471,6 +12523,37 @@ type List {
   has been un-followed.
   """
   sourceSavedSearch: SavedSearch
+
+  """
+  Who may change this list's CONTENTS, besides its owner.
+
+  THE OWNER IS NOT IN THIS LIST. ` + "`" + `owner` + "`" + ` above is the owner; this field is the set of OTHER members
+  who may add, remove and reorder entries. An owner who appears here would be a second answer to a
+  question ` + "`" + `owner` + "`" + ` already answers.
+
+  WHAT MEMBERSHIP DOES AND DOES NOT BUY: a collaborator may change the entries and nothing else --
+  not renaming, not re-describing, not deleting, not publishing, not un-publishing, not changing what
+  the list follows, and not adding or removing collaborators. They may remove THEMSELVES, which is
+  why leaving a shared list never needs the owner's cooperation.
+
+  READABLE BY THE OWNER AND BY THE COLLABORATORS, and by nobody else -- not even a reader of the
+  published list, for whom this field is an error rather than an empty list. Who works on a list
+  together is a relationship between members; publishing a list publishes its contents, not its
+  authors' associations. An empty list would be a different statement ("nobody collaborates here"),
+  which is why the refusal is not one.
+  """
+  collaborators: [User!]!
+
+  """
+  Whether the person asking is allowed to write this list's contents.
+
+  THE ANSWER TO A QUESTION THE CLIENT WOULD OTHERWISE GUESS. A client can compare ` + "`" + `owner.id` + "`" + ` with its
+  own id, and that is the only half of the rule it can compute: membership of ` + "`" + `collaborators` + "`" + ` is
+  readable by exactly the people this field is for, so a client cannot decide for itself. It is not
+  merely a convenience -- without it a UI either hides the controls from a collaborator who may write,
+  or offers them to a reader who may not.
+  """
+  canEdit: Boolean!
 }
 
 """
@@ -12529,6 +12612,26 @@ enum ListAuditActionEnum {
   PUBLISH
   "Returned the list to private."
   UNPUBLISH
+  """
+  Added an entry.
+
+  The three entry verbs are recorded because a list can have more than one writer: with the actor,
+  they are the only record of who put something in a list, since an entry itself carries no author.
+  """
+  ADD_ITEM
+  "Removed an entry."
+  REMOVE_ITEM
+  "Moved an entry to a new position."
+  REORDER_ITEM
+  """
+  Added a member to the write set.
+
+  The two collaborator verbs are the most trust-sensitive acts on a collaborative list, and the ones a
+  moderation question is really about: who could write the list, and when did that change.
+  """
+  COLLABORATOR_ADD
+  "Removed a member from the write set, including a member removing themselves."
+  COLLABORATOR_REMOVE
 }
 
 """
@@ -12654,21 +12757,70 @@ extend type Mutation {
   """
   Add an entry. Fails if that entity is already in the list.
 
+  A WRITER may do this: the list's owner, or a collaborator. AUDITED with the actor, which is what a
+  list with several writers has to have -- an entry carries no author of its own.
+
   Not silently ignored, because a double-submitting client would otherwise see a success
   and a list whose length disagrees with its contents.
   """
   listAddItem(input: ListItemInput!): ListItem! @hasRole(role: MODIFY)
 
-  "Remove one entry."
+  """
+  Remove one entry.
+
+  A WRITER may do this: the list's owner, or a collaborator. AUDITED with the actor, so a list with
+  several writers can answer who removed something -- entries carry no author of their own.
+  """
   listRemoveItem(id: ID!): Boolean! @hasRole(role: MODIFY)
 
   """
   Move one entry to a new position.
 
-  Owner only, even for a published list. Reordering public content is a content edit, and
-  content edits of public artefacts are the same trust-sensitive act as publishing them.
+  A WRITER may do this: the list's owner, or a collaborator. Reordering a public list is a content
+  edit, and content edits of public artefacts are the same trust-sensitive act as publishing them --
+  which is a question about who the writer set is, not about how many people it holds. AUDITED with
+  the actor.
   """
   listReorderItem(id: ID!, position: Int!): ListItem! @hasRole(role: MODIFY)
+}
+
+input ListCollaboratorInput {
+  "The list whose write set changes."
+  listId: ID!
+
+  """
+  The member to add or remove.
+
+  Adding the list's OWNER is refused: the owner is not a collaborator, and a second row saying so
+  could then be removed, leaving a list whose owner is in the set on one read and not the next.
+  """
+  userId: ID!
+}
+
+extend type Mutation {
+  """
+  Add a member to a list's write set. OWNER ONLY -- and that is half the feature.
+
+  A collaborator may change the list's CONTENTS and may not change who else may: a write set that grows
+  without its owner knowing is the thing this design exists to avoid. Refused when the member is
+  already in the set, when the member does not exist, when the target is the owner, and when the list
+  is DERIVED (a list whose contents are computed has nothing for a collaborator to write).
+  """
+  listAddCollaborator(input: ListCollaboratorInput!): Boolean! @hasRole(role: MODIFY)
+
+  """
+  Remove a member from a list's write set.
+
+  TWO callers may do this: the OWNER, who may remove anybody, and the MEMBER THEMSELVES. Leaving a
+  shared list should not require asking the person who invited you, and a member who could not remove
+  themselves would have to request it. Removing a member does NOT remove what they added -- entries
+  carry no author, so nothing is taken away with them -- which is exactly why the audit trail records
+  the actor.
+
+  Refused when the member is not in the set, rather than succeeding quietly: "removed" twice describes
+  one change, and a UI showing both would be reporting an act that did not happen.
+  """
+  listRemoveCollaborator(input: ListCollaboratorInput!): Boolean! @hasRole(role: MODIFY)
 }
 
 input ListForkInput {
@@ -17060,6 +17212,10 @@ func (ec *executionContext) childFields_List(ctx context.Context, field graphql.
 		return ec.fieldContext_List_isDerived(ctx, field)
 	case "sourceSavedSearch":
 		return ec.fieldContext_List_sourceSavedSearch(ctx, field)
+	case "collaborators":
+		return ec.fieldContext_List_collaborators(ctx, field)
+	case "canEdit":
+		return ec.fieldContext_List_canEdit(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type List", field.Name)
 }
@@ -18904,6 +19060,20 @@ func (ec *executionContext) field_Mutation_imageUpdate_args(ctx context.Context,
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_listAddCollaborator_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
+		func(ctx context.Context, v any) (ListCollaboratorInput, error) {
+			return ec.unmarshalNListCollaboratorInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐListCollaboratorInput(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_listAddItem_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -18985,6 +19155,20 @@ func (ec *executionContext) field_Mutation_listPublish_args(ctx context.Context,
 		return nil, err
 	}
 	args["id"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_listRemoveCollaborator_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
+		func(ctx context.Context, v any) (ListCollaboratorInput, error) {
+			return ec.unmarshalNListCollaboratorInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐListCollaboratorInput(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
 	return args, nil
 }
 
@@ -30003,6 +30187,61 @@ func (ec *executionContext) fieldContext_List_sourceSavedSearch(_ context.Contex
 	return fc, nil
 }
 
+func (ec *executionContext) _List_collaborators(ctx context.Context, field graphql.CollectedField, obj *List) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_List_collaborators(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.List().Collaborators(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []User) graphql.Marshaler {
+			return ec.marshalNUser2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐUserᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_List_collaborators(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "List",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_User(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _List_canEdit(ctx context.Context, field graphql.CollectedField, obj *List) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_List_canEdit(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.List().CanEdit(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_List_canEdit(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("List", field, true, true, errors.New("field of type Boolean does not have child fields"))
+}
+
 func (ec *executionContext) _ListAudit_id(ctx context.Context, field graphql.CollectedField, obj *ListAudit) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -37295,6 +37534,130 @@ func (ec *executionContext) fieldContext_Mutation_listReorderItem(ctx context.Co
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Mutation_listReorderItem_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_listAddCollaborator(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_listAddCollaborator(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().ListAddCollaborator(ctx, fc.Args["input"].(ListCollaboratorInput))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "MODIFY")
+				if err != nil {
+					var zeroVal bool
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal bool
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_listAddCollaborator(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_listAddCollaborator_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_listRemoveCollaborator(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_listRemoveCollaborator(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().ListRemoveCollaborator(ctx, fc.Args["input"].(ListCollaboratorInput))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "MODIFY")
+				if err != nil {
+					var zeroVal bool
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal bool
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_listRemoveCollaborator(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_listRemoveCollaborator_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -58961,6 +59324,43 @@ func (ec *executionContext) unmarshalInputLeaderboardInput(ctx context.Context, 
 	return it, nil
 }
 
+func (ec *executionContext) unmarshalInputListCollaboratorInput(ctx context.Context, obj any) (ListCollaboratorInput, error) {
+	var it ListCollaboratorInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"listId", "userId"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "listId":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("listId"))
+			data, err := ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ListID = data
+		case "userId":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("userId"))
+			data, err := ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.UserID = data
+		}
+	}
+	return it, nil
+}
+
 func (ec *executionContext) unmarshalInputListCreateInput(ctx context.Context, obj any) (ListCreateInput, error) {
 	var it ListCreateInput
 	if obj == nil {
@@ -69946,73 +70346,149 @@ func (ec *executionContext) _List(ctx context.Context, sel ast.SelectionSet, obj
 		case "id":
 			out.Values[i] = ec._List_id(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "name":
 			out.Values[i] = ec._List_name(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "description":
 			out.Values[i] = ec._List_description(ctx, field, obj)
 			if out.Values[i] == graphql.RequiredNull {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "owner":
 			out.Values[i] = ec._List_owner(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "publishedAt":
 			out.Values[i] = ec._List_publishedAt(ctx, field, obj)
 			if out.Values[i] == graphql.RequiredNull {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "publishedBy":
 			out.Values[i] = ec._List_publishedBy(ctx, field, obj)
 			if out.Values[i] == graphql.RequiredNull {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "items":
 			out.Values[i] = ec._List_items(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "itemCount":
 			out.Values[i] = ec._List_itemCount(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "auditTrail":
 			out.Values[i] = ec._List_auditTrail(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "createdAt":
 			out.Values[i] = ec._List_createdAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "updatedAt":
 			out.Values[i] = ec._List_updatedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "forkedFromId":
 			out.Values[i] = ec._List_forkedFromId(ctx, field, obj)
 			if out.Values[i] == graphql.RequiredNull {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "isDerived":
 			out.Values[i] = ec._List_isDerived(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "sourceSavedSearch":
 			out.Values[i] = ec._List_sourceSavedSearch(ctx, field, obj)
 			if out.Values[i] == graphql.RequiredNull {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
+		case "collaborators":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._List_collaborators(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "canEdit":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._List_canEdit(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -71185,6 +71661,20 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 		case "listReorderItem":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_listReorderItem(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "listAddCollaborator":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_listAddCollaborator(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "listRemoveCollaborator":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_listRemoveCollaborator(ctx, field)
 			})
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
@@ -85307,6 +85797,11 @@ func (ec *executionContext) marshalNListBrowseResult2ᚖgithubᚗcomᚋstashapp�
 		return graphql.Null
 	}
 	return ec._ListBrowseResult(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalNListCollaboratorInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐListCollaboratorInput(ctx context.Context, v any) (ListCollaboratorInput, error) {
+	res, err := ec.unmarshalInputListCollaboratorInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
 }
 
 func (ec *executionContext) unmarshalNListCreateInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐListCreateInput(ctx context.Context, v any) (ListCreateInput, error) {

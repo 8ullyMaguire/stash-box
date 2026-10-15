@@ -34,22 +34,33 @@ func aList(published bool) queries.List {
 }
 
 // canView is the rule that decides whether a draft leaks. It gets the most cases here for
-// that reason, including the two that are easy to get wrong and that no database can check:
-// the zero viewer, and a viewer who owns a DIFFERENT list.
+// that reason, including the three that are easy to get wrong and that no database can check:
+// the zero viewer, a viewer who owns a DIFFERENT list, and -- since slice 8e -- the
+// collaborator fact, which must be an INPUT to the rule rather than a bypass of it.
 
 func TestCanViewPublishedListIsVisibleToAnyone(t *testing.T) {
 	l := aList(true)
 
-	assert.True(t, canView(l, uuid.Must(uuid.NewV7())), "a stranger may read a published list")
-	assert.True(t, canView(l, uuid.Nil), "an anonymous viewer may read a published list")
-	assert.True(t, canView(l, l.OwnerID), "the owner may of course read their own published list")
+	assert.True(t, canView(l, uuid.Must(uuid.NewV7()), false), "a stranger may read a published list")
+	assert.True(t, canView(l, uuid.Nil, false), "an anonymous viewer may read a published list")
+	assert.True(t, canView(l, l.OwnerID, false), "the owner may of course read their own published list")
+
+	// The collaborator fact must not CHANGE a published answer -- publication already settles it. This
+	// is the arm that would fail if somebody "optimised" the function into a switch on the fact.
+	assert.True(t, canView(l, uuid.Must(uuid.NewV7()), true),
+		"a collaborator's extra fact cannot make a published list more visible than it already is")
 }
 
 func TestCanViewDraftIsVisibleOnlyToItsOwner(t *testing.T) {
 	l := aList(false)
 
-	assert.True(t, canView(l, l.OwnerID), "the owner may always read their own draft")
-	assert.False(t, canView(l, uuid.Must(uuid.NewV7())), "a stranger may not read a draft")
+	assert.True(t, canView(l, l.OwnerID, false), "the owner may always read their own draft")
+	assert.False(t, canView(l, uuid.Must(uuid.NewV7()), false), "a stranger may not read a draft")
+	// THE ARM SLICE 8e ADDS, and the whole reason the function takes a third argument: a collaborator
+	// may WRITE the list, so they must be able to read it. Without this the feature would let somebody
+	// edit a list they cannot open.
+	assert.True(t, canView(l, uuid.Must(uuid.NewV7()), true),
+		"a collaborator may read the draft they may write")
 }
 
 func TestCanViewAnonymousViewerIsNotTheOwnerEvenWhenOwnerIDIsZero(t *testing.T) {
@@ -61,7 +72,18 @@ func TestCanViewAnonymousViewerIsNotTheOwnerEvenWhenOwnerIDIsZero(t *testing.T) 
 	l := aList(false)
 	l.OwnerID = uuid.Nil
 
-	assert.False(t, canView(l, uuid.Nil), "a draft owned by the zero uuid must not be anonymous-readable")
+	assert.False(t, canView(l, uuid.Nil, false), "a draft owned by the zero uuid must not be anonymous-readable")
+}
+
+func TestCanViewTheZeroViewerIsNeverACollaborator(t *testing.T) {
+	// The same guard, on the arm slice 8e added, and the more dangerous of the two: Get only ASKS
+	// whether the viewer is a collaborator when the viewer is not the zero uuid, so a caller passing
+	// (uuid.Nil, true) would be a caller contradicting its own lookup. The rule must refuse it anyway.
+	// A rule whose safety depends on the caller passing the right fact is not a rule.
+	l := aList(false)
+
+	assert.False(t, canView(l, uuid.Nil, true),
+		"the collaborator fact must not make a draft readable by an unauthenticated viewer")
 }
 
 // The direction of the error matters as much as the fact of it. Get returns ErrNotFound for
@@ -134,6 +156,14 @@ func TestErrorsAreDistinct(t *testing.T) {
 		"duplicate-item": ErrDuplicateItem,
 		"already-pub":    ErrAlreadyPublished,
 		"not-published":  ErrNotPublished,
+		// Slice 8e. Two of these are near-neighbours and the GraphQL layer renders them as different
+		// sentences, which is the point: "already a collaborator" and "not a collaborator" are the two
+		// halves of one act and a caller that could not tell them apart would report the wrong failure
+		// for a double-submitted remove.
+		"already-collaborator":   ErrAlreadyCollaborator,
+		"not-collaborator":       ErrNotCollaborator,
+		"owner-not-collaborator": ErrOwnerIsNotACollaborator,
+		"unknown-user":           ErrUnknownUser,
 	}
 	seen := make(map[error]string, len(all))
 	for name, err := range all {
