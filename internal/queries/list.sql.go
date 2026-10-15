@@ -43,6 +43,32 @@ func (q *Queries) AddListItem(ctx context.Context, arg AddListItemParams) (ListI
 	return i, err
 }
 
+const copyListItems = `-- name: CopyListItems :execrows
+INSERT INTO list_items (list_id, entity_type, entity_id, position)
+SELECT $1::uuid, li.entity_type, li.entity_id, li.position
+FROM list_items li
+WHERE li.list_id = $2::uuid
+`
+
+type CopyListItemsParams struct {
+	DestinationID uuid.UUID `db:"destination_id" json:"destination_id"`
+	SourceID      uuid.UUID `db:"source_id" json:"source_id"`
+}
+
+// The fork's contents, in ONE statement, so the copy is atomic and a fork can never half-exist.
+//
+// POSITION TRAVELS WITH THE ITEM: a curated list whose order is lost is not the list anybody wanted
+// to fork. And the copy is a COPY -- there is no foreign key from a fork's items to the source's, so
+// later edits to either side are invisible to the other. That is the difference between this slice
+// and the auto-updating list, which is 8d and a different feature.
+func (q *Queries) CopyListItems(ctx context.Context, arg CopyListItemsParams) (int64, error) {
+	result, err := q.db.Exec(ctx, copyListItems, arg.DestinationID, arg.SourceID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const countListItems = `-- name: CountListItems :one
 SELECT count(*) FROM list_items WHERE list_id = $1
 `
@@ -65,10 +91,56 @@ func (q *Queries) CountPublishedLists(ctx context.Context) (int64, error) {
 	return count, err
 }
 
+const createForkedList = `-- name: CreateForkedList :one
+INSERT INTO lists (id, owner_id, name, description, owner_name, forked_from_id)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id, owner_id, name, description, published_at, published_by, owner_name, created_at, updated_at, forked_from_id
+`
+
+type CreateForkedListParams struct {
+	ID           uuid.UUID     `db:"id" json:"id"`
+	OwnerID      uuid.UUID     `db:"owner_id" json:"owner_id"`
+	Name         string        `db:"name" json:"name"`
+	Description  *string       `db:"description" json:"description"`
+	OwnerName    string        `db:"owner_name" json:"owner_name"`
+	ForkedFromID uuid.NullUUID `db:"forked_from_id" json:"forked_from_id"`
+}
+
+// A fork: private by construction, like CreateList, and carrying the id it was forked from.
+//
+// The parent is set in the SAME statement that creates the row, so a list cannot exist with a
+// provenance that arrives later -- and `published_at` is absent for the same reason CreateList omits
+// it: a fork of a published list is NOT published, because the source's publication is the source
+// owner's decision and not one a copy inherits.
+func (q *Queries) CreateForkedList(ctx context.Context, arg CreateForkedListParams) (List, error) {
+	row := q.db.QueryRow(ctx, createForkedList,
+		arg.ID,
+		arg.OwnerID,
+		arg.Name,
+		arg.Description,
+		arg.OwnerName,
+		arg.ForkedFromID,
+	)
+	var i List
+	err := row.Scan(
+		&i.ID,
+		&i.OwnerID,
+		&i.Name,
+		&i.Description,
+		&i.PublishedAt,
+		&i.PublishedBy,
+		&i.OwnerName,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ForkedFromID,
+	)
+	return i, err
+}
+
 const createList = `-- name: CreateList :one
 INSERT INTO lists (id, owner_id, name, description, owner_name)
 VALUES ($1, $2, $3, $4, $5)
-RETURNING id, owner_id, name, description, published_at, published_by, owner_name, created_at, updated_at
+RETURNING id, owner_id, name, description, published_at, published_by, owner_name, created_at, updated_at, forked_from_id
 `
 
 type CreateListParams struct {
@@ -104,6 +176,7 @@ func (q *Queries) CreateList(ctx context.Context, arg CreateListParams) (List, e
 		&i.OwnerName,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ForkedFromID,
 	)
 	return i, err
 }
@@ -118,7 +191,7 @@ func (q *Queries) DeleteList(ctx context.Context, id uuid.UUID) error {
 }
 
 const findList = `-- name: FindList :one
-SELECT id, owner_id, name, description, published_at, published_by, owner_name, created_at, updated_at FROM lists WHERE id = $1
+SELECT id, owner_id, name, description, published_at, published_by, owner_name, created_at, updated_at, forked_from_id FROM lists WHERE id = $1
 `
 
 func (q *Queries) FindList(ctx context.Context, id uuid.UUID) (List, error) {
@@ -134,6 +207,7 @@ func (q *Queries) FindList(ctx context.Context, id uuid.UUID) (List, error) {
 		&i.OwnerName,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ForkedFromID,
 	)
 	return i, err
 }
@@ -170,7 +244,7 @@ func (q *Queries) FindListAudit(ctx context.Context, listID uuid.UUID) ([]ListAu
 }
 
 const findListByName = `-- name: FindListByName :one
-SELECT id, owner_id, name, description, published_at, published_by, owner_name, created_at, updated_at FROM lists WHERE owner_id = $1 AND name = $2
+SELECT id, owner_id, name, description, published_at, published_by, owner_name, created_at, updated_at, forked_from_id FROM lists WHERE owner_id = $1 AND name = $2
 `
 
 type FindListByNameParams struct {
@@ -193,6 +267,7 @@ func (q *Queries) FindListByName(ctx context.Context, arg FindListByNameParams) 
 		&i.OwnerName,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ForkedFromID,
 	)
 	return i, err
 }
@@ -234,7 +309,7 @@ func (q *Queries) FindListItems(ctx context.Context, listID uuid.UUID) ([]ListIt
 }
 
 const findListsByIds = `-- name: FindListsByIds :many
-SELECT id, owner_id, name, description, published_at, published_by, owner_name, created_at, updated_at FROM lists WHERE id = ANY($1::UUID[])
+SELECT id, owner_id, name, description, published_at, published_by, owner_name, created_at, updated_at, forked_from_id FROM lists WHERE id = ANY($1::UUID[])
 `
 
 // Batch lookup by id, used to resolve the lists a caller may see.
@@ -261,6 +336,7 @@ func (q *Queries) FindListsByIds(ctx context.Context, dollar_1 []uuid.UUID) ([]L
 			&i.OwnerName,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.ForkedFromID,
 		); err != nil {
 			return nil, err
 		}
@@ -273,7 +349,7 @@ func (q *Queries) FindListsByIds(ctx context.Context, dollar_1 []uuid.UUID) ([]L
 }
 
 const findListsByOwner = `-- name: FindListsByOwner :many
-SELECT id, owner_id, name, description, published_at, published_by, owner_name, created_at, updated_at FROM lists WHERE owner_id = $1 ORDER BY name ASC
+SELECT id, owner_id, name, description, published_at, published_by, owner_name, created_at, updated_at, forked_from_id FROM lists WHERE owner_id = $1 ORDER BY name ASC
 `
 
 // Everything an owner has, drafts included. This is the one listing that shows private
@@ -297,6 +373,7 @@ func (q *Queries) FindListsByOwner(ctx context.Context, ownerID uuid.UUID) ([]Li
 			&i.OwnerName,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.ForkedFromID,
 		); err != nil {
 			return nil, err
 		}
@@ -309,7 +386,7 @@ func (q *Queries) FindListsByOwner(ctx context.Context, ownerID uuid.UUID) ([]Li
 }
 
 const findPublishedLists = `-- name: FindPublishedLists :many
-SELECT id, owner_id, name, description, published_at, published_by, owner_name, created_at, updated_at FROM lists
+SELECT id, owner_id, name, description, published_at, published_by, owner_name, created_at, updated_at, forked_from_id FROM lists
  WHERE published_at IS NOT NULL
  ORDER BY published_at DESC, id DESC
  LIMIT $1 OFFSET $2
@@ -343,6 +420,7 @@ func (q *Queries) FindPublishedLists(ctx context.Context, arg FindPublishedLists
 			&i.OwnerName,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.ForkedFromID,
 		); err != nil {
 			return nil, err
 		}
@@ -381,7 +459,7 @@ func (q *Queries) GetListItem(ctx context.Context, id uuid.UUID) (ListItem, erro
 const publishList = `-- name: PublishList :one
 UPDATE lists SET published_at = now(), published_by = $2, updated_at = now()
 WHERE id = $1 AND published_at IS NULL
-RETURNING id, owner_id, name, description, published_at, published_by, owner_name, created_at, updated_at
+RETURNING id, owner_id, name, description, published_at, published_by, owner_name, created_at, updated_at, forked_from_id
 `
 
 type PublishListParams struct {
@@ -408,6 +486,7 @@ func (q *Queries) PublishList(ctx context.Context, arg PublishListParams) (List,
 		&i.OwnerName,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ForkedFromID,
 	)
 	return i, err
 }
@@ -470,7 +549,7 @@ func (q *Queries) ReorderListItems(ctx context.Context, arg ReorderListItemsPara
 const unpublishList = `-- name: UnpublishList :one
 UPDATE lists SET published_at = NULL, published_by = NULL, updated_at = now()
 WHERE id = $1 AND published_at IS NOT NULL
-RETURNING id, owner_id, name, description, published_at, published_by, owner_name, created_at, updated_at
+RETURNING id, owner_id, name, description, published_at, published_by, owner_name, created_at, updated_at, forked_from_id
 `
 
 // Return to private. The `published_at IS NOT NULL` guard means unpublishing something
@@ -489,6 +568,7 @@ func (q *Queries) UnpublishList(ctx context.Context, id uuid.UUID) (List, error)
 		&i.OwnerName,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ForkedFromID,
 	)
 	return i, err
 }
@@ -496,7 +576,7 @@ func (q *Queries) UnpublishList(ctx context.Context, id uuid.UUID) (List, error)
 const updateList = `-- name: UpdateList :one
 UPDATE lists SET name = $2, description = $3, updated_at = now()
 WHERE id = $1
-RETURNING id, owner_id, name, description, published_at, published_by, owner_name, created_at, updated_at
+RETURNING id, owner_id, name, description, published_at, published_by, owner_name, created_at, updated_at, forked_from_id
 `
 
 type UpdateListParams struct {
@@ -520,6 +600,7 @@ func (q *Queries) UpdateList(ctx context.Context, arg UpdateListParams) (List, e
 		&i.OwnerName,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ForkedFromID,
 	)
 	return i, err
 }

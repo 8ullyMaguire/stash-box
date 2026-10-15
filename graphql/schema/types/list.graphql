@@ -57,6 +57,15 @@ type List {
 
   createdAt: DateTime!
   updatedAt: DateTime!
+
+  """
+  The list this one was forked from, or null.
+
+  A FORK IS A COPY THAT REMEMBERS WHERE IT CAME FROM AND TRACKS NOTHING: later changes to the
+  source do not reach it. The alternative -- a list that follows somebody else's -- is the
+  auto-updating list, a different feature.
+  """
+  forkedFromId: ID
 }
 
 """
@@ -255,4 +264,23 @@ extend type Mutation {
   content edits of public artefacts are the same trust-sensitive act as publishing them.
   """
   listReorderItem(id: ID!, position: Int!): ListItem! @hasRole(role: MODIFY)
+}
+
+input ListForkInput {
+  "The list to copy. You must be able to SEE it: its own visibility rule decides."
+  id: ID!
+
+  "The new list's name, unique per owner like any other."
+  name: String!
+}
+
+extend type Mutation {
+  """
+  Copy a list into one owned by the caller.
+
+  The fork starts PRIVATE and UNPUBLISHED -- the source owner's publication is their decision,
+  not something a copy inherits -- and it inherits the source's description when none is given.
+  Its entries are copied in their existing order, and neither list changes the other afterwards.
+  """
+  listFork(input: ListForkInput!): List! @hasRole(role: READ)
 }

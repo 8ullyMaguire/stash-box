@@ -9,6 +9,29 @@ INSERT INTO lists (id, owner_id, name, description, owner_name)
 VALUES ($1, $2, $3, $4, $5)
 RETURNING *;
 
+-- name: CreateForkedList :one
+-- A fork: private by construction, like CreateList, and carrying the id it was forked from.
+--
+-- The parent is set in the SAME statement that creates the row, so a list cannot exist with a
+-- provenance that arrives later -- and `published_at` is absent for the same reason CreateList omits
+-- it: a fork of a published list is NOT published, because the source's publication is the source
+-- owner's decision and not one a copy inherits.
+INSERT INTO lists (id, owner_id, name, description, owner_name, forked_from_id)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING *;
+
+-- name: CopyListItems :execrows
+-- The fork's contents, in ONE statement, so the copy is atomic and a fork can never half-exist.
+--
+-- POSITION TRAVELS WITH THE ITEM: a curated list whose order is lost is not the list anybody wanted
+-- to fork. And the copy is a COPY -- there is no foreign key from a fork's items to the source's, so
+-- later edits to either side are invisible to the other. That is the difference between this slice
+-- and the auto-updating list, which is 8d and a different feature.
+INSERT INTO list_items (list_id, entity_type, entity_id, position)
+SELECT sqlc.arg(destination_id)::uuid, li.entity_type, li.entity_id, li.position
+FROM list_items li
+WHERE li.list_id = sqlc.arg(source_id)::uuid;
+
 -- name: FindList :one
 SELECT * FROM lists WHERE id = $1;
 

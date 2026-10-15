@@ -1369,6 +1369,12 @@ type List struct {
 	AuditTrail []ListAudit `json:"auditTrail"`
 	CreatedAt  string      `json:"createdAt"`
 	UpdatedAt  string      `json:"updatedAt"`
+	// The list this one was forked from, or null.
+	//
+	// A FORK IS A COPY THAT REMEMBERS WHERE IT CAME FROM AND TRACKS NOTHING: later changes to the
+	// source do not reach it. The alternative -- a list that follows somebody else's -- is the
+	// auto-updating list, a different feature.
+	ForkedFromID *uuid.UUID `json:"forkedFromId,omitempty"`
 }
 
 // One recorded act on a list.
@@ -1402,6 +1408,13 @@ type ListCreateInput struct {
 	Name string `json:"name"`
 	// Optional. An empty string is treated as absent.
 	Description *string `json:"description,omitempty"`
+}
+
+type ListForkInput struct {
+	// The list to copy. You must be able to SEE it: its own visibility rule decides.
+	ID uuid.UUID `json:"id"`
+	// The new list's name, unique per owner like any other.
+	Name string `json:"name"`
 }
 
 // One entry in a list.

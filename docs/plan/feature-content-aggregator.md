@@ -1919,6 +1919,80 @@ probe then killed it. Same lesson as 6d, 6f and 6g, now for the fourth slice: a 
 nothing to kill it is a missing test — **and this one named a missing LAYER rather than a
 missing fixture.**
 
+### Slice 8c — forking a list (BUILT)
+
+**A FORK IS A COPY THAT REMEMBERS WHERE IT CAME FROM AND TRACKS NOTHING.** That distinction is the
+whole of the slice: the moment a fork exists it is independent, so later changes to the source do not
+reach it and changes to it do not reach the source. The alternative — a list that follows somebody
+else's — is the auto-updating list (8d), and conflating them would mean a member's own list changing
+under them because a stranger edited theirs.
+
+**The audit came first, and found nothing:** `list` had create/get/update/delete/publish, items, and a
+bounded cap, and grep found no copy path. So this is one of the few slices in this programme where the
+feature genuinely did not exist in any form.
+
+**Visibility is the source's own rule, REUSED rather than restated.** `Get` already decides that a
+published list is readable by anyone and a draft only by its owner, and it reports somebody else's draft
+as `ErrNotFound` rather than "not yours" so private ids cannot be enumerated one probe at a time. The
+fork calls it. A fork route that answered more helpfully than the read route would be **a way to read a
+list that cannot be read**, and a second implementation of a privacy rule is a second place for it to be
+wrong.
+
+**A fork of a published list is not published.** The source owner's publication is their decision, not
+something a copy inherits — and the INSERT has no column to publish through, which is the same
+structural trick `CreateList` uses. The description IS inherited when the caller gives none, because a
+fork is meant to be "that list, mine" and an empty description is a blank the forker has to fill in
+again.
+
+**The copy is ONE statement** (`INSERT ... SELECT`), so a fork can never half-exist, and **position
+travels with the entry**: a curated list whose order is lost is not the list anybody wanted to fork.
+
+**THE CAP IS THE ONE RULE A COPY WOULD WALK PAST.** Entries are bounded per-item on the ordinary add
+path — count, then insert — and a bulk copy inserts every row in a single statement, so there is no
+per-item moment at which a count could refuse. The rule therefore exists as a statement of its own
+(`CanFork`) with its own test, rather than as an inline comparison on a path that a copy does not take.
+
+**Verification (DONE).** Pure: the cap is inclusive at the bound and refuses one over it, with the
+refusal named. Against a database through the real resolver: a fork of a published list belongs to the
+forker, starts **unpublished**, remembers its parent, inherits the description, and carries **the same
+entries in the same order** — with the fixture setting distinct positions, so "the order survived" is a
+claim that can fail rather than a coin flip between equal positions; the two lists are independent **in
+both directions** (the source grows and the fork does not; the fork shrinks and the source keeps
+everything); a fork of a list you cannot see is **not found**, with the same message the read path
+gives; the owner can fork their own draft; and deleting the source **leaves the fork**, with its entries
+intact and its parent forgotten.
+
+Five probes — four killed on the first run and the fifth after the FIXTURE was repaired: the copy
+targeting the source list instead of the fork ("Received unexpected error"); the parent not recorded
+("Expected value not to be nil"); the source read without the visibility rule ("An error is expected but
+got nil"); any list forkable however large; and the display order — which **SURVIVED**, because the
+fixture added its entries in a row and then set their positions IN INSERTION ORDER: with equal
+positions the display order falls back to the row id, and ids generated in sequence agree with
+insertion order, so a copy that carried positions and one that dropped them produced the same list. The
+fixture now sets the display order to the REVERSE of the insertion order, which makes the two orderings
+disagree, and the probe is killed with "the entries are copied AND in the source's order". This is the
+"two orderings rank the fixture the same way" trap, and the fixture — not the assertion — was wrong.
+
+### Slice 8d — the auto-updating list (NOT BUILT)
+
+A list that follows a saved search: its entries are the search's current results rather than a copy, so
+membership is derived rather than stored. This is the slice that must NOT be folded into 8c — a fork is
+independent by definition, and the two features differ in exactly the property a reader cares about.
+The existing `savedsearch` service is the thing to audit first, by this phase's own rule.
+
+### Slice 8e — collaborative lists (NOT BUILT)
+
+More than one writer. The open question to settle before any code is **who may add**, which is not the
+same question as who may see: a collaborative list is a list whose write set is not its owner, and the
+obvious cheap answer (anyone who can see it) makes every published list publicly writable. The
+`list_audit` table already exists and is where the answer will show up.
+
+### Slice 8f — forums (NOT BUILT)
+
+Searchable, governance-gated. The largest remaining item in this phase by a distance: threads, posts,
+search over both, and a moderation surface. It should be its own phase-sized effort rather than a
+slice, and it is recorded here so that "phase 8 is finished" cannot be claimed while it is missing.
+
 ### Slice 8b — confirming an identification routes into an edit (BUILT)
 
 The phase's own verification, and the reason this slice is separate: **a confirmed

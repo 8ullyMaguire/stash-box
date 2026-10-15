@@ -156,6 +156,13 @@ type Querier interface {
 	// nothing behind the catalogue entry -- and tags are weighted above it because an
 	// item nobody can find is the failure the discovery surfaces exist to prevent.
 	ContentItemCompletionInputs(ctx context.Context, id uuid.UUID) (ContentItemCompletionInputsRow, error)
+	// The fork's contents, in ONE statement, so the copy is atomic and a fork can never half-exist.
+	//
+	// POSITION TRAVELS WITH THE ITEM: a curated list whose order is lost is not the list anybody wanted
+	// to fork. And the copy is a COPY -- there is no foreign key from a fork's items to the source's, so
+	// later edits to either side are invisible to the other. That is the difference between this slice
+	// and the auto-updating list, which is 8d and a different feature.
+	CopyListItems(ctx context.Context, arg CopyListItemsParams) (int64, error)
 	// The cap's instrument. Counts exactly what the list above returns, so a refusal
 	// and a displayed list cannot disagree about how full a target is.
 	CountActiveVouchesForTarget(ctx context.Context, arg CountActiveVouchesForTargetParams) (int64, error)
@@ -438,6 +445,13 @@ type Querier interface {
 	// answer into the local vote table. The test for that is
 	// TestForeignEvidenceCannotReachLocalVotePath.
 	CreateForeignCandidate(ctx context.Context, arg CreateForeignCandidateParams) (IdentificationForeignCandidate, error)
+	// A fork: private by construction, like CreateList, and carrying the id it was forked from.
+	//
+	// The parent is set in the SAME statement that creates the row, so a list cannot exist with a
+	// provenance that arrives later -- and `published_at` is absent for the same reason CreateList omits
+	// it: a fork of a published list is NOT published, because the source's publication is the source
+	// owner's decision and not one a copy inherits.
+	CreateForkedList(ctx context.Context, arg CreateForkedListParams) (List, error)
 	// Identification board queries (SPEC §5, migration 79).
 	//
 	// Three tables with one rule running through all of them: a vote is EVIDENCE, not

@@ -511,15 +511,16 @@ type LintQuestDefinition struct {
 }
 
 type List struct {
-	ID          uuid.UUID          `db:"id" json:"id"`
-	OwnerID     uuid.UUID          `db:"owner_id" json:"owner_id"`
-	Name        string             `db:"name" json:"name"`
-	Description *string            `db:"description" json:"description"`
-	PublishedAt pgtype.Timestamptz `db:"published_at" json:"published_at"`
-	PublishedBy uuid.NullUUID      `db:"published_by" json:"published_by"`
-	OwnerName   string             `db:"owner_name" json:"owner_name"`
-	CreatedAt   pgtype.Timestamptz `db:"created_at" json:"created_at"`
-	UpdatedAt   pgtype.Timestamptz `db:"updated_at" json:"updated_at"`
+	ID           uuid.UUID          `db:"id" json:"id"`
+	OwnerID      uuid.UUID          `db:"owner_id" json:"owner_id"`
+	Name         string             `db:"name" json:"name"`
+	Description  *string            `db:"description" json:"description"`
+	PublishedAt  pgtype.Timestamptz `db:"published_at" json:"published_at"`
+	PublishedBy  uuid.NullUUID      `db:"published_by" json:"published_by"`
+	OwnerName    string             `db:"owner_name" json:"owner_name"`
+	CreatedAt    pgtype.Timestamptz `db:"created_at" json:"created_at"`
+	UpdatedAt    pgtype.Timestamptz `db:"updated_at" json:"updated_at"`
+	ForkedFromID uuid.NullUUID      `db:"forked_from_id" json:"forked_from_id"`
 }
 
 type ListAudit struct {

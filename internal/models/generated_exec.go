@@ -608,17 +608,18 @@ type ComplexityRoot struct {
 	}
 
 	List struct {
-		AuditTrail  func(childComplexity int) int
-		CreatedAt   func(childComplexity int) int
-		Description func(childComplexity int) int
-		ID          func(childComplexity int) int
-		ItemCount   func(childComplexity int) int
-		Items       func(childComplexity int, perPage *int, page *int) int
-		Name        func(childComplexity int) int
-		Owner       func(childComplexity int) int
-		PublishedAt func(childComplexity int) int
-		PublishedBy func(childComplexity int) int
-		UpdatedAt   func(childComplexity int) int
+		AuditTrail   func(childComplexity int) int
+		CreatedAt    func(childComplexity int) int
+		Description  func(childComplexity int) int
+		ForkedFromID func(childComplexity int) int
+		ID           func(childComplexity int) int
+		ItemCount    func(childComplexity int) int
+		Items        func(childComplexity int, perPage *int, page *int) int
+		Name         func(childComplexity int) int
+		Owner        func(childComplexity int) int
+		PublishedAt  func(childComplexity int) int
+		PublishedBy  func(childComplexity int) int
+		UpdatedAt    func(childComplexity int) int
 	}
 
 	ListAudit struct {
@@ -701,6 +702,7 @@ type ComplexityRoot struct {
 		ListAddItem                       func(childComplexity int, input ListItemInput) int
 		ListCreate                        func(childComplexity int, input ListCreateInput) int
 		ListDelete                        func(childComplexity int, id uuid.UUID) int
+		ListFork                          func(childComplexity int, input ListForkInput) int
 		ListPublish                       func(childComplexity int, id uuid.UUID) int
 		ListRemoveItem                    func(childComplexity int, id uuid.UUID) int
 		ListReorderItem                   func(childComplexity int, id uuid.UUID, position int) int
@@ -1737,6 +1739,7 @@ type MutationResolver interface {
 	ListAddItem(ctx context.Context, input ListItemInput) (*ListItem, error)
 	ListRemoveItem(ctx context.Context, id uuid.UUID) (bool, error)
 	ListReorderItem(ctx context.Context, id uuid.UUID, position int) (*ListItem, error)
+	ListFork(ctx context.Context, input ListForkInput) (*List, error)
 	ReviewSubmit(ctx context.Context, input ReviewSubmitInput) (*Review, error)
 	ReviewDelete(ctx context.Context, id uuid.UUID) (bool, error)
 	SaveSessionState(ctx context.Context, input SessionStateInput) (*SessionState, error)
@@ -4044,6 +4047,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.List.Description(childComplexity), true
+	case "List.forkedFromId":
+		if e.ComplexityRoot.List.ForkedFromID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.List.ForkedFromID(childComplexity), true
 	case "List.id":
 		if e.ComplexityRoot.List.ID == nil {
 			break
@@ -4682,6 +4691,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.ListDelete(childComplexity, args["id"].(uuid.UUID)), true
+	case "Mutation.listFork":
+		if e.ComplexityRoot.Mutation.ListFork == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_listFork_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.ListFork(childComplexity, args["input"].(ListForkInput)), true
 	case "Mutation.listPublish":
 		if e.ComplexityRoot.Mutation.ListPublish == nil {
 			break
@@ -9313,6 +9333,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputIntCriterionInput,
 		ec.unmarshalInputLeaderboardInput,
 		ec.unmarshalInputListCreateInput,
+		ec.unmarshalInputListForkInput,
 		ec.unmarshalInputListItemInput,
 		ec.unmarshalInputListUpdateInput,
 		ec.unmarshalInputMarkNotificationReadInput,
@@ -12106,6 +12127,15 @@ type List {
 
   createdAt: DateTime!
   updatedAt: DateTime!
+
+  """
+  The list this one was forked from, or null.
+
+  A FORK IS A COPY THAT REMEMBERS WHERE IT CAME FROM AND TRACKS NOTHING: later changes to the
+  source do not reach it. The alternative -- a list that follows somebody else's -- is the
+  auto-updating list, a different feature.
+  """
+  forkedFromId: ID
 }
 
 """
@@ -12304,7 +12334,27 @@ extend type Mutation {
   content edits of public artefacts are the same trust-sensitive act as publishing them.
   """
   listReorderItem(id: ID!, position: Int!): ListItem! @hasRole(role: MODIFY)
-}`, BuiltIn: false},
+}
+
+input ListForkInput {
+  "The list to copy. You must be able to SEE it: its own visibility rule decides."
+  id: ID!
+
+  "The new list's name, unique per owner like any other."
+  name: String!
+}
+
+extend type Mutation {
+  """
+  Copy a list into one owned by the caller.
+
+  The fork starts PRIVATE and UNPUBLISHED -- the source owner's publication is their decision,
+  not something a copy inherits -- and it inherits the source's description when none is given.
+  Its entries are copied in their existing order, and neither list changes the other afterwards.
+  """
+  listFork(input: ListForkInput!): List! @hasRole(role: READ)
+}
+`, BuiltIn: false},
 	{Name: "../../graphql/schema/types/misc.graphql", Input: `scalar Date
 scalar DateTime
 scalar Time
@@ -16610,6 +16660,8 @@ func (ec *executionContext) childFields_List(ctx context.Context, field graphql.
 		return ec.fieldContext_List_createdAt(ctx, field)
 	case "updatedAt":
 		return ec.fieldContext_List_updatedAt(ctx, field)
+	case "forkedFromId":
+		return ec.fieldContext_List_forkedFromId(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type List", field.Name)
 }
@@ -18479,6 +18531,20 @@ func (ec *executionContext) field_Mutation_listDelete_args(ctx context.Context, 
 		return nil, err
 	}
 	args["id"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_listFork_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
+		func(ctx context.Context, v any) (ListForkInput, error) {
+			return ec.unmarshalNListForkInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐListForkInput(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
 	return args, nil
 }
 
@@ -29104,6 +29170,29 @@ func (ec *executionContext) fieldContext_List_updatedAt(_ context.Context, field
 	return graphql.NewScalarFieldContext("List", field, false, false, errors.New("field of type DateTime does not have child fields"))
 }
 
+func (ec *executionContext) _List_forkedFromId(ctx context.Context, field graphql.CollectedField, obj *List) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_List_forkedFromId(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ForkedFromID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *uuid.UUID) graphql.Marshaler {
+			return ec.marshalOID2ᚖgithubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_List_forkedFromId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("List", field, false, false, errors.New("field of type ID does not have child fields"))
+}
+
 func (ec *executionContext) _ListAudit_id(ctx context.Context, field graphql.CollectedField, obj *ListAudit) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -36210,6 +36299,68 @@ func (ec *executionContext) fieldContext_Mutation_listReorderItem(ctx context.Co
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Mutation_listReorderItem_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_listFork(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_listFork(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().ListFork(ctx, fc.Args["input"].(ListForkInput))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal *List
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *List
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *List) graphql.Marshaler {
+			return ec.marshalNList2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐList(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_listFork(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_List(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_listFork_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -57628,6 +57779,43 @@ func (ec *executionContext) unmarshalInputListCreateInput(ctx context.Context, o
 	return it, nil
 }
 
+func (ec *executionContext) unmarshalInputListForkInput(ctx context.Context, obj any) (ListForkInput, error) {
+	var it ListForkInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"id", "name"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "id":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("id"))
+			data, err := ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ID = data
+		case "name":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("name"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Name = data
+		}
+	}
+	return it, nil
+}
+
 func (ec *executionContext) unmarshalInputListItemInput(ctx context.Context, obj any) (ListItemInput, error) {
 	var it ListItemInput
 	if obj == nil {
@@ -68335,6 +68523,11 @@ func (ec *executionContext) _List(ctx context.Context, sel ast.SelectionSet, obj
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "forkedFromId":
+			out.Values[i] = ec._List_forkedFromId(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -69486,6 +69679,13 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 		case "listReorderItem":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_listReorderItem(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "listFork":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_listFork(ctx, field)
 			})
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
@@ -83535,6 +83735,11 @@ func (ec *executionContext) unmarshalNListEntityTypeEnum2githubᚗcomᚋstashapp
 
 func (ec *executionContext) marshalNListEntityTypeEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐListEntityTypeEnum(ctx context.Context, sel ast.SelectionSet, v ListEntityTypeEnum) graphql.Marshaler {
 	return v
+}
+
+func (ec *executionContext) unmarshalNListForkInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐListForkInput(ctx context.Context, v any) (ListForkInput, error) {
+	res, err := ec.unmarshalInputListForkInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
 }
 
 func (ec *executionContext) marshalNListItem2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐListItem(ctx context.Context, sel ast.SelectionSet, v ListItem) graphql.Marshaler {

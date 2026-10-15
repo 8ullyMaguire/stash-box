@@ -126,3 +126,4 @@ internal/database/migrations/postgres/128_leaderboard_listed.up.sql
 internal/database/migrations/postgres/129_seasonal_events.up.sql
 internal/database/migrations/postgres/130_edit_comment_kind.up.sql
 internal/database/migrations/postgres/131_performer_comment_confirmation.up.sql
+internal/database/migrations/postgres/132_list_forks.up.sql

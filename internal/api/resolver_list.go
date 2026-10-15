@@ -88,6 +88,7 @@ func (r *Resolver) listToModel(ctx context.Context, row *queries.List) (*models.
 		desc := *row.Description
 		m.Description = &desc
 	}
+	m.ForkedFromID = nullUUIDToPtr(row.ForkedFromID)
 	if row.OwnerName != "" {
 		// The denormalised name is enough for a browse listing and costs no query. It is a
 		// NAME and not a User: resolving the full user per row would turn a 25-list page
@@ -196,6 +197,16 @@ func (r *Resolver) fillAuditActors(ctx context.Context, audit []queries.ListAudi
 // ErrNotFound in particular must NOT be phrased as "you do not have permission" -- the
 // schema says the list may not exist, and wording it as a permission problem invites a
 // client to keep probing.
+// nullUUIDToPtr turns the storage shape into the wire shape. The column is nullable and the GraphQL
+// field is nullable, so the conversion is the only place the two have to agree.
+func nullUUIDToPtr(id uuid.NullUUID) *uuid.UUID {
+	if !id.Valid {
+		return nil
+	}
+	out := id.UUID
+	return &out
+}
+
 func mapListError(err error) error {
 	switch {
 	case err == nil:
@@ -214,6 +225,8 @@ func mapListError(err error) error {
 		return errors.New("that entry is already in this list")
 	case errors.Is(err, listsvc.ErrAlreadyPublished):
 		return errors.New("this list is already published")
+	case errors.Is(err, listsvc.ErrForkWouldExceedCap):
+		return errors.New("that list is too large to fork")
 	case errors.Is(err, listsvc.ErrNotPublished):
 		return errors.New("this list is not published")
 	default:
