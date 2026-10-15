@@ -3457,7 +3457,24 @@ path reports every event as already paid). M5 was a BUILD BREAK on its first two
 `before`, left unused) and was re-aimed at the whole block — a mutation that does not compile is not a
 verdict, the same lesson the 11a and 11c batteries each recorded once. The `points > 0` rule is
 deliberately NOT probed and the script says why: it lives in two places, the database's CHECK is the rule,
-and neutering the guard alone leaves the test green because the constraint still refuses. NOT BUILT, named:
+and neutering the guard alone leaves the test green because the constraint still refuses. THE LIVE WALK (`scripts/walk-11d-live.py`, deployed `v0.10.4-11d` = `e4cdfe12`, migration 139 applied at
+startup): **all 22 verdicts green**, including the three the deployed instance is the only place to see.
+A1 FIRST, as the premise: the deployed binary ANSWERS for the surface (a field that does not exist on an
+older binary is an error, so this separates "not deployed" from "deployed and unhappy"), and an
+unauthenticated caller is refused. Then the roster (two added, adding one again counts ZERO), the run
+(members 2 / paid 2 / skipped 0), and THE LEDGER ITSELF: `sum(delta)=100` over 2 `seed_fast_track` events
+for that campaign, each member's `bonus_points` `+50`, and **the level moved 0 -> 2**, which is the curve
+the binary computes rather than a number the walk wrote. TWICE IS ONCE, on the live database: the second
+run reports paid 0 / skipped 2 while the ledger and the rollup are unchanged. MEMBERSHIP READ AT RUN TIME:
+a member deleted from the cohort before a run is not paid (and their one event is still the first run's),
+and a member added afterwards IS paid by the next run -- the resumable direction, observed. And the
+operator's own read: the roster, with names. The restore is asserted from the database rather than
+assumed: **0** accounts, cohorts, campaigns, fast-track events and granted ADMIN roles left behind.
+(TWO DEFECTS IN THE WALK ITSELF, both fixed, both worth keeping: the throwaway accounts' insert omitted
+`api_key`, `last_api_call`, `created_at` and `updated_at`, which are NOT NULL with no default -- the walk
+now names them; and the first version aborted on a refused `psql` and left accounts, an ADMIN grant and a
+modified `api_key` behind, so the cleanup is now in a `finally` AND BY NAME rather than by captured id, it
+runs in the order the foreign keys need, and its verdict is read back from the database.) NOT BUILT, named:
 no `frontend/` surface reads a cohort or a campaign, a campaign is run by an explicit operator mutation
 (there is no scheduler and no window/expiry), and nothing sends a member the news that they were paid.
 
