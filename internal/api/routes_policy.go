@@ -108,9 +108,9 @@ that cannot be defended.</p>
       That is deliberate and it is not a loophole: the fingerprints are what let the same work be recognised
       elsewhere, and deleting them is what would let the material come back under a new address unnoticed.
       What is removed is the pointer, and a pointer is what a notice is about.</li>
-  <li><strong>Every decision is recorded</strong>: who decided, when, and on what. Those records are the
-      basis of any transparency report this instance publishes, and they survive the removal of the thing
-      they describe.</li>
+  <li><strong>Every decision is recorded</strong>: who decided, when, and on what. Those records are what
+      the <a href="/transparency">transparency report</a> is computed from, and they survive the removal of
+      the thing they describe.</li>
 </ol>
 
 <h2>Disagreeing with a decision</h2>

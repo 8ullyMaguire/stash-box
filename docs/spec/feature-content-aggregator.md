@@ -662,8 +662,9 @@ part of its text.
 
 **The text is SERVED, not filed.** `GET /policy` is public, unauthenticated and static, like the invite
 landing page: a notice path nobody can find is not a notice path, and a complainant should not need an
-account to read what an instance will do with their notice. The transparency REPORT stays phase 16 — the
-`mod_audit` rows already are the report, and rendering them is UI work.
+account to read what an instance will do with their notice. The transparency REPORT the policy points at is
+sliced separately in phase 16 (slice 16a, §16 below): the `mod_audit` rows already were the report's
+contents, and serving them is what turned the promise into an accounting.
 
 **NOT built, and named rather than implied:** CSAM hash matching against an external list (nothing here
 accepts uploads, so there is no ingest to match against; the refusal is at the source layer, where a refused
@@ -671,3 +672,49 @@ source is simply not fetched); a registered DMCA agent, counter-notice paperwork
 registration (paperwork about a host this programme is not); performer age verification as a gate (nothing
 here publishes performer content); elected moderators (a governance question about a membership, not a code
 shape, and it needs members first).
+
+
+## 16. The transparency report, served (phase 16, slice 16a)
+
+`GET /transparency` (HTML) and `GET /transparency/json` (the same figures, machine-readable). Public,
+unauthenticated, static, mounted before the SPA catch-all, deliberately NOT `noindex` for the same reason the
+policy page is not: a report nobody can find is not a report.
+
+**Every figure is a count over this instance's own tables**, because a transparency report is precisely the
+artifact `docs/goal-check.py`'s rule is about — *"Never trust a count written in a document. Recompute it."*
+There is no number on the page that a document supplied, the JSON exists so a reader can check the figures
+mechanically, and the integration test recomputes each one with its own SQL and requires the report to agree.
+
+**Two kinds of number, kept apart as separate structures rather than separate sentences.** The commonest way a
+report of this kind misleads is by mixing a state with a period's activity, so:
+
+- **In force now** is state with NO window, read from the content tables (which have no retention): refusals in
+  force, catalogue records out of service, appeals filed / pending / decided / granted / denied. A refusal
+  recorded two years ago is still refused, and putting it inside "the last 30 days" would understate it.
+- **In the window** is activity, read from `mod_audit`, which HAS a retention
+  (`mod_audit_retention_days`, 30 days by default, applied by `DeleteExpiredModAudits` when it is `> 0`).
+
+**The window IS the retention, not a second configuration key.** Two numbers naming one period is one number
+that will disagree with itself, and the retention is the one that decides what an activity count can possibly
+see. A retention of `0` or less means nothing is deleted, so the report says the records are kept
+indefinitely and reports `records_kept_forever: true` with a nominal decade-wide window rather than pretending
+to a bound it does not have; a negative value is treated as "off", like every other `> 0` guard in this
+repository, and not as a window that ends in the future.
+
+**A release is not a new refusal, and not double.** Refusals and releases are counted apart although the
+release reuses the takedown's action (migration 134's "one value per decision"), and both are restricted to the
+BLOCK-side actions. That restriction is load-bearing: a granted appeal writes TWO rows — the release it
+performs through `releaseKey`, and the decision it records, which also carries `released = true` — so counting
+every such row reports one release as two, in the exact case an appellant checks the figure against. The first
+run of the integration test returned five releases for three facts and is what found this.
+
+**Denials are reported as denials.** The appeal figures come from the appeal rows rather than from the audit
+trail, so a granted appeal against a block somebody had already released does not inflate this instance's
+reversal count.
+
+**Named as open, so a reader of this section is not misled about the phase:** slice 16a is the report. The five
+key pages, the §23 metrics as first-class counters, keyboard navigation, alt text, high contrast, reduced
+motion and the WCAG 2.1 AA target are phase 16's remaining work and are NOT claimed here — the antidoomscroll
+commitments are served as part of the report's own next slice, with the switches that enforce them, rather
+than asserted in prose.
+

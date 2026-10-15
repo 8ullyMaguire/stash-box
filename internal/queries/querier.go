@@ -167,6 +167,30 @@ type Querier interface {
 	// nothing behind the catalogue entry -- and tags are weighted above it because an
 	// item nobody can find is the failure the discovery surfaces exist to prevent.
 	ContentItemCompletionInputs(ctx context.Context, id uuid.UUID) (ContentItemCompletionInputsRow, error)
+	// The transparency report's numbers, counted in ONE statement from the tables that hold them.
+	//
+	// WHY THIS IS A QUERY AND NOT A DOCUMENT. `docs/goal-check.py` states the rule this phase is verified by:
+	// "Never trust a count written in a document. Recompute it." A published count is a claim a reader cannot
+	// check, and the whole point of a transparency report is that the instance's own records produce it -- so
+	// every number here is a SELECT over `content_source_block`, `content_source_block_appeal`,
+	// `content_sources` and `mod_audit`, and there is nowhere for a hand-written figure to live.
+	//
+	// THE TWO HALVES ARE DELIBERATELY DIFFERENT KINDS OF NUMBER, and conflating them is how a transparency
+	// report lies by accident:
+	//
+	//   * `IN FORCE NOW` numbers are STATE, read from the content tables with no window at all: what is refused
+	//     at this moment does not expire and is not a period's activity. A refusal recorded two years ago is
+	//     still in force today, and reporting it only inside a "last 30 days" window would understate it.
+	//   * `IN WINDOW` numbers are ACTIVITY, read from `mod_audit` with `created_at >= @since`. `mod_audit` has a
+	//     RETENTION -- `mod_audit_retention_days` deletes rows (DeleteExpiredModAudits) -- so an activity count
+	//     can never reach further back than the retention, and the report says which window it covers rather
+	//     than implying it covers everything.
+	//
+	// THE RELEASE ARM IS WHY `data` IS READ RATHER THAN `action`. A release reuses the takedown's action with
+	// `data.released = true` (see `internal/service/content/takedown.go`; migration 134's comment calls this
+	// "one value per decision"), so counting rows by action alone would report every release as a NEW refusal --
+	// the single number a reader of a transparency report is most likely to check against the notice they sent.
+	ContentModerationReport(ctx context.Context, since pgtype.Timestamptz) (ContentModerationReportRow, error)
 	// The fork's contents, in ONE statement, so the copy is atomic and a fork can never half-exist.
 	//
 	// POSITION TRAVELS WITH THE ITEM: a curated list whose order is lost is not the list anybody wanted

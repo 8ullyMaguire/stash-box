@@ -71,8 +71,11 @@ This instance is a peer, not a platform, and it administers nothing but its own 
   host, and this programme is not one. Enabling hosting re-opens this line.
 - **Performer age verification as a gate.** Nothing here publishes performer content.
 - **Elected moderators.** A governance question about a membership, and it needs members first.
-- **A published transparency report.** The `mod_audit` rows are the report's contents; rendering them is UI
-  work in phase 16, and this slice does not claim a report it does not render.
+- ~~**A published transparency report.**~~ **PUBLISHED 2026-10-16** at `GET /transparency` (phase 16 slice
+  16a): refusals in force, records out of service, appeals filed/pending/decided/granted/denied, and the
+  window's activity, each one a count over this instance's own tables and served as JSON at
+  `/transparency/json` so a reader can check them. What that page does NOT claim is the rest of phase 16
+  (the five key pages, the metrics, the accessibility target), and it says so in its own text.
 
 ## Verification of the claims above
 
@@ -81,4 +84,7 @@ go test ./internal/service/content/ -count=1                    # the rules, as 
 POSTGRES_DB='postgres:smoke_pw@127.0.0.1:55434/stash-box-test?sslmode=disable' \
   go test -tags integration -count=1 -p 1 -run 'Appeal|Policy' ./internal/api/
 python3 scripts/walk-14-live.py                                 # the same claims, against the deployed instance
+go test -tags integration -count=1 -p 1 -run 'Transparency' ./internal/api/   # every figure recomputed
+python3 scripts/mutate-transparency.py                          # and observed failing when a rule is broken
+python3 scripts/walk-16-live.py                                 # the figures, against the deployed instance
 ```

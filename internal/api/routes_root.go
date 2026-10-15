@@ -49,6 +49,13 @@ func (rr rootRoutes) Routes(fac service.Factory) chi.Router {
 	// HTML shell, and the person holding a notice must be able to read this without an account.
 	r.Mount("/policy", policyRoutes{}.Routes())
 
+	// The transparency report (phase 16, slice 16a): the numbers behind the policy, computed from this
+	// instance's own tables. Registered BEFORE the SPA catch-all for the same reason the policy page is --
+	// it is addressed to a reader who is not signed in, and the application would answer it with a shell.
+	r.Mount("/transparency", transparencyRoutes{
+		fac: fac,
+	}.Routes())
+
 	// A saved search as a feed (phase 13 slice 13b). Registered BEFORE the SPA catch-all for the same
 	// reason the invitation page is: the application answers every other path, and a feed request that
 	// reached it would be handed HTML with a 200 -- a reader would report a parse failure rather than a

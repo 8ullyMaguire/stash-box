@@ -46,16 +46,19 @@ func TestThePolicyIsServedToAnybodyWithNoAccountAtAll(t *testing.T) {
 	//   1. the 24-hour acknowledgement,
 	//   2. the appeal -- and that it is heard by somebody who did not decide,
 	//   3. what the instance IS (a catalogue that serves nothing),
-	//   4. that the metadata survives the removal of the pointer, with the reason.
+	//   4. that the metadata survives the removal of the pointer, with the reason,
+	//   5. and the report the records feed -- the policy says what will happen, the report says what did, and
+	//      a reader who has one without the other cannot check either.
 	//
 	// Counted in one pass and asserted, rather than four bare Contains calls, so that a page which lost
 	// three of them fails with a list of what is missing instead of on the first miss.
 	commitments := map[string]string{
-		"acknowledgement window": "24 hours",
-		"the appeal path":        "contest a refusal",
-		"who hears the appeal":   "moderator who did not make the",
-		"what the instance is":   "does not store the works themselves",
-		"the metadata survives":  "The metadata stays",
+		"acknowledgement window":   "24 hours",
+		"the appeal path":          "contest a refusal",
+		"who hears the appeal":     "moderator who did not make the",
+		"what the instance is":     "does not store the works themselves",
+		"the metadata survives":    "The metadata stays",
+		"the published accounting": `href="/transparency"`,
 	}
 	missing := []string{}
 	for name, phrase := range commitments {

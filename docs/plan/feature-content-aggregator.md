@@ -4128,6 +4128,73 @@ and WCAG 2.1 AA.
 keyboard-only navigation reaches every control on each key page; the a11y target is
 recorded with the tool that measured it.
 
+### Phase 16, slice 1 — the transparency report: what this instance DID, recomputable — **BUILT 2026-10-16**
+
+Phase 14 promised a report the moment it published a policy; this is the report, and it is a slice of its own
+because it is the one artifact in the programme whose entire value is that a reader can CHECK it.
+
+**Files.** `internal/service/content/report.go` (`TransparencyReport`, and the two kinds of number as separate
+STRUCTS rather than separate sentences); `internal/queries/sql/content_report.sql` + the generated
+`internal/queries/content_report.sql.go` (one statement, `ContentModerationReport`); `internal/api/routes_transparency.go`
+(HTML at `/transparency`, the same figures as JSON at `/transparency/json`, mounted in `routes_root.go`
+BEFORE the SPA catch-all, public, static, not `noindex`).
+
+**The decisions this slice made, and why each one is a decision:**
+
+1. **The window IS the audit retention, not a second configuration key.** Two numbers naming one period is
+   one number that will disagree with itself, and the retention (`mod_audit_retention_days`, default 30, and
+   `DeleteExpiredModAudits` deletes when it is `> 0`) is the one that decides what an activity count can
+   possibly see. A retention of `0` or less means the rows are never deleted, so the report says the records
+   are kept indefinitely (`records_kept_forever`) with a nominal decade-wide window rather than pretending to
+   a bound it does not have; a NEGATIVE value is treated as off, like every other `> 0` guard in this
+   repository, and not as a window ending in the future.
+2. **State and activity are separate structures.** A refusal recorded two years ago is still refused, so
+   `in_force` has no window at all and is read from the content tables (which have no retention); `activity`
+   is read from `mod_audit` and is bounded by the retention. Mixing them is the commonest way a report of this
+   kind misleads, and the assertion that they differ is arithmetic (the same rows, two answers) rather than a
+   sentence.
+3. **Refusals and releases are counted apart, and both restricted to the block-side actions.** A release
+   reuses the takedown's action (migration 134's "one value per decision"), and a GRANTED APPEAL writes two
+   rows carrying `released = true` — the release it performs and the decision it records. Counting every such
+   row reports one release as two, in the exact case an appellant checks the figure against. **The first run
+   of the integration test returned 5 releases for 3 facts and is what found this**; the test now MEASURES the
+   difference (the same period counted without the restriction is larger by exactly the two grants).
+4. **A figure's subject is pinned by the fixture, not by the assertion.** "Records out of service" is a SUBSET
+   of `content_sources`, and a mutation making the query count every record survived the first ledger run
+   because the two counts happened to agree. The fixture now plants a record of each kind and REQUIRES the
+   subset relation, so the arm cannot silently stop meaning anything.
+5. **The page cannot disagree with the report it renders, and the posture line is not restated.** Every number
+   on the page is built from the report value; the content posture comes from `mediaplane.PostureLine()`, the
+   same function the process logs at startup, and the test compares the page against that function rather than
+   against a copy of its words.
+
+**Verification (the commands, and what they returned on this tree):**
+
+```bash
+gofmt -l internal/ cmd/ pkg/ ; go vet ./... ; go vet -tags integration ./...   # clean
+POSTGRES_DB='postgres:smoke_pw@127.0.0.1:55434/sbx-appeal-141?sslmode=disable' \
+  go test -tags integration -count=1 -p 1 -run 'Transparency|Policy' ./internal/api/   # ok
+python3 scripts/mutate-transparency.py      # 10/10 KILLED, restored tree green
+python3 scripts/walk-16-live.py             # on thinkcentre: 13/13 verdicts green
+```
+
+The integration test recomputes EVERY figure with its own SQL (`transparency_integration_test.go`), asserts
+the deltas its fixtures cause, plants a refusal 120 days old and requires it in force and out of the window,
+and covers the retention `0` and negative arms. The mutation ledger kills ten rules across three files,
+including the generated statement.
+
+**The live walk, honestly.** `walk-16-live.py` recomputed all twelve figures against the deployed database and
+they all agreed — on an instance that holds NO refusals, so that arm compared zeros to zeros. What carried
+real signal was C1–C3: the walk planted a refusal and its audit row 120 DAYS OLD into the live database,
+required `blocks_in_force` to move by one while the windowed figures did not, removed them, and required the
+figures to come back exactly. That is the difference the two blocks of numbers exist to express, measured on
+the deployed process.
+
+**What slice 1 deliberately does NOT do:** the five key pages, the §23 metrics as first-class counters,
+keyboard navigation, alt text, high contrast, reduced motion and the WCAG 2.1 AA target (all still phase 16),
+and the anti-doomscroll commitments — those become their own slice, with the switches that ENFORCE them rather
+than prose asserting them. The report says so in its own text, so a reader is not misled about the phase.
+
 ## Phase 17 — the predicate grows (threaded, not separate)
 
 Every phase adds its clause to `docs/goal-check.py`, asserting an observable surface:
