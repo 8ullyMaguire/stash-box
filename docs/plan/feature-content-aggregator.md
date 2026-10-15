@@ -3688,9 +3688,41 @@ minted answering 404 rather than the SPA's HTML (which is also what proves the m
 catch-all); the three headers on the live response; disabling killing the URL and enabling again rotating it
 with the old one staying dead; and a cleanup that DELETES BY NAME and verifies the restore of the account's
 own api key.
-- **13c — the Hydrus-shaped export.** Round-trips back in. Constraint: an export is a rendering of records
-  this instance holds, so it is the same read rule as the GraphQL surface, per-record, with takedown
-  (`content_sources.status='dmca'`) and blocklist rows absent from it rather than annotated.
+### Slice 13c — the Hydrus-shaped export, and "round-trips back in" is a testable claim
+
+**The rule.** `exportScenes(ids: [ID!]!): String!` renders records this instance holds as Hydrus import JSON.
+
+**A GraphQL field, not a route, and the reasoning is 13a's.** An export endpoint on the HTTP surface would be
+a second serving surface with its own auth story on an instance whose posture is one GraphQL endpoint plus the
+SPA. As a field it inherits the read rule (`@hasRole(role: READ)`), the caller's identity and -- when 13d
+lands -- the same rate limit, and there is nothing new listening. The cost is that the payload is a String
+rather than a typed object, which is the honest shape for an INTERCHANGE BLOB: this instance does not model
+Hydrus's format, it emits it.
+
+**"Round-trips back in" is not "the JSON parses" -- it is measurable against this instance's own ingest.**
+`submitContentURL` already exists (a queue with dedup on the normalized URL, returning
+`queued | duplicate | invalid`), so the verification is: export a record, feed its URLs back through
+`submitContentURL`, and the answer must be **`duplicate`** -- the instance recognises its own export as
+something it already holds. A test that only parsed the JSON would pass on an export whose addresses were
+invented.
+
+**CHECK THE FORMAT BEFORE WRITING IT.** Hydrus's import JSON shape is an EXTERNAL format and this plan does
+not restate it from memory: the first step of this slice is to read the current documented shape (Hydrus's
+own client API/import documentation) and write the exact fixture into the test, because a format guessed at
+produces an export that loads into nothing -- and the failure would look like the OTHER program's bug.
+
+**Constraints that decide correctness:**
+
+| constraint | why |
+|---|---|
+| the same read rule as the GraphQL surface, per record | an export is a rendering of records this instance holds, so it must not be able to reach a record the caller cannot open. It is bounded by ids the caller already has: no browsing, no "export everything", no query language. |
+| takedown and blocklist rows are ABSENT, not annotated | an export that carried a taken-down record with a flag would be a copy of it in somebody's client. `content_sources.status='dmca'` and the blocklist make the record absent from the document, the same way they make it absent from a search. |
+| the record's own id is the key, and the hashes we hold travel inside the entry | Hydrus keys a file import by the file's own hash, and this instance holds no file: it holds claims about works and the hashes clients reported. So the id keys the entry and our fingerprints are carried in it, with no pretence that a hash we were given is the hash of a file we can produce. |
+
+**Verification:** a table-driven test over the fixture (a record with fingerprints, one with none, one taken
+down); the round trip above through `submitContentURL` asserting `duplicate`; the takedown case asserted as
+ABSENT from the document rather than flagged; and `scripts/walk-13c-live.py` doing the same against the
+deployed instance, with the export of a real record fed back in.
 - **13d — rate limits and the error shape.** Per §15.1, with a breach returning 429 and the SAME body shape
   as every other error (this repo answers GraphQL errors as `{"errors":[{"message":...}]}`, so a 429 that
   returns HTML or a bare string is the defect to test for). Constraint: the limit is enforced on the
