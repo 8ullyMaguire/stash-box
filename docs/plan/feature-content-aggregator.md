@@ -1980,12 +1980,20 @@ anchored on a function's signature rather than its call site, so both reported B
 verdict about anything, and neither is counted. The tree was re-verified green after the batch, not
 trusted.
 
-**AND ONE PROBE THAT WOULD SURVIVE, RECORDED RATHER THAN LEFT TO BE FOUND: the fixture's scene has NO
-existing performers**, so a mutation that REPLACED the appearance list instead of adding to it changes
-nothing observable here — every assertion stays green. The adding-vs-replacing rule needs a scene that
-already has somebody on it, with the identified performer asserted to be present ALONGSIDE them. That
-is a missing fixture, not a missing assertion, and it is the third time in this phase that a probe's
-design found one.
+**AND ONE PROBE THAT WOULD HAVE SURVIVED, NOW PAID FOR RATHER THAN JUST RECORDED.** The fixture's scene
+had NO existing performers, so a mutation that REPLACED the appearance list instead of adding to it
+changed nothing observable — a missing FIXTURE, not a missing assertion, and the third time in this
+phase that designing a probe found one. The scene now starts with a performer already on it, the
+successful apply asserts that **both** are present, and the replacement mutation is KILLED with exactly
+"the approved edit adds the performer WITHOUT removing the one already there".
+
+**The first attempt at that mutation reported SURVIVED and was not a probe at all.** It removed a
+duplicate guard while leaving the loop that copies the existing appearances in place, so the proposed
+list came out the same in both states: a mutation that does not change behaviour cannot be caught by
+anything, and its SURVIVED says nothing about the test. Anchoring the cut on the LOOP — the thing that
+actually carries the rule — killed it on the first run. The rule this joins: confirm the mutation
+CHANGED THE OBSERVABLE BEHAVIOUR before reading its verdict, and prefer the cut that removes the rule
+over the one that tidies around it.
 
 **The confirmation is idempotent in the QUERY, not in Go:** `ConfirmEditComment` carries
 `AND confirmed_at IS NULL`, so two moderators confirming at once cannot both win — the second update

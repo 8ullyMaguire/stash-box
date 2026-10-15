@@ -27,9 +27,20 @@ import (
 func TestConfirmingAnIdentificationCreatesAnEditAndNotALink(t *testing.T) {
 	admin := asAdmin(t)
 	sceneTitle := "Scene Awaiting Identification"
-	// A scene with NO performers, applied immediately because an admin created it -- so the only
-	// thing that can put a performer on it later is the edit under test.
-	scene, err := admin.createTestScene(&models.SceneCreateInput{Title: &sceneTitle})
+
+	// THE SCENE ALREADY HAS SOMEBODY ON IT, and that is the fixture half of the assertion the slice
+	// could not make before. With an empty scene, a confirmation that REPLACED the appearance list
+	// instead of adding to it produces exactly the same observable result as one that adds -- so the
+	// adding-vs-replacing rule had nothing to test it, and a probe that dropped the existing
+	// appearances SURVIVED. Recorded as a surviving probe, now paid for.
+	existing, err := admin.createTestPerformer(&models.PerformerCreateInput{Name: "Already In The Scene"})
+	require.NoError(t, err)
+	existingID, err := uuid.FromString(existing.ID)
+	require.NoError(t, err)
+	scene, err := admin.createTestScene(&models.SceneCreateInput{
+		Title:      &sceneTitle,
+		Performers: []models.PerformerAppearanceInput{{PerformerID: existingID}},
+	})
 	require.NoError(t, err)
 
 	performer, err := admin.createTestPerformer(&models.PerformerCreateInput{Name: "The Identified Performer"})
@@ -83,7 +94,9 @@ func TestConfirmingAnIdentificationCreatesAnEditAndNotALink(t *testing.T) {
 	// the confirmation proposed a change and did not make one.
 	current, err := admin.resolver.Scene().Performers(admin.ctx, mustFindScene(t, admin, sceneID))
 	require.NoError(t, err)
-	assert.Empty(t, current, "confirming a comment must not link the performer")
+	require.Len(t, current, 1, "confirming a comment must not link the performer")
+	assert.Equal(t, existingID, current[0].Performer.ID, "and must leave the scene exactly as it was")
+	assert.NotEqual(t, performerID, current[0].Performer.ID, "the identified performer is NOT on the scene yet")
 
 	// 3. The comment RECORDS ITS OUTCOME -- which edit it became -- or a moderator confirms the same
 	// suggestion twice and nobody can tell.
@@ -114,8 +127,10 @@ func TestConfirmingAnIdentificationCreatesAnEditAndNotALink(t *testing.T) {
 	fresh := asAdmin(t)
 	after, err := fresh.resolver.Scene().Performers(fresh.ctx, mustFindScene(t, fresh, sceneID))
 	require.NoError(t, err)
-	require.Len(t, after, 1, "the approved edit links the performer")
-	assert.Equal(t, performerID, after[0].Performer.ID)
+	require.Len(t, after, 2, "the approved edit adds the performer WITHOUT removing the one already there")
+	ids := []uuid.UUID{after[0].Performer.ID, after[1].Performer.ID}
+	assert.Contains(t, ids, performerID, "the identified performer is linked")
+	assert.Contains(t, ids, existingID, "and the performer who was already there is still there")
 }
 
 // A DISCUSSION CANNOT BE CONFIRMED: there is no suggestion in it, and the refusal comes before any
