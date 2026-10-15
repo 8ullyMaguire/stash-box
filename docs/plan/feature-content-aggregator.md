@@ -3792,8 +3792,16 @@ successful restore reported FAILED.
   CONTROL -- the same requests with no limit configured are all served); `scripts/mutate-ratelimit.py`, 12
   probes, **12 killed** (M12 is the regression this slice's own test found: making room on every request);
   `scripts/walk-13d-live.py` against the deployed instance, which is where "is the limiter MOUNTED" is
-  answered -- 12 verdicts green, including two credentials from the SAME address where one is refused and the
-  other served.
+  answered -- **16 verdicts green**, including the limit reached after exactly 121 requests (the shipped burst
+  is 120), the refusal's body parsed as JSON and read for the limit and the wait, and TWO CREDENTIALS FROM THE
+  SAME ADDRESS where one is refused and the other served -- the plan's reason for choosing the credential,
+  measured rather than argued.
+
+  **And the walk found its own defect first, the same family as 13c's:** it read the response headers with
+  `dict(...)`, which makes the lookup case-SENSITIVE, so a middleware that sends `X-Ratelimit-Limit` correctly
+  (Go canonicalises the name) was reported as sending nothing on either the allowed or the refused response.
+  The live probe that settled it printed the real headers; header names are case-insensitive and the walk now
+  folds them.
 
 ## Phase 14 — moderation and legal (policy text, and it DOES gate phase 10's first stored byte)
 

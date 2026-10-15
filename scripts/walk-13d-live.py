@@ -167,7 +167,7 @@ try:
     if refused:
         headers, body = refused
         verdict("A2", headers.get("content-type", "").startswith("application/json"),
-                f"the refusal is JSON, not HTML: {headers.get('Content-Type')}")
+                f"the refusal is JSON, not HTML: {headers.get('content-type')!r}")
         try:
             parsed = json.loads(body)
         except Exception as err:  # noqa: BLE001 - the failure IS the message
