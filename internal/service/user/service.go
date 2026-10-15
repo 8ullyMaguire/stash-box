@@ -512,10 +512,23 @@ func (s *User) ActivateNewUser(ctx context.Context, input models.ActivateNewUser
 			return err
 		}
 
-		if config.GetRequireInvite() {
-			// decrement the invite key uses
+		// CONSUMING A PRESENTED KEY IS A FACT ABOUT THE KEY, and it belongs on the same side of the
+		// flag as validating one (plan phase 11, the invitation-integrity finding).
+		//
+		// It used to be gated on require_invite, so on an instance that does not require invites --
+		// where a key is optional and therefore easy to hand around -- a key was NEVER CONSUMED:
+		// `uses` stayed at its minted value forever, no key was ever deleted for being spent, and
+		// the "is this key used up" question had no record to read. The flag decides whether a key
+		// is mandatory; it must not decide whether using one counts.
+		//
+		// A key that no longer resolves is still a quiet no-op here (InviteKeyUsed matches no rows),
+		// which is the same tolerance ActivateNewUser applies to the inviter above: the activation
+		// of a member who carried a key that was rescinded in the meantime is not this function's
+		// business to refuse.
+		if data.InviteKey != nil {
 			usesLeft, err := tx.InviteKeyUsed(ctx, *data.InviteKey)
 			// Ignore "no rows" error - this happens when the invite key has unlimited uses (NULL)
+			// and when the key has gone.
 			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 				return err
 			}

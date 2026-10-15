@@ -27,7 +27,8 @@ import (
 // the only path that writes `users.invited_by` and half of this slice's finding is that it did not
 // write it at all unless the instance required invites. A fixture that set the column with an
 // UPDATE would pass while the feature was inert on every instance that does not require them --
-// which is every instance by default, including this one.
+// which is NOT what this instance runs: `config.go` defaults `RequireInvite: true`, so the flag is
+// turned OFF below to reach the configuration the defect lived on.
 //
 // The trigger under test is the REAL one: an event recorded through the trust service's
 // RecordEvent, which is what an applied edit does. Nothing here calls the payment directly except

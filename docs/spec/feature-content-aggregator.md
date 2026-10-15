@@ -255,7 +255,7 @@ an integration test).
 | `identification` board (migration 79) + `IdentificationDetective` | built | §10 |
 | `elo` (Glicko-2: rating + deviation, leaderboards by distinguishable rating) | built | §7 discovery, §6 leaderboards |
 | `streak`, `badge`, `quest`, `award`, `authored` quests (100 bounty pricing) | built | §6 gamification |
-| `invite` / `InviteKey` / `RoleEnum {INVITE, MANAGE_INVITES}` | built; allocation by level (slice 11a); no referral, QR or cohort semantics yet | §11 growth, §7 |
+| `invite` / `InviteKey` / `RoleEnum {INVITE, MANAGE_INVITES}` | built; allocation by level (slice 11a); referrals paid once at the invitee's first real level (11b); a presented key is validated and consumed in BOTH configurations — `require_invite` decides only whether a key is MANDATORY, never whether the key you were handed is usable, nor whether using one counts; an unqualified key is ONE use, as the schema documents; QR/counters/cohorts not yet | §11 growth, §7 |
 | `list` + `list_items` + publication audit (107) | built | §9.3 playlists |
 | `federation` peers, mesh roles, replication (§7.17/§7.18), `webhook`, `image` (local/S3), `site` directory `scene_search` (BM25, migration 103 recall columns) | built | §8, §12, §13, §15 |
 | `scene_urls (scene_id, url, site_id)` — **the only source/URL record for content** | built, no health, no status, no platform beyond the site FK | §2 source layer — this is the aggregator's seed |
@@ -429,8 +429,10 @@ for the key, an activation is a row that was consumed; a member sees all three b
 "someone gave an address" and "someone joined" are three different facts, and only the last is a person.
 No counter column exists for any of them. **Corrected 2026-10-15 (measured):** the rows this section named
 are gone — `pending_activations` was dropped by migration 37, the signup and activation rows are both
-`user_tokens` rows that activation deletes, and the KEY row itself is deleted the moment its last use is
-spent, so a member's key that signed somebody up leaves nothing to count. The counters therefore rest on a
+`user_tokens` rows that activation deletes, and a key whose last use is consumed at activation is deleted
+too (on a required-invite instance; on one that does not require invites a key was never consumed at all,
+which is the invitation-integrity defect fixed the same day), so a member's key that signed somebody up
+can leave nothing to count. The counters therefore rest on a
 durable per-event row carrying the REFERRER's id independently of the key (`invite_key_events`), with no
 cascading delete: a counter that dies with the key it counts reports zero for the one key a member actually
 asks about. **A scan records nobody** — it is an unauthenticated GET, so it carries a count, a kind and a

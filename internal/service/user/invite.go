@@ -194,16 +194,26 @@ func generateInviteKeys(ctx context.Context, tx *queries.Queries, trustSvc *trus
 			GeneratedBy: userID,
 		}
 
+		// THE SCHEMA'S OWN DEFAULT, IMPLEMENTED. `GenerateInviteCodeInput.uses` is documented as
+		// "If not set, the invite key will have one use", and the code stored NULL instead -- which
+		// every query that reads `uses` treats as UNLIMITED, so an unqualified key was the opposite
+		// of what a client had been promised: it never ran out, and (until the consumption fix
+		// above) nothing ever recorded that it had been used.
+		//
+		// A key minted without a use count is now what the schema says it is. A key with no expiry
+		// is still unlimited IN TIME, which is a separate thing the schema documents the same way
+		// and which the expiry check honours.
+		uses := 1
 		if input != nil {
 			if input.Uses != nil && *input.Uses > 0 {
-				uses := *input.Uses
-				newKey.Uses = &uses
+				uses = *input.Uses
 			}
 			if input.TTL != nil {
 				expires := time.Now().Add(time.Duration(*input.TTL) * time.Second)
 				newKey.ExpireTime = &expires
 			}
 		}
+		newKey.Uses = &uses
 
 		key, err := tx.CreateInviteKey(ctx, newKey)
 		if err != nil {

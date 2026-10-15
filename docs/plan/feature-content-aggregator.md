@@ -3107,10 +3107,21 @@ No layer above the recorder can express that, which is why the flag is there and
 
 **AND THE FINDING THAT WOULD HAVE MADE ALL OF IT INERT.** `users.invited_by` was written ONLY when
 `require_invite` was on, while `InviteKeyUsed` consumes the key's use at activation on EVERY instance -- so
-on the default configuration a signup that carried a key spent the key and recorded nobody, and the
-referral payment built on that column would have been a feature that pays nothing, on every instance that
-does not require invites, with no error and nothing to notice it by. This instance does not require
-invites, and neither does the deployed one. `ActivateNewUser` now records the inviter **whenever a key was
+on any instance that does not require invites a signup that carried a key spent the key and recorded
+nobody, and the referral payment built on that column would have been a feature that pays nothing, with no
+error and nothing to notice it by.
+
+**CORRECTION 2026-10-15 (later the same day, by the follow-up slice's own premise check):** this section
+originally claimed "this instance does not require invites, and neither does the deployed one", and that
+claim was WRONG. `config.go` defaults `RequireInvite: true`, so this instance and the deployed one DO
+require invites -- the 11b live walk's premise check read the config FILE's absence of a `require_invite:`
+key instead of the effective default, which is a check on the wrong thing, and the walk therefore proved
+the link on the configuration that was never broken. The fix is still the fix (it is what makes the fact
+recorded on an instance that does NOT require invites), and the wire test reaches that configuration by
+setting the flag off and asserting its state first -- which is where the defect's evidence actually lives.
+The general lesson, and it is the same one twice in this slice: **a premise read from a document is not a
+premise measured.** Both the walk's guard and this paragraph asserted a configuration nobody had asked the
+running program about. `ActivateNewUser` now records the inviter **whenever a key was
 used**: `require_invite` decides whether a key is MANDATORY, which is a policy about admission, while "who
 invited whom" is a fact about the key. The refusal it keeps is the one it had ("requires an invite and none
 was given"), and a key that no longer resolves stays a no-op without `require_invite` (which is what it did
@@ -3160,7 +3171,8 @@ than no check: it reports the rule as covered.
 
 **The live walk** (`scripts/walk-11b-live.py`, on the deployed binary, `stash-box version: v0.10.4-11b`):
 every verdict green and the restore verified. It reads the instance's OWN config and reports
-`require_invite` as absent -- the finding's premise measured rather than assumed -- then has the operator
+`require_invite` from the file (SEE THE CORRECTION ABOVE: the effective default is `true`, and reading the
+file was the wrong instrument), then has the operator
 grant one token, a member mint one key, and a NEW account sign up with that key through the PUBLIC path
 (`newUser` then `activateNewUser`). That account's own `me` comes back naming its inviter
 (`invited_by { id name }`), which is the finding: **on the default configuration the link is recorded and
@@ -3171,6 +3183,56 @@ a payment needs the invitee at Registered, which takes 10 points of APPLIED cont
 path to which is a real edit through the voting system -- no mutation records a trust event, and this
 instance has no credential a script can use as a moderator (measured in 11a: the one ADMIN cannot
 authenticate through an API key at all). The payment and its depth are covered by the wire tests.
+
+### Slice 11b, amendment — the presented key's own facts, which a policy flag was gating (2026-10-15)
+
+**FOUND WHILE OPENING 11c, and it is the same shape as this slice's finding one layer down:**
+`validateInviteKey` wrapped ALL of itself in `if config.GetRequireInvite()` -- including "is this key
+expired" and "has this key been used up" -- and so did the code that CONSUMES a key at activation. Two
+consequences, both measured on the unfixed tree before anything was changed:
+
+  * **On an instance that does not require invites, a presented key was UNVALIDATED.** A `uses = 1` key
+    that had already signed somebody up took a second signup, and a key whose `expire_time` was a day in
+    the past was accepted. (Wire tests named for exactly those two states failed with "an error is
+    expected but got nil".)
+  * **A key was never CONSUMED there either**, so `uses` stayed at its minted value forever and no key was
+    ever deleted for being spent: the record that answers "has this been used" did not exist on that
+    configuration.
+  * **And the schema's documented default was not implemented**: `GenerateInviteCodeInput.uses` says "If
+    not set, the invite key will have one use", while the code stored NULL -- which every query that reads
+    `uses` treats as UNLIMITED. An unqualified key was the opposite of what a client was promised.
+  * A fourth, smaller defect fell out of the same area: a key that is spent is DELETED, so the
+    "is it already used" lookup found nothing and its error was returned raw -- a signup with a spent key
+    on a required-invite instance was refused with **"no rows in result set"**, a driver error a member
+    cannot act on. (This is what the 11b live walk actually hit, and read as "the key was deleted".)
+
+**The rule that settles all four: `require_invite` decides whether a key is MANDATORY. It must never
+decide whether the key you were handed is any good, nor whether using one counts.** Whether a key is
+required is policy about admission; expiry, exhaustion and consumption are facts about the key, equally
+true in both configurations. So the flag now guards exactly one thing -- "an invite key is required when
+none was given" -- and everything else happens unconditionally; a key that does not resolve is refused by
+name rather than leaking the lookup's error; and a key minted without a use count is what the schema says
+it is.
+
+**Evidence.** 5 wire tests against real Postgres (`internal/api/invite_key_validity_integration_test.go`),
+THREE OF WHICH FAILED ON THE UNFIXED TREE (the two drift cases and the default use count) -- the strongest
+form the evidence takes, since it is the defect itself going red rather than a mutation standing in for it.
+Both "spent" states are walked because they are refused for different reasons: a use PROMISED but not yet
+consumed (the refusal names the use count) and a use CONSUMED at activation (the key is gone, so the
+refusal is the invalid-key one). The control rides along in the same file -- with invites not required, a
+signup with NO key still succeeds and records no inviter -- because the plausible over-fix (making the key
+mandatory everywhere) would leave every other test in the file passing. Then
+`scripts/mutate-invite-key-validity.py`: **4 probes, 4 killed** -- the checks back behind the flag, the
+unresolvable key ignored again, the NULL use count again, and consumption gated again -- each reddening the
+test named for it. Full suites green: 52 unit packages, 54 integration packages.
+
+**The live walk** (`scripts/walk-invite-key-validity.py`) is the same rule against the deployed binary: it
+mints a `uses = 1` key, signs one member up, and requires the second signup to be refused; it sets an
+expiry into the past and requires that refusal too; and it reports what an unqualified key is. Its premise
+line is a caution in itself: the instance under test runs the DEFAULT configuration, which is
+`require_invite = true` -- so the two defects above are the ones this instance cannot show, and the walk
+says which configuration each verdict is about instead of implying the deployed instance is the one that
+was broken.
 
 ### Slice 11c — the QR and the three counters
 
@@ -3199,10 +3261,14 @@ SUBSTRATE, because the rows this section names are destroyed by the events they 
     table with `user_tokens`"). A signup today is a `user_tokens` row of type ACTIVATION, and
     `ActivateNewUser` consumes it -- the row that proves "an address signed up" is deleted by the very act
     that makes it interesting.
-  * **The key row does not survive its use either.** `service.go` consumes the key's use at activation and,
-    the moment the last use is spent, calls `DeleteInviteKey`: **a key with `uses = 1` that signed somebody
-    up is GONE from `invite_keys`.** Verified on the deployed instance: the 11b walk's key returned no row
-    seconds after the signup. (`DestroyExpiredInvites` and `RescindInviteCode` remove the others.)
+  * **The key row does not survive its use either -- when invites are required.** `service.go` consumes the
+    key's use at activation and, the moment the last use is spent, calls `DeleteInviteKey`, so a
+    `uses = 1` key that signed somebody up is GONE from `invite_keys`. (CORRECTED: the 11b walk's key was
+    NOT one of these -- it was minted with `uses = NULL`, i.e. unlimited, and the walk's "the key is
+    deleted" was a check that could not tell NULL from absent. The deletion is real and is on the path a
+    required-invite instance takes; the walk simply was not on it.) `DestroyExpiredInvites` and
+    `RescindInviteCode` remove the others, and the deletion is unconditional as a STATE -- what varies is
+    whether the path runs.
   * So there is nothing to group by and nothing to count: the scan is not recorded anywhere, the signup row
     is deleted at activation, the activation row is deleted at activation, and the KEY ITSELF is deleted at
     activation -- which is precisely when a member wants to read what their invite produced. A paid-for key

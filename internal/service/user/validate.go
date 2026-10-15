@@ -213,28 +213,55 @@ func validateExistingEmail(ctx context.Context, tx *queries.Queries, emailAddr s
 	return errors.New("email already in use")
 }
 
+// validateInviteKey refuses a signup whose key is not a usable key.
+//
+// TWO HALVES, AND THEY BELONG ON DIFFERENT SIDES OF THE FLAG. This function used to wrap all of
+// itself in `if config.GetRequireInvite()`, which conflated them:
+//
+//   - WHETHER A KEY IS REQUIRED is policy about admission, and it is the flag's business: an
+//     instance that requires invites refuses a signup with none, and one that does not require them
+//     accepts it.
+//   - WHETHER THE KEY YOU WERE HANDED IS ANY GOOD is a fact about the key, and it is equally true
+//     in both configurations. Gating it on the flag meant that on an instance that does not require
+//     invites -- the default is the opposite, but the configuration exists and is a supported one --
+//     a key that had already signed somebody up could sign up the next, and an EXPIRY was enforced
+//     nowhere. (Measured: with the flag off, a `uses = 1` key took a second signup, and a key with
+//     `expire_time` a day in the past was accepted.)
+//
+// A key that does not resolve is refused rather than ignored, and that is the ONE case where the
+// two halves interact: a spent key is DELETED once its last use is consumed at activation, so "no
+// such key" and "this key is used up" are the same state -- and previously it leaked out as
+// "no rows in result set", a driver error a member cannot act on and an operator cannot read.
 func validateInviteKey(ctx context.Context, tx *queries.Queries, inviteKey *uuid.UUID) error {
-	if config.GetRequireInvite() {
-		if inviteKey == nil {
+	if inviteKey == nil {
+		if config.GetRequireInvite() {
 			return errors.New("invite key required")
 		}
+		return nil
+	}
 
-		key, err := tx.FindInviteKey(ctx, *inviteKey)
-		if err != nil {
-			return err
-		}
+	key, err := tx.FindInviteKey(ctx, *inviteKey)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrInvalidInviteKey
+	}
+	if err != nil {
+		return err
+	}
 
-		// ensure invite key is not expired
-		if key.ExpireTime != nil && key.ExpireTime.Before(time.Now()) {
-			return errors.New("invite key expired")
-		}
+	// ensure invite key is not expired
+	if key.ExpireTime != nil && key.ExpireTime.Before(time.Now()) {
+		return errors.New("invite key expired")
+	}
 
-		// ensure key isn't already used
-		t, _ := tx.FindUserTokensByInviteKey(ctx, *inviteKey)
-
-		if key.Uses != nil && len(t) >= int(*key.Uses) {
-			return errors.New("key already used")
-		}
+	// A USE IS CONSUMED AT ACTIVATION, so a key with uses left may already have all of them
+	// committed by signups that have not activated yet. The pending tokens are what "already
+	// promised" looks like, and a key with one use and one pending activation has none left.
+	tokens, err := tx.FindUserTokensByInviteKey(ctx, *inviteKey)
+	if err != nil {
+		return err
+	}
+	if key.Uses != nil && len(tokens) >= int(*key.Uses) {
+		return errors.New("invite key used")
 	}
 
 	return nil

@@ -5,12 +5,17 @@ Run it ON the host that serves the instance: it reads the jwt secret from the de
 the users from the instance's Postgres, and it restarts the service to clear the auth cache.
 
 WHAT THIS WALK IS FOR. Slice 11b's finding is that `users.invited_by` was written ONLY when
-`require_invite` was on, while the key's use is consumed on EVERY instance -- so on the DEFAULT
-configuration a signup that carried a key spent the key and recorded nobody, and every payment
-built on that column would have paid nothing. That is a claim about the DEPLOYED CONFIGURATION, so
-it is walked here: this instance does not require invites (asserted from its own config, not
-assumed), a real signup with a real key is made through the public HTTP path, and the account it
-creates reads back its own `invited_by`.
+`require_invite` was on, while the key's use is consumed on EVERY instance -- so on an instance that
+does not require invites a signup that carried a key spent the key and recorded nobody, and every
+payment built on that column would have paid nothing. This walk makes a real signup with a real key
+through the public HTTP path and reads the inviter back off the new account's own `me`.
+
+CORRECTED 2026-10-15: this docstring used to say "this instance does not require invites", which was
+read from the config FILE's silence -- and `config.go` defaults `RequireInvite: true`, so this
+instance (and the deployment) DO require invites. The walk now asks the running instance
+(`getConfig`) instead of reading a document, and says which configuration each verdict is about. The
+defect's own evidence is the wire test that sets the flag off; this walk proves the link is recorded
+and readable on the configuration the deployment actually runs.
 
 WHAT THE WALK CHANGES, and puts back in a finally block: two users' api_key values (a JWT carries
 `iat`, so the server's "presented key == stored key" check means a key is minted ONCE and reused),
@@ -144,11 +149,24 @@ KEY = None
 INVITEE = None
 ACTIVATION_KEY = None
 try:
-    print(f"=== 0. the premise: this instance's require_invite is '{REQUIRE_INVITE}' ===")
-    if REQUIRE_INVITE not in ("false", "false (absent)"):
-        print("   !! this instance DOES require invites, so it cannot show the defect this walk "
-              "exists for -- the walk would be evidence about the wrong configuration")
+    status, body = gql(None, "{ getConfig { require_invite } }")
+    effective = (body["data"]["getConfig"]["require_invite"]
+                 if status == 200 and isinstance(body, dict) and body.get("data") else None)
+    print(f"=== 0. the premise: the config FILE says require_invite is '{REQUIRE_INVITE}'; the "
+          f"RUNNING instance says '{effective}' ===")
+    if effective is None:
+        print("   !! the instance did not answer, so this walk cannot state which configuration it "
+              "is evidence about -- stopping")
         FAILURES.append("0")
+        raise SystemExit(1)
+    if effective:
+        # CORRECTED 2026-10-15: this guard used to read the config FILE, where an absent key means
+        # "off" to a reader and ON to the program (`config.go` defaults it to true). The walk then
+        # ran on a required-invite instance believing it was on an optional-invite one.
+        print("   NOTE: this instance REQUIRES invites, so it is NOT the configuration where "
+              "`invited_by` used to be dropped. The wire test reaches that one by setting the flag "
+              "off and asserting its state first; this walk proves the link is recorded and read "
+              "back on the configuration the deployment actually runs.")
 
     for u in (MEMBER, OPERATOR):
         psql(f"update users set api_key = '{TOKENS[u]}' where id = '{u}'")
@@ -214,8 +232,10 @@ try:
     invited_by = psql(f"select coalesce(invited_by::text,'') from users where id = '{INVITEE}'")
     print(f"   users.invited_by for the new account: {invited_by[:8]}… (the member is {MEMBER[:8]}…)")
     check("C", (200, {"invited_by": invited_by}), lambda b: b["invited_by"] == MEMBER,
-          "a signup with a key records the inviter even though this instance does NOT require "
-          "invites -- which is the whole finding: before this slice the column stayed empty here")
+          "a signup with a key records the inviter, and the invitee can be read back as invited by "
+          "them -- the link this slice's payment reads. (On THIS instance that held before the "
+          "slice too: it requires invites, which is what turned the write on. The configuration "
+          "where the column stayed empty is reached in the wire test, with the flag asserted off.)")
 
     invitee_key = psql(f"select coalesce(api_key,'') from users where id = '{INVITEE}'")
     TOKENS[INVITEE] = mint(INVITEE)
