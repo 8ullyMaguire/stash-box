@@ -191,18 +191,28 @@ try:
     # measured above as ['code:STAP-038', 'date:2024-11-28']. The check was asserting against a list that
     # correctly had two entries, which is what a walk written from an assumption rather than a measurement
     # does.)
-    BARE = psql("select s.id from scenes s where s.code is null and s.date is null and s.studio_id is null "
-                "and not exists (select 1 from scene_urls u where u.scene_id = s.id) limit 1")
+    # The fixture is whatever this instance HAS, measured rather than assumed a second time: `date` is
+    # NOT NULL in practice here (0 of 1,104,375 records lack one), so a record with nothing at all does not
+    # exist and asking for one reports nothing. What does exist, in quantity, is a record with no ADDRESSES --
+    # and that is the same claim: a list where the instance holds nothing is still a list.
+    bare_counts = psql("select (select count(*) from scenes where code is null) || '|'"
+                       " || (select count(*) from scenes where date is null) || '|'"
+                       " || (select count(*) from scenes s where not exists "
+                       "(select 1 from scene_urls u where u.scene_id = s.id))").split("|")
+    report("E0", f"records without a code: {bare_counts[0]}; without a date: {bare_counts[1]}; "
+                 f"without any address: {bare_counts[2]}")
+
+    BARE = psql("select s.id from scenes s where not exists "
+                "(select 1 from scene_urls u where u.scene_id = s.id) limit 1")
     if BARE:
         bare_answer = graphql("query($ids: [ID!]!) { exportScenes(ids: $ids) { json record_count } }",
                               {"ids": [BARE]})
         bare_payload = (bare_answer.get("data") or {}).get("exportScenes") or {}
         bare_metadata = (json.loads(bare_payload.get("json") or "{}").get(BARE) or {}).get("metadata", {})
-        verdict("E1", bare_payload.get("record_count") == 1
-                and bare_metadata.get("tags") == [] and bare_metadata.get("urls") == [],
-                f"a record the instance holds nothing about still emits LISTS: {bare_metadata}")
+        verdict("E1", bare_payload.get("record_count") == 1 and bare_metadata.get("urls") == [],
+                f"a record with no addresses emits an empty list, not null: {bare_metadata}")
     else:
-        report("E1", "not judged: no record on this instance is without a code, a date, a studio and an address")
+        report("E1", "not judged: every record on this instance carries an address")
 
     print("== F. an id that names nothing is omitted, and only in the envelope ==")
     NOWHERE = "00000000-0000-4000-8000-000000000000"
