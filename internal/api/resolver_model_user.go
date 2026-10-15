@@ -84,6 +84,32 @@ func (r *userResolver) InviteCodes(ctx context.Context, user *models.User) ([]mo
 	return r.services.UserToken().FindActiveInviteKeysForUser(ctx, user.ID)
 }
 
+// InviteAllowance answers the member's only question about invitations -- may I
+// invite someone, and if not, what is in the way (SPEC §7, phase 11 slice 11a).
+//
+// The exemption is read HERE, from the caller's roles, and passed in rather than
+// looked up inside the service: the service's rule then needs no auth context to
+// be testable, and the one place that decides "is this caller the operator's
+// delegate" stays the one place that already decided it for the mutation.
+//
+// The decision is taken on the same `Decide()` the mutation takes, so a client
+// cannot be told `can_generate: true` and then refused: both read one rule.
+func (r *userResolver) InviteAllowance(ctx context.Context, user *models.User) (*models.InviteAllowance, error) {
+	allowance, err := r.services.User().InviteAllowance(ctx, user.ID, auth.ValidateInvite(ctx) == nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return &models.InviteAllowance{
+		Level:       int(allowance.Level),
+		Cap:         allowance.Cap(),
+		ActiveKeys:  allowance.ActiveKeys,
+		Tokens:      allowance.Granted,
+		Exempt:      allowance.Exempt,
+		CanGenerate: allowance.Decide().Allowed,
+	}, nil
+}
+
 func (r *userResolver) ImageTypePreferences(ctx context.Context, user *models.User) ([]models.ImageTypeEnum, error) {
 	return r.services.ImageType().Preferences(ctx, user.ID)
 }

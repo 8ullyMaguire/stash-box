@@ -255,7 +255,7 @@ an integration test).
 | `identification` board (migration 79) + `IdentificationDetective` | built | §10 |
 | `elo` (Glicko-2: rating + deviation, leaderboards by distinguishable rating) | built | §7 discovery, §6 leaderboards |
 | `streak`, `badge`, `quest`, `award`, `authored` quests (100 bounty pricing) | built | §6 gamification |
-| `invite` / `InviteKey` / `RoleEnum {INVITE, MANAGE_INVITES}` | built; no allocation or referral semantics | §11 growth |
+| `invite` / `InviteKey` / `RoleEnum {INVITE, MANAGE_INVITES}` | built; allocation by level (slice 11a); no referral, QR or cohort semantics yet | §11 growth, §7 |
 | `list` + `list_items` + publication audit (107) | built | §9.3 playlists |
 | `federation` peers, mesh roles, replication (§7.17/§7.18), `webhook`, `image` (local/S3), `site` directory `scene_search` (BM25, migration 103 recall columns) | built | §8, §12, §13, §15 |
 | `scene_urls (scene_id, url, site_id)` — **the only source/URL record for content** | built, no health, no status, no platform beyond the site FK | §2 source layer — this is the aggregator's seed |
@@ -327,7 +327,7 @@ behaviour. "New" = nothing to extend. Phase numbers are §Phases in
 | §9.2 | forums | **deferred by the respec** — a moderation surface that scales with traffic, competing with Reddit and Discord for posts | — |
 | §9.3 | playlists, fork, auto-update | `list` (107) | 8 (extend) |
 | §10 | T0–T3 tiers, warnings vs gates, onboarding wizard | denylist + access rules | 5 |
-| §11 | invite allocation, referrals, QR, seed cohorts | `InviteKey` only | 11 |
+| §11 | invite allocation, referrals, QR, seed cohorts | `InviteKey` + the level-derived allowance (11a) | 11 |
 | §12.1–12.5 | metadata federation, ontology sync, hash network, specialised instances | mesh §7.17/§7.18 is **ahead**; hash network new | 12 |
 | §12.6 | ActivityPub | none (rejected in the crosswalk) | 12 |
 | §13.1–13.5 | 5 players/viewers | **refused by the respec** — no player, no embed, no proxy. Reading *metadata* is a different surface and it is in: a comic's chapter list and page count are `content_item_chapters` (phase 3) | — |
@@ -391,3 +391,40 @@ players, the PWA and any embed or proxy of a third party's content are phase 10,
 gate. What is explicitly *not* in this spec: rewriting `scene` into a `content_item`, breaking the
 Stash desktop app's GraphQL contract, and any phase beginning before its predecessors are green. The
 phase order is a dependency order, not a preference order.
+
+## 7. Growth: invites, referrals and cohorts (phase 11)
+
+**An invite allowance is DERIVED, never stored.** How many keys a member may hold usable at once follows
+from their trust level (`invite.AllocationFor`: 0 at Public, then 1, 3, 5, 10, 25), counted from the key
+rows each time. **Zero at the level every registered account starts at** is the rule's whole point: an
+account created five minutes ago may not mint invite keys, for the same reason L4 costs 3× L3 — the
+capability has to be earned by contributing. A stored allowance would be a second answer to a question the
+level already answers and would drift from it the first time a level changed.
+
+`users.invite_tokens` stays, and the distinction is deliberate: an operator's discretionary grant is a fact
+about an operator's decision that no level can reconstruct, and it is how an instance invites someone with
+no standing yet. Slots are spent before tokens, so a grant is not burned by a member who did not need it.
+The INVITE / MANAGE_INVITES roles are the operator's delegation and are exempt from both, which is stated
+here so the exemption is a decision a reader can find rather than an accident of ordering.
+
+**A refusal names which allowance ran out.** "No invite tokens available" and "your level allows this many
+keys and they are all in use" have different remedies — ask an operator, or contribute — so they are two
+sentinels, not one message.
+
+**A referral pays the invitee's referrer once, when the INVITEE reaches the first level above the one
+everyone starts at, one level of depth.** Never at signup: an account that registers and leaves is not
+growth, and paying at signup pays for an email address. The payment is a trust EVENT keyed to the invitee
+(`kind=invite_activated`, `entity_type=user`, `entity_id=<invitee>`), so the existing dedup key is what
+makes it once-ever: the level is recomputed on every contributing event and can oscillate through decay,
+and a payment that depended on the level being observed at the right moment would pay twice or never. One
+level of depth means the grandparent is paid nothing, asserted by identity. A self-invite pays nobody.
+
+**A fast-track is a points event, not a level override.** A cohort campaign awards its members a one-time
+trust event keyed to the campaign, and the level then follows from the single curve in
+`internal/service/trust`. A campaign that set a level directly would be a second implementation of "what
+level is this person" — the exact thing the trust phase exists to prevent.
+
+**Counters are row counts.** A scan is a row, a signup is a `pending_activations` row for the key, an
+activation is a `user_tokens` row that was consumed; a member sees all three because "someone looked",
+"someone gave an address" and "someone joined" are three different facts, and only the last is a person.
+No counter column exists for any of them.

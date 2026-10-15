@@ -9,9 +9,20 @@ import (
 	"github.com/gofrs/uuid"
 	"github.com/stashapp/stash-box/internal/models"
 	"github.com/stashapp/stash-box/internal/queries"
+	"github.com/stashapp/stash-box/internal/service/invite"
+	"github.com/stashapp/stash-box/internal/service/trust"
 )
 
-var ErrNoInviteTokens = errors.New("no invite tokens available")
+// ErrNoInviteTokens is the refusal a member gets when neither their level's key
+// slots nor an operator's grant can pay for a key. It is the phase-11 package's
+// own value, re-exported here because this package is where callers have always
+// looked for it: one definition, so the two cannot drift.
+var ErrNoInviteTokens = invite.ErrNoInviteTokens
+
+// ErrLevelAllocationExhausted is the refusal a member gets when their level
+// grants them slots and all of them are in use.
+var ErrLevelAllocationExhausted = invite.ErrLevelAllocationExhausted
+
 var ErrInvalidInviteKey = errors.New("invalid or expired invite key")
 
 type Finder interface {
@@ -82,10 +93,65 @@ func repealInviteTokens(ctx context.Context, tx *queries.Queries, userID uuid.UU
 	return int(u.InviteTokens), err
 }
 
-// GenerateInviteKeys creates and returns an invite key, using a token if
-// required. If useToken is true and the user has no invite tokens, then
-// an error is returned.
-func generateInviteKeys(ctx context.Context, tx *queries.Queries, userID uuid.UUID, input *models.GenerateInviteCodeInput, useToken bool) ([]uuid.UUID, error) {
+// allowanceFor reads the two facts an allowance is made of: the member's LEVEL,
+// and how many keys they hold USABLE right now.
+//
+// Both come from an existing single implementation rather than from a new rule.
+// The level is the trust service's answer, because it owns the one curve that
+// decides what level anyone is -- a second reading of user_trust here would be a
+// second answer to that question. The count comes from
+// FindActiveInviteKeysForUser, the same query behind the `invite_codes` field,
+// which already excludes keys that expired and keys whose uses were consumed by
+// live user_tokens rows: "usable" therefore has one definition, and an expired
+// or consumed key frees its slot because it stops being counted, not because
+// anything cleans it up.
+func allowanceFor(ctx context.Context, tx *queries.Queries, trustSvc *trust.Trust, userID uuid.UUID, exempt bool) (invite.Allowance, error) {
+	level, err := trustSvc.Level(ctx, userID)
+	if err != nil {
+		return invite.Allowance{}, err
+	}
+
+	active, err := tx.FindActiveInviteKeysForUser(ctx, userID)
+	if err != nil {
+		return invite.Allowance{}, err
+	}
+
+	u, err := tx.FindUser(ctx, userID)
+	if err != nil {
+		return invite.Allowance{}, err
+	}
+
+	return invite.Allowance{
+		Level:      level,
+		ActiveKeys: len(active),
+		Granted:    int(u.InviteTokens),
+		Exempt:     exempt,
+	}, nil
+}
+
+// InviteAllowance is what a member (or their client) may ask about their own
+// invites: the level the allowance comes from, the slots that level grants, how
+// many are in use, the operator's grant, and whether their role exempts them.
+//
+// It is derived per call from the same two facts generateInviteKeys decides on,
+// so a member cannot be shown an allowance that disagrees with the refusal the
+// mutation would give them.
+func (s *User) InviteAllowance(ctx context.Context, userID uuid.UUID, exempt bool) (invite.Allowance, error) {
+	return allowanceFor(ctx, s.queries, s.trust, userID, exempt)
+}
+
+// generateInviteKeys creates and returns invite keys, within the member's
+// allowance.
+//
+// The allowance is re-read INSIDE the loop, which is what makes a batch obey the
+// cap: the key minted in the previous iteration is counted by the next check, so
+// asking for four keys with one slot left mints one and then refuses. The
+// existing transaction makes that refusal all-or-nothing rather than leaving a
+// partial batch behind.
+//
+// The 50-key clamp is a ceiling on a single request, not the rule: the allowance
+// is what decides, and it is smaller for every level but Steward.
+func generateInviteKeys(ctx context.Context, tx *queries.Queries, trustSvc *trust.Trust, userID uuid.UUID, input *models.GenerateInviteCodeInput, exempt bool) ([]uuid.UUID, error) {
 	keys := 1
 	if input.Keys != nil {
 		keys = *input.Keys
@@ -99,18 +165,20 @@ func generateInviteKeys(ctx context.Context, tx *queries.Queries, userID uuid.UU
 	var ret []uuid.UUID
 
 	for i := 0; i < keys; i++ {
-		if useToken {
-			u, err := tx.FindUser(ctx, userID)
-			if err != nil {
-				return nil, err
-			}
+		allowance, err := allowanceFor(ctx, tx, trustSvc, userID, exempt)
+		if err != nil {
+			return nil, err
+		}
 
-			if u.InviteTokens <= 0 {
-				return nil, ErrNoInviteTokens
-			}
+		decision := allowance.Decide()
+		if !decision.Allowed {
+			return nil, decision.Refusal
+		}
 
-			_, err = repealInviteTokens(ctx, tx, userID, 1)
-			if err != nil {
+		// Only a grant is spent, and only when the level had no free slot: a
+		// member who earned the key must not pay an operator's grant for it.
+		if decision.SpendsToken {
+			if _, err := repealInviteTokens(ctx, tx, userID, 1); err != nil {
 				return nil, err
 			}
 		}
@@ -149,7 +217,17 @@ func generateInviteKeys(ctx context.Context, tx *queries.Queries, userID uuid.UU
 }
 
 // RescindInviteKey makes an invite key invalid, refunding the invite token if
-// required. Returns an error if the invite key is already in use.
+// one was spent on it.
+//
+// The refund is conditional on the key never having been activated, which is the
+// half of this function that was missing: an unconditional refund lets a key
+// that brought a real member in be rescinded for a second token, and with a
+// level-derived cap in place that is not untidiness -- it is the cap's hole,
+// because the rescind would buy a slot it never freed.
+//
+// "Never activated" is answered by FindUserTokensByInviteKey, which returns
+// EVERY token ever minted for the key regardless of expiry: an activation whose
+// token has since expired still signed a person up, so it is still not a refund.
 func rescindInviteKey(ctx context.Context, tx *queries.Queries, key uuid.UUID, userID uuid.UUID, refundToken bool) error {
 	// ensure userID matches that of the invite key
 	k, err := tx.FindInviteKey(ctx, key)
@@ -161,7 +239,14 @@ func rescindInviteKey(ctx context.Context, tx *queries.Queries, key uuid.UUID, u
 		return fmt.Errorf("invalid key")
 	}
 
-	// TODO - ensure key is not already activated
+	activated := true
+	if refundToken {
+		tokens, err := tx.FindUserTokensByInviteKey(ctx, key)
+		if err != nil {
+			return err
+		}
+		activated = len(tokens) > 0
+	}
 
 	// destroy the key
 	err = tx.DeleteInviteKey(ctx, key)
@@ -169,8 +254,8 @@ func rescindInviteKey(ctx context.Context, tx *queries.Queries, key uuid.UUID, u
 		return err
 	}
 
-	// refund the invite token if required
-	if refundToken {
+	// refund the invite token if it was spent and the key was never activated
+	if refundToken && !activated {
 		_, err := tx.FindUser(ctx, userID)
 		if err != nil {
 			return err

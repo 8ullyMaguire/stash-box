@@ -288,7 +288,7 @@ func (f *Factory) Studio() *studio.Studio {
 
 // User returns a UserService instance
 func (f *Factory) User() *user.User {
-	return user.NewUser(queries.New(f.db), f.withTxn, f.emailMgr)
+	return user.NewUser(queries.New(f.db), f.withTxn, f.emailMgr, trust.NewTrust(queries.New(f.db), f.withTxn))
 }
 
 // UserToken returns a UserTokenService instance

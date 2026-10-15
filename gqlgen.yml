@@ -33,6 +33,13 @@ models:
       # is the other one: a field that binds to something plausible and answers with it.
       trust_level:
         resolver: true
+      # `invite_allowance` is derived per request from the level and the key
+      # rows (phase 11, slice 11a), and `models.User` is hand-written, so there
+      # is no struct field to bind it to. Left bound, gqlgen cannot bind it at
+      # all -- and the failure worth avoiding is the other one, a field that
+      # binds to something plausible and answers with it.
+      invite_allowance:
+        resolver: true
   # A vouch's giver is a User the database row does not carry -- the row holds an id --
   # so the field is resolved externally rather than bound to a struct field that
   # would have to be filled in by hand at every construction site.

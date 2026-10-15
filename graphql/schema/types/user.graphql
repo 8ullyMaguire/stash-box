@@ -51,6 +51,20 @@ type User {
   invite_codes: [InviteKey!] @isUserOwner
 
   """
+  What this member may do with invitations, and why (SPEC §7, plan phase 11
+  slice 11a).
+
+  Owner only, like the fields above: how many invitations a member may issue is
+  part of their standing, and standing is not other members' business.
+
+  Everything here is DERIVED per request from the same two facts the mutation
+  decides on -- the level (from internal/service/trust) and the usable key rows
+  -- so this can never show an allowance that disagrees with the refusal the
+  member would get by trying.
+  """
+  invite_allowance: InviteAllowance @isUserOwner
+
+  """
   Trust level and contribution totals (SPEC section 6).
 
   Owner and admin only: trust is a reputation score, and a user's standing is
@@ -79,6 +93,38 @@ type User {
   only shape in which this rule can hold.
   """
   trust_level: Int!
+}
+
+"""
+A member's invite allowance: the two facts it is made of, and the decision they
+lead to.
+
+`cap` is the number of keys the member's LEVEL lets them hold usable at once
+(0 at the level every account starts at), `active_keys` is how many they hold
+right now, counted from the key rows rather than from a stored tally -- which is
+what makes an expired or consumed key free its slot with nothing to clean up.
+`tokens` is what an operator has granted, and a grant buys a key only when no
+level slot is free.
+
+There is deliberately no "remaining" field: 0 free slots means something
+different to a member at their cap, to a member whose level grants none at all,
+and to an exempt member who is not limited by the cap -- one integer meaning
+three things is a rendering bug waiting to happen. `can_generate` is the answer
+to the only question a client actually asks.
+"""
+type InviteAllowance {
+  """The trust level the allowance comes from."""
+  level: Int!
+  """How many invite keys that level may hold usable at once."""
+  cap: Int!
+  """How many are in use right now."""
+  active_keys: Int!
+  """Invite tokens an operator has granted."""
+  tokens: Int!
+  """True when the member's role is the operator's delegation, which no cap constrains."""
+  exempt: Boolean!
+  """Whether another key may be minted right now."""
+  can_generate: Boolean!
 }
 
 """

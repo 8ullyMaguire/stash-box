@@ -20,6 +20,7 @@ import (
 	"github.com/stashapp/stash-box/internal/queries"
 	"github.com/stashapp/stash-box/internal/service/errutil"
 	"github.com/stashapp/stash-box/internal/service/loadutil"
+	"github.com/stashapp/stash-box/internal/service/trust"
 	"github.com/stashapp/stash-box/pkg/utils"
 )
 
@@ -28,14 +29,19 @@ type User struct {
 	queries  *queries.Queries
 	withTxn  queries.WithTxnFunc
 	emailMgr *email.Manager
+	// trust is the one implementation of "what level is this user": the invite
+	// allowance is derived from it, so a second reading of the rollup here would
+	// be a second answer to the same question (phase 11, slice 11a).
+	trust *trust.Trust
 }
 
 // NewUser creates a new user service
-func NewUser(queries *queries.Queries, withTxn queries.WithTxnFunc, emailMgr *email.Manager) *User {
+func NewUser(queries *queries.Queries, withTxn queries.WithTxnFunc, emailMgr *email.Manager, trustSvc *trust.Trust) *User {
 	return &User{
 		queries:  queries,
 		withTxn:  withTxn,
 		emailMgr: emailMgr,
+		trust:    trustSvc,
 	}
 }
 
@@ -509,16 +515,14 @@ func (s *User) ActivateNewUser(ctx context.Context, input models.ActivateNewUser
 }
 
 func (s *User) GenerateInviteCodes(ctx context.Context, input *models.GenerateInviteCodeInput) ([]uuid.UUID, error) {
-	// INVITE role allows generating invite keys without tokens
-	requireToken := true
-	if err := auth.ValidateInvite(ctx); err == nil {
-		requireToken = false
-	}
+	// INVITE role allows generating invite keys without tokens: that is the
+	// exemption the allowance carries, unchanged from before phase 11.
+	exempt := auth.ValidateInvite(ctx) == nil
 
 	currentUser := auth.GetCurrentUser(ctx)
 	var ret []uuid.UUID
 	err := s.withTxn(func(tx *queries.Queries) error {
-		keys, err := generateInviteKeys(ctx, tx, currentUser.ID, input, requireToken)
+		keys, err := generateInviteKeys(ctx, tx, s.trust, currentUser.ID, input, exempt)
 		if err != nil {
 			return err
 		}
@@ -532,11 +536,8 @@ func (s *User) GenerateInviteCodes(ctx context.Context, input *models.GenerateIn
 }
 
 func (s *User) GenerateInviteCode(ctx context.Context) (*uuid.UUID, error) {
-	// INVITE role allows generating invite keys without tokens
-	requireToken := true
-	if err := auth.ValidateInvite(ctx); err == nil {
-		requireToken = false
-	}
+	// INVITE role allows generating invite keys without tokens, as above.
+	exempt := auth.ValidateInvite(ctx) == nil
 
 	currentUser := auth.GetCurrentUser(ctx)
 
@@ -550,7 +551,7 @@ func (s *User) GenerateInviteCode(ctx context.Context) (*uuid.UUID, error) {
 			Uses: &uses,
 		}
 
-		inviteKeys, txnErr := generateInviteKeys(ctx, tx, currentUser.ID, input, requireToken)
+		inviteKeys, txnErr := generateInviteKeys(ctx, tx, s.trust, currentUser.ID, input, exempt)
 		if txnErr != nil {
 			return txnErr
 		}
@@ -568,11 +569,12 @@ func (s *User) GenerateInviteCode(ctx context.Context) (*uuid.UUID, error) {
 }
 
 func (s *User) RescindInviteCode(ctx context.Context, inviteKeyID uuid.UUID) error {
-	// INVITE role allows generating invite keys without tokens
-	requireToken := true
-	if err := auth.ValidateInvite(ctx); err == nil {
-		requireToken = false
-	}
+	// A member WITHOUT the INVITE role is the one who had to pay a token for a
+	// key, so they are the one a rescind refunds. An INVITE-role mint never spent
+	// a grant, so there is nothing to give back -- this is the pre-phase-11
+	// rule (it was spelled `requireToken`), kept deliberately and named for what
+	// it means at the refund site.
+	paidForKeys := auth.ValidateInvite(ctx) != nil
 
 	tokenManagerErr := auth.ValidateManageInvites(ctx)
 
@@ -590,7 +592,7 @@ func (s *User) RescindInviteCode(ctx context.Context, inviteKeyID uuid.UUID) err
 			userID = inviteKey.GeneratedBy
 		}
 
-		err := rescindInviteKey(ctx, tx, inviteKeyID, userID, requireToken)
+		err := rescindInviteKey(ctx, tx, inviteKeyID, userID, paidForKeys)
 		if err != nil {
 			return err
 		}

@@ -1332,6 +1332,36 @@ type IntCriterionInput struct {
 	Modifier CriterionModifier `json:"modifier"`
 }
 
+// A member's invite allowance: the two facts it is made of, and the decision they
+// lead to.
+//
+// `cap` is the number of keys the member's LEVEL lets them hold usable at once
+// (0 at the level every account starts at), `active_keys` is how many they hold
+// right now, counted from the key rows rather than from a stored tally -- which is
+// what makes an expired or consumed key free its slot with nothing to clean up.
+// `tokens` is what an operator has granted, and a grant buys a key only when no
+// level slot is free.
+//
+// There is deliberately no "remaining" field: 0 free slots means something
+// different to a member at their cap, to a member whose level grants none at all,
+// and to an exempt member who is not limited by the cap -- one integer meaning
+// three things is a rendering bug waiting to happen. `can_generate` is the answer
+// to the only question a client actually asks.
+type InviteAllowance struct {
+	// The trust level the allowance comes from.
+	Level int `json:"level"`
+	// How many invite keys that level may hold usable at once.
+	Cap int `json:"cap"`
+	// How many are in use right now.
+	ActiveKeys int `json:"active_keys"`
+	// Invite tokens an operator has granted.
+	Tokens int `json:"tokens"`
+	// True when the member's role is the operator's delegation, which no cap constrains.
+	Exempt bool `json:"exempt"`
+	// Whether another key may be minted right now.
+	CanGenerate bool `json:"can_generate"`
+}
+
 type LeaderboardEntry struct {
 	// The member's rank in the WHOLE ranking, before any level filter, so a level-scoped board
 	// shows 3, 7, 12 rather than renaming the handful of members who share a level. A board

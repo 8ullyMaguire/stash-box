@@ -1,6 +1,8 @@
 package trust
 
 import (
+	"fmt"
+
 	"github.com/gofrs/uuid"
 )
 
@@ -121,6 +123,32 @@ const (
 // tuning knob: it is the line between "can see the archive" and "can see the
 // media", and an operator loosening it should be a deliberate code change.
 const LevelContentViewing = LevelArchivist
+
+// String names the level, for messages that have to tell a member WHICH level
+// refused them (an invite refusal names the level the allowance came from).
+//
+// An unknown value prints as "Level(n)" rather than being silently reported as
+// one of the named levels: a member told "your level (Public) grants no invite
+// keys" would go looking for the wrong thing if the real level were a value this
+// build does not know.
+func (l LevelEnum) String() string {
+	switch l {
+	case LevelPublic:
+		return "Public"
+	case LevelRegistered:
+		return "Registered"
+	case LevelContributor:
+		return "Contributor"
+	case LevelCurator:
+		return "Curator"
+	case LevelArchivist:
+		return "Archivist"
+	case LevelSteward:
+		return "Steward"
+	default:
+		return fmt.Sprintf("Level(%d)", int(l))
+	}
+}
 
 // threshold is the minimum points required to reach a level.
 type threshold struct {

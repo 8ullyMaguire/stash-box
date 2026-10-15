@@ -611,6 +611,15 @@ type ComplexityRoot struct {
 		Status        func(childComplexity int) int
 	}
 
+	InviteAllowance struct {
+		ActiveKeys  func(childComplexity int) int
+		CanGenerate func(childComplexity int) int
+		Cap         func(childComplexity int) int
+		Exempt      func(childComplexity int) int
+		Level       func(childComplexity int) int
+		Tokens      func(childComplexity int) int
+	}
+
 	InviteKey struct {
 		Expires func(childComplexity int) int
 		ID      func(childComplexity int) int
@@ -1496,6 +1505,7 @@ type ComplexityRoot struct {
 		ID                        func(childComplexity int) int
 		ImageTypeGroupPreferences func(childComplexity int) int
 		ImageTypePreferences      func(childComplexity int) int
+		InviteAllowance           func(childComplexity int) int
 		InviteCodes               func(childComplexity int) int
 		InviteTokens              func(childComplexity int) int
 		InvitedBy                 func(childComplexity int) int
@@ -2118,6 +2128,7 @@ type UserResolver interface {
 
 	ActiveInviteCodes(ctx context.Context, obj *User) ([]string, error)
 	InviteCodes(ctx context.Context, obj *User) ([]InviteKey, error)
+	InviteAllowance(ctx context.Context, obj *User) (*InviteAllowance, error)
 	Trust(ctx context.Context, obj *User) (*UserTrust, error)
 	TrustLevel(ctx context.Context, obj *User) (int, error)
 	ContributionHeatmap(ctx context.Context, obj *User, days *int) ([]ContributionDay, error)
@@ -4087,6 +4098,43 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.IngestSubmission.Status(childComplexity), true
+
+	case "InviteAllowance.active_keys":
+		if e.ComplexityRoot.InviteAllowance.ActiveKeys == nil {
+			break
+		}
+
+		return e.ComplexityRoot.InviteAllowance.ActiveKeys(childComplexity), true
+	case "InviteAllowance.can_generate":
+		if e.ComplexityRoot.InviteAllowance.CanGenerate == nil {
+			break
+		}
+
+		return e.ComplexityRoot.InviteAllowance.CanGenerate(childComplexity), true
+	case "InviteAllowance.cap":
+		if e.ComplexityRoot.InviteAllowance.Cap == nil {
+			break
+		}
+
+		return e.ComplexityRoot.InviteAllowance.Cap(childComplexity), true
+	case "InviteAllowance.exempt":
+		if e.ComplexityRoot.InviteAllowance.Exempt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.InviteAllowance.Exempt(childComplexity), true
+	case "InviteAllowance.level":
+		if e.ComplexityRoot.InviteAllowance.Level == nil {
+			break
+		}
+
+		return e.ComplexityRoot.InviteAllowance.Level(childComplexity), true
+	case "InviteAllowance.tokens":
+		if e.ComplexityRoot.InviteAllowance.Tokens == nil {
+			break
+		}
+
+		return e.ComplexityRoot.InviteAllowance.Tokens(childComplexity), true
 
 	case "InviteKey.expires":
 		if e.ComplexityRoot.InviteKey.Expires == nil {
@@ -9196,6 +9244,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.User.ImageTypePreferences(childComplexity), true
+	case "User.invite_allowance":
+		if e.ComplexityRoot.User.InviteAllowance == nil {
+			break
+		}
+
+		return e.ComplexityRoot.User.InviteAllowance(childComplexity), true
 	case "User.invite_codes":
 		if e.ComplexityRoot.User.InviteCodes == nil {
 			break
@@ -15507,6 +15561,20 @@ type User {
   invite_codes: [InviteKey!] @isUserOwner
 
   """
+  What this member may do with invitations, and why (SPEC §7, plan phase 11
+  slice 11a).
+
+  Owner only, like the fields above: how many invitations a member may issue is
+  part of their standing, and standing is not other members' business.
+
+  Everything here is DERIVED per request from the same two facts the mutation
+  decides on -- the level (from internal/service/trust) and the usable key rows
+  -- so this can never show an allowance that disagrees with the refusal the
+  member would get by trying.
+  """
+  invite_allowance: InviteAllowance @isUserOwner
+
+  """
   Trust level and contribution totals (SPEC section 6).
 
   Owner and admin only: trust is a reputation score, and a user's standing is
@@ -15535,6 +15603,38 @@ type User {
   only shape in which this rule can hold.
   """
   trust_level: Int!
+}
+
+"""
+A member's invite allowance: the two facts it is made of, and the decision they
+lead to.
+
+` + "`" + `cap` + "`" + ` is the number of keys the member's LEVEL lets them hold usable at once
+(0 at the level every account starts at), ` + "`" + `active_keys` + "`" + ` is how many they hold
+right now, counted from the key rows rather than from a stored tally -- which is
+what makes an expired or consumed key free its slot with nothing to clean up.
+` + "`" + `tokens` + "`" + ` is what an operator has granted, and a grant buys a key only when no
+level slot is free.
+
+There is deliberately no "remaining" field: 0 free slots means something
+different to a member at their cap, to a member whose level grants none at all,
+and to an exempt member who is not limited by the cap -- one integer meaning
+three things is a rendering bug waiting to happen. ` + "`" + `can_generate` + "`" + ` is the answer
+to the only question a client actually asks.
+"""
+type InviteAllowance {
+  """The trust level the allowance comes from."""
+  level: Int!
+  """How many invite keys that level may hold usable at once."""
+  cap: Int!
+  """How many are in use right now."""
+  active_keys: Int!
+  """Invite tokens an operator has granted."""
+  tokens: Int!
+  """True when the member's role is the operator's delegation, which no cap constrains."""
+  exempt: Boolean!
+  """Whether another key may be minted right now."""
+  can_generate: Boolean!
 }
 
 """
@@ -17154,6 +17254,24 @@ func (ec *executionContext) childFields_IngestSubmission(ctx context.Context, fi
 	return nil, fmt.Errorf("no field named %q was found under type IngestSubmission", field.Name)
 }
 
+func (ec *executionContext) childFields_InviteAllowance(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "level":
+		return ec.fieldContext_InviteAllowance_level(ctx, field)
+	case "cap":
+		return ec.fieldContext_InviteAllowance_cap(ctx, field)
+	case "active_keys":
+		return ec.fieldContext_InviteAllowance_active_keys(ctx, field)
+	case "tokens":
+		return ec.fieldContext_InviteAllowance_tokens(ctx, field)
+	case "exempt":
+		return ec.fieldContext_InviteAllowance_exempt(ctx, field)
+	case "can_generate":
+		return ec.fieldContext_InviteAllowance_can_generate(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type InviteAllowance", field.Name)
+}
+
 func (ec *executionContext) childFields_InviteKey(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 	switch field.Name {
 	case "id":
@@ -18218,6 +18336,8 @@ func (ec *executionContext) childFields_User(ctx context.Context, field graphql.
 		return ec.fieldContext_User_active_invite_codes(ctx, field)
 	case "invite_codes":
 		return ec.fieldContext_User_invite_codes(ctx, field)
+	case "invite_allowance":
+		return ec.fieldContext_User_invite_allowance(ctx, field)
 	case "trust":
 		return ec.fieldContext_User_trust(ctx, field)
 	case "trust_level":
@@ -29560,6 +29680,144 @@ func (ec *executionContext) _IngestSubmission_message(ctx context.Context, field
 }
 func (ec *executionContext) fieldContext_IngestSubmission_message(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("IngestSubmission", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _InviteAllowance_level(ctx context.Context, field graphql.CollectedField, obj *InviteAllowance) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_InviteAllowance_level(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Level, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_InviteAllowance_level(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("InviteAllowance", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _InviteAllowance_cap(ctx context.Context, field graphql.CollectedField, obj *InviteAllowance) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_InviteAllowance_cap(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Cap, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_InviteAllowance_cap(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("InviteAllowance", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _InviteAllowance_active_keys(ctx context.Context, field graphql.CollectedField, obj *InviteAllowance) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_InviteAllowance_active_keys(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ActiveKeys, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_InviteAllowance_active_keys(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("InviteAllowance", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _InviteAllowance_tokens(ctx context.Context, field graphql.CollectedField, obj *InviteAllowance) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_InviteAllowance_tokens(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Tokens, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_InviteAllowance_tokens(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("InviteAllowance", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _InviteAllowance_exempt(ctx context.Context, field graphql.CollectedField, obj *InviteAllowance) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_InviteAllowance_exempt(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Exempt, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_InviteAllowance_exempt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("InviteAllowance", field, false, false, errors.New("field of type Boolean does not have child fields"))
+}
+
+func (ec *executionContext) _InviteAllowance_can_generate(ctx context.Context, field graphql.CollectedField, obj *InviteAllowance) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_InviteAllowance_can_generate(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.CanGenerate, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_InviteAllowance_can_generate(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("InviteAllowance", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
 func (ec *executionContext) _InviteKey_id(ctx context.Context, field graphql.CollectedField, obj *InviteKey) (ret graphql.Marshaler) {
@@ -54702,6 +54960,51 @@ func (ec *executionContext) fieldContext_User_invite_codes(_ context.Context, fi
 	return fc, nil
 }
 
+func (ec *executionContext) _User_invite_allowance(ctx context.Context, field graphql.CollectedField, obj *User) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_User_invite_allowance(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.User().InviteAllowance(ctx, obj)
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				if ec.Directives.IsUserOwner == nil {
+					var zeroVal *InviteAllowance
+					return zeroVal, errors.New("directive isUserOwner is not implemented")
+				}
+				return ec.Directives.IsUserOwner(ctx, obj, directive0)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *InviteAllowance) graphql.Marshaler {
+			return ec.marshalOInviteAllowance2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐInviteAllowance(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_User_invite_allowance(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "User",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_InviteAllowance(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _User_trust(ctx context.Context, field graphql.CollectedField, obj *User) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -70192,6 +70495,69 @@ func (ec *executionContext) _IngestSubmission(ctx context.Context, sel ast.Selec
 	return out
 }
 
+var inviteAllowanceImplementors = []string{"InviteAllowance"}
+
+func (ec *executionContext) _InviteAllowance(ctx context.Context, sel ast.SelectionSet, obj *InviteAllowance) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, inviteAllowanceImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("InviteAllowance")
+		case "level":
+			out.Values[i] = ec._InviteAllowance_level(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "cap":
+			out.Values[i] = ec._InviteAllowance_cap(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "active_keys":
+			out.Values[i] = ec._InviteAllowance_active_keys(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "tokens":
+			out.Values[i] = ec._InviteAllowance_tokens(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "exempt":
+			out.Values[i] = ec._InviteAllowance_exempt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "can_generate":
+			out.Values[i] = ec._InviteAllowance_can_generate(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
 var inviteKeyImplementors = []string{"InviteKey"}
 
 func (ec *executionContext) _InviteKey(ctx context.Context, sel ast.SelectionSet, obj *InviteKey) graphql.Marshaler {
@@ -82937,6 +83303,44 @@ func (ec *executionContext) _User(ctx context.Context, sel ast.SelectionSet, obj
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "invite_allowance":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._User_invite_allowance(ctx, field, obj)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "trust":
 			field := field
 
@@ -88655,6 +89059,13 @@ func (ec *executionContext) unmarshalOIntCriterionInput2ᚖgithubᚗcomᚋstasha
 	}
 	res, err := ec.unmarshalInputIntCriterionInput(ctx, v)
 	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOInviteAllowance2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐInviteAllowance(ctx context.Context, sel ast.SelectionSet, v *InviteAllowance) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._InviteAllowance(ctx, sel, v)
 }
 
 func (ec *executionContext) marshalOInviteKey2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐInviteKeyᚄ(ctx context.Context, sel ast.SelectionSet, v []InviteKey) graphql.Marshaler {

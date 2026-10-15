@@ -2956,14 +2956,137 @@ already on disk.
 
 ## Phase 11 — growth: invites, referrals, cohorts
 
-**Goal:** NexusXXX §11. **Verified:** `InviteKey` (uses, expiry, `invited_by`) and
-`RoleEnum {…, INVITE, MANAGE_INVITES}` exist; nothing allocates, regenerates, caps or
-rewards.
+**Goal:** NexusXXX §11. **Verified before the first slice (2026-10-15):** `invite_keys` (migration 08, plus
+`uses`/`expire_time` in 33 and the unique-activation index dropped in 36), `users.invited_by`,
+`users.invite_tokens`, `pending_activations`, `RoleEnum {INVITE, MANAGE_INVITES}` and three service entry
+points (`GenerateInviteCode`, `GenerateInviteCodes`, `RescindInviteCode`) all exist, and an admin can
+hand-grant up to 10 tokens per call (`grantInvite`). What does NOT exist: any allocation rule, any
+referral payment, any cohort, any counter a client can read.
 
-**Verification:** allocation by level with regeneration and caps; a referral chain
-pays on the invitee reaching TL1 (never on signup) with one level of depth; a QR code
-renders and its scan/signup/activation counters move; a cohort campaign's fast-track
-applies only to members of that cohort.
+**The one architectural decision for this phase: an invite ALLOWANCE is derived, never stored.** The tree
+already carries a stored tally (`users.invite_tokens`) and it stays — an operator's discretionary grant is a
+fact about an operator's decision that no level can reconstruct, and it is how an instance invites someone
+who has no standing yet. What phase 11 adds is the half that IS reconstructible: how many keys your
+standing earns you, computed from the rows every time. Nothing new is tallied, so nothing new can drift.
+
+**Dependency order and the constraint that decides each slice:**
+
+### Slice 11a — allocation by level: the rule, the refusal, and the allowance a client can read
+
+**The rule (pure, `internal/service/invite`).** `AllocationFor(level)`: Public 0, Registered 1, Contributor
+3, Curator 5, Archivist 10, Steward 25. Monotone by construction, and **zero at the level every registered
+account starts at** — an invite is earned by contributing, which is the same argument the level curve's own
+comment makes for L4 costing 3× L3: an account created five minutes ago must not be able to mint keys.
+
+**The allowance.** `Allowance{Level, ActiveKeys, Granted, Exempt}` with `Cap()` and
+`Decide() Decision{Allowed, SpendsToken, Refusal}`. There is deliberately no `remaining` number: a free-slot
+count means 0 to an at-cap member, something else to an exempt member who is not bound by the cap at all,
+and something else again to a member holding more keys than their cap allows — one integer meaning three
+things is a rendering bug waiting to happen. Callers get the facts (cap, ActiveKeys, Exempt) and
+`Decide()` for permission. A refusal NAMES which allowance ran out, because the member's next action
+differs — contribute, or ask an operator — and "no invite tokens available" for a level-cap refusal sends
+them to the wrong one.
+
+- **Slots first, tokens second.** A member holding both spends a level slot, so an operator's grant is not
+  burned by someone who did not need it.
+- **`Exempt`** is the INVITE role, and it is the SAME condition that already meant "no token required" in
+  `GenerateInviteCode` today — the exemption is carried over, not invented, so this slice grants nobody a
+  power they did not have. MANAGE_INVITES is deliberately NOT exempt: it already carries grant/revoke, and
+  its holder invites either by spending a token or by granting themselves one, which is the power it was
+  given rather than an unbounded mint as a side effect. `Exempt` is a field on the struct rather than an
+  early return so a test can assert the bypass is a decision and not an accident of ordering.
+- **`ActiveKeys` is counted, never stored**, and it is counted by the EXISTING
+  `FindActiveInviteKeysForUser`, which already excludes expired keys and keys whose `uses` are consumed by
+  real `user_tokens` rows. The usability rule therefore stays in one place — that SQL — and the pure rule
+  only counts what it returns. This is what makes "regeneration" free: an expired or consumed key frees
+  its slot with nothing to clean up.
+
+**Wiring.** Both generation entry points consult the allowance once and check it **per key inside the
+existing loop**, so a request for four keys with one slot left mints one and then refuses, and the existing
+`withTxn` makes the batch all-or-nothing. `ErrInviteAllocationExhausted` joins `ErrNoInviteTokens` as a
+distinct sentinel rather than replacing it: the two refusals have different remedies.
+
+**The refund hole this slice closes, because a cap makes it a hole rather than untidiness.**
+`rescindInviteKey` carries the comment `TODO - ensure key is not already activated` and refunds a token
+unconditionally — so a key that was USED could be rescinded for a second token, buying a slot the rescind
+never freed. The refund is now conditional on `FindUserTokensByInviteKey` (the query already exists)
+returning nothing. A cap without this is a cap with a known way around it.
+
+**What a client can read:** `User.inviteAllowance` (`@isUserOwner`, next to `invite_tokens`), carrying
+`cap`, `activeKeys`, `remaining`, `tokens`, `exempt`. Derived per request like the level's own counters,
+so it cannot disagree with the refusal the mutation would give.
+
+**Verification:** `go test ./internal/service/invite/ -count=1` (the pure table); `go test -tags
+integration -count=1 -p 1 -run TestInviteAllowance ./internal/api/` (a member's slots come from their
+level, the refusal names the level, an expired key frees a slot, a rescinded USED key does not refund, and
+a token lets a level-less member invite); the wire test that asks for `inviteAllowance` through the
+handler. Then mutations: allocation curve flattened to a constant → the monotonicity test reddens; the cap
+raised by one → the at-the-cap refusal reddens; the refund made unconditional again → the double-refund
+test reddens.
+
+### Slice 11b — the referral chain pays on the invitee's first REAL level, one level deep
+
+**The rule.** When an invitee reaches Registered (the first level above the one every account starts at),
+their `invited_by` referrer earns a one-time payment. **Never on signup**: an account that signs up and
+leaves is not growth, and a payment at signup is a payment for an email address. **One level of depth**:
+only the immediate referrer is paid, so a chain of accounts cannot be farmed.
+
+**Idempotence without a new table.** The existing trust event carries `(kind, entity_type, entity_id)` as
+its dedup key, so the payment is recorded as an event keyed to the INVITEE — the same subject that must be
+paid for once, ever, no matter how often the level is recomputed (the level is recomputed on every
+contributing event and can oscillate through decay). No new column, no new tally, and a reversal is
+expressible through the same key.
+
+**A counted kind, not a points-only one.** `invite_activated` joins `AllKinds` and the rollup, so "how many
+people did this member bring in" is answerable and the payment is `count × weight` like every other
+contribution — the bounty-bonus split (points without a count) is right for a bonus and wrong here, because
+a count of activated invitees is a real fact about a member. That means the migration adds the rollup
+column and the CASE arms in the same commit as the weight, and `TestEveryKindHasPoints` plus its siblings
+are what hold the pair together.
+
+**Where the payment triggers:** the level is recomputed inside the trust service, so the payment is asked
+for there, after the level is written, and only on the transition into Registered-or-above. A self-invite
+(`invited_by = the invitee`) is refused by name and tested: nothing in the schema prevents an operator from
+generating a key and activating it on their own account, and a payment for inviting yourself is the
+cheapest way to farm this.
+
+**Verification:** an invitee at 0 points pays nothing; the same invitee after one applied edit (10 points →
+Registered) pays exactly once; a second contribution pays nothing more; a level that decays below
+Registered and climbs back pays nothing; a self-invited account pays nothing; a grand-invitee's activation
+pays the grandparent nothing (one level of depth, asserted by identity).
+
+### Slice 11c — the QR and the three counters
+
+**The rule.** A key renders as a QR code the member can hand to someone in person, and the counters a
+member sees are `scans`, `signups` and `activations` — **all three derived from rows, none of them a
+column**. A scan is a row (an unauthenticated GET of the key's landing page), a signup is a
+`pending_activations` row for that key, an activation is a real `user_tokens` row that was consumed. The
+distinction is the point: a scan is interest, a signup is an address, an activation is a person, and a
+member deciding whether their invite link works needs to tell those apart.
+
+**Dependency decision, written before code (the repo's habit for a new dependency).** The QR is rendered
+server-side as an SVG: it is one algorithm, the output is a text document that needs no image pipeline, and
+it keeps the invite path free of a client that must run. If no acceptable Go implementation exists, the
+fallback is a minimal ISO/IEC 18004 encoder for byte mode, which is ~200 lines and testable against the
+published example vectors — recorded in `docs/decisions/` before either is written, with what was measured
+rather than what the README claims.
+
+**Verification:** the rendered QR decodes back to the key's URL with an independent decoder; the counters
+move one at a time for one scan, one signup and one activation and do not move for the other two events;
+a scan of an expired key is not counted.
+
+### Slice 11d — seed cohorts, and a campaign's fast-track that applies only to its members
+
+**The rule.** A cohort is a named set of members (`seed_cohorts`, `seed_cohort_members`); a campaign
+belongs to one cohort and grants a one-time head start to ITS members. **The fast-track is a trust EVENT,
+not a level override**: the level has exactly one implementation (`LevelForTotals`), and a campaign that
+set a level directly would be a second answer to "what level is this person" — the mistake the whole trust
+phase was built to avoid. So the campaign awards points (deduped by the campaign's own id in the event's
+entity key, so re-running a campaign pays nobody twice), and the level follows from the one curve.
+
+**Verification:** a member of the campaign's cohort gains the points exactly once; a non-member with an
+identical history gains nothing; running the campaign twice pays the cohort once; a member who leaves the
+cohort before the campaign runs is not paid.
 
 ## Phase 12 — federation extensions
 
