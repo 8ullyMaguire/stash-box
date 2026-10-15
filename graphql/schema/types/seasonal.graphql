@@ -1,0 +1,87 @@
+# Seasonal events (plan phase 6 slice 6g).
+#
+# An event is a NAMED WINDOW WITH A THRESHOLD: a title, a description a member reads, two
+# instants and a number. Everything a member sees about one is DERIVED -- "active" is what
+# today falls between, "reached" is whether the window holds enough contributions -- so there
+# is no status column, no progress row and no sweep.
+#
+# WHAT THIS SLICE DOES NOT DO: award anything. No badge, no points, no multiplier on the level
+# curve, and that is a decision rather than an omission: a multiplier would change the LEVEL
+# POLICY of slice 6b for whoever happened to be active during a window, which is not something
+# to smuggle in behind a title and a date range. The measurement ships; the reward is a policy
+# decision with its own slice.
+
+enum SeasonalEventStatus {
+  """
+  It has not started.
+  """
+  UPCOMING
+
+  """
+  It is running, including the instant it ends.
+  """
+  ACTIVE
+
+  """
+  It is over.
+  """
+  ENDED
+}
+
+type SeasonalEvent {
+  """
+  A stable name for the event, for callers that want to point at one.
+  """
+  slug: String!
+
+  title: String!
+
+  """
+  What the event is, in the operator's words. Written to be read by a member.
+  """
+  description: String!
+
+  startsAt: DateTime!
+
+  endsAt: DateTime!
+
+  """
+  How many contributions inside the window count as reaching it.
+
+  Contributions, not points: the same rule as the heatmap and the leaderboard, because a
+  rejected edit is work somebody did.
+  """
+  threshold: Int!
+
+  status: SeasonalEventStatus!
+}
+
+type SeasonalEventProgress {
+  event: SeasonalEvent!
+
+  """
+  How many contributions the CALLING member recorded inside the window.
+
+  This is the caller's own number and nobody else's: the events are public, the progress is
+  not, which is the counters rule of slice 6a applied to a new surface rather than a new
+  exception to it.
+  """
+  contributions: Int!
+
+  """
+  Whether that reaches the threshold. A fact about the log, so an event that has ENDED still
+  reports the members who reached it -- nothing takes credit away.
+  """
+  reached: Boolean!
+}
+
+extend type Query {
+  """
+  Every declared event, newest first, with the CALLER's progress against each.
+
+  Signed-in members only, matching the leaderboard: the caller's own progress is what this
+  returns, so there is nothing to show to a caller who has no account, and the role
+  requirement is what keeps the list off a crawler's path.
+  """
+  seasonalEvents: [SeasonalEventProgress!]! @hasRole(role: READ)
+}

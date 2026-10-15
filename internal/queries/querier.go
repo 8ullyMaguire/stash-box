@@ -318,6 +318,19 @@ type Querier interface {
 	// How many distinct days a user has ever been active. Backs "active N days",
 	// which is a lifetime total and does not decay, unlike the streak.
 	CountUserActivityDays(ctx context.Context, userID uuid.UUID) (int64, error)
+	// How many contributions a member recorded inside a window.
+	//
+	// The same rule as the heatmap and the leaderboard, in a third shape: contributions are
+	// EVENTS and not deltas, because a rejected edit is work somebody did. Bounded on BOTH ends
+	// -- an event has a start as well as a finish -- and the bounds are compared against
+	// created_at directly rather than against a truncated day: an event that opens at noon
+	// opens at noon, and a member's contribution at eleven that morning is not part of it.
+	//
+	// The window is half-open in effect but closed in form: a contribution AT the end instant
+	// counts, which is the same convention the vouch expiry uses in reverse, so "ends at
+	// midnight" includes the contribution made at midnight rather than silently dropping the
+	// last second of the event.
+	CountUserContributionsBetween(ctx context.Context, arg CountUserContributionsBetweenParams) (int64, error)
 	CountUserEditsByStatus(ctx context.Context, userID uuid.NullUUID) ([]CountUserEditsByStatusRow, error)
 	CountUserTrustEvents(ctx context.Context, userID uuid.UUID) (int64, error)
 	CountUsers(ctx context.Context) (int64, error)
@@ -1648,6 +1661,8 @@ type Querier interface {
 	GetSceneTags(ctx context.Context, sceneID uuid.UUID) ([]Tag, error)
 	GetSceneURLs(ctx context.Context, sceneID uuid.UUID) ([]GetSceneURLsRow, error)
 	GetScenes(ctx context.Context, dollar_1 []uuid.UUID) ([]Scene, error)
+	// One event by its slug, which is the name a caller can hold.
+	GetSeasonalEventBySlug(ctx context.Context, slug string) (SeasonalEvent, error)
 	GetSite(ctx context.Context, id uuid.UUID) (Site, error)
 	GetSiteCategoriesByIds(ctx context.Context, dollar_1 []int) ([]SiteCategory, error)
 	// Site directory queries (SPEC §7.10, phase 3 step 2).
@@ -1913,6 +1928,10 @@ type Querier interface {
 	//
 	// Deleted scenes are excluded, matching every other performer/scene query.
 	ListScenesWithInsufficientSnapshots(ctx context.Context, arg ListScenesWithInsufficientSnapshotsParams) ([]ListScenesWithInsufficientSnapshotsRow, error)
+	// Every declared event, newest first. The service classifies each one against the clock and
+	// looks up the viewer's progress, because "which of these is running" is a question about
+	// the current instant and not about the rows.
+	ListSeasonalEvents(ctx context.Context) ([]SeasonalEvent, error)
 	// A site's direct alternatives, by name for display.
 	//
 	// The JOIN is to sites rather than returning bare ids, because the alternative

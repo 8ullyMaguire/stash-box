@@ -2045,6 +2045,35 @@ type SearchDiagnostic struct {
 	Message string `json:"message"`
 }
 
+type SeasonalEvent struct {
+	// A stable name for the event, for callers that want to point at one.
+	Slug  string `json:"slug"`
+	Title string `json:"title"`
+	// What the event is, in the operator's words. Written to be read by a member.
+	Description string `json:"description"`
+	StartsAt    string `json:"startsAt"`
+	EndsAt      string `json:"endsAt"`
+	// How many contributions inside the window count as reaching it.
+	//
+	// Contributions, not points: the same rule as the heatmap and the leaderboard, because a
+	// rejected edit is work somebody did.
+	Threshold int                 `json:"threshold"`
+	Status    SeasonalEventStatus `json:"status"`
+}
+
+type SeasonalEventProgress struct {
+	Event *SeasonalEvent `json:"event"`
+	// How many contributions the CALLING member recorded inside the window.
+	//
+	// This is the caller's own number and nobody else's: the events are public, the progress is
+	// not, which is the counters rule of slice 6a applied to a new surface rather than a new
+	// exception to it.
+	Contributions int `json:"contributions"`
+	// Whether that reaches the threshold. A fact about the log, so an event that has ENDED still
+	// reports the members who reached it -- nothing takes credit away.
+	Reached bool `json:"reached"`
+}
+
 // One stored cursor.
 type SessionState struct {
 	// What the cursor is for (`scenes`, `forum-thread`, ...).
@@ -5189,6 +5218,66 @@ func (e *SceneSortEnum) UnmarshalJSON(b []byte) error {
 }
 
 func (e SceneSortEnum) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+type SeasonalEventStatus string
+
+const (
+	// It has not started.
+	SeasonalEventStatusUpcoming SeasonalEventStatus = "UPCOMING"
+	// It is running, including the instant it ends.
+	SeasonalEventStatusActive SeasonalEventStatus = "ACTIVE"
+	// It is over.
+	SeasonalEventStatusEnded SeasonalEventStatus = "ENDED"
+)
+
+var AllSeasonalEventStatus = []SeasonalEventStatus{
+	SeasonalEventStatusUpcoming,
+	SeasonalEventStatusActive,
+	SeasonalEventStatusEnded,
+}
+
+func (e SeasonalEventStatus) IsValid() bool {
+	switch e {
+	case SeasonalEventStatusUpcoming, SeasonalEventStatusActive, SeasonalEventStatusEnded:
+		return true
+	}
+	return false
+}
+
+func (e SeasonalEventStatus) String() string {
+	return string(e)
+}
+
+func (e *SeasonalEventStatus) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = SeasonalEventStatus(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid SeasonalEventStatus", str)
+	}
+	return nil
+}
+
+func (e SeasonalEventStatus) MarshalGQL(w io.Writer) {
+	_, _ = fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *SeasonalEventStatus) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e SeasonalEventStatus) MarshalJSON() ([]byte, error) {
 	var buf bytes.Buffer
 	e.MarshalGQL(&buf)
 	return buf.Bytes(), nil

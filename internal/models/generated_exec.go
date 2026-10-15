@@ -1010,6 +1010,7 @@ type ComplexityRoot struct {
 		SearchScenes                   func(childComplexity int, term string, limit *int, page *int, perPage *int) int
 		SearchStudio                   func(childComplexity int, term string, limit *int) int
 		SearchTag                      func(childComplexity int, term string, limit *int) int
+		SeasonalEvents                 func(childComplexity int) int
 		SessionState                   func(childComplexity int, kind string, key string) int
 		SessionStates                  func(childComplexity int, kind string) int
 		StudioChangelog                func(childComplexity int, since time.Time, afterID *uuid.UUID, limit *int) int
@@ -1205,6 +1206,22 @@ type ComplexityRoot struct {
 		Message func(childComplexity int) int
 		Offset  func(childComplexity int) int
 		Term    func(childComplexity int) int
+	}
+
+	SeasonalEvent struct {
+		Description func(childComplexity int) int
+		EndsAt      func(childComplexity int) int
+		Slug        func(childComplexity int) int
+		StartsAt    func(childComplexity int) int
+		Status      func(childComplexity int) int
+		Threshold   func(childComplexity int) int
+		Title       func(childComplexity int) int
+	}
+
+	SeasonalEventProgress struct {
+		Contributions func(childComplexity int) int
+		Event         func(childComplexity int) int
+		Reached       func(childComplexity int) int
 	}
 
 	SessionState struct {
@@ -1867,6 +1884,7 @@ type QueryResolver interface {
 	Lists(ctx context.Context, userID *uuid.UUID, perPage *int, page *int) ([]List, error)
 	Review(ctx context.Context, id uuid.UUID) (*Review, error)
 	ForYou(ctx context.Context, input *ForYouInput) ([]ForYouScene, error)
+	SeasonalEvents(ctx context.Context) ([]SeasonalEventProgress, error)
 	SessionState(ctx context.Context, kind string, key string) (*SessionState, error)
 	SessionStates(ctx context.Context, kind string) ([]SessionState, error)
 	UserStreak(ctx context.Context) (*Streak, error)
@@ -6995,6 +7013,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.SearchTag(childComplexity, args["term"].(string), args["limit"].(*int)), true
+	case "Query.seasonalEvents":
+		if e.ComplexityRoot.Query.SeasonalEvents == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Query.SeasonalEvents(childComplexity), true
 	case "Query.sessionState":
 		if e.ComplexityRoot.Query.SessionState == nil {
 			break
@@ -7841,6 +7865,68 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.SearchDiagnostic.Term(childComplexity), true
+
+	case "SeasonalEvent.description":
+		if e.ComplexityRoot.SeasonalEvent.Description == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SeasonalEvent.Description(childComplexity), true
+	case "SeasonalEvent.endsAt":
+		if e.ComplexityRoot.SeasonalEvent.EndsAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SeasonalEvent.EndsAt(childComplexity), true
+	case "SeasonalEvent.slug":
+		if e.ComplexityRoot.SeasonalEvent.Slug == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SeasonalEvent.Slug(childComplexity), true
+	case "SeasonalEvent.startsAt":
+		if e.ComplexityRoot.SeasonalEvent.StartsAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SeasonalEvent.StartsAt(childComplexity), true
+	case "SeasonalEvent.status":
+		if e.ComplexityRoot.SeasonalEvent.Status == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SeasonalEvent.Status(childComplexity), true
+	case "SeasonalEvent.threshold":
+		if e.ComplexityRoot.SeasonalEvent.Threshold == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SeasonalEvent.Threshold(childComplexity), true
+	case "SeasonalEvent.title":
+		if e.ComplexityRoot.SeasonalEvent.Title == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SeasonalEvent.Title(childComplexity), true
+
+	case "SeasonalEventProgress.contributions":
+		if e.ComplexityRoot.SeasonalEventProgress.Contributions == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SeasonalEventProgress.Contributions(childComplexity), true
+	case "SeasonalEventProgress.event":
+		if e.ComplexityRoot.SeasonalEventProgress.Event == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SeasonalEventProgress.Event(childComplexity), true
+	case "SeasonalEventProgress.reached":
+		if e.ComplexityRoot.SeasonalEventProgress.Reached == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SeasonalEventProgress.Reached(childComplexity), true
 
 	case "SessionState.cursor":
 		if e.ComplexityRoot.SessionState.Cursor == nil {
@@ -13816,6 +13902,94 @@ extend type Scene {
   warnings: [ContentWarning!]!
 }
 `, BuiltIn: false},
+	{Name: "../../graphql/schema/types/seasonal.graphql", Input: `# Seasonal events (plan phase 6 slice 6g).
+#
+# An event is a NAMED WINDOW WITH A THRESHOLD: a title, a description a member reads, two
+# instants and a number. Everything a member sees about one is DERIVED -- "active" is what
+# today falls between, "reached" is whether the window holds enough contributions -- so there
+# is no status column, no progress row and no sweep.
+#
+# WHAT THIS SLICE DOES NOT DO: award anything. No badge, no points, no multiplier on the level
+# curve, and that is a decision rather than an omission: a multiplier would change the LEVEL
+# POLICY of slice 6b for whoever happened to be active during a window, which is not something
+# to smuggle in behind a title and a date range. The measurement ships; the reward is a policy
+# decision with its own slice.
+
+enum SeasonalEventStatus {
+  """
+  It has not started.
+  """
+  UPCOMING
+
+  """
+  It is running, including the instant it ends.
+  """
+  ACTIVE
+
+  """
+  It is over.
+  """
+  ENDED
+}
+
+type SeasonalEvent {
+  """
+  A stable name for the event, for callers that want to point at one.
+  """
+  slug: String!
+
+  title: String!
+
+  """
+  What the event is, in the operator's words. Written to be read by a member.
+  """
+  description: String!
+
+  startsAt: DateTime!
+
+  endsAt: DateTime!
+
+  """
+  How many contributions inside the window count as reaching it.
+
+  Contributions, not points: the same rule as the heatmap and the leaderboard, because a
+  rejected edit is work somebody did.
+  """
+  threshold: Int!
+
+  status: SeasonalEventStatus!
+}
+
+type SeasonalEventProgress {
+  event: SeasonalEvent!
+
+  """
+  How many contributions the CALLING member recorded inside the window.
+
+  This is the caller's own number and nobody else's: the events are public, the progress is
+  not, which is the counters rule of slice 6a applied to a new surface rather than a new
+  exception to it.
+  """
+  contributions: Int!
+
+  """
+  Whether that reaches the threshold. A fact about the log, so an event that has ENDED still
+  reports the members who reached it -- nothing takes credit away.
+  """
+  reached: Boolean!
+}
+
+extend type Query {
+  """
+  Every declared event, newest first, with the CALLER's progress against each.
+
+  Signed-in members only, matching the leaderboard: the caller's own progress is what this
+  returns, so there is nothing to show to a caller who has no account, and the role
+  requirement is what keeps the list off a crawler's path.
+  """
+  seasonalEvents: [SeasonalEventProgress!]! @hasRole(role: READ)
+}
+`, BuiltIn: false},
 	{Name: "../../graphql/schema/types/session_state.graphql", Input: `# "Where I left off": opt-in session state (feature-discovery SPEC section 11, aggregator phase 7
 # slice 7).
 #
@@ -16848,6 +17022,38 @@ func (ec *executionContext) childFields_SearchDiagnostic(ctx context.Context, fi
 		return ec.fieldContext_SearchDiagnostic_message(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type SearchDiagnostic", field.Name)
+}
+
+func (ec *executionContext) childFields_SeasonalEvent(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "slug":
+		return ec.fieldContext_SeasonalEvent_slug(ctx, field)
+	case "title":
+		return ec.fieldContext_SeasonalEvent_title(ctx, field)
+	case "description":
+		return ec.fieldContext_SeasonalEvent_description(ctx, field)
+	case "startsAt":
+		return ec.fieldContext_SeasonalEvent_startsAt(ctx, field)
+	case "endsAt":
+		return ec.fieldContext_SeasonalEvent_endsAt(ctx, field)
+	case "threshold":
+		return ec.fieldContext_SeasonalEvent_threshold(ctx, field)
+	case "status":
+		return ec.fieldContext_SeasonalEvent_status(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type SeasonalEvent", field.Name)
+}
+
+func (ec *executionContext) childFields_SeasonalEventProgress(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "event":
+		return ec.fieldContext_SeasonalEventProgress_event(ctx, field)
+	case "contributions":
+		return ec.fieldContext_SeasonalEventProgress_contributions(ctx, field)
+	case "reached":
+		return ec.fieldContext_SeasonalEventProgress_reached(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type SeasonalEventProgress", field.Name)
 }
 
 func (ec *executionContext) childFields_SessionState(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -44319,6 +44525,56 @@ func (ec *executionContext) fieldContext_Query_forYou(ctx context.Context, field
 	return fc, nil
 }
 
+func (ec *executionContext) _Query_seasonalEvents(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_seasonalEvents(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Query().SeasonalEvents(ctx)
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal []SeasonalEventProgress
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal []SeasonalEventProgress
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v []SeasonalEventProgress) graphql.Marshaler {
+			return ec.marshalNSeasonalEventProgress2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSeasonalEventProgressᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_seasonalEvents(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_SeasonalEventProgress(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Query_sessionState(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -47838,6 +48094,245 @@ func (ec *executionContext) _SearchDiagnostic_message(ctx context.Context, field
 }
 func (ec *executionContext) fieldContext_SearchDiagnostic_message(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("SearchDiagnostic", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _SeasonalEvent_slug(ctx context.Context, field graphql.CollectedField, obj *SeasonalEvent) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SeasonalEvent_slug(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Slug, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SeasonalEvent_slug(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SeasonalEvent", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _SeasonalEvent_title(ctx context.Context, field graphql.CollectedField, obj *SeasonalEvent) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SeasonalEvent_title(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Title, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SeasonalEvent_title(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SeasonalEvent", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _SeasonalEvent_description(ctx context.Context, field graphql.CollectedField, obj *SeasonalEvent) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SeasonalEvent_description(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Description, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SeasonalEvent_description(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SeasonalEvent", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _SeasonalEvent_startsAt(ctx context.Context, field graphql.CollectedField, obj *SeasonalEvent) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SeasonalEvent_startsAt(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.StartsAt, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNDateTime2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SeasonalEvent_startsAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SeasonalEvent", field, false, false, errors.New("field of type DateTime does not have child fields"))
+}
+
+func (ec *executionContext) _SeasonalEvent_endsAt(ctx context.Context, field graphql.CollectedField, obj *SeasonalEvent) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SeasonalEvent_endsAt(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.EndsAt, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNDateTime2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SeasonalEvent_endsAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SeasonalEvent", field, false, false, errors.New("field of type DateTime does not have child fields"))
+}
+
+func (ec *executionContext) _SeasonalEvent_threshold(ctx context.Context, field graphql.CollectedField, obj *SeasonalEvent) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SeasonalEvent_threshold(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Threshold, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SeasonalEvent_threshold(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SeasonalEvent", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _SeasonalEvent_status(ctx context.Context, field graphql.CollectedField, obj *SeasonalEvent) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SeasonalEvent_status(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Status, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v SeasonalEventStatus) graphql.Marshaler {
+			return ec.marshalNSeasonalEventStatus2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSeasonalEventStatus(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SeasonalEvent_status(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SeasonalEvent", field, false, false, errors.New("field of type SeasonalEventStatus does not have child fields"))
+}
+
+func (ec *executionContext) _SeasonalEventProgress_event(ctx context.Context, field graphql.CollectedField, obj *SeasonalEventProgress) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SeasonalEventProgress_event(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Event, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *SeasonalEvent) graphql.Marshaler {
+			return ec.marshalNSeasonalEvent2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSeasonalEvent(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SeasonalEventProgress_event(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SeasonalEventProgress",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_SeasonalEvent(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SeasonalEventProgress_contributions(ctx context.Context, field graphql.CollectedField, obj *SeasonalEventProgress) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SeasonalEventProgress_contributions(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Contributions, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SeasonalEventProgress_contributions(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SeasonalEventProgress", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _SeasonalEventProgress_reached(ctx context.Context, field graphql.CollectedField, obj *SeasonalEventProgress) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SeasonalEventProgress_reached(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Reached, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SeasonalEventProgress_reached(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SeasonalEventProgress", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
 func (ec *executionContext) _SessionState_kind(ctx context.Context, field graphql.CollectedField, obj *SessionState) (ret graphql.Marshaler) {
@@ -72832,6 +73327,28 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "seasonalEvents":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_seasonalEvents(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
 		case "sessionState":
 			field := field
 
@@ -75979,6 +76496,122 @@ func (ec *executionContext) _SearchDiagnostic(ctx context.Context, sel ast.Selec
 			}
 		case "message":
 			out.Values[i] = ec._SearchDiagnostic_message(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var seasonalEventImplementors = []string{"SeasonalEvent"}
+
+func (ec *executionContext) _SeasonalEvent(ctx context.Context, sel ast.SelectionSet, obj *SeasonalEvent) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, seasonalEventImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("SeasonalEvent")
+		case "slug":
+			out.Values[i] = ec._SeasonalEvent_slug(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "title":
+			out.Values[i] = ec._SeasonalEvent_title(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "description":
+			out.Values[i] = ec._SeasonalEvent_description(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "startsAt":
+			out.Values[i] = ec._SeasonalEvent_startsAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "endsAt":
+			out.Values[i] = ec._SeasonalEvent_endsAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "threshold":
+			out.Values[i] = ec._SeasonalEvent_threshold(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "status":
+			out.Values[i] = ec._SeasonalEvent_status(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var seasonalEventProgressImplementors = []string{"SeasonalEventProgress"}
+
+func (ec *executionContext) _SeasonalEventProgress(ctx context.Context, sel ast.SelectionSet, obj *SeasonalEventProgress) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, seasonalEventProgressImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("SeasonalEventProgress")
+		case "event":
+			out.Values[i] = ec._SeasonalEventProgress_event(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "contributions":
+			out.Values[i] = ec._SeasonalEventProgress_contributions(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "reached":
+			out.Values[i] = ec._SeasonalEventProgress_reached(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -83224,6 +83857,46 @@ func (ec *executionContext) marshalNSearchDiagnostic2ᚕgithubᚗcomᚋstashapp�
 	}
 
 	return ret
+}
+
+func (ec *executionContext) marshalNSeasonalEvent2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSeasonalEvent(ctx context.Context, sel ast.SelectionSet, v *SeasonalEvent) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._SeasonalEvent(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNSeasonalEventProgress2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSeasonalEventProgress(ctx context.Context, sel ast.SelectionSet, v SeasonalEventProgress) graphql.Marshaler {
+	return ec._SeasonalEventProgress(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNSeasonalEventProgress2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSeasonalEventProgressᚄ(ctx context.Context, sel ast.SelectionSet, v []SeasonalEventProgress) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNSeasonalEventProgress2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSeasonalEventProgress(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) unmarshalNSeasonalEventStatus2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSeasonalEventStatus(ctx context.Context, v any) (SeasonalEventStatus, error) {
+	var res SeasonalEventStatus
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNSeasonalEventStatus2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSeasonalEventStatus(ctx context.Context, sel ast.SelectionSet, v SeasonalEventStatus) graphql.Marshaler {
+	return v
 }
 
 func (ec *executionContext) marshalNSessionState2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSessionState(ctx context.Context, sel ast.SelectionSet, v SessionState) graphql.Marshaler {

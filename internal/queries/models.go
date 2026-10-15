@@ -804,6 +804,17 @@ type SceneUrl struct {
 	SiteID  uuid.UUID `db:"site_id" json:"site_id"`
 }
 
+type SeasonalEvent struct {
+	ID          uuid.UUID          `db:"id" json:"id"`
+	Slug        string             `db:"slug" json:"slug"`
+	Title       string             `db:"title" json:"title"`
+	Description string             `db:"description" json:"description"`
+	StartsAt    pgtype.Timestamptz `db:"starts_at" json:"starts_at"`
+	EndsAt      pgtype.Timestamptz `db:"ends_at" json:"ends_at"`
+	Threshold   int                `db:"threshold" json:"threshold"`
+	CreatedAt   pgtype.Timestamptz `db:"created_at" json:"created_at"`
+}
+
 type SessionState struct {
 	UserID    uuid.UUID          `db:"user_id" json:"user_id"`
 	Kind      string             `db:"kind" json:"kind"`

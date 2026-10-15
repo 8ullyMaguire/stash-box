@@ -58,6 +58,7 @@ import (
 	"github.com/stashapp/stash-box/internal/service/review"
 	"github.com/stashapp/stash-box/internal/service/savedsearch"
 	"github.com/stashapp/stash-box/internal/service/scene"
+	"github.com/stashapp/stash-box/internal/service/seasonal"
 	"github.com/stashapp/stash-box/internal/service/sessionstate"
 	"github.com/stashapp/stash-box/internal/service/similar"
 	"github.com/stashapp/stash-box/internal/service/site"
@@ -387,6 +388,11 @@ func (f *Factory) List() *listsvc.Service {
 // Streak returns a user's activity streak service.
 func (f *Factory) Streak() *streak.Service {
 	return streak.NewService(queries.New(f.db))
+}
+
+// Seasonal returns the seasonal-events service.
+func (f *Factory) Seasonal() *seasonal.Service {
+	return seasonal.NewService(queries.New(f.db))
 }
 
 // Leaderboard returns the contribution leaderboard service.

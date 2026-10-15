@@ -1,6 +1,6 @@
 # PLAN — the content aggregator programme (NexusXXX parity)
 
-Status: **in progress** — phases 1, 2, 3, 4 and 7 done; 5, 6 and 8–17 open. Phase 3 (the
+Status: **in progress** — phases 1, 2, 3, 4, 5, 6, 7 and 9 are DONE and phase 17 is landed; phases 8 and 10–17 are open. Phase 6 (trust decay, vouching, heatmap, leaderboard, seasonal events) CLOSED on 2026-10-15: seven slices, each built, verified and probe-killed, each with a vault note. The one known gap inside a done phase: SweepDecay has no scheduler calling it, recorded in its own slice rather than left to be rediscovered. This line is the status of the WHOLE programme, so it is only Built when every phase is.
 five non-video content kinds) closed on 2026-10-14 with slice 3g: they are stored, scoped,
 scored, tagged, reviewed, rated, listed, and now creatable through the edit system, which is
 the repository’s one route for shared metadata. This doc is deliberately NOT marked Built
@@ -1209,6 +1209,80 @@ back — has it brought back by covering yesterday, while `activeToday` stays fa
 Six probes, all killed: the runs ignoring the covered days; a covered day counting as
 activity; an empty cover window; a single active day earning a freeze; today being
 coverable; and the allowance not being checked before a spend.
+
+### Slice 6g — seasonal events, and the phase closed (BUILT)
+
+An event is a **named window with a threshold**: a title, a description a member reads, two
+instants and a number. This slice reads them and answers two questions about each — *is it
+running*, and *how far along is this member* — and **both answers are derived**.
+
+**"Active" is what today falls between**, not a status column. There is no scheduler, no row
+per member per event, and nothing that decays — the same shape the streak, the heatmap and
+the leaderboard have, and for the same reason: a stored state disagrees with the log that
+justifies it, and nothing reports the disagreement. A stored event progress would need a row
+per member per event before anybody had done anything, a sweep to expire them, and an answer
+to what happens when the log and the row disagree.
+
+**The boundaries are closed at both ends**, which is the whole of the pure function: an
+event that opens at noon is active *at* noon, and one that ends at midnight is still active
+*at* midnight. That matches the count's own convention — a contribution made at the closing
+instant counts — so a member who submits at the last possible moment sees it counted rather
+than reading "ended" beside a progress that includes it.
+
+**Nothing takes credit away:** an event that has ENDED still reports the members who reached
+it, the same principle as "a level is never handed back on a timer".
+
+**The events are public and the progress is not.** A member sees their own count against
+each event and nobody else's, which is slice 6a's counters rule applied to a new surface
+rather than a new exception to it — and it needs no privacy rule of its own, because the
+number belongs to the caller by construction.
+
+**The window is not truncated to days.** An event that opens at noon opens at noon, so the
+bounds are compared against `created_at` directly: a member's contribution at eleven that
+morning is not part of it. This is the one place in phase 6 where a day boundary would be
+wrong, and the reason is that an event is a moment an operator chose rather than a calendar
+the instance lives in.
+
+**WHAT THE SLICE DELIBERATELY DOES NOT DO: award anything.** There is no badge, no points
+and no multiplier on the level curve, and that is a decision rather than an omission. A
+multiplier would change the **level policy** of 6b — which counts contributions, holds a
+demoted member down for a recovery window, and has a threshold table an operator moves
+deliberately — and changing what a contribution is worth, for two weeks, for whoever happened
+to be active, is not something to smuggle in behind a title and a date range. **The
+measurement ships; the reward is a policy decision with its own slice.**
+
+Events are declared by an operator, which is why they are a table rather than a config file:
+an event is content with a title a member reads. **The CRUD surface for writing one is not
+part of this slice** — a row is written by a migration or a hand-run `INSERT`, and the
+constraints that keep a bad one out are in the schema (`ends_at > starts_at`, `threshold >
+0`), where every reader gets them rather than each reader defending itself.
+
+**Verification (DONE).** Pure: the status at each boundary — a nanosecond before it opens,
+the instant it opens, inside, the instant it closes, and a nanosecond after — and that the
+status says nothing about achievement, so an ended event still reports what was reached.
+
+Against a database: a contribution before the window, at the opening instant, inside, at the
+closing instant and after it are five positions and exactly three of them count; the
+threshold is inclusive (three reaches three); two members get their own numbers from one
+event; an event nobody has contributed to is zero rather than an error; a window that has not
+opened is UPCOMING and one that has closed is ENDED, both against the **database's** clock;
+and the slug lookup names an event or refuses by name.
+
+Through the real handler: the enum's **wire spelling** is asserted by name for a running
+event and for a closed one, the description and title survive, and a caller with no roles is
+refused — the progress is per-account, so a caller with no account has nothing to be shown.
+
+Seven probes, all killed: the closing instant treated as over; the opening instant treated
+as not yet open; the window's start not enforced; the window's end not enforced; an exclusive
+threshold; the progress not scoped to the caller; and the status mapping replaced by a
+constant.
+
+**ONE PROBE DESIGNED A TEST, for the third slice running.** The wire test's first version
+asserted only that the status came back as one of the three values the schema declares —
+which a mapping hard-coded to ACTIVE satisfies. The probe that returns a constant therefore
+SURVIVED. A closed event was added to the fixture so its status could be asserted by name,
+and the probe then killed it. Same lesson as 6d and 6f: a probe with nothing to kill it is a
+missing test.
 
 ### Slice 6f — the leaderboard, with opt-out (BUILT)
 

@@ -28,6 +28,36 @@ func (q *Queries) CountUserActivityDays(ctx context.Context, userID uuid.UUID) (
 	return count, err
 }
 
+const countUserContributionsBetween = `-- name: CountUserContributionsBetween :one
+SELECT count(*) FROM trust_events
+WHERE user_id = $1 AND created_at >= $2 AND created_at <= $3
+`
+
+type CountUserContributionsBetweenParams struct {
+	UserID   uuid.UUID          `db:"user_id" json:"user_id"`
+	StartsAt pgtype.Timestamptz `db:"starts_at" json:"starts_at"`
+	EndsAt   pgtype.Timestamptz `db:"ends_at" json:"ends_at"`
+}
+
+// How many contributions a member recorded inside a window.
+//
+// The same rule as the heatmap and the leaderboard, in a third shape: contributions are
+// EVENTS and not deltas, because a rejected edit is work somebody did. Bounded on BOTH ends
+// -- an event has a start as well as a finish -- and the bounds are compared against
+// created_at directly rather than against a truncated day: an event that opens at noon
+// opens at noon, and a member's contribution at eleven that morning is not part of it.
+//
+// The window is half-open in effect but closed in form: a contribution AT the end instant
+// counts, which is the same convention the vouch expiry uses in reverse, so "ends at
+// midnight" includes the contribution made at midnight rather than silently dropping the
+// last second of the event.
+func (q *Queries) CountUserContributionsBetween(ctx context.Context, arg CountUserContributionsBetweenParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countUserContributionsBetween, arg.UserID, arg.StartsAt, arg.EndsAt)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const databaseNow = `-- name: DatabaseNow :one
 SELECT (now() AT TIME ZONE current_setting('TIMEZONE'))::timestamp AS now
 `
@@ -54,6 +84,63 @@ func (q *Queries) DatabaseNow(ctx context.Context) (time.Time, error) {
 	var now time.Time
 	err := row.Scan(&now)
 	return now, err
+}
+
+const getSeasonalEventBySlug = `-- name: GetSeasonalEventBySlug :one
+SELECT id, slug, title, description, starts_at, ends_at, threshold, created_at FROM seasonal_events WHERE slug = $1
+`
+
+// One event by its slug, which is the name a caller can hold.
+func (q *Queries) GetSeasonalEventBySlug(ctx context.Context, slug string) (SeasonalEvent, error) {
+	row := q.db.QueryRow(ctx, getSeasonalEventBySlug, slug)
+	var i SeasonalEvent
+	err := row.Scan(
+		&i.ID,
+		&i.Slug,
+		&i.Title,
+		&i.Description,
+		&i.StartsAt,
+		&i.EndsAt,
+		&i.Threshold,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const listSeasonalEvents = `-- name: ListSeasonalEvents :many
+SELECT id, slug, title, description, starts_at, ends_at, threshold, created_at FROM seasonal_events ORDER BY starts_at DESC
+`
+
+// Every declared event, newest first. The service classifies each one against the clock and
+// looks up the viewer's progress, because "which of these is running" is a question about
+// the current instant and not about the rows.
+func (q *Queries) ListSeasonalEvents(ctx context.Context) ([]SeasonalEvent, error) {
+	rows, err := q.db.Query(ctx, listSeasonalEvents)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SeasonalEvent{}
+	for rows.Next() {
+		var i SeasonalEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.Slug,
+			&i.Title,
+			&i.Description,
+			&i.StartsAt,
+			&i.EndsAt,
+			&i.Threshold,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listUserActivityDays = `-- name: ListUserActivityDays :many

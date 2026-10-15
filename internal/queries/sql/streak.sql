@@ -120,3 +120,29 @@ WHERE user_id = $1
   AND date_trunc('day', created_at)::timestamp >= date_trunc('day', sqlc.arg(since)::timestamptz)::timestamp
 GROUP BY day
 ORDER BY day DESC;
+
+-- name: ListSeasonalEvents :many
+-- Every declared event, newest first. The service classifies each one against the clock and
+-- looks up the viewer's progress, because "which of these is running" is a question about
+-- the current instant and not about the rows.
+SELECT * FROM seasonal_events ORDER BY starts_at DESC;
+
+-- name: CountUserContributionsBetween :one
+-- How many contributions a member recorded inside a window.
+--
+-- The same rule as the heatmap and the leaderboard, in a third shape: contributions are
+-- EVENTS and not deltas, because a rejected edit is work somebody did. Bounded on BOTH ends
+-- -- an event has a start as well as a finish -- and the bounds are compared against
+-- created_at directly rather than against a truncated day: an event that opens at noon
+-- opens at noon, and a member's contribution at eleven that morning is not part of it.
+--
+-- The window is half-open in effect but closed in form: a contribution AT the end instant
+-- counts, which is the same convention the vouch expiry uses in reverse, so "ends at
+-- midnight" includes the contribution made at midnight rather than silently dropping the
+-- last second of the event.
+SELECT count(*) FROM trust_events
+WHERE user_id = $1 AND created_at >= sqlc.arg(starts_at) AND created_at <= sqlc.arg(ends_at);
+
+-- name: GetSeasonalEventBySlug :one
+-- One event by its slug, which is the name a caller can hold.
+SELECT * FROM seasonal_events WHERE slug = $1;
