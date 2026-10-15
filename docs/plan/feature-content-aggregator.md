@@ -3192,6 +3192,47 @@ rather than what the README claims.
 move one at a time for one scan, one signup and one activation and do not move for the other two events;
 a scan of an expired key is not counted.
 
+**PRE-CODE FINDING 2026-10-15, measured before anything was written: the three counters HAVE NO
+SUBSTRATE, because the rows this section names are destroyed by the events they would witness.**
+
+  * **`pending_activations` does not exist.** Migration **37** dropped it ("replace the pending-activation
+    table with `user_tokens`"). A signup today is a `user_tokens` row of type ACTIVATION, and
+    `ActivateNewUser` consumes it -- the row that proves "an address signed up" is deleted by the very act
+    that makes it interesting.
+  * **The key row does not survive its use either.** `service.go` consumes the key's use at activation and,
+    the moment the last use is spent, calls `DeleteInviteKey`: **a key with `uses = 1` that signed somebody
+    up is GONE from `invite_keys`.** Verified on the deployed instance: the 11b walk's key returned no row
+    seconds after the signup. (`DestroyExpiredInvites` and `RescindInviteCode` remove the others.)
+  * So there is nothing to group by and nothing to count: the scan is not recorded anywhere, the signup row
+    is deleted at activation, the activation row is deleted at activation, and the KEY ITSELF is deleted at
+    activation -- which is precisely when a member wants to read what their invite produced. A paid-for key
+    leaves no trace of what it paid for, and the referral event of 11b is the only survivor, because it is
+    keyed to the MEMBER, not to the key.
+
+**The decision this forces (written here, before the code).** A counter derived from rows is only a counter
+if the rows OUTLIVE the thing they count, so 11c needs a durable record and this is what it has to be:
+
+  * `invite_key_events(id, invite_key_id, generated_by, kind, created_at)` -- one row per scan, signup and
+    activation; the counters are `COUNT`s over it, never columns, exactly as this section says.
+  * **`generated_by` is denormalised onto the row on purpose, and there is NO cascading delete.** This is
+    the whole finding: a counter that dies with the key it counts reports zero for the one key a member
+    actually wants to ask about. The referrer's id has to be independent of the key's row.
+  * **A scan records NOBODY.** It is an unauthenticated GET: no IP, no user agent, no cookie, no account --
+    a count, a kind and a timestamp. (The spec's §11 privacy line, and the reason "scans" is the one counter
+    the plan already says is interest rather than a person.)
+  * A signup and an activation carry the account they became (so the member can be told "3 signups, 1
+    activation" rather than a number), and the counters the member SEES stay counts.
+  * The landing page is `GET /invite/<code>`: unauthenticated, records the scan, and says what the instance
+    is and what the key would grant -- never whether the key is valid AND unused in a way a stranger can
+    probe for a live key (an expired or spent key gets the same page, minus the scan row: the plan's own
+    "a scan of an expired key is not counted", which is also the anti-enumeration answer).
+
+**Verification (unchanged, now achievable):** the rendered QR decodes back to the key's URL with an
+independent decoder; the counters move one at a time for one scan, one signup and one activation and do not
+move for the other two events; a scan of an expired key is not counted; and -- added by this finding -- the
+counters survive the key's deletion, asserted by activating a `uses = 1` key and reading the counters AFTER
+the row it named is gone.
+
 ### Slice 11d — seed cohorts, and a campaign's fast-track that applies only to its members
 
 **The rule.** A cohort is a named set of members (`seed_cohorts`, `seed_cohort_members`); a campaign

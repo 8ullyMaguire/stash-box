@@ -424,7 +424,16 @@ trust event keyed to the campaign, and the level then follows from the single cu
 `internal/service/trust`. A campaign that set a level directly would be a second implementation of "what
 level is this person" — the exact thing the trust phase exists to prevent.
 
-**Counters are row counts.** A scan is a row, a signup is a `pending_activations` row for the key, an
-activation is a `user_tokens` row that was consumed; a member sees all three because "someone looked",
+**Counters are row counts, and the rows must OUTLIVE what they count.** A scan is a row, a signup is a row
+for the key, an activation is a row that was consumed; a member sees all three because "someone looked",
 "someone gave an address" and "someone joined" are three different facts, and only the last is a person.
-No counter column exists for any of them.
+No counter column exists for any of them. **Corrected 2026-10-15 (measured):** the rows this section named
+are gone — `pending_activations` was dropped by migration 37, the signup and activation rows are both
+`user_tokens` rows that activation deletes, and the KEY row itself is deleted the moment its last use is
+spent, so a member's key that signed somebody up leaves nothing to count. The counters therefore rest on a
+durable per-event row carrying the REFERRER's id independently of the key (`invite_key_events`), with no
+cascading delete: a counter that dies with the key it counts reports zero for the one key a member actually
+asks about. **A scan records nobody** — it is an unauthenticated GET, so it carries a count, a kind and a
+timestamp, and never an address, an agent or an account; signups and activations carry the account they
+became, and what the member is shown stays counts. An expired or spent key gets the same landing page as a
+live one (minus the scan row), so the page cannot be used to probe for a valid key.
