@@ -40,7 +40,7 @@ reason, and this respec puts that refusal back.
 
 | Refused | Was | Why |
 |---|---|---|
-| Hosting, transcoding, the variant ladder, the five players, PWA offline caching, CDN/edge | phase 10 (media plane) | It is what makes an instance a HOST rather than a catalogue: immediate, existential legal exposure, a different product, and 100x the operations. None of it was ever built — `grep -rn "iframe|<video|transcod|ffmpeg|m3u8|hls" internal/ graphql/` is empty. The one table that could be mistaken for a start on it, `content_item_media` (migration 117), holds only ADDRESSES: an editor records a work's renditions through `contentItemEdit` (a URL, a kind — `original`, `preview`, `stream`, `download`, `archive` — and dimensions) and the completeness score already reads the presence of those rows as evidence. No code serves, proxies or transcodes what it names, so it is a references table like `content_sources` and it STAYS: deleting it would silently change what "incomplete" means for a content item, which is a curation rule and not this respec's business. |
+| Hosting, the variant ladder, the media toolchain, the five players, PWA offline caching, CDN/edge | phase 10 (media plane) — **struck here, restored gated by the second respec below** | It is what makes an instance a HOST rather than a catalogue: immediate, existential legal exposure, a different product, and 100x the operations — which is why it ships as a capability every config leaves OFF rather than as a default every fork inherits. Nothing has been built: `grep -rn "iframe|<video|transcod|ffmpeg|m3u8|hls" internal/ graphql/` is empty, and `scripts/check-no-content-plane.py` fails the build if that changes outside `internal/service/mediaplane/`. The one table that could be mistaken for a start on it, `content_item_media` (migration 117), holds only ADDRESSES: an editor records a work's renditions through `contentItemEdit` (a URL, a kind — `original`, `preview`, `stream`, `download`, `archive` — and dimensions) and the completeness score already reads the presence of those rows as evidence. No code serves, proxies or converts what it names, so it is a references table like `content_sources` and it STAYS: deleting it would silently change what "incomplete" means for a content item, which is a curation rule and not any respec's business. |
 | A general discussion board / forum | slice 8f | A moderation surface for spam, harassment and piracy links that scales with traffic, competing with Reddit and Discord for posts before this instance has the traffic to sustain either. Deferred indefinitely rather than built "because it is cheap". |
 
 **What is KEPT, and re-framed as REFERENCES rather than content.** Recording where a work came from,
@@ -134,9 +134,70 @@ used to carry (face matcher, image taggers) were already moved to
 `docs/spec/feature-04-identification-federation.md` §8, where they stay, under that feature's own rule
 that a model's output is a suggestion and never a link.
 
-**Consequence for the predicate:** phase 10 is removed from the plan rather than left "not started", so
+**Consequence for the predicate:** phase 10 was removed from the plan rather than left "not started", so
 `goal-check.py`'s clause C8 counts the phases this programme actually intends to finish. A phase kept as a
-tombstone and counted is a goal nobody can complete.
+tombstone and counted is a goal nobody can complete. **Superseded the same day — see the second respec
+below: phase 10 is back in the plan as a gated, off-by-default capability, and C8 counts it again.**
+
+---
+
+## Second respec, 2026-10-15 — the media plane returns, gated and OFF by default
+
+Owner instruction 2026-10-15, later the same day: *"include it in the spec again but disable it by default
+in config."* This does not undo the first respec's reasoning; it moves the refusal from the CODE to the
+DEFAULT, which is where the risk actually lived.
+
+**The reversal chain, stated plainly, because three positions in one day is a decision a reader has to
+follow rather than a slip.** (1) The draft carried hosting and players as phase 10. (2) The first respec
+struck the phase, on the argument that an instance which serves third-party material is a host, and a host
+is the category of site that is DMCA'd out of existence; the "keep the functionality defensibly" follow-up
+then added the outbound switch. (3) This respec restores the phase as a SPECIFIED, PLANNED capability with
+its switch off, because the argument above was about the DEFAULT and not about the design: the thing that
+would have made every fork a host is that an operator who read nothing still got hosting, not that the
+capability can exist. A capability an operator turns on deliberately, knowing what it means, is the same
+posture this programme already ships for outbound fetching — and it is the posture the owners of the
+catalogue can actually change their minds about later, which a deleted design cannot.
+
+**Restored to the plan:** phase 10, as slices 10a–10f — the switch, hosting, the variant ladder and the
+media toolchain, the players, PWA offline caching, the CDN/edge — each with the media-plane design the
+earlier struck section carried. `content_item_media` was never part of the reversal: a row there is an
+address an editor recorded, not bytes.
+
+**The switch is `content_delivery` (`internal/config`), default `false`, and it is read in four places,
+because a switch that is only written down is a claim about a configuration file:**
+
+1. **The gate (`internal/service/mediaplane`).** `RequireDelivery()` returns `ErrDeliveryDisabled` whose
+   message names the key, and `PostureLine()` returns the sentence the process logs. A slice that serves
+   anything asks the gate first; the module exists so that the first slice has somewhere to ask and so a
+   capability arriving without asking is visible.
+2. **The startup log.** The process states which posture it is in, next to the version, at every startup
+   (`internal/api`), because an operator's question is "which posture is THIS instance running" and the
+   answer must not require grepping a config file.
+3. **The build gate (`scripts/check-no-content-plane.py`).** It now checks three things instead of one:
+   the serving patterns still fail anywhere in the tree **except the media plane's own module**
+   (`internal/service/mediaplane/`) — the plane may not arrive as a sprinkle — the switch field exists with
+   its `content_delivery` key and its shipped default is `false`, and the startup path actually reads the
+   posture line. `--self-test` proves each arm can fail, on both sides of the allowlist.
+4. **The shipped defaults**, asserted by tests in `internal/config` and `internal/service/mediaplane`.
+
+**What the switch does NOT change.** The first respec's refusals that were never about hosting stay
+refused, and the switch does not license them:
+
+- **No third-party embedding or proxying, ever.** The gate's patterns (`iframe`, an embedded player, a
+  proxy of somebody else's stream, byte-range serving of a file this instance does not own) stay hits
+  outside the media-plane module whatever the configuration says. Serving your own catalogue is a
+  decision; serving somebody else's is the DMCA category, and no switch turns it on.
+- **A model's output is still a suggestion**, never a written link (feature-04 §8): the identification
+  half of the old phase 10 was never in this phase.
+- **The takedown verb applies to the media plane the moment one exists** (phase 14, slice 1): a
+  `content_source_block` row refuses an address, and served bytes are refused by the same rows.
+- **The instance still holds no copy of a work it does not own.** The media plane serves what an operator
+  hosts; the catalogue stays claims and addresses.
+
+**New dependencies the restored phase may want, each needing its own decision record:** a media toolchain
+binary and a downloader are no longer excluded by this spec — they are excluded by phase 10's own slices
+until 10c and 10f are started, and installing one is a decision with a fallback, written down first, in
+the habit this repo already has.
 
 ---
 
@@ -256,7 +317,7 @@ behaviour. "New" = nothing to extend. Phase numbers are §Phases in
 | §7.1–7.2 | ingestion from 8 source classes, pipeline | `sdbimport` only | 2 |
 | §7.3 | link health daemon, statuses, resurrection queue | none | 1, 9 |
 | §7.4 | performer archive/snapshots | performer profiles + `profile_snapshots`? no | 9 |
-| §7.5 | self-hosting, transcoding, tiered storage, CDN | **refused by the respec** — the instance is a catalogue, not a host. `image` local/S3 stays: it is upstream's metadata-asset store | — |
+| §7.5 | self-hosting, transcoding, tiered storage, CDN | **restored as a gated capability — phase 10, `content_delivery` off by default** (second respec 2026-10-15). `image` local/S3 stays: it is upstream's metadata-asset store | 10 |
 | §8.1–8.4 | 8 discovery modes, search language, trending/freshness | search + trending exist (migration 60) | 7 |
 | §8.5 | content DNA vector, similarity + explanations | elo + `performer_similar` | 7 |
 | §8.6 | taste profile, affinity table, For You | taste fingerprints via elo votes | 7 |
@@ -275,7 +336,7 @@ behaviour. "New" = nothing to extend. Phase numbers are §Phases in
 | §16 | anti-doomscroll design + transparency report | none | 16 |
 | §17 | CSAM/DMCA/age/consent policy, appeals, elected mods | **nothing** — see §5 | 14 |
 | §18 | premium, creator subs, ads, data licensing | none (MIT) | 15 |
-| §19 | service split, ES/Meili, vector store, NATS, MinIO, CDN | single Go binary, PG + pg_search. MinIO and the CDN were the media plane's; the vector store is phase 7's | 7 |
+| §19 | service split, ES/Meili, vector store, NATS, MinIO, CDN | single Go binary, PG + pg_search. MinIO and the CDN are phase 10's (gated, off by default); the vector store is phase 7's | 7 |
 | §20 | UI: 5 key pages, mobile PWA, WCAG 2.1 AA | React SPA, 25 page dirs | 16 |
 | §21 | risk register | partial | 16 |
 | §22 | 6-phase roadmap | — | this plan |
@@ -291,7 +352,7 @@ not discover it as a surprise.
 
 | Reversal | Supersedes | Cost, stated plainly |
 |---|---|---|
-| **Content is hosted, proxied and transcoded** (media plane) — **REVERSED AGAIN, 2026-10-15: NOT BUILT** | §7.19 "the P2P content layer — REJECTED", which was right | The reversal was a mistake and the owner's own verdict is the argument: it re-opens the legal surface the metadata/media split exists to avoid, makes every scraped link an existential risk, and turns a metadata engine into a tube site. Phase 10 is struck from the plan, **the rendition table `content_item_media` STAYS** (a row is a URL an editor recorded, and the completeness score reads it — see the plan's respec section for how an earlier draft of this very sentence was wrong), and the cost of the reversal-now-reversed is that the draft's §13 and §7.5 parity items are answered "no" rather than "later". What it buys: an instance that holds claims and addresses, and never a copy of a work. |
+| **Content is hosted, proxied and transcoded** (media plane) — **REVERSED AGAIN, 2026-10-15: restored as a GATED capability, off by default** | §7.19 "the P2P content layer — REJECTED", which was right about the risk | The first reversal's mistake was the DEFAULT, not the design: it made every fork a host whose operator had decided nothing. The capability is now specified and planned (phase 10) behind `content_delivery`, false in every shipped config, read by a gate whose refusal names the key, stated in the startup log, and checked by `scripts/check-no-content-plane.py` — which still fails the build for third-party embedding or proxying anywhere outside `internal/service/mediaplane/`, whatever the switch says. **The rendition table `content_item_media` STAYS** (a row is a URL an editor recorded, and the completeness score reads it — see the plan's respec section for how an earlier draft of this very sentence was wrong). What the sequencing costs: nothing is built yet, and turning the switch on is the operator's written decision that this instance is a host. |
 | **Money changes hands** (premium, creator subs, ads, data licensing) | MIT licence + §7.13 operator autonomy | The fork is MIT; a fork-level monetisation feature is not a licence change but it is a governance one. Modelled as per-operator config with the code open, and no feature is gated behind it (§18.2's "always free" list is adopted verbatim). |
 | **Sub-scores and reputation become visible** | `user.graphql`'s `@isUserOwner` "a user's standing is not other users' business" | The owner's draft makes them public (§5.2, §20.2). Phase 6 must decide per-field: level public, raw vote weights private. Leaving it undecided is what makes the two specs disagree. |
 | **Taste profiles are federated, not local-first** | §8.6 "storage: local_only" default | Mesh peering (§7.17.3) ranks peers *by* taste similarity, which needs the fingerprint server-side. Opt-in, with the local-only mode kept for members who decline. |
@@ -315,15 +376,18 @@ every clause passes. The programme is complete when:
 4. Every phase has an integration test suite and a `scripts/verify-*.sh` database
    proof where the phase adds constraints.
 5. Each new dependency the programme still wants (a vector store; the identification
-   feature's local models) has a record of the decision and a fallback, per the project's own
-   habit of writing down what it deliberately did not install. **ffmpeg and yt-dlp are no
-   longer expected**: they were the media plane's, and the media plane is refused (respec,
-   2026-10-15).
+   feature's local models; the media plane's toolchain and CDN, phase 10) has a record of the
+   decision and a fallback, per the project's own habit of writing down what it deliberately did
+   not install. **The media toolchain and a downloader are phase 10's**, gated by
+   `content_delivery` (off in every shipped config): until slice 10c or 10f is started, neither is
+   installed, and installing one is a decision with a fallback written down first.
 
 ## 6. Non-goals
 
-Functionality IS dropped, by owner decision: **the content plane** (hosting, transcoding, the
-players, the PWA, any embed or proxy of a third party's content) and **a general discussion board**,
-for the reasons the respec section gives. What is explicitly *not* in this spec: rewriting `scene` into a `content_item`, breaking the Stash desktop app's
-GraphQL contract, and any phase beginning before its predecessors are green. The
+Functionality IS dropped, by owner decision: **a general discussion board** (slice 8f), for the
+reasons the respec section gives. **The content plane is NOT dropped — it is gated**: hosting, the
+players, the PWA and any embed or proxy of a third party's content are phase 10, off by default
+(`content_delivery`), with third-party embedding and proxying still refused outright by the build
+gate. What is explicitly *not* in this spec: rewriting `scene` into a `content_item`, breaking the
+Stash desktop app's GraphQL contract, and any phase beginning before its predecessors are green. The
 phase order is a dependency order, not a preference order.

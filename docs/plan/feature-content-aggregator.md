@@ -125,10 +125,18 @@ board that can give trouble unless there's a way to build them to avoid many dmc
 board only."* The spec's respec section carries the reasoning and the parity-table consequences; this is
 what it does to THIS plan.
 
-**STRUCK: phase 10 (the media plane) is removed from the programme.** Hosting, transcoding, the variant
-ladder, the players, PWA offline caching and the CDN are what make an instance a HOST, and that is the
-category of site that is DMCA'd out of existence. **The identification half of the old phase 10 is not
-struck** — the face matcher and the image taggers were already specified in
+**GATED, NOT STRUCK — amended later the same day: phase 10 (the media plane) is RESTORED with its
+switch off by default.** The first version of this section struck the phase outright. The owner's second
+instruction (*"include it in the spec again but disable it by default in config"*) corrected the remedy
+rather than the risk: hosting, the variant ladder, the media toolchain, the players, PWA offline caching
+and the CDN are what make an instance a HOST, and a host is the category of site that is DMCA'd out of
+existence — which is an argument about the DEFAULT every fork inherits, not about the design existing. So
+phase 10 is back in the plan, specified with its slices, and `content_delivery` is `false` in every
+shipped config, read by a gate whose refusal names the key, stated in the startup log, and enforced by
+`scripts/check-no-content-plane.py` — which still fails the build for third-party embedding or proxying
+anywhere outside `internal/service/mediaplane/`, whatever the switch says. Slice 10a (the switch) is BUILT;
+10b–10f are specified and not started. **The identification half of the old phase 10 was never in it** —
+the face matcher and the image taggers are specified in
 `docs/spec/feature-04-identification-federation.md` §8 with their build steps in that feature's plan, and
 they stay there, under that feature's rule that a model's output is a suggestion.
 
@@ -211,8 +219,9 @@ one mutation across the package would have proved only that the package fails as
 *The suites.* Unit: 47 packages, 0 failures. Integration, serial (`-p 1`), against a real Postgres: 50
 packages, 0 failures, and the `internal/api` package is `ok` with 762 test functions, 0 failures and 0
 skips. `gofmt -l internal/` clean and `go vet` clean with and without the `integration` tag.
-`docs/goal-check.py` C8 now reads **8 of 16 phases not done** (8, 11, 12, 13, 14, 15, 16, 17): phase 10
-is out of the count because it is out of the plan.
+`docs/goal-check.py` C8 now reads **9 of 17 phases not done** (8, 10, 11, 12, 13, 14, 15, 16, 17): phase 10
+is counted again, as the 2026-10-15 second respec restored it, and its slice 10a (the switch, off by
+default) is built while 10b–10f are not.
 
 *And one claim this work got WRONG, which the integration suite caught by name.* The first version of this
 section dropped `content_item_media` in a migration, on the strength of a grep for the table name that had
@@ -229,9 +238,9 @@ reverted, and the lesson is the plan's own: **a claim that a thing is unreferenc
 | 5 | Kept. It gates what a reader may see of the metadata, which is now the only thing there is. |
 | 6, 7, 8 (8a-8e), 9 | Kept. 9 gains the gate on the health sweep and Wayback; 9's mirror resolution returns a LINK and never content, which is unchanged. |
 | 8f | **Removed** (forums). |
-| 10 | **Removed** (media plane). The identification models it pointed at live on in `feature-04`. |
+| 10 | **Restored** (media plane), gated by `content_delivery`, off in every shipped config. Slice 10a (the switch, its gate, the startup line and the build gate's three arms) is built; 10b–10f are specified. The identification models it once pointed at live on in `feature-04`. |
 | 11, 12, 13, 15, 16, 17 | Unaffected. |
-| 14 | Kept, and its position CHANGES: it was "the precondition for storing anything", and nothing is stored now, so it is no longer a gate on phase 10. CSAM/DMCA/age/consent policy text and the appeals path are still wanted — the instance still holds links and claims, and a takedown still has to be enforceable — but it is no longer the phase that decides whether the programme may proceed at all. |
+| 14 | Kept, and its gate is RESTORED with phase 10: 14's policy text precedes 10's first stored byte (see the hard constraints above), because the moment this instance holds content it is a host. CSAM/DMCA/age/consent policy text and the appeals path are still wanted, and a takedown still has to be enforceable against addresses the instance already records. |
 
 ---
 
@@ -2761,28 +2770,107 @@ re-applied by the harness), a failed fetch recorded anyway, and an unknown perfo
 dataloader like `Scene.sources` has. The slice's criterion is a round trip with its capture time, and
 the service does that; nothing reads snapshots over the API yet.
 
-## Removed from this programme: the media plane (was phase 10)
+## Phase 10 — the media plane (specified, gated, OFF by default, slice 10a BUILT)
 
-**Placed elsewhere (2026-10-14):** the local models this phase wants — a face matcher
-(StashFace ONNX / MegaFace) and image taggers (WD14 / pixai) — are specified as
-*identification sources* in `docs/spec/feature-04-identification-federation.md` §8 (F7–F12),
-with their build steps in that feature's plan (step 7c/7d). Read those before designing this
-phase: two decisions there are not negotiable here — a model's output is a SUGGESTION (for tags,
-an edit draft, because the edit system is the only path that writes a tag), and face detection
-serves face-centred crops (complaint #84) as well as the identification board.
+**Restored by the owner's second instruction of 2026-10-15** (*"include it in the spec again but disable
+it by default in config"*), after the first respec struck it. Read the plan's scope-respec section for the
+reversal chain; the short form is that the risk was always the DEFAULT, not the design. This phase is the
+only one in the programme that can turn an instance into a HOST, so it is the only one whose switch is
+also a statement about what the instance IS.
 
-**Goal:** NexusXXX §7.5, §13.1–§13.5. **This phase is gated on Phase 14's policy
-text.** Hosting (MinIO/S3 via the existing `storage` abstraction), variant ladder,
-transcoding (ffmpeg — a new dependency, so a decision record and a fallback plan),
-the five players, PWA with offline caching, and the CDN/edge discussion in §19.1.
+**Placed elsewhere (2026-10-14):** the local models this phase used to want — a face matcher (StashFace
+ONNX / MegaFace) and image taggers (WD14 / pixai) — are specified as *identification sources* in
+`docs/spec/feature-04-identification-federation.md` §8 (F7–F12), with their build steps in that feature's
+plan (step 7c/7d). Two decisions there are not negotiable here: a model's output is a SUGGESTION (for tags,
+an edit draft, because the edit system is the only path that writes a tag), and face detection serves
+face-centred crops (complaint #84) as well as the identification board.
 
-**Verified:** `internal/storage` and `internal/image` already do local/S3 with
-resizing and caching; `collage` already extracts frames; `frontend/embed.go` is
-`//go:embed build`.
+**Goal:** NexusXXX §7.5, §13.1–§13.5 — hosting (MinIO/S3 through the existing `storage` abstraction), the
+variant ladder, the media toolchain (a new dependency, so a decision record and a fallback plan first), the
+five players, PWA with offline caching, and the CDN/edge discussion in §19.1.
 
-**Verification:** upload → transcode → play at three qualities through the real
-handlers; a text item renders a reader with progress persisted; a comic honours
-right-to-left; the PWA installs and serves a cached page offline.
+**HARD CONSTRAINT, unchanged by the restoration: phase 14's policy text precedes phase 10's first stored
+byte.** The moment this instance holds content it is a host. The gate that makes that ordering real is the
+switch below, and it is why the ordering line above puts 14 before 10.
+
+**Verified (before any of this was written):** `internal/storage` and `internal/image` already do local/S3
+with resizing and caching; `collage` already extracts frames; `frontend/embed.go` is `//go:embed build`.
+
+### Slice 10a — the switch and its four readers — **BUILT 2026-10-15**
+
+**What "gated" means mechanically, which is the whole content of this slice.** A capability declared in a
+document is a claim about a document; a capability behind a default that nothing reads is a claim about a
+config file. This slice exists so that the phase's posture is a property of the TREE and of the RUNNING
+PROCESS, in four places:
+
+1. **`internal/config`** — `ContentDelivery bool \`mapstructure:"content_delivery"\``, shipped `false`
+   (`internal/config/config.go`, the defaults block), with `GetContentDelivery()`. The field's comment
+   states why the default is the safety argument and warns that a forbidden word in THAT comment is a hit
+   for the gate below (it is a text scan) — the comment was reworded once for exactly that reason.
+2. **`internal/service/mediaplane`** — the gate. `RequireDelivery()` returns `ErrDeliveryDisabled`, whose
+   message names the key; `PostureLine()` returns the sentence the process logs. A slice that serves
+   anything calls the gate first, and this module is the only place the serving patterns are allowed to
+   live (the gate below enforces the path, not the intent).
+3. **`internal/api/server.go`** — `logPosture()`, called beside `printVersion()` in all three serve paths,
+   so an operator learns which posture THIS instance is in from the log rather than from a config file.
+4. **`scripts/check-no-content-plane.py`** — three checks instead of one: the fourteen serving patterns
+   still fail anywhere in the tree EXCEPT `internal/service/mediaplane/`; `content_delivery` must exist with
+   that mapstructure key and a default of `false`; and the startup path must actually read
+   `mediaplane.PostureLine()`. `--self-test` proves each arm can fail, including both sides of the path
+   allowlist.
+
+**Verification, run and observed:**
+
+```bash
+gofmt -l internal/                                       # output: empty
+go build ./...                                           # exit 0
+go test ./internal/config/ ./internal/service/mediaplane/ # ok, ok
+python3 scripts/check-no-content-plane.py --self-test     # SELF-TEST OK ... both sides of the allowlist
+python3 scripts/check-no-content-plane.py                 # exit 0, "content_delivery is off in the
+                                                          #  shipped default and the startup line states
+                                                          #  the posture"
+```
+
+**And the gate was proven able to fail, on the real files, one mutation at a time** (each restored
+afterwards, with the tree re-verified): flipping the shipped default to `true` → exit 1 with
+`defaults content_delivery to true`; replacing `mediaplane.PostureLine()` with a constant → exit 1 with
+`does not read mediaplane.PostureLine()`; planting `<video` in `internal/api/zz-probe.go` → exit 1 naming
+that file. The first attempt at the default mutation silently did not apply (gofmt had realigned the
+literal), which is why the harness asserts the replacement changed the text.
+
+**What slice 10a deliberately does NOT do:** no bytes are served, no toolchain is installed, no player
+exists, and `content_item_media` is untouched (a row there is an address an editor recorded; the
+completeness score reads it, and nothing about this slice changes that).
+
+### Slices 10b–10f — specified, not started, and their detail is written when each starts
+
+The order below is a dependency order and each line states the constraint that decides whether the slice
+is correct, which is what a later session needs to write its own detail section. Per this plan's own rule,
+a detailed design for an unstarted slice is written from imagination.
+
+- **10b — hosting.** Bytes for content the OPERATOR has the right to serve, through the existing `storage`
+  abstraction (local + S3), with a row per stored rendition. Constraint: the gate is called at the write
+  path AND at the serve path, and a rendition row must be unable to exist without a stored object (the
+  same shape as phase 9e's archive pair, where the CHECK is what makes a half-state unrepresentable).
+- **10c — the variant ladder and the media toolchain.** Ladder (original, then the derived renditions),
+  a job model for the conversions, and — before any code — a decision record for the external toolchain
+  with its fallback, per the repo's habit (see `docs/decisions/`). Constraint: a derived variant is derived
+  from a stored object, never fetched from a third party.
+- **10d — the players.** The player UI, in `frontend/src`, calling the serve path. Constraint: the player
+  is a renderer for what this instance hosts; no third-party embed, no proxy, and the frontend's share of
+  the gate is that the player component does not exist unless the switch is on.
+- **10e — PWA offline caching.** Offline caching of the instance's own shell and assets. Constraint:
+  cached content is content the operator hosts; the service worker must not cache a third-party response
+  into the instance's origin.
+- **10f — the CDN/edge, and the takedown's reach into it.** Cache headers, edge configuration, and the
+  requirement that a `content_source_block` row refuses a served address as it already refuses a fetch.
+  Constraint: an edge copy must be invalidated by a takedown, or the takedown is a promise about the
+  origin only — which is the failure mode this slice exists to prevent.
+
+**Phase verification (when 10b–10f are in):** upload → conversion → play at three qualities through the
+real handlers; a text item renders a reader with progress persisted; a comic honours right-to-left; the PWA
+installs and serves a cached page offline; a blocked address is refused at the serve path with the bytes
+already on disk.
 
 ## Phase 11 — growth: invites, referrals, cohorts
 

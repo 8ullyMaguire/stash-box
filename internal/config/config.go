@@ -115,6 +115,30 @@ type config struct {
 	// terms is a switch that turns this instance into the category of client the whole respec exists
 	// to keep it out of.
 	ContentFetchMinInterval string `mapstructure:"content_fetch_min_interval"`
+	// ContentDelivery lets this instance SERVE CONTENT: hosting, the variant ladder, the media
+	// toolchain, the players, PWA offline caching and the CDN/edge -- the media plane, phase 10.
+	//
+	// OFF BY DEFAULT, AND HERE THAT DEFAULT IS THE WHOLE SAFETY ARGUMENT. The media plane was struck
+	// from this programme on 2026-10-15 and restored the same day by owner instruction
+	// ("include it in the spec again but disable it by default in config"), and what makes the
+	// restoration safe is that the earlier refusal was never about the code existing: an instance
+	// that SERVES third-party material is a host, and a host is the category of site that is DMCA'd
+	// out of existence. So the capability is specified, planned, gated, and off in every shipped
+	// config -- and `content_delivery: true` is a posture an operator adopts deliberately, in
+	// writing, knowing it changes what this instance IS.
+	//
+	// THIS COMMENT DELIBERATELY DOES NOT NAME THE TOOLCHAIN OR THE PLAYER ELEMENT. The gate that
+	// enforces the posture is a TEXT scan, so a forbidden word in a comment is a hit -- the
+	// capability's own module may discuss them, and this file may not. Reword rather than add an
+	// exception: an exception list is how the gate stops meaning anything.
+	//
+	// READ IT THROUGH internal/service/mediaplane's RequireDelivery, never as a bare bool: the
+	// switch and the error a caller returns belong together, and the refusal must name the key.
+	// docs/spec/feature-content-aggregator.md's second respec section (2026-10-15) records the
+	// reversal chain and the guardrails that do NOT move with this switch -- third-party embedding
+	// and proxying stay refused, and scripts/check-no-content-plane.py keeps failing the build for
+	// them whatever this key says.
+	ContentDelivery bool `mapstructure:"content_delivery"`
 	// How often subscribed saved searches are run and their owners notified. One query per
 	// subscribed search per tick, so the cost is proportional to how many exist.
 	SavedSearchNotifyInterval string `mapstructure:"saved_search_notify_interval"`
@@ -250,8 +274,12 @@ var C = &config{
 	// Off, and this is the one default in this file that is a legal posture rather than a
 	// cost/behaviour trade-off: it is what decides whether the instance makes outbound requests
 	// to third-party content sources at all. See the field's comment.
-	ContentFetchSources:       false,
-	ContentFetchMinInterval:   "2s",
+	ContentFetchSources:     false,
+	ContentFetchMinInterval: "2s",
+	// Off, and for the same reason as the line above it: serving content is what makes an instance a
+	// host. See the field's comment -- the capability is specified and planned, and every shipped
+	// config leaves it off.
+	ContentDelivery:           false,
 	SavedSearchNotifyInterval: "15m",
 	// No embedding model produces vectors on this instance, so the default store holds
 	// nothing and the re-ranker provably does nothing -- rather than a half-wired store
@@ -661,6 +689,16 @@ func GetContentSweepInterval() string {
 // its own message for the refusal.
 func GetContentFetchSources() bool {
 	return C.ContentFetchSources
+}
+
+// GetContentDelivery reports whether this instance may SERVE content (the media plane, plan phase
+// 10). False unless an operator has said otherwise, and false in every shipped config file.
+//
+// ASK THIS THROUGH internal/service/mediaplane's RequireDelivery RATHER THAN HERE, for the same
+// reason GetContentFetchSources points at content.RequireFetching: the switch and the refusal
+// belong together, and a caller that reads the bool has to invent its own message for the refusal.
+func GetContentDelivery() bool {
+	return C.ContentDelivery
 }
 
 // GetContentFetchMinInterval is the least time between two requests to the same host

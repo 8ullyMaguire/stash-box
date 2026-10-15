@@ -1802,6 +1802,32 @@ stored byte, because the moment this instance holds content it is a host, and
 
 ---
 
+### 7.28 Second amendment to the aggregator programme — the media plane returns, gated (amended 2026-10-15)
+
+Owner instruction, the same day as §7.27's respec: *"include it in the spec again but disable it by
+default in config."* Phase 10 (the media plane — hosting, the variant ladder, the media toolchain, the
+players, PWA offline caching, the CDN/edge) was struck by that respec and is **restored as a specified,
+planned capability whose switch is off in every shipped configuration**.
+
+**Why the earlier refusal does not apply to this shape.** Its argument was that an instance which serves
+third-party material is a host, and a host is the category of site that is DMCA'd out of existence. That
+is right, and it is an argument about the DEFAULT every fork inherits — an operator who reads nothing
+should not get hosting — rather than about the design being written down. So the refusal moved: the
+capability is specified and planned (`docs/plan/feature-content-aggregator.md`, phase 10), and
+`content_delivery` is `false` in `internal/config`, read through `internal/service/mediaplane`'s
+`RequireDelivery` (a refusal that names the key), stated in the startup log, and enforced by
+`scripts/check-no-content-plane.py` — which still fails the build for third-party embedding or proxying
+anywhere outside `internal/service/mediaplane/`, whatever the switch says. The full reasoning, the
+reversal chain and what does NOT move with the switch are in
+`docs/spec/feature-content-aggregator.md`'s second respec section.
+
+**What this amendment changes in this document's own claims:** §7.16's parity row for §7.5 (self-hosting,
+tiered storage, CDN) is no longer "refused" but "phase 10, gated off by default"; the non-goals list no
+longer drops the content plane (it gates it); and the media toolchain is a dependency phase 10 may take,
+under a decision record with a fallback, once slice 10c or 10f is started.
+
+---
+
 ### 7.16 What the vision needs from the existing codebase
 
 The three capabilities the fork must *build* rather than extend, because nothing

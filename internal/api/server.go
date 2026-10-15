@@ -36,6 +36,7 @@ import (
 	"github.com/stashapp/stash-box/internal/dataloader"
 	"github.com/stashapp/stash-box/internal/models"
 	"github.com/stashapp/stash-box/internal/service"
+	"github.com/stashapp/stash-box/internal/service/mediaplane"
 	"github.com/stashapp/stash-box/internal/service/user"
 	"github.com/stashapp/stash-box/pkg/logger"
 )
@@ -260,6 +261,7 @@ func Start(fac service.Factory, ui embed.FS) {
 
 		go func() {
 			printVersion()
+			logPosture()
 			logger.Infof("stash-box is running on HTTPS (autocert) at https://%s/", address)
 			logger.Fatal(httpsServer.ListenAndServeTLS("", ""))
 		}()
@@ -282,6 +284,7 @@ func Start(fac service.Factory, ui embed.FS) {
 
 		go func() {
 			printVersion()
+			logPosture()
 			logger.Infof("stash-box is running on HTTPS at https://%s/", address)
 			logger.Fatal(httpsServer.ListenAndServeTLS("", ""))
 		}()
@@ -296,6 +299,7 @@ func Start(fac service.Factory, ui embed.FS) {
 
 	go func() {
 		printVersion()
+		logPosture()
 		logger.Infof("stash-box is running on HTTP at http://%s/", address)
 		logger.Fatal(server.ListenAndServe())
 	}()
@@ -307,6 +311,23 @@ func printVersion() {
 		versionString += " (" + githash + ")"
 	}
 	fmt.Printf("stash-box version: %s - %s\n", versionString, buildstamp)
+}
+
+// logPosture states this process's content postures in the log, once, at startup.
+//
+// WHY IT IS LOGGED RATHER THAN DOCUMENTED. Both switches are off by default, so an operator's
+// question is never "what do these do" but "which posture is THIS instance running" -- and the
+// answer has to be in the place they are already looking, next to the version, without a config
+// file to grep. It is also what makes the switch READ rather than merely parsed: a key that a
+// process never mentions is a key nobody can tell was ignored, which is the failure mode this
+// repository has already shipped once (a rung that wrote a switch no code read).
+//
+// The content-fetch half is logged by internal/cron, because that is where its jobs are registered
+// or (when the switch is off) not registered at all; the media-plane half is logged here because
+// there is nothing to register yet -- the capability is specified and gated, and this line is the
+// only runtime evidence of which posture the instance is in.
+func logPosture() {
+	logger.Infof("%s", mediaplane.PostureLine())
 }
 
 func GetVersion() (string, string, string) {
