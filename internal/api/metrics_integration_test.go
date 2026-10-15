@@ -4,6 +4,7 @@ package api_test
 
 import (
 	"context"
+	"math/rand"
 	"testing"
 	"time"
 
@@ -274,6 +275,69 @@ func TestAPendingEditIsPendingRatherThanDecided(t *testing.T) {
 		"a pending edit was created and the pending figure did not move by one")
 	assert.Equal(t, int64(0), delta("edits_decided_window"),
 		"a pending edit is not a decided one: the figure that counts closed_at counted a row that is still open")
+}
+
+// TestTheCatalogueFiguresCountScenesAndFingerprintsSeparately plants the row that tells the catalogue figures
+// apart, and it exists because the mutation ledger said so.
+//
+// THE LEDGER ROW "the fingerprint figure counts scenes instead of fingerprints" SURVIVED the first run of this
+// suite: on the database the api package tests against, the two tables held the SAME count (nothing at all), so
+// swapping one for the other changed no value and every assertion here was satisfied by a figure that counted
+// the wrong table. That is the class of defect a recomputation test cannot see when its fixture has nothing in
+// it, and the answer is a row: one scene carrying one fingerprint, after which the two figures differ by
+// measure rather than by luck.
+func TestTheCatalogueFiguresCountScenesAndFingerprintsSeparately(t *testing.T) {
+	before, err := asAdmin(t).client.instanceMetrics()
+	require.NoError(t, err)
+	wasFigures := before.figures(t)
+
+	sceneID := uuid.Must(uuid.NewV4())
+	var owner uuid.UUID
+	var fingerprintID int64
+	require.NoError(t, dbtest.DB().QueryRow(t.Context(), `SELECT id FROM users LIMIT 1`).Scan(&owner))
+
+	_, err = dbtest.DB().Exec(t.Context(),
+		`INSERT INTO scenes (id, title, details, code, date, created_at, updated_at)
+		 VALUES ($1, $2, 'A description of the record.', $3, DATE '2026-10-16', now(), now())`,
+		sceneID, "metrics fixture "+sceneID.String()[:8], "MTR-"+sceneID.String()[:8])
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = dbtest.DB().Exec(context.Background(), `DELETE FROM scene_fingerprints WHERE scene_id = $1`, sceneID)
+		_, _ = dbtest.DB().Exec(context.Background(), `DELETE FROM scenes WHERE id = $1`, sceneID)
+	})
+
+	// The hash is a BIGINT in this schema -- a perceptual hash, not a hex digest -- so the fixture uses a
+	// random number rather than a UUID string. Measured, after the first attempt was refused with
+	// "invalid input syntax for type bigint".
+	hash := rand.Int63()
+	require.NoError(t, dbtest.DB().QueryRow(t.Context(),
+		`INSERT INTO fingerprints (algorithm, hash) VALUES ('md5', $1) RETURNING id`, hash).Scan(&fingerprintID))
+	t.Cleanup(func() {
+		_, _ = dbtest.DB().Exec(context.Background(), `DELETE FROM fingerprints WHERE id = $1`, fingerprintID)
+	})
+
+	_, err = dbtest.DB().Exec(t.Context(),
+		`INSERT INTO scene_fingerprints (fingerprint_id, scene_id, user_id, duration) VALUES ($1, $2, $3, 60)`,
+		fingerprintID, sceneID, owner)
+	require.NoError(t, err)
+
+	after, err := asAdmin(t).client.instanceMetrics()
+	require.NoError(t, err)
+	nowFigures := after.figures(t)
+
+	delta := func(key string) int64 { return nowFigures[key].Value - wasFigures[key].Value }
+
+	assert.Equal(t, int64(1), delta("scenes_total"), "a scene was created and the catalogue total did not move")
+	assert.Equal(t, int64(1), delta("scenes_created_window"), "a scene created just now is not inside the window")
+	assert.Equal(t, int64(1), delta("fingerprints_total"),
+		"a fingerprint was recorded and the fingerprint figure did not move by one -- a figure that counts the "+
+			"catalogue instead of the fingerprints is a figure that will read as large and mean nothing")
+	assert.Equal(t, int64(1), delta("scenes_with_fingerprint"),
+		"a scene was given a fingerprint and the coverage figure did not move")
+
+	// The two catalogue figures are still different questions: this scene has a fingerprint and no source.
+	assert.Equal(t, int64(0), delta("scenes_with_sources"),
+		"a fingerprint is not a source address: the aggregation coverage must not move for one")
 }
 
 // TestTheTwoInviteFiguresMeasureDifferentThings plants an UNUSED invite key, which is the fixture that makes

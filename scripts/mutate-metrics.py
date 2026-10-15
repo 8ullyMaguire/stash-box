@@ -16,10 +16,14 @@ the previous statement in place. The one mutation that cannot avoid a generator 
 the role check lives in the SCHEMA: that row runs `gqlgen generate` for the mutation and again for the restore,
 and then requires `git status` to be clean, so a half-restored generated file cannot pass as green.
 
-TWO OF THESE ROWS EXIST BECAUSE OF A FIXTURE, and that is the ledger telling on the test rather than the code:
-`invites_unused` and `edits_pending` differ from their neighbours only by a predicate, and on a database where
-every invite key has been used and no edit exists, swapping the predicate changes NO value -- so the mutation
-survives until the test plants a row that separates them. The fixtures were written for those two rows.
+THREE OF THESE ROWS EXIST BECAUSE OF A FIXTURE, and that is the ledger telling on the test rather than on the
+code. `invites_unused` and `edits_pending` differ from their neighbours only by a predicate, so on a database
+where every invite key has been used and no edit exists, swapping the predicate changes NO value. The
+fingerprint row is the same lesson one step further out: its first run SURVIVED, because the api package's
+database held the same count in `scenes` and `scene_fingerprints` (nothing at all), so a figure that counted
+the catalogue satisfied every assertion written for a figure that counts fingerprints. Nothing but breaking the
+code on purpose would have found that; the fixtures were written for these three rows and are the reason the
+next run is 12 of 12.
 """
 import os
 import subprocess
