@@ -1219,6 +1219,19 @@ func (s *Edit) CreateComment(ctx context.Context, input models.EditCommentInput)
 		return nil, nil, err
 	}
 
+	// THE VOCABULARY IS CHECKED BEFORE THE WRITE, and before the transaction opens: a comment of a
+	// kind nobody declared, or one carrying a structured field its kind has no room for, is refused
+	// with a name rather than stored and refused later by the database's CHECK as a constraint
+	// violation. The CHECK is still the guarantee; this is the message.
+	kind := KindOf(kindString(input.Kind))
+	var performer uuid.NullUUID
+	if input.PerformerID != nil {
+		performer = uuid.NullUUID{UUID: *input.PerformerID, Valid: true}
+	}
+	if err := ValidateKind(kind, performerIDOrNil(performer)); err != nil {
+		return nil, nil, err
+	}
+
 	var comment *models.EditComment
 	err = s.withTxn(func(tx *queries.Queries) error {
 		currentUser := auth.GetCurrentUser(ctx)
@@ -1226,7 +1239,7 @@ func (s *Edit) CreateComment(ctx context.Context, input models.EditCommentInput)
 		if err != nil {
 			return err
 		}
-		params, err := converter.CreateEditCommentParams(edit.ID, currentUser.ID, text)
+		params, err := converter.CreateEditCommentParams(edit.ID, currentUser.ID, text, string(kind), performer)
 		if err != nil {
 			return err
 		}

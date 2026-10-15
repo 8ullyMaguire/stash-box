@@ -33,6 +33,11 @@ type EditComment struct {
 	Text      string        `json:"text"`
 	UpdatedAt *time.Time    `json:"updated_at"`
 	IsHidden  bool          `json:"is_hidden"`
+	// Kind is what the writer is doing. It decides whether PerformerID below carries anything.
+	Kind string `json:"kind"`
+	// PerformerID is the structured field of the `performer_id` kind, and is NULL for every other
+	// kind -- a rule the database enforces as well, so no reader has to guess.
+	PerformerID uuid.NullUUID `json:"performer_id"`
 }
 
 type EditVote struct {
@@ -66,6 +71,10 @@ func NewEditComment(id uuid.UUID, userID uuid.UUID, edit *Edit, text string) *Ed
 		EditID: edit.ID,
 		UserID: uuid.NullUUID{UUID: userID, Valid: true},
 		Text:   text,
+		// The constructor is the one caller that has no opinion about kinds: the mod bot's own
+		// "edit application failed" note is a discussion, and saying so here keeps the query from
+		// carrying a default that would be a second spelling of the same word.
+		Kind: "discussion",
 	}
 
 	return ret

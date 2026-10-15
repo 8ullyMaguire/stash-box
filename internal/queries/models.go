@@ -268,13 +268,15 @@ type Edit struct {
 }
 
 type EditComment struct {
-	ID        uuid.UUID     `db:"id" json:"id"`
-	EditID    uuid.UUID     `db:"edit_id" json:"edit_id"`
-	UserID    uuid.NullUUID `db:"user_id" json:"user_id"`
-	CreatedAt time.Time     `db:"created_at" json:"created_at"`
-	Text      string        `db:"text" json:"text"`
-	UpdatedAt *time.Time    `db:"updated_at" json:"updated_at"`
-	IsHidden  bool          `db:"is_hidden" json:"is_hidden"`
+	ID          uuid.UUID     `db:"id" json:"id"`
+	EditID      uuid.UUID     `db:"edit_id" json:"edit_id"`
+	UserID      uuid.NullUUID `db:"user_id" json:"user_id"`
+	CreatedAt   time.Time     `db:"created_at" json:"created_at"`
+	Text        string        `db:"text" json:"text"`
+	UpdatedAt   *time.Time    `db:"updated_at" json:"updated_at"`
+	IsHidden    bool          `db:"is_hidden" json:"is_hidden"`
+	Kind        string        `db:"kind" json:"kind"`
+	PerformerID uuid.NullUUID `db:"performer_id" json:"performer_id"`
 }
 
 type EditVote struct {

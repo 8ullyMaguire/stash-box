@@ -561,6 +561,12 @@ type DurationCount struct {
 type EditCommentInput struct {
 	ID      uuid.UUID `json:"id"`
 	Comment string    `json:"comment"`
+	// What the writer is doing. Omitted means DISCUSSION, so a client that says nothing about kinds
+	// keeps working.
+	Kind *EditCommentKind `json:"kind,omitempty"`
+	// Required for PERFORMER_ID and refused for every other kind, in both directions: a comment that
+	// names a performer has to be of the kind that means it, and one of that kind has to name somebody.
+	PerformerID *uuid.UUID `json:"performerId,omitempty"`
 }
 
 type EditInput struct {
@@ -3254,6 +3260,71 @@ func (e *DateAccuracyEnum) UnmarshalJSON(b []byte) error {
 }
 
 func (e DateAccuracyEnum) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+type EditCommentKind string
+
+const (
+	EditCommentKindDiscussion  EditCommentKind = "DISCUSSION"
+	EditCommentKindSourceInfo  EditCommentKind = "SOURCE_INFO"
+	EditCommentKindPerformerID EditCommentKind = "PERFORMER_ID"
+	EditCommentKindTimestamp   EditCommentKind = "TIMESTAMP"
+	EditCommentKindCorrection  EditCommentKind = "CORRECTION"
+	EditCommentKindRequest     EditCommentKind = "REQUEST"
+	EditCommentKindReview      EditCommentKind = "REVIEW"
+)
+
+var AllEditCommentKind = []EditCommentKind{
+	EditCommentKindDiscussion,
+	EditCommentKindSourceInfo,
+	EditCommentKindPerformerID,
+	EditCommentKindTimestamp,
+	EditCommentKindCorrection,
+	EditCommentKindRequest,
+	EditCommentKindReview,
+}
+
+func (e EditCommentKind) IsValid() bool {
+	switch e {
+	case EditCommentKindDiscussion, EditCommentKindSourceInfo, EditCommentKindPerformerID, EditCommentKindTimestamp, EditCommentKindCorrection, EditCommentKindRequest, EditCommentKindReview:
+		return true
+	}
+	return false
+}
+
+func (e EditCommentKind) String() string {
+	return string(e)
+}
+
+func (e *EditCommentKind) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = EditCommentKind(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid EditCommentKind", str)
+	}
+	return nil
+}
+
+func (e EditCommentKind) MarshalGQL(w io.Writer) {
+	_, _ = fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *EditCommentKind) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e EditCommentKind) MarshalJSON() ([]byte, error) {
 	var buf bytes.Buffer
 	e.MarshalGQL(&buf)
 	return buf.Bytes(), nil

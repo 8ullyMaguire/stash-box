@@ -683,17 +683,22 @@ func DraftToModelPtr(d queries.Draft) *models.Draft {
 }
 
 // CreateEditCommentParams creates a queries.CreateEditCommentParams from editID, userID, and comment text
-func CreateEditCommentParams(editID, userID uuid.UUID, commentText string) (queries.CreateEditCommentParams, error) {
+// CreateEditCommentParams builds the insert params for a comment. The kind and the structured
+// field are ARGUMENTS rather than defaults because a default here would be a second spelling of
+// "discussion", and the service has already refused an unnamed kind by the time it calls.
+func CreateEditCommentParams(editID, userID uuid.UUID, commentText, kind string, performerID uuid.NullUUID) (queries.CreateEditCommentParams, error) {
 	id, err := uuid.NewV7()
 	if err != nil {
 		return queries.CreateEditCommentParams{}, err
 	}
 
 	return queries.CreateEditCommentParams{
-		ID:     id,
-		EditID: editID,
-		UserID: uuid.NullUUID{UUID: userID, Valid: true},
-		Text:   commentText,
+		ID:          id,
+		EditID:      editID,
+		UserID:      uuid.NullUUID{UUID: userID, Valid: true},
+		Text:        commentText,
+		Kind:        kind,
+		PerformerID: performerID,
 	}, nil
 }
 

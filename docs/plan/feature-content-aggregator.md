@@ -1868,6 +1868,82 @@ from a saved search, collaborative) on the existing `list` tables.
 that edit links the performer — the test asserts the *edit* exists, because the
 failure mode is a comment that silently writes the link.
 
+### Slice 8a — a comment is TYPED (BUILT)
+
+A comment was free text with a UUID in it. It is now **typed**: the kind says what the writer
+is *doing* — discussing, offering a source, identifying a performer, pointing at a timestamp,
+proposing a correction, asking for something, reviewing — and for one kind it decides that the
+comment carries a **structured field** instead of making the reader find an id in prose.
+
+**THE STRUCTURED FIELD BELONGS TO ITS KIND, and that is the whole of the slice's schema:**
+`performer_id` is the field for the `performer_id` kind and for nothing else. The constraint is
+the equality of two booleans — `(kind = 'performer_id') = (performer_id IS NOT NULL)` — which
+refuses *both* directions at once: a comment that names a performer without being of the kind
+that means it, and one of that kind that names nobody. There is no state in which a reader has
+to guess which of the two the writer meant.
+
+**THE VOCABULARY IS MIRRORED IN THREE PLACES ON PURPOSE**, and that is a decision rather than
+duplication to be factored away: the database's CHECK is what refuses a value nobody named,
+the service's validation is what refuses it with a message a caller can act on, and the GraphQL
+enum is what a client matches on. Collapsing them means either the database accepting anything
+or the API having no vocabulary of its own, and the house rule is that an **unnamed value must
+error** rather than be stored and rendered as blank.
+
+**An omitted kind is the ABSENCE OF A CHOICE, not an eighth kind**: it resolves to
+`discussion`, so every existing client that says nothing about kinds keeps working. That is
+also why the query has no default for the column — a default there would be a second spelling
+of the same word.
+
+**Verification (DONE).** Pure: every declared kind is accepted with the field its kind requires;
+an unnamed kind is refused **by name** and the message names the word; the structured field is
+refused in both directions with its own error each; an omitted kind resolves to the default and
+a stated one is not normalized into it; and the enum's seven spellings round-trip against the
+vocabulary, with the test asserting the two lists have the **same length** so the vocabulary
+cannot grow without the mapping.
+
+Through the real resolver: a `performer_id` comment round-trips — its kind **asserted by name**,
+not by membership in the vocabulary, because a mapping that answered `discussion` for everything
+satisfies "is a kind" — with its structured field intact; a comment that says nothing about kinds
+is a discussion naming nobody; both refusals reach the caller as the named errors, with **nothing
+written** by either; and an unnamed kind is refused even when built past the enum's own type,
+because an enum is not the only way a comment is written.
+
+**Five probes, and one of them found a missing layer.** The kind not persisted and the
+structured field not persisted each kill the round trip (the CHECK refuses the pair as well, so
+the mutation dies even before the assertion). Dropping the vocabulary check and allowing a
+mismatched field each kill their own test. And **the fifth — the enum mapping replaced by a
+constant — SURVIVED**, because every assertion in this slice was about the *column* and a client
+reads the *resolver*: the kind is a word in the database and an enum on the wire, the mapping
+between them is hand-written Go, and nothing was testing it. The assertion was added and the
+probe then killed it. Same lesson as 6d, 6f and 6g, now for the fourth slice: a probe with
+nothing to kill it is a missing test — **and this one named a missing LAYER rather than a
+missing fixture.**
+
+### Slice 8b — confirming an identification routes into an edit (NOT BUILT)
+
+The phase's own verification, and the reason this slice is separate: **a confirmed
+`performer_id` comment creates an edit, and applying that edit links the performer — the test
+asserts the *edit* exists, because the failure mode is a comment that silently writes the
+link.** A comment is evidence and never authority, the same rule that makes a vote on an edit a
+vote rather than an application.
+
+Design notes recorded here so the slice starts from them:
+
+- **The entry point already exists**: `Scene().Update(SceneUpdateInput{ID, Performers:
+  [...]})` is how every scene change in this codebase is proposed, and it produces an edit
+  rather than a write. The confirmation adds a `PerformerAppearanceInput` to the scene's
+  existing appearances and submits that.
+- **The edit service must not call the scene service**: the scene service is what *creates*
+  edits, so a call the other way is a cycle. The orchestration belongs in the resolver (the
+  same place `clearEditVotes` lives) or in the scene service itself, and the choice should be
+  made on which layer owns "an identification became a proposal".
+- **Confirmation is a moderator action with an audit row**, following the comment-moderation
+  pair already in place (`EDIT_COMMENT_UPDATE` / `EDIT_COMMENT_HIDE`), so a confirmation is
+  answerable for by the same means every other moderator action is.
+- **The comment records its outcome** — confirmed, and by which edit — or a moderator
+  confirms the same suggestion twice and nobody can tell. That is a small column pair and it
+  is the part most likely to be skipped.
+
 ## Phase 9 — preservation at scale
 
 **Goal:** NexusXXX §7.3–§7.4 on top of Phase 1's status column: the health daemon

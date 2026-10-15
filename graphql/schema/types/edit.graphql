@@ -41,6 +41,21 @@ type EditComment {
     """Whether the comment is hidden from public view. Hidden comments are only returned to moderators."""
     hidden: Boolean!
     edit: Edit!
+
+    """
+    What the writer is doing. Decides whether performerId below carries anything.
+    """
+    kind: EditCommentKind!
+
+    """
+    The structured field of the PERFORMER_ID kind: the performer the writer believes belongs here,
+    set only for that kind.
+
+    It is a SUGGESTION and not a link. Confirming one routes into an edit (slice 8b) rather than
+    writing the relationship, because a comment is evidence and never authority -- the same rule that
+    makes a vote on an edit a vote and not an application.
+    """
+    performerId: ID
 }
 
 union EditDetails = PerformerEdit | SceneEdit | StudioEdit | TagEdit | ContentItemEdit
@@ -105,9 +120,36 @@ input EditVoteInput {
     vote: VoteTypeEnum!
 }
 
+# What a comment's writer is DOING, which decides whether the comment carries a structured field.
+#
+# The list is mirrored in the database's CHECK on edit_comments.kind, and that is deliberate: the
+# CHECK is what refuses a value nobody named, and this enum is what a client matches on. An unnamed
+# value is an error rather than a blank, which is the rule the content status column already follows.
+enum EditCommentKind {
+  DISCUSSION
+  SOURCE_INFO
+  PERFORMER_ID
+  TIMESTAMP
+  CORRECTION
+  REQUEST
+  REVIEW
+}
+
 input EditCommentInput {
     id: ID!
     comment: String!
+
+    """
+    What the writer is doing. Omitted means DISCUSSION, so a client that says nothing about kinds
+    keeps working.
+    """
+    kind: EditCommentKind
+
+    """
+    Required for PERFORMER_ID and refused for every other kind, in both directions: a comment that
+    names a performer has to be of the kind that means it, and one of that kind has to name somebody.
+    """
+    performerId: ID
 }
 
 input UpdateEditCommentInput {

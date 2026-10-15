@@ -348,13 +348,15 @@ type ComplexityRoot struct {
 	}
 
 	EditComment struct {
-		Comment func(childComplexity int) int
-		Date    func(childComplexity int) int
-		Edit    func(childComplexity int) int
-		Hidden  func(childComplexity int) int
-		ID      func(childComplexity int) int
-		Updated func(childComplexity int) int
-		User    func(childComplexity int) int
+		Comment     func(childComplexity int) int
+		Date        func(childComplexity int) int
+		Edit        func(childComplexity int) int
+		Hidden      func(childComplexity int) int
+		ID          func(childComplexity int) int
+		Kind        func(childComplexity int) int
+		PerformerID func(childComplexity int) int
+		Updated     func(childComplexity int) int
+		User        func(childComplexity int) int
 	}
 
 	EditVote struct {
@@ -1591,6 +1593,8 @@ type EditCommentResolver interface {
 	Updated(ctx context.Context, obj *EditComment) (*time.Time, error)
 	Hidden(ctx context.Context, obj *EditComment) (bool, error)
 	Edit(ctx context.Context, obj *EditComment) (*Edit, error)
+	Kind(ctx context.Context, obj *EditComment) (EditCommentKind, error)
+	PerformerID(ctx context.Context, obj *EditComment) (*uuid.UUID, error)
 }
 type EditVoteResolver interface {
 	User(ctx context.Context, obj *EditVote) (*User, error)
@@ -3093,6 +3097,18 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.EditComment.ID(childComplexity), true
+	case "EditComment.kind":
+		if e.ComplexityRoot.EditComment.Kind == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EditComment.Kind(childComplexity), true
+	case "EditComment.performerId":
+		if e.ComplexityRoot.EditComment.PerformerID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EditComment.PerformerID(childComplexity), true
 	case "EditComment.updated":
 		if e.ComplexityRoot.EditComment.Updated == nil {
 			break
@@ -10564,6 +10580,21 @@ type EditComment {
     """Whether the comment is hidden from public view. Hidden comments are only returned to moderators."""
     hidden: Boolean!
     edit: Edit!
+
+    """
+    What the writer is doing. Decides whether performerId below carries anything.
+    """
+    kind: EditCommentKind!
+
+    """
+    The structured field of the PERFORMER_ID kind: the performer the writer believes belongs here,
+    set only for that kind.
+
+    It is a SUGGESTION and not a link. Confirming one routes into an edit (slice 8b) rather than
+    writing the relationship, because a comment is evidence and never authority -- the same rule that
+    makes a vote on an edit a vote and not an application.
+    """
+    performerId: ID
 }
 
 union EditDetails = PerformerEdit | SceneEdit | StudioEdit | TagEdit | ContentItemEdit
@@ -10628,9 +10659,36 @@ input EditVoteInput {
     vote: VoteTypeEnum!
 }
 
+# What a comment's writer is DOING, which decides whether the comment carries a structured field.
+#
+# The list is mirrored in the database's CHECK on edit_comments.kind, and that is deliberate: the
+# CHECK is what refuses a value nobody named, and this enum is what a client matches on. An unnamed
+# value is an error rather than a blank, which is the rule the content status column already follows.
+enum EditCommentKind {
+  DISCUSSION
+  SOURCE_INFO
+  PERFORMER_ID
+  TIMESTAMP
+  CORRECTION
+  REQUEST
+  REVIEW
+}
+
 input EditCommentInput {
     id: ID!
     comment: String!
+
+    """
+    What the writer is doing. Omitted means DISCUSSION, so a client that says nothing about kinds
+    keeps working.
+    """
+    kind: EditCommentKind
+
+    """
+    Required for PERFORMER_ID and refused for every other kind, in both directions: a comment that
+    names a performer has to be of the kind that means it, and one of that kind has to name somebody.
+    """
+    performerId: ID
 }
 
 input UpdateEditCommentInput {
@@ -16020,6 +16078,10 @@ func (ec *executionContext) childFields_EditComment(ctx context.Context, field g
 		return ec.fieldContext_EditComment_hidden(ctx, field)
 	case "edit":
 		return ec.fieldContext_EditComment_edit(ctx, field)
+	case "kind":
+		return ec.fieldContext_EditComment_kind(ctx, field)
+	case "performerId":
+		return ec.fieldContext_EditComment_performerId(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type EditComment", field.Name)
 }
@@ -24978,6 +25040,52 @@ func (ec *executionContext) fieldContext_EditComment_edit(_ context.Context, fie
 		},
 	}
 	return fc, nil
+}
+
+func (ec *executionContext) _EditComment_kind(ctx context.Context, field graphql.CollectedField, obj *EditComment) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_EditComment_kind(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.EditComment().Kind(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v EditCommentKind) graphql.Marshaler {
+			return ec.marshalNEditCommentKind2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEditCommentKind(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_EditComment_kind(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("EditComment", field, true, true, errors.New("field of type EditCommentKind does not have child fields"))
+}
+
+func (ec *executionContext) _EditComment_performerId(ctx context.Context, field graphql.CollectedField, obj *EditComment) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_EditComment_performerId(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.EditComment().PerformerID(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *uuid.UUID) graphql.Marshaler {
+			return ec.marshalOID2ᚖgithubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_EditComment_performerId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("EditComment", field, true, true, errors.New("field of type ID does not have child fields"))
 }
 
 func (ec *executionContext) _EditVote_user(ctx context.Context, field graphql.CollectedField, obj *EditVote) (ret graphql.Marshaler) {
@@ -55499,7 +55607,7 @@ func (ec *executionContext) unmarshalInputEditCommentInput(ctx context.Context, 
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"id", "comment"}
+	fieldsInOrder := [...]string{"id", "comment", "kind", "performerId"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -55520,6 +55628,20 @@ func (ec *executionContext) unmarshalInputEditCommentInput(ctx context.Context, 
 				return it, err
 			}
 			it.Comment = data
+		case "kind":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("kind"))
+			data, err := ec.unmarshalOEditCommentKind2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEditCommentKind(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Kind = data
+		case "performerId":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("performerId"))
+			data, err := ec.unmarshalOID2ᚖgithubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.PerformerID = data
 		}
 	}
 	return it, nil
@@ -65562,6 +65684,82 @@ func (ec *executionContext) _EditComment(ctx context.Context, sel ast.SelectionS
 				}()
 				res = ec._EditComment_edit(ctx, field, obj)
 				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "kind":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._EditComment_kind(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "performerId":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._EditComment_performerId(ctx, field, obj)
+				if res == graphql.RequiredNull {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
 				return res
@@ -81920,6 +82118,16 @@ func (ec *executionContext) unmarshalNEditCommentInput2githubᚗcomᚋstashapp�
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
+func (ec *executionContext) unmarshalNEditCommentKind2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEditCommentKind(ctx context.Context, v any) (EditCommentKind, error) {
+	var res EditCommentKind
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNEditCommentKind2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEditCommentKind(ctx context.Context, sel ast.SelectionSet, v EditCommentKind) graphql.Marshaler {
+	return v
+}
+
 func (ec *executionContext) unmarshalNEditInput2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEditInput(ctx context.Context, v any) (*EditInput, error) {
 	res, err := ec.unmarshalInputEditInput(ctx, v)
 	return &res, graphql.ErrorOnPath(ctx, err)
@@ -85319,6 +85527,22 @@ func (ec *executionContext) marshalOEdit2ᚖgithubᚗcomᚋstashappᚋstashᚑbo
 		return graphql.Null
 	}
 	return ec._Edit(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalOEditCommentKind2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEditCommentKind(ctx context.Context, v any) (*EditCommentKind, error) {
+	if v == nil {
+		return nil, nil
+	}
+	var res = new(EditCommentKind)
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOEditCommentKind2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEditCommentKind(ctx context.Context, sel ast.SelectionSet, v *EditCommentKind) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return v
 }
 
 func (ec *executionContext) marshalOEditDetails2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEditDetails(ctx context.Context, sel ast.SelectionSet, v EditDetails) graphql.Marshaler {

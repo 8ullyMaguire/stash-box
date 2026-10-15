@@ -95,25 +95,33 @@ func (q *Queries) CreateEdit(ctx context.Context, arg CreateEditParams) (Edit, e
 
 const createEditComment = `-- name: CreateEditComment :one
 
-INSERT INTO edit_comments (id, edit_id, user_id, text, created_at)
-VALUES ($1, $2, $3, $4, NOW())
-RETURNING id, edit_id, user_id, created_at, text, updated_at, is_hidden
+INSERT INTO edit_comments (id, edit_id, user_id, text, kind, performer_id, created_at)
+VALUES ($1, $2, $3, $4, $5, $6, NOW())
+RETURNING id, edit_id, user_id, created_at, text, updated_at, is_hidden, kind, performer_id
 `
 
 type CreateEditCommentParams struct {
-	ID     uuid.UUID     `db:"id" json:"id"`
-	EditID uuid.UUID     `db:"edit_id" json:"edit_id"`
-	UserID uuid.NullUUID `db:"user_id" json:"user_id"`
-	Text   string        `db:"text" json:"text"`
+	ID          uuid.UUID     `db:"id" json:"id"`
+	EditID      uuid.UUID     `db:"edit_id" json:"edit_id"`
+	UserID      uuid.NullUUID `db:"user_id" json:"user_id"`
+	Text        string        `db:"text" json:"text"`
+	Kind        string        `db:"kind" json:"kind"`
+	PerformerID uuid.NullUUID `db:"performer_id" json:"performer_id"`
 }
 
 // Edit comments
+// A comment carries its KIND and, for the one kind that has one, its structured FIELD. The two
+// new values have no defaults here on purpose: the caller names the kind, the service has already
+// refused an unnamed one, and a default in the query would be a second place where "discussion"
+// is spelled.
 func (q *Queries) CreateEditComment(ctx context.Context, arg CreateEditCommentParams) (EditComment, error) {
 	row := q.db.QueryRow(ctx, createEditComment,
 		arg.ID,
 		arg.EditID,
 		arg.UserID,
 		arg.Text,
+		arg.Kind,
+		arg.PerformerID,
 	)
 	var i EditComment
 	err := row.Scan(
@@ -124,6 +132,8 @@ func (q *Queries) CreateEditComment(ctx context.Context, arg CreateEditCommentPa
 		&i.Text,
 		&i.UpdatedAt,
 		&i.IsHidden,
+		&i.Kind,
+		&i.PerformerID,
 	)
 	return i, err
 }
@@ -355,7 +365,7 @@ func (q *Queries) FindEdit(ctx context.Context, id uuid.UUID) (Edit, error) {
 }
 
 const findEditComment = `-- name: FindEditComment :one
-SELECT id, edit_id, user_id, created_at, text, updated_at, is_hidden FROM edit_comments WHERE id = $1
+SELECT id, edit_id, user_id, created_at, text, updated_at, is_hidden, kind, performer_id FROM edit_comments WHERE id = $1
 `
 
 func (q *Queries) FindEditComment(ctx context.Context, id uuid.UUID) (EditComment, error) {
@@ -369,6 +379,8 @@ func (q *Queries) FindEditComment(ctx context.Context, id uuid.UUID) (EditCommen
 		&i.Text,
 		&i.UpdatedAt,
 		&i.IsHidden,
+		&i.Kind,
+		&i.PerformerID,
 	)
 	return i, err
 }
@@ -477,7 +489,7 @@ func (q *Queries) FindPendingSceneCreation(ctx context.Context, arg FindPendingS
 }
 
 const getEditComments = `-- name: GetEditComments :many
-SELECT id, edit_id, user_id, created_at, text, updated_at, is_hidden FROM edit_comments WHERE edit_id = $1 ORDER BY created_at ASC
+SELECT id, edit_id, user_id, created_at, text, updated_at, is_hidden, kind, performer_id FROM edit_comments WHERE edit_id = $1 ORDER BY created_at ASC
 `
 
 func (q *Queries) GetEditComments(ctx context.Context, editID uuid.UUID) ([]EditComment, error) {
@@ -497,6 +509,8 @@ func (q *Queries) GetEditComments(ctx context.Context, editID uuid.UUID) ([]Edit
 			&i.Text,
 			&i.UpdatedAt,
 			&i.IsHidden,
+			&i.Kind,
+			&i.PerformerID,
 		); err != nil {
 			return nil, err
 		}
@@ -509,7 +523,7 @@ func (q *Queries) GetEditComments(ctx context.Context, editID uuid.UUID) ([]Edit
 }
 
 const getEditCommentsByIds = `-- name: GetEditCommentsByIds :many
-SELECT id, edit_id, user_id, created_at, text, updated_at, is_hidden FROM edit_comments WHERE id = ANY($1::UUID[])
+SELECT id, edit_id, user_id, created_at, text, updated_at, is_hidden, kind, performer_id FROM edit_comments WHERE id = ANY($1::UUID[])
 `
 
 func (q *Queries) GetEditCommentsByIds(ctx context.Context, dollar_1 []uuid.UUID) ([]EditComment, error) {
@@ -529,6 +543,8 @@ func (q *Queries) GetEditCommentsByIds(ctx context.Context, dollar_1 []uuid.UUID
 			&i.Text,
 			&i.UpdatedAt,
 			&i.IsHidden,
+			&i.Kind,
+			&i.PerformerID,
 		); err != nil {
 			return nil, err
 		}
@@ -1428,7 +1444,7 @@ func (q *Queries) ResolveEntityTypes(ctx context.Context, ids []uuid.UUID) ([]Re
 }
 
 const setEditCommentHidden = `-- name: SetEditCommentHidden :one
-UPDATE edit_comments SET is_hidden = $2 WHERE id = $1 RETURNING id, edit_id, user_id, created_at, text, updated_at, is_hidden
+UPDATE edit_comments SET is_hidden = $2 WHERE id = $1 RETURNING id, edit_id, user_id, created_at, text, updated_at, is_hidden, kind, performer_id
 `
 
 type SetEditCommentHiddenParams struct {
@@ -1447,6 +1463,8 @@ func (q *Queries) SetEditCommentHidden(ctx context.Context, arg SetEditCommentHi
 		&i.Text,
 		&i.UpdatedAt,
 		&i.IsHidden,
+		&i.Kind,
+		&i.PerformerID,
 	)
 	return i, err
 }
@@ -1499,7 +1517,7 @@ func (q *Queries) UpdateEdit(ctx context.Context, arg UpdateEditParams) (Edit, e
 }
 
 const updateEditCommentText = `-- name: UpdateEditCommentText :one
-UPDATE edit_comments SET text = $2, updated_at = NOW() WHERE id = $1 RETURNING id, edit_id, user_id, created_at, text, updated_at, is_hidden
+UPDATE edit_comments SET text = $2, updated_at = NOW() WHERE id = $1 RETURNING id, edit_id, user_id, created_at, text, updated_at, is_hidden, kind, performer_id
 `
 
 type UpdateEditCommentTextParams struct {
@@ -1518,6 +1536,8 @@ func (q *Queries) UpdateEditCommentText(ctx context.Context, arg UpdateEditComme
 		&i.Text,
 		&i.UpdatedAt,
 		&i.IsHidden,
+		&i.Kind,
+		&i.PerformerID,
 	)
 	return i, err
 }

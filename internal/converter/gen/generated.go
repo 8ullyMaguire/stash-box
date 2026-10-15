@@ -19,6 +19,8 @@ func (c *CreateParamsConverterImpl) ConvertEditCommentToCreateParams(source mode
 	queriesCreateEditCommentParams.EditID = c.uuidUUIDToUuidUUID(source.EditID)
 	queriesCreateEditCommentParams.UserID = c.uuidNullUUIDToUuidNullUUID(source.UserID)
 	queriesCreateEditCommentParams.Text = source.Text
+	queriesCreateEditCommentParams.Kind = source.Kind
+	queriesCreateEditCommentParams.PerformerID = c.uuidNullUUIDToUuidNullUUID(source.PerformerID)
 	return queriesCreateEditCommentParams
 }
 func (c *CreateParamsConverterImpl) ConvertEditToCreateParams(source models.Edit) queries.CreateEditParams {
@@ -486,6 +488,8 @@ func (c *ModelConverterImpl) ConvertEditComment(source queries.EditComment) mode
 	modelsEditComment.Text = source.Text
 	modelsEditComment.UpdatedAt = c.pTimeTimeToPTimeTime(source.UpdatedAt)
 	modelsEditComment.IsHidden = source.IsHidden
+	modelsEditComment.Kind = source.Kind
+	modelsEditComment.PerformerID = c.uuidNullUUIDToUuidNullUUID2(source.PerformerID)
 	return modelsEditComment
 }
 func (c *ModelConverterImpl) ConvertEditComments(source []queries.EditComment) []models.EditComment {

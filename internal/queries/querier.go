@@ -398,6 +398,10 @@ type Querier interface {
 	// Edit queries
 	CreateEdit(ctx context.Context, arg CreateEditParams) (Edit, error)
 	// Edit comments
+	// A comment carries its KIND and, for the one kind that has one, its structured FIELD. The two
+	// new values have no defaults here on purpose: the caller names the kind, the service has already
+	// refused an unnamed one, and a default in the query would be a second place where "discussion"
+	// is spelled.
 	CreateEditComment(ctx context.Context, arg CreateEditCommentParams) (EditComment, error)
 	// Edit votes
 	CreateEditVote(ctx context.Context, arg CreateEditVoteParams) error

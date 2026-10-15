@@ -130,8 +130,12 @@ ORDER BY e.created_at DESC;
 -- Edit comments
 
 -- name: CreateEditComment :one
-INSERT INTO edit_comments (id, edit_id, user_id, text, created_at)
-VALUES ($1, $2, $3, $4, NOW())
+-- A comment carries its KIND and, for the one kind that has one, its structured FIELD. The two
+-- new values have no defaults here on purpose: the caller names the kind, the service has already
+-- refused an unnamed one, and a default in the query would be a second place where "discussion"
+-- is spelled.
+INSERT INTO edit_comments (id, edit_id, user_id, text, kind, performer_id, created_at)
+VALUES ($1, $2, $3, $4, $5, $6, NOW())
 RETURNING *;
 
 -- name: GetEditComments :many

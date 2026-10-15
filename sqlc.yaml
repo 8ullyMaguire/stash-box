@@ -142,6 +142,7 @@ sql:
       - internal/database/migrations/postgres/127_member_vouches.up.sql
       - internal/database/migrations/postgres/128_leaderboard_listed.up.sql
       - internal/database/migrations/postgres/129_seasonal_events.up.sql
+      - internal/database/migrations/postgres/130_edit_comment_kind.up.sql
     queries: "internal/queries/sql"
     gen:
       go:
