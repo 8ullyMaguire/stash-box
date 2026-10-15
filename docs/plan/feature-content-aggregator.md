@@ -2356,6 +2356,32 @@ no-risk edit, and bundling it into a backend commit would put unrelated breakage
 recorded here instead: whoever builds the UI slice should decide what to do about those types first,
 because "regenerate and commit" is not currently a green operation.
 
+**The walk (2026-10-15, on the deployed instance).** `scripts/walk-8e-live.py` walks the slice against
+the running server and prints one verdict per step. It ran GREEN: the owner creates a list (`canEdit`
+true, NOT published), adds a collaborator, reads the set back as exactly that member; the collaborator
+adds an entry to a list she does not own, READS the draft she does not own with `canEdit` true, is
+refused `listPublish`; a member reads the set; a STRANGER asking for the draft gets `null` — the same
+answer as a missing id — and does not see it in the owner's list; and the audit trail holds `ADD_ITEM`
+and `COLLABORATOR_ADD` naming BOTH actors. Cleanup: the list is deleted, all four tables are back to
+zero rows, the three api keys and the granted roles are byte-identical to what they were.
+
+**Two findings from that walk, both about the INSTANCE rather than this slice, and both worth acting
+on.** (1) EVERY stored `api_key` in the instance's database fails HMAC verification against the
+configured `jwt_secret_key` (measured: recompute the signature from the config's secret — invalid),
+so no API-key client can authenticate against this instance; fresh keys minted from the current secret
+work immediately, which is how the walk authenticated. The secret was evidently rotated without
+re-issuing keys. (2) The `root` account cannot authenticate even with a key that verifies: its stored
+key equals the minted one and the call still returns a bare 401, while three other accounts succeed —
+worth its own look, since `root` is the only ADMIN.
+
+**The walk also had to grant roles, and that is the reason it proves anything.** The slice's writes are
+gated `@hasRole(role: MODIFY)`, and the first run granted MODIFY to the owner only, so the
+collaborator's `listAddItem` was refused by the ROLE gate — a refusal that says nothing about this
+slice's rule that a collaborator may write. With MODIFY on both actors the add succeeds because of the
+collaborator fact alone; with READ on the stranger her `null` answer is the `canView` rule rather than
+the gateway. A walk whose actors do not clear the gates it is not testing reports the gate, not the
+rule.
+
 ### Slice 8f — forums (REMOVED FROM THIS PROGRAMME, 2026-10-15)
 
 **Struck by the owner's 2026-10-15 verdict, and recorded here so the removal is a decision rather than
