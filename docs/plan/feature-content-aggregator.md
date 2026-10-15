@@ -4244,10 +4244,47 @@ move by the fixture's count while the WINDOWED figures do not, which is what mak
 than a word. The live walk is where the figures are worth something for the first time — this instance holds
 1.1M scenes and 2.9k tags, so the walk compares real numbers rather than zeros.
 
-**What slice 2 deliberately does NOT do:** the five key pages, the metrics PAGE over this query, keyboard
-navigation, alt text, high contrast, reduced motion, the WCAG 2.1 AA target and the anti-doomscroll
-commitments. Those are slice 3, and the page belongs there because a page that computed its own figures would
-be a second definition of every metric — the failure this slice's first decision is about.
+**What slice 2 deliberately does NOT do:** the five key pages, keyboard navigation, alt text, high contrast,
+reduced motion, the WCAG 2.1 AA target and the anti-doomscroll commitments. Those remain slice 3.
+
+### Phase 16, slice 3 — the page over the query — **BUILT 2026-10-16**
+
+`/metrics` in the SPA, `ADMIN`-gated like the query, with the nav entry shown only to the people who can read
+it. It computes nothing: it renders `instanceMetrics`, which is what keeps one definition per metric.
+
+**Files.** `frontend/src/graphql/queries/InstanceMetrics.gql`, `frontend/src/pages/metrics/` (`index.tsx` — the
+query, the loading and error states, and `describeMetricsError`; `MetricsList.tsx` — the table),
+`graphql/schema/queries/index.ts` (the hook), `ROUTE_METRICS` in `src/constants/route.ts`, the route in
+`src/pages/index.tsx`, the admin-only nav link in `src/Main.tsx`, and `e2e/tests/metrics.spec.ts`.
+
+**Three decisions, each a thing the component refuses to do.** It does not invent a label for a figure (the
+key is the name a reader matches against a report and the API); it does not hide a figure that arrives without
+a definition (it shows it with the fact that its sentence is missing, rather than letting the page look
+complete while a number goes unexplained); and it does not decide which figures are windowed — the server's
+own unit test requires every `window` key to say so in its definition, and the page marks exactly those, so a
+windowed figure cannot be read here as a lifetime total. The error notice separates a role refusal from a
+fault, because telling somebody "something went wrong on the server" when the answer is "this needs ADMIN"
+sends them looking for a fault that does not exist.
+
+**THE END-TO-END TEST FOUND A DEFECT NO UNIT TEST COULD.** The first Playwright run failed on
+`getByRole("heading", { name: "Instance metrics" })`: `Title` sets the DOCUMENT title through Helmet and renders
+no heading at all, so this page — like its neighbours — arrived with no heading of its own, and a screen reader
+reached a page with no name. The vitest suite was green throughout, because it tests the table component and the
+table had nothing to do with it; the fixture data was correct, the query worked, and the refusal path rendered
+its sentence word for word. What was missing was only visible in a browser. The page now renders its own `h1`,
+and the reason it is an h1 rather than the `h3` its neighbours use is that a page's own heading is the h1.
+
+**A FINDING THIS SLICE SURFACED, and did not fold in.** Adding a query means running `pnpm generate`, and
+regenerating `frontend/src/graphql/types.ts` from the current schema turns the 2 pre-existing `tsc --noEmit`
+errors into **23** — the committed types are behind the schema the backend serves (the `ContentItem` union,
+for one) and ten hand-written pages have not been reconciled with it (`EditCard.tsx`, `Edit.tsx`,
+`EditAmendForm.tsx`, `Notification.tsx`, `EditNotification.tsx`, `PerformerEditUpdate.tsx`,
+`SceneEditUpdate.tsx`, `StudioEditUpdate.tsx`, `TagEditUpdate.tsx`, `src/utils/edit.ts`). The generated
+`InstanceMetrics` types were carried across verbatim instead, with a comment saying why, and the reconciliation
+is its own slice: folding it into a metrics commit would hide a real piece of work inside an unrelated change.
+`pnpm validate` was ALSO already red before this slice (`theme.test.ts`, `themeSwitcher/index.tsx`,
+`mutations/index.ts`, `hooks/useTheme.tsx`, `lists/{AddList,MyLists}.tsx` fail `biome check`), which is worth
+knowing before anybody treats that command as a gate.
 
 ## Phase 17 — the predicate grows (threaded, not separate)
 

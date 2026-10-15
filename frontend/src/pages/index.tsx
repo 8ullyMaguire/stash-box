@@ -17,6 +17,7 @@ import {
   ROUTE_IMAGE_TYPES,
   ROUTE_LISTS,
   ROUTE_LOGIN,
+  ROUTE_METRICS,
   ROUTE_NOTIFICATIONS,
   ROUTE_PERFORMERS,
   ROUTE_REGISTER,
@@ -44,13 +45,14 @@ import Identification from "src/pages/identification";
 import ImageReview from "src/pages/imageReview";
 import ImageTypes from "src/pages/imageTypes";
 import EloLeaderboard from "src/pages/leaderboard";
+import Lists from "src/pages/lists";
+import Metrics from "src/pages/metrics";
 import Notifications from "src/pages/notifications";
 import Performers from "src/pages/performers";
 import RegisterUser from "src/pages/registerUser";
 import ResetPassword from "src/pages/resetPassword";
 import Scenes from "src/pages/scenes";
 import Search from "src/pages/search";
-import Lists from "src/pages/lists";
 import SiteCategories from "src/pages/siteCategories";
 import Sites from "src/pages/sites";
 import Studios from "src/pages/studios";
@@ -104,6 +106,10 @@ const Pages: FC = () => (
             <Route path={`${ROUTE_DRAFTS}/*`} element={<Drafts />} />
             <Route path={ROUTE_NOTIFICATIONS} element={<Notifications />} />
             <Route path={`${ROUTE_AUDITS}/*`} element={<Audits />} />
+            {/* The instance's own counters (spec §16.2). ADMIN-gated, like the query
+                behind it, and not because the numbers are secret: they describe the
+                machine's own operation, which is an operator's view. */}
+            <Route path={ROUTE_METRICS} element={<Metrics />} />
           </Routes>
         </div>
       }

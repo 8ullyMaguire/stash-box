@@ -776,7 +776,24 @@ heading three screens up.
 
 **Why `instanceMetrics` and not a metrics PAGE as the primary surface.** The report (§16.1) is addressed to
 the public and is served as a page; this is an OPERATOR surface about the instance's own operation, so it is
-behind `ADMIN` and shaped as data a page or a script can render. Slice 16c adds the page over this query —
-and the query has to exist first, because a page that computes its own figures would be a second definition of
-every metric, which is the failure this section's first paragraph is about.
+behind `ADMIN` and shaped as data a page or a script can render. The page came second (`/metrics`, slice 16c)
+and computes nothing of its own: it renders the query's list, which is what keeps every metric to one
+definition.
+
+**The page's contract, and the three things it refuses to do.** `/metrics` needs `ADMIN`, like the query
+behind it, and its nav entry is shown to exactly the people who can read it rather than to everybody and then
+refused. On the page:
+
+- **it does not invent a label for a figure.** `members_total` is the name a reader matches against a report,
+  a log line and the API, and a second name invented for the screen would be a second thing to keep in step;
+- **it does not hide a figure that arrives without a definition.** Such a figure cannot be read, and dropping
+  it would let the page look complete while a number went unexplained, so it is shown with the fact that its
+  sentence is missing;
+- **it does not decide for itself which figures are windowed.** Every key containing `window` must say so in
+  its definition (§16.2's own unit test enforces that), and the page marks exactly those keys, so a figure
+  bound to a window cannot be read there as a lifetime total.
+
+The refusal is also distinguished from a fault: a member without the role is told the figures need `ADMIN`,
+not that something went wrong, because sending somebody to look for a fault that does not exist is its own
+kind of wrong answer.
 

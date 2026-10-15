@@ -1,0 +1,13 @@
+query InstanceMetrics {
+  instanceMetrics {
+    generated_at
+    since
+    window_days
+    metrics {
+      key
+      unit
+      definition
+      value
+    }
+  }
+}

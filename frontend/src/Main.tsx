@@ -4,8 +4,8 @@ import { type FC, useEffect, useMemo } from "react";
 import { Badge, Button, Nav, Navbar } from "react-bootstrap";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { Icon } from "src/components/fragments";
-import ThemeSwitcher from "src/components/themeSwitcher";
 import SearchField, { SearchType } from "src/components/searchField";
+import ThemeSwitcher from "src/components/themeSwitcher";
 import {
   ROUTE_ACTIVATE,
   ROUTE_ARCHIVE,
@@ -21,6 +21,7 @@ import {
   ROUTE_IMAGE_TYPES,
   ROUTE_LOGIN,
   ROUTE_LOGOUT,
+  ROUTE_METRICS,
   ROUTE_NOTIFICATIONS,
   ROUTE_PERFORMERS,
   ROUTE_REGISTER,
@@ -125,9 +126,17 @@ const Main: FC<Props> = ({ children }) => {
           {contextValue.user.name}
         </NavLink>
         {isAdmin(user) && (
-          <NavLink to={ROUTE_USERS} className="nav-link">
-            Users
-          </NavLink>
+          <>
+            <NavLink to={ROUTE_USERS} className="nav-link">
+              Users
+            </NavLink>
+            {/* The link and the route agree with the schema: the query behind this page
+                needs ADMIN, so the entry is shown to exactly the people who can read it
+                rather than to everybody and then refused. */}
+            <NavLink to={ROUTE_METRICS} className="nav-link">
+              Metrics
+            </NavLink>
+          </>
         )}
         <NavLink
           to={ROUTE_LOGOUT}

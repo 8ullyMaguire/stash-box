@@ -29,11 +29,15 @@ import {
   type IdentificationQueryDetailQuery,
   ImageTypeGroupsDocument,
   type ImageTypeGroupsQueryVariables,
+  InstanceMetricsDocument,
+  ListDocument,
+  type ListQueryVariables,
   MeDocument,
   type MeQuery,
   type MeQueryVariables,
   ModAuditsDocument,
   type ModAuditsQueryVariables,
+  MyListsDocument,
   NotificationsDocument,
   type NotificationsQueryVariables,
   PairingScenesDocument,
@@ -46,6 +50,8 @@ import {
   type PerformersQueryVariables,
   PublicUserDocument,
   type PublicUserQueryVariables,
+  PublishedListsDocument,
+  type PublishedListsQueryVariables,
   QueryExistingPerformerDocument,
   type QueryExistingPerformerQueryVariables,
   QueryExistingSceneDocument,
@@ -71,11 +77,6 @@ import {
   type SearchScenesQueryVariables,
   SearchTagsDocument,
   type SearchTagsQueryVariables,
-  ListDocument,
-  type ListQueryVariables,
-  MyListsDocument,
-  PublishedListsDocument,
-  type PublishedListsQueryVariables,
   SiteCategoriesDocument,
   SiteCategoryDocument,
   type SiteCategoryQueryVariables,
@@ -351,6 +352,13 @@ export const useSites = () => useQuery(SitesDocument);
  * percentages from them and two separate reads can straddle an edit.
  */
 export const useArchiveStateQuery = () => useQuery(ArchiveStateDocument);
+
+/**
+ * This instance's own counters (spec §16.2). ADMIN-gated on the server, so a member
+ * without the role gets a refusal rather than an empty list -- which is the distinction
+ * the page's error notice is built on.
+ */
+export const useInstanceMetricsQuery = () => useQuery(InstanceMetricsDocument);
 
 export const useStreakQuery = () => useQuery(UserStreakDocument);
 
