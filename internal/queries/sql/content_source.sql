@@ -294,3 +294,48 @@ ORDER BY
     END,
     (url_normalized = @url_normalized) DESC NULLS LAST,
     first_seen;
+
+-- name: TakedownContentSourcesByURL :many
+-- A URL in a notice arrives, every record of that URL stops being served (migration 134).
+--
+-- Three properties, each of them a decision:
+--
+--   1. NO ENTITY FILTER. FindContentSourcesByNormalizedURL filters on entity_type because the
+--      pipeline is asking about one kind of thing at a time. A takedown names a URL and the
+--      complainant does not know or care which table this instance filed it under, so the
+--      statement updates the URL's rows whatever they are filed as -- and would keep doing the
+--      right thing if a third entity type arrived tomorrow.
+--   2. BOTH ARMS of the key, exactly as the dedup query. `url_normalized` is written only by the
+--      ingest path; a row the scene_urls trigger wrote carries NULL, because the mirror is SQL and
+--      normalisation is Go. Matching one arm would leave the mirror-written record of a taken-down
+--      URL live and served, which is the one outcome a takedown must not have.
+--   3. `status <> 'dmca'` makes the statement idempotent AND makes its RETURNING set mean
+--      something: it is what this notice CHANGED. A second notice for the same URL returns no
+--      rows, and "nothing to change" is the honest answer to report to whoever sent it.
+--
+-- The status is the terminal one from the health machine (108): once here, the sweep cannot move it,
+-- the mirror will not offer it and the archiver will not submit it. Nothing in this statement needs
+-- to touch last_checked or check_failures, and touching them would be claiming a check happened.
+UPDATE content_sources
+SET status = 'dmca'
+WHERE status <> 'dmca'
+  AND (url_normalized = @url_normalized OR LOWER(url) = LOWER(@url_normalized))
+RETURNING *;
+
+-- name: TakedownContentSourcesByHost :many
+-- Every source on a host, for the instrument that answers a report about a SITE rather than a URL.
+--
+-- The pattern is built by the service, not by the caller and not here: anchored at the authority
+-- component of the URL, host quoted with regexp.QuoteMeta, optional userinfo and `www.` and port,
+-- so `example.com` matches `https://www.example.com/x` and not `https://notexample.com/x` nor
+-- `https://example.com.evil.com/x`. Migration 134 records the pattern and the reason it is a regex
+-- on this rare operator statement instead of a stored host column.
+--
+-- `~*` and not `~`: `url` holds the URL as it was submitted, and a host written `EXAMPLE.com` in a
+-- member's submission would otherwise survive a block that the operator believes was applied. A
+-- case-sensitive match here fails OPEN, which is the one direction this statement may not fail in.
+UPDATE content_sources
+SET status = 'dmca'
+WHERE status <> 'dmca'
+  AND url ~* @host_pattern
+RETURNING *;

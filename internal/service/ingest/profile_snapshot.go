@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/stashapp/stash-box/internal/queries"
+	"github.com/stashapp/stash-box/pkg/urlkey"
 )
 
 // ErrNoSuchPerformer is returned when a snapshot names a performer this instance does not have.
@@ -50,7 +51,7 @@ type ProfileSnapshot struct {
 // Both fall out of the table's unique key; see migration 124. Nothing here decides it, which is
 // deliberate: the rule belongs where it cannot be forgotten by the next caller.
 func (s *Service) SnapshotPerformerProfile(ctx context.Context, performerID uuid.UUID, rawURL string) (ProfileSnapshot, error) {
-	normalized, err := NormalizeURL(rawURL)
+	normalized, err := urlkey.Normalize(rawURL)
 	if err != nil {
 		return ProfileSnapshot{}, fmt.Errorf("%w: %v", ErrInvalidURL, err)
 	}

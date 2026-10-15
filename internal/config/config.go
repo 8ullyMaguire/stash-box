@@ -101,6 +101,20 @@ type config struct {
 	// See docs/spec/feature-content-aggregator.md's respec section (2026-10-15) for what it does
 	// NOT cover, so nobody assumes it covers more than it does.
 	ContentFetchSources bool `mapstructure:"content_fetch_sources"`
+	// ContentFetchMinInterval is the least time between two requests this instance makes to the
+	// SAME host, and the pace part of not being a scraper.
+	//
+	// A knob because a bulk import by an operator who owns the site they are importing should not
+	// have to wait two seconds per page, and because the honest default is a polite one rather than
+	// a fast one: a single instance knocking on one host as fast as its queue drains is
+	// indistinguishable from a scraper to the host, and the host's response to that is a block --
+	// which would make the feature useless before any legal question arose.
+	//
+	// THE OTHER HALF OF THIS POSTURE IS NOT A KNOB. robots.txt is honoured unconditionally
+	// (internal/service/hostrules), because a switch whose only use is to ignore a host's stated
+	// terms is a switch that turns this instance into the category of client the whole respec exists
+	// to keep it out of.
+	ContentFetchMinInterval string `mapstructure:"content_fetch_min_interval"`
 	// How often subscribed saved searches are run and their owners notified. One query per
 	// subscribed search per tick, so the cost is proportional to how many exist.
 	SavedSearchNotifyInterval string `mapstructure:"saved_search_notify_interval"`
@@ -237,6 +251,7 @@ var C = &config{
 	// cost/behaviour trade-off: it is what decides whether the instance makes outbound requests
 	// to third-party content sources at all. See the field's comment.
 	ContentFetchSources:       false,
+	ContentFetchMinInterval:   "2s",
 	SavedSearchNotifyInterval: "15m",
 	// No embedding model produces vectors on this instance, so the default store holds
 	// nothing and the re-ranker provably does nothing -- rather than a half-wired store
@@ -646,6 +661,18 @@ func GetContentSweepInterval() string {
 // its own message for the refusal.
 func GetContentFetchSources() bool {
 	return C.ContentFetchSources
+}
+
+// GetContentFetchMinInterval is the least time between two requests to the same host
+// (internal/service/hostrules). An unparseable or non-positive value falls back to two seconds:
+// the knob exists to let an operator go SLOWER or, if they own the host, faster -- never to turn
+// pacing off by typo, because "0s" is exactly the setting a scraper wants.
+func GetContentFetchMinInterval() time.Duration {
+	parsed, err := time.ParseDuration(C.ContentFetchMinInterval)
+	if err != nil || parsed <= 0 {
+		return 2 * time.Second
+	}
+	return parsed
 }
 
 // GetSavedSearchNotifyInterval returns the interval between saved-search notification runs,

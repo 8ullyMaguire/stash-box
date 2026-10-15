@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/stashapp/stash-box/internal/service/hostrules"
 )
 
 // HTTPExtractor reads a page's OpenGraph metadata. It is the production implementation and
@@ -18,6 +20,13 @@ type HTTPExtractor struct {
 	// Client is injected so tests can point it at an httptest server and set timeouts.
 	// A nil Client uses defaultClient.
 	Client *http.Client
+	// Rules is the robots.txt and pacing policy this fetch obeys before it is made.
+	//
+	// A nil Rules uses hostrules.Default(), which is the process-wide one the health sweep also
+	// uses -- and it MUST be the shared one in production, or the two clients would pace themselves
+	// independently and knock on one host twice as often as either believes. It is a field so a test
+	// can supply its own (no network, no waiting).
+	Rules *hostrules.Rules
 }
 
 // maxBody bounds what is read from a page. A tube page's <head> is a few KB; the rest is
@@ -49,6 +58,28 @@ func defaultClient() *http.Client {
 }
 
 func (e HTTPExtractor) Extract(ctx context.Context, url string) (Metadata, error) {
+	// THE HOST'S OWN RULES, BEFORE OURS. robots.txt and the per-host pace are asked first, and a
+	// refusal is returned as its own error so the queue row says "robots.txt disallowed this" rather
+	// than "unreachable" -- an operator reading the second would go looking for a network problem
+	// that does not exist. See internal/service/hostrules for what is honoured and why it is not
+	// configurable.
+	rules := e.Rules
+	if rules == nil {
+		rules = hostrules.Default()
+	}
+	if err := rules.BeforeFetch(ctx, url); err != nil {
+		if errors.Is(err, hostrules.ErrDisallowed) {
+			// A rule the host stated. Returned as its own error so the queue row says so.
+			return Metadata{}, err
+		}
+		// The host could not state its terms (5xx, or no answer at all). That is the host not
+		// answering rather than a decision about this client, so it is reported as what it is: the
+		// caller's ErrUnreachable arm, which is the "try later" one. BOTH are wrapped, so the chain
+		// says `unreachable because robots was unavailable` and a caller can match either fact --
+		// the pipeline needs the first, and a test or a log reader wants the second.
+		return Metadata{}, fmt.Errorf("%w: %w", ErrUnreachable, err)
+	}
+
 	client := e.Client
 	if client == nil {
 		client = defaultClient()

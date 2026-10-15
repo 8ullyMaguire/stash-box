@@ -68,6 +68,13 @@ models:
       # testable, and an error when a status has no name.
       status:
         resolver: true
+  ContentSourceBlock:
+    fields:
+      # The row carries an author ID and the schema publishes a User, so this is resolved
+      # externally -- the same shape as LeaderboardEntry.user. Left bound, gqlgen would either fail
+      # to bind the field or answer with a bare id where a client asked for a user.
+      created_by:
+        resolver: true
   ID:
     model: github.com/stashapp/stash-box/internal/models.ID
   IdentificationQuery:

@@ -12,6 +12,7 @@ import (
 
 	"github.com/stashapp/stash-box/internal/models"
 	"github.com/stashapp/stash-box/internal/queries"
+	"github.com/stashapp/stash-box/internal/service/hostrules"
 )
 
 // The status machine, exactly as migration 108 documents it:
@@ -108,6 +109,13 @@ type Checker interface {
 // HTTPChecker is the production checker.
 type HTTPChecker struct {
 	Client *http.Client
+	// Rules is the robots.txt and pacing policy this check obeys before it is made, and it is the
+	// SAME process-wide value the ingest fetch uses (hostrules.Default).
+	//
+	// The sweep is the most crawler-shaped thing this instance does: it walks every recorded URL on
+	// a timer, with nobody waiting for the answer. A client that does that and ignores robots.txt is
+	// the client the whole respec exists to avoid being, however careful the ingest path is.
+	Rules *hostrules.Rules
 }
 
 // NewHTTPChecker builds the checker the sweep uses.
@@ -122,6 +130,26 @@ func NewHTTPChecker() HTTPChecker {
 // a bot wall, a paywall, a rate limit -- and nothing about whether the content is gone. Counting them
 // as failures would walk a perfectly alive site to `dead` one sweep at a time.
 func (c HTTPChecker) Check(ctx context.Context, url string) error {
+	// A HOST THAT REFUSES THE CHECK IS INCONCLUSIVE AND NOT DEAD. robots.txt is a statement about who
+	// may read the page, never about whether the page is there, so a refusal is recorded in the same
+	// arm as a bot wall or a rate limit: an operator who saw a robots refusal walk a live source to
+	// `dead` would be reading a decision the host made about us as a fact about the content.
+	rules := c.Rules
+	if rules == nil {
+		rules = hostrules.Default()
+	}
+	if err := rules.BeforeFetch(ctx, url); err != nil {
+		if errors.Is(err, hostrules.ErrDisallowed) {
+			// A rule about this client, and nothing about the content: inconclusive, so the status
+			// machine leaves the source where it is.
+			return fmt.Errorf("%w: %s was not checked (%v)", ErrCheckInconclusive, url, err)
+		}
+		// The host could not state its terms. For a health check that IS the answer: a host that
+		// cannot answer a request is the link rot this sweep exists to find, and filing it as a
+		// compliance message would hide a dead source behind a robots.txt that does not exist.
+		return fmt.Errorf("checking %s: %w", url, err)
+	}
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
 	if err != nil {
 		return fmt.Errorf("building a health request for %s: %w", url, err)

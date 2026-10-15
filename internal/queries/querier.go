@@ -407,6 +407,17 @@ type Querier interface {
 	// arrival is a unique-violation error rather than a no-op.
 	CreateContentItemEdit(ctx context.Context, arg CreateContentItemEditParams) error
 	CreateContentItemMedia(ctx context.Context, arg CreateContentItemMediaParams) (ContentItemMedium, error)
+	// Blocks a key. Called inside the same transaction as the takedown it belongs to, so an operator
+	// cannot end up with the sources marked and the block missing -- the half-applied state in which a
+	// removed URL can be re-submitted and indexed the next day.
+	//
+	// NO ON CONFLICT, and the reason is that a conflict here is not an error and not a no-op either:
+	// the caller READ this key first and only reaches this statement when there was nothing to find, so
+	// a conflict means two takedowns raced. `ON CONFLICT DO NOTHING` would return no row, and the caller
+	// needs a row to report what the instance refuses; `ON CONFLICT DO UPDATE` would rewrite the first
+	// decision's reason with the second notice's, and the block row's reason answers "who first decided
+	// this", not "what was the last letter we received". The unique constraint stays as the backstop.
+	CreateContentSourceBlock(ctx context.Context, arg CreateContentSourceBlockParams) (ContentSourceBlock, error)
 	// Draft queries
 	CreateDraft(ctx context.Context, arg CreateDraftParams) (Draft, error)
 	// Edit queries
@@ -664,6 +675,10 @@ type Querier interface {
 	// Separate from DeleteCollage because the two are used at different times and
 	// conflating them is how a regeneration ends up deleting curated snapshots.
 	DeleteCollageForScene(ctx context.Context, sceneID uuid.UUID) error
+	// Releases a key. Deleting rather than flagging keeps this table the CURRENT policy: two histories
+	// would eventually disagree, and this one's disagreement would be about whether a URL is blocked.
+	// The audit row written in the same transaction is the history (migration 134).
+	DeleteContentSourceBlock(ctx context.Context, arg DeleteContentSourceBlockParams) (int64, error)
 	DeleteDraft(ctx context.Context, id uuid.UUID) error
 	DeleteDuplicateTagImplicationHeads(ctx context.Context, arg DeleteDuplicateTagImplicationHeadsParams) error
 	// Rows the tail retarget would collide with. A duplicate is not an error here: it says the
@@ -875,6 +890,16 @@ type Querier interface {
 	// an edit that was amended keeps its place in the history, and re-ordering the list on
 	// every amendment would make the page move under a reader.
 	FindContentItemEditsForItem(ctx context.Context, contentItemID uuid.UUID) ([]Edit, error)
+	// "May this URL, or anything on this host, enter the database at all?"
+	//
+	// The pipeline asks this BEFORE it records anything, which is the whole point of the table: a
+	// takedown that only marked existing rows would leave the sequence "notice about a URL we do not
+	// have yet, member submits it, pipeline indexes it" ending with the instance serving the link it was
+	// told to remove (migration 134).
+	//
+	// One row, not a list: (kind, value) is unique, and a second block for the same key would be a row
+	// nobody reads.
+	FindContentSourceBlock(ctx context.Context, arg FindContentSourceBlockParams) (ContentSourceBlock, error)
 	// "Have we seen this URL before?" -- the first question the ingestion pipeline asks
 	// (plan Phase 2). Scoped to the entity, because the same URL on two different scenes
 	// is two sources: the URL's health is one fact, but the membership is per entity.
@@ -1805,6 +1830,11 @@ type Querier interface {
 	// The tag page's direction: items carrying one tag, newest first. Both directions of the link
 	// matter and only one of them is covered by the unique index.
 	ListContentItemsForTag(ctx context.Context, arg ListContentItemsForTagParams) ([]ContentItem, error)
+	// What this instance currently refuses, for the operator who has to be able to answer that.
+	//
+	// Newest first, because the question "did the block I added yesterday land?" is asked more often
+	// than "what has this instance accumulated since 2026".
+	ListContentSourceBlocks(ctx context.Context, arg ListContentSourceBlocksParams) ([]ContentSourceBlock, error)
 	ListDeniedPerformerIDs(ctx context.Context) ([]uuid.UUID, error)
 	ListDeniedStudioIDs(ctx context.Context) ([]uuid.UUID, error)
 	// The tag half of the content denylist, for the access rule that IS enforced.
@@ -2567,6 +2597,39 @@ type Querier interface {
 	// tombstones. redirect_to is the surviving tag for merged-away tags.
 	TagChangelog(ctx context.Context, arg TagChangelogParams) ([]TagChangelogRow, error)
 	TagCompletionInputs(ctx context.Context, id uuid.UUID) (TagCompletionInputsRow, error)
+	// Every source on a host, for the instrument that answers a report about a SITE rather than a URL.
+	//
+	// The pattern is built by the service, not by the caller and not here: anchored at the authority
+	// component of the URL, host quoted with regexp.QuoteMeta, optional userinfo and `www.` and port,
+	// so `example.com` matches `https://www.example.com/x` and not `https://notexample.com/x` nor
+	// `https://example.com.evil.com/x`. Migration 134 records the pattern and the reason it is a regex
+	// on this rare operator statement instead of a stored host column.
+	//
+	// `~*` and not `~`: `url` holds the URL as it was submitted, and a host written `EXAMPLE.com` in a
+	// member's submission would otherwise survive a block that the operator believes was applied. A
+	// case-sensitive match here fails OPEN, which is the one direction this statement may not fail in.
+	TakedownContentSourcesByHost(ctx context.Context, hostPattern string) ([]ContentSource, error)
+	// A URL in a notice arrives, every record of that URL stops being served (migration 134).
+	//
+	// Three properties, each of them a decision:
+	//
+	//   1. NO ENTITY FILTER. FindContentSourcesByNormalizedURL filters on entity_type because the
+	//      pipeline is asking about one kind of thing at a time. A takedown names a URL and the
+	//      complainant does not know or care which table this instance filed it under, so the
+	//      statement updates the URL's rows whatever they are filed as -- and would keep doing the
+	//      right thing if a third entity type arrived tomorrow.
+	//   2. BOTH ARMS of the key, exactly as the dedup query. `url_normalized` is written only by the
+	//      ingest path; a row the scene_urls trigger wrote carries NULL, because the mirror is SQL and
+	//      normalisation is Go. Matching one arm would leave the mirror-written record of a taken-down
+	//      URL live and served, which is the one outcome a takedown must not have.
+	//   3. `status <> 'dmca'` makes the statement idempotent AND makes its RETURNING set mean
+	//      something: it is what this notice CHANGED. A second notice for the same URL returns no
+	//      rows, and "nothing to change" is the honest answer to report to whoever sent it.
+	//
+	// The status is the terminal one from the health machine (108): once here, the sweep cannot move it,
+	// the mirror will not offer it and the archiver will not submit it. Nothing in this statement needs
+	// to touch last_checked or check_failures, and touching them would be claiming a check happened.
+	TakedownContentSourcesByURL(ctx context.Context, urlNormalized *string) ([]ContentSource, error)
 	// Records a successful contact. Separate from UpdateFederationPeer so a
 	// successful fetch cannot be confused with an operator edit, and so the
 	// updated_at churn of an edit does not look like liveness.

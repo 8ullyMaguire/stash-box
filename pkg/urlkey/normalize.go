@@ -1,4 +1,4 @@
-package ingest
+package urlkey
 
 import (
 	"errors"
@@ -8,6 +8,20 @@ import (
 	"strings"
 )
 
+// Package urlkey owns the two keys this programme compares URLs by: the dedup key
+// (`Normalize`) and the directory's idea of a host (`SiteHost`).
+//
+// WHY IT IS A LEAF PACKAGE AND NOT PART OF THE PIPELINE. Until the takedown path existed, the
+// only things that compared URLs were inside `internal/service/ingest`, so the key functions
+// lived there. The takedown compares a notice's URL against the same rows, and a host block
+// compares its value against the host the pipeline computes -- so a second implementation would
+// be a FAIL-OPEN bug rather than a cosmetic duplication: the block would be stored, listed, and
+// silently match nothing, while the pipeline kept admitting the host. One definition, imported by
+// both sides, is the only version of this that cannot drift.
+//
+// It is in `pkg/` rather than `internal/service/` because it depends on nothing: two pure
+// functions over `net/url`, and the callers are free to be a service, a resolver or a script.
+//
 // URL normalisation: the queue's dedup key (spec §1 stage 1, §3).
 //
 // WHY THIS IS A PURE FUNCTION AND NOT A STEP INSIDE THE PIPELINE. Two URLs that differ only
@@ -67,7 +81,7 @@ var trackingParams = map[string]bool{
 	"vero_id":   true,
 }
 
-// NormalizeURL returns the canonical form of raw, or an error explaining why it cannot be
+// Normalize returns the canonical form of raw, or an error explaining why it cannot be
 // ingested at all.
 //
 // The rules, each of which has a case in normalize_test.go:
@@ -97,7 +111,7 @@ var trackingParams = map[string]bool{
 // URLs the submitter distinguished -- because a site that serves different content on the
 // two schemes would otherwise be merged invisibly. The extractor's resolved URL is where
 // the schemes actually converge, since a fetch of the http form lands on the https one.
-func NormalizeURL(raw string) (string, error) {
+func Normalize(raw string) (string, error) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
 		return "", ErrUnsupportedScheme

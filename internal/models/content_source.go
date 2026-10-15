@@ -67,3 +67,37 @@ type ContentSource struct {
 	// made is not a state, it is an absence.
 	ArchivedURL *string `json:"archived_url"`
 }
+
+// ContentSourceBlock is something this instance refuses to point at: a URL a notice named, or a
+// whole host (migration 134).
+//
+// It is the CURRENT policy and not a history -- releasing a block deletes the row, and the
+// history is `mod_audit`. That is why there is no "released" flag here: a list of blocks that
+// included released ones would make every reader filter for the live policy, and one reader
+// would eventually forget to.
+//
+// Reason is required and is the complainant's own words where there are any (the notice's
+// reference, the report's id). It is the field an instance answers a question with, which is
+// why it is not optional.
+type ContentSourceBlock struct {
+	ID ID `json:"id"`
+
+	// "url" or "host". A string rather than an enum for the same reason ContentSource.Status is:
+	// the values are a database CHECK constraint today, and a GraphQL enum published before the
+	// vocabulary settled is a schema change waiting to happen.
+	Kind string `json:"kind"`
+
+	// The key: a normalized URL (pkg/urlkey.Normalize) or a host (pkg/urlkey.SiteHost). Whatever
+	// the kind, it is the same spelling the pipeline computes, so a block either matches what the
+	// pipeline sees or matches nothing.
+	Value string `json:"value"`
+
+	// Why, in the words of whoever asked for it.
+	Reason string `json:"reason"`
+
+	// Who blocked it. Nil for a row whose author was deleted, and for one carried over from a
+	// denylist an operator migrated by hand.
+	CreatedByID ID `json:"created_by_id"`
+
+	CreatedAt time.Time `json:"created_at"`
+}

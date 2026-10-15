@@ -87,6 +87,12 @@ func (r *Resolver) ContentSource() models.ContentSourceResolver {
 	return &contentSourceResolver{r}
 }
 
+// ContentSourceBlock returns the resolver for a block row's own fields (migration 134): the id
+// conversion and the operator behind the decision.
+func (r *Resolver) ContentSourceBlock() models.ContentSourceBlockResolver {
+	return &contentSourceBlockResolver{r}
+}
+
 // LeaderboardEntry returns the resolver for a board row's own fields.
 func (r *Resolver) LeaderboardEntry() models.LeaderboardEntryResolver {
 	return &leaderboardEntryResolver{r}

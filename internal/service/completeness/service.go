@@ -18,7 +18,7 @@ import (
 	"github.com/stashapp/stash-box/internal/models"
 	"github.com/stashapp/stash-box/internal/queries"
 	"github.com/stashapp/stash-box/internal/service/content"
-	"github.com/stashapp/stash-box/internal/service/ingest"
+	"github.com/stashapp/stash-box/pkg/urlkey"
 )
 
 // Service reads denominators and their evidence.
@@ -116,7 +116,7 @@ func (s *Service) StudioTotals(ctx context.Context, studioID uuid.UUID) ([]Total
 			SourceURL: row.SourceUrl,
 		}
 
-		if normalized, err := ingest.NormalizeURL(row.SourceUrl); err == nil {
+		if normalized, err := urlkey.Normalize(row.SourceUrl); err == nil {
 			// ACROSS ENTITY TYPES, not filtered to the total's own: the question is about the PAGE.
 			// A studio's denominator is asserted from a page about that studio, and that page is
 			// tracked -- when it is tracked at all -- as a URL of an entity this instance

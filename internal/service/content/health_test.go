@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stashapp/stash-box/internal/service/hostrules"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -69,12 +71,23 @@ func ptr(t time.Time) *time.Time { return &t }
 func TestHTTPCheckerSeparatesARefusalFromADeath(t *testing.T) {
 	code := http.StatusOK
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// The checker now asks robots.txt first (internal/service/hostrules), and this server states
+		// no terms: the 404 is the answer that allows the check to proceed. It is answered SEPARATELY
+		// so the assertion below stays what it was -- a health check of a PAGE is a HEAD, and a sweep
+		// that started downloading pages would still fail this test.
+		if r.URL.Path == "/robots.txt" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
 		assert.Equal(t, http.MethodHead, r.Method, "a health check must not download the page")
 		w.WriteHeader(code)
 	}))
 	defer server.Close()
 
+	// No pacing for this test: it checks the same host eleven times, and the assertion is about the
+	// status mapping rather than about the pace (which has its own tests in hostrules).
 	checker := NewHTTPChecker()
+	checker.Rules = hostrules.New(0)
 
 	for _, alive := range []int{http.StatusOK, http.StatusMovedPermanently, http.StatusNoContent} {
 		code = alive
@@ -104,7 +117,7 @@ func TestHTTPCheckerTimesOutRatherThanHanging(t *testing.T) {
 	}))
 	defer func() { close(release); server.Close() }()
 
-	checker := HTTPChecker{Client: &http.Client{Timeout: 50 * time.Millisecond}}
+	checker := HTTPChecker{Client: &http.Client{Timeout: 50 * time.Millisecond}, Rules: hostrules.New(0)}
 	err := checker.Check(context.Background(), server.URL)
 	require.Error(t, err)
 	assert.NotErrorIs(t, err, ErrCheckInconclusive, "a timeout is a failure to answer, not a refusal")

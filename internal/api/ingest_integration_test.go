@@ -21,6 +21,7 @@ import (
 	"github.com/stashapp/stash-box/internal/queries"
 	"github.com/stashapp/stash-box/internal/service/ingest"
 	"github.com/stashapp/stash-box/internal/service/ingest/extract"
+	"github.com/stashapp/stash-box/pkg/urlkey"
 )
 
 // The ingestion pipeline, end to end: a submitted URL becomes a content record, or a
@@ -178,7 +179,7 @@ func cleanupIngestFixtures(t *testing.T, urls ...string) {
 	t.Cleanup(func() {
 		ctx := context.Background()
 		for _, raw := range urls {
-			norm, err := ingest.NormalizeURL(raw)
+			norm, err := urlkey.Normalize(raw)
 			if err != nil {
 				norm = raw
 			}
@@ -191,7 +192,7 @@ func cleanupIngestFixtures(t *testing.T, urls ...string) {
 			// The directory entry the pipeline created for this host, guarded by the regex
 			// it writes: a site a person curated in the same test database must survive,
 			// and only the pipeline's own rows carry the host-as-regex pattern.
-			if host := ingest.SiteHost(raw); host != "" {
+			if host := urlkey.SiteHost(raw); host != "" {
 				_, _ = dbtest.DB().Exec(ctx, `DELETE FROM sites WHERE name = $1 AND regex = $2`,
 					host, regexp.QuoteMeta(host))
 			}
@@ -477,7 +478,7 @@ func TestAURLAlreadyClaimedIsAttachedWithoutAFetch(t *testing.T) {
 	// crawl. This is the only way to reach the attach arm, because a second submission of a
 	// URL this queue has already handled is refused as a duplicate before the pipeline runs.
 	owner := createSceneWithDuration(t, "The Scene That Already Has It", intPtr(300))
-	norm, err := ingest.NormalizeURL(raw)
+	norm, err := urlkey.Normalize(raw)
 	require.NoError(t, err)
 	seedContentSource(t, owner, raw, norm)
 
@@ -507,7 +508,7 @@ func TestAURLTakenDownIsRefusedRatherThanReAttached(t *testing.T) {
 	t.Cleanup(func() {
 		_, _ = dbtest.DB().Exec(context.Background(), `DELETE FROM scenes WHERE id = $1`, owner)
 	})
-	norm, err := ingest.NormalizeURL(raw)
+	norm, err := urlkey.Normalize(raw)
 	require.NoError(t, err)
 	sourceID := seedContentSource(t, owner, raw, norm)
 	_, err = dbtest.DB().Exec(t.Context(), `UPDATE content_sources SET status = 'dmca' WHERE id = $1`, sourceID)
@@ -635,6 +636,12 @@ func TestTheRealExtractorIngestsARealPage(t *testing.T) {
 	var hits int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		switch {
+		// The extractor asks robots.txt first (internal/service/hostrules) and this host states no
+		// terms. It is answered BEFORE the counter and the page, because the claim below is about the
+		// PAGE: a request for the host's terms is not a fetch of the page, and counting it would make
+		// every robots-obeying extractor look like it fetched twice.
+		case req.URL.Path == "/robots.txt":
+			w.WriteHeader(http.StatusNotFound)
 		case strings.HasPrefix(req.URL.Path, "/login"):
 			w.WriteHeader(http.StatusForbidden)
 		case strings.HasPrefix(req.URL.Path, "/gone"):

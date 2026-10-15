@@ -170,3 +170,135 @@ extend type Scene {
   """
   mirror: ContentSource
 }
+
+"""
+Something this instance refuses to point at: a URL a notice named, or a whole host (migration 134).
+
+It is the CURRENT policy, not a history. Releasing a block deletes the row, and the record of the
+block and the release lives in `mod_audit` -- so this list is what an instance refuses RIGHT NOW, and
+there is no "released" flag for a reader to forget to filter on.
+
+ADMIN only, and the reason is not secrecy: the list is a set of decisions about who may be pointed
+at, and it is the operator's instrument. A member asking "why can I not add this URL" is answered by
+the submission's own refusal reason, not by this list.
+"""
+type ContentSourceBlock {
+  id: ID!
+
+  "`url` for a single URL, `host` for everything on a host."
+  kind: String!
+
+  """
+  The key: a normalized URL, or a host.
+
+  Both are in the same spelling the pipeline computes before it records anything (pkg/urlkey), which
+  is the property that makes a block work: a block whose value did not match what the pipeline sees
+  would be stored, listed, and silently refuse nothing.
+  """
+  value: String!
+
+  """
+  Why, in the words of whoever asked for it: the notice's reference, the report's id, or the
+  operator's own reason. Required at the mutation, because an audit trail that says only "removed"
+  cannot answer the one question anyone asks of it.
+  """
+  reason: String!
+
+  "Who decided. Null for a row whose author was deleted, and for one migrated in by hand."
+  created_by: User
+
+  created_at: Time!
+}
+
+"""
+What a takedown did, which is the operator's next question after asking for one.
+
+`sources` is empty in a normal and important case: a notice about a URL this instance has never
+recorded. Nothing was serving it, and the block is now what stops it arriving -- so an operator who
+read an empty list as a failure would remove the only protection the notice produced.
+"""
+type ContentTakedownResult {
+  "The key this instance now refuses."
+  block: ContentSourceBlock!
+
+  "How many source records the decision moved to the terminal status."
+  changed: Int!
+
+  "Those records, as they were before the status changed. Empty is normal; see above."
+  sources: [ContentSource!]!
+
+  """
+  Whether this instance was already refusing the key before this call.
+
+  A second notice is not an error: complaints repeat, and they name URLs an operator already
+  removed. So the same call twice is a success twice, with `changed: 0` and this true the second
+  time -- which is what tells an operator "this was handled" rather than sending them to escalate
+  something that is already done.
+  """
+  already_blocked: Boolean!
+}
+
+input TakedownContentURLInput {
+  """
+  The URL the notice names, as the notice writes it. Normalized server-side with the same function
+  the pipeline keys submissions by, so a notice's URL and a submission's URL are compared as one
+  value rather than as two strings that look alike.
+  """
+  url: String!
+
+  """
+  What prompted this: a notice id, an email reference, a case number, or the operator's own reason.
+  Required. It is what the audit row records, and it is the field an instance answers a complaint
+  with six months later.
+  """
+  reference: String!
+}
+
+input BlockContentHostInput {
+  "A host, or any URL on it -- both are accepted and reduced to the host."
+  host: String!
+
+  "Why the whole host, rather than a URL. Required, for the same reason `reference` is."
+  reason: String!
+}
+
+extend type Mutation {
+  """
+  Take down every record of a URL and refuse the URL from now on (migration 134).
+
+  ADMIN, because this is the instance's response to a legal notice and not a moderation action.
+
+  Two effects, both intended and both in one transaction: the records stop being served, and the URL
+  cannot be recorded again -- even though it may never have been recorded in the first place. The
+  audit row written alongside them is the record of who decided and on what.
+  """
+  takedownContentUrl(input: TakedownContentURLInput!): ContentTakedownResult!
+    @hasRole(role: ADMIN)
+
+  """
+  Refuse a whole host and take down every source on it.
+
+  The instrument for the report that names a site rather than a URL: a single takedown URL would
+  leave the same work re-uploaded under a different path live tomorrow. Every host already recorded
+  is moved to the terminal status in the same transaction.
+  """
+  blockContentHost(input: BlockContentHostInput!): ContentTakedownResult!
+    @hasRole(role: ADMIN)
+
+  """
+  Stop refusing a key. Reports whether there was a block to release.
+
+  Releasing does NOT restore the sources a block took down. They stay down until something
+  re-submits them: a release usually means the block was too broad or the material moved, not that
+  the complaint was withdrawn, and un-removing content on the strength of it would assert the
+  opposite.
+  """
+  releaseContentBlock(kind: String!, value: String!): Boolean!
+    @hasRole(role: ADMIN)
+}
+
+extend type Query {
+  "Every key this instance currently refuses, newest first. ADMIN only."
+  contentSourceBlocks(limit: Int = 100, offset: Int = 0): [ContentSourceBlock!]!
+    @hasRole(role: ADMIN)
+}

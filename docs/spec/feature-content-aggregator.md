@@ -40,7 +40,7 @@ reason, and this respec puts that refusal back.
 
 | Refused | Was | Why |
 |---|---|---|
-| Hosting, transcoding, the variant ladder, the five players, PWA offline caching, CDN/edge | phase 10 (media plane) | It is what makes an instance a HOST rather than a catalogue: immediate, existential legal exposure, a different product, and 100x the operations. None of it was ever built — `grep -rn "iframe\|<video\|transcod\|ffmpeg\|m3u8\|hls" internal/ graphql/` is empty. The one table that could be mistaken for a start on it, `content_item_media` (migration 117), holds only ADDRESSES: an editor records a work's renditions through `contentItemEdit` (a URL, a kind — `original`, `preview`, `stream`, `download`, `archive` — and dimensions) and the completeness score already reads the presence of those rows as evidence. No code serves, proxies or transcodes what it names, so it is a references table like `content_sources` and it STAYS: deleting it would silently change what "incomplete" means for a content item, which is a curation rule and not this respec's business. |
+| Hosting, transcoding, the variant ladder, the five players, PWA offline caching, CDN/edge | phase 10 (media plane) | It is what makes an instance a HOST rather than a catalogue: immediate, existential legal exposure, a different product, and 100x the operations. None of it was ever built — `grep -rn "iframe|<video|transcod|ffmpeg|m3u8|hls" internal/ graphql/` is empty. The one table that could be mistaken for a start on it, `content_item_media` (migration 117), holds only ADDRESSES: an editor records a work's renditions through `contentItemEdit` (a URL, a kind — `original`, `preview`, `stream`, `download`, `archive` — and dimensions) and the completeness score already reads the presence of those rows as evidence. No code serves, proxies or transcodes what it names, so it is a references table like `content_sources` and it STAYS: deleting it would silently change what "incomplete" means for a content item, which is a curation rule and not this respec's business. |
 | A general discussion board / forum | slice 8f | A moderation surface for spam, harassment and piracy links that scales with traffic, competing with Reddit and Discord for posts before this instance has the traffic to sustain either. Deferred indefinitely rather than built "because it is cheap". |
 
 **What is KEPT, and re-framed as REFERENCES rather than content.** Recording where a work came from,
@@ -69,6 +69,47 @@ site-icon fetch, member-triggered, one icon for a metadata page), `internal/webh
 a URL an operator configured), `internal/service/federation/client.go` (peers the operator peered with) and
 `internal/sdbimport` (the directory importer). Those are pre-existing upstream or mesh behaviours, and the
 respec's claim is about **content sources**, which is what made the programme legally interesting.
+
+**KEEPING the functionality is the answer that was asked for, and these are the four things that make
+it defensible.** Owner follow-up, same day: *"we have already implemented most of this functionality and
+it would be a pity to remove it now and make it wasted time — what's the best way to keep that
+functionality while minimizing DMCA risk?"* The answer is not to delete the pipeline and not to run it
+bare: it is to keep the metadata machine and take away every property that made it a target. Four exist
+now, three of them built on 2026-10-15 and each verified by a test rather than by this paragraph:
+
+1. **An operator can take a work, a URL or a whole host out of service in one mutation.**
+   `takedownContentUrl` marks the catalogue's record and every source URL for it; `blockContentHost`
+   refuses an entire host going forward; `releaseContentBlock` undoes a mistake, because a refusal with
+   no release is a support queue. `content_source_block` holds the refusals (a host or a normalized URL,
+   unique on the pair), the submit path and the drain both consult it, and every takedown writes a
+   `mod_audit` row naming the operator and the reason. **The metadata stays**: a takedown takes the
+   ADDRESS out of service, never the claim about the work — the metadata/media split's whole point, and
+   what an actual notice asks for.
+2. **Crawl hygiene is the host's rules and one pace, in one place.** Both clients that make automated
+   outbound requests — the ingest page fetch and the health sweep's `HEAD` — obey `robots.txt` and a
+   per-host interval through a single `internal/service/hostrules` (`Default`), because two clients with
+   two caches would knock on one host twice as often as either believed. A refused path is recorded as
+   `robots_disallowed` and never fetched; an unreadable `robots.txt` fails closed (RFC 9309). Neither the
+   rules nor the pace is configurable by a member: a host's terms are the host's.
+   **The one outbound request this does not cover, and why** — Wayback "Save Page Now"
+   (`internal/service/content/wayback.go`): robots.txt governs *fetching a host's paths*, and this
+   instance does not fetch the source page there — it asks archive.org to do so, on archive.org's own
+   behalf. The request is a POST to that service's API, and the service's own fetching is the service's
+   behaviour, not this instance's. It stays gated by `content_fetch_sources` like every other outbound
+   request, and its volume is bounded by the sweep's batch limit. Named here so a reader finds a decision
+   rather than a gap.
+3. **The metadata is read, and nothing is ever served.** The refused list in the table above is enforced
+   by `scripts/check-no-content-plane.py`, which `docs/goal-check.py` runs on every gate: fourteen
+   patterns (`iframe`, `<video`, `transcode`, `ffmpeg`, `m3u8`, `hls`, `.mp4`, `content-range`,
+   `video.js`, `poster=`, `<source src`, `accept-ranges`, `webrtc`, `rtmp`), zero hits in the tree, and a
+   self-test that proves the scanner still finds a planted one. A rule that lives in a document is a
+   hope; this one fails the build.
+4. **The default is still OFF, and the reason is stated.** `content_fetch_sources: false` remains the
+   shipped value, because the default is what every operator who forks this instance inherits, and
+   "turn it on and let it fetch" should be a decision somebody made rather than a behaviour nobody
+   noticed. **On is a supported posture** — that is what changed today — and enabling it is one key in
+   `stash-box.yml`. What does not change with the switch is guardrail 3: the tree cannot grow a player,
+   an embed or a proxy while the gate runs, whatever the configuration says.
 
 **Frame indexing: the hash, never the frame.** The draft's frame-level visual search is kept ONLY in the
 form that needs no content access: an opted-in Stash desktop client contributes perceptual hashes of its
@@ -144,7 +185,7 @@ an integration test).
 | Primitive | State | Reused for |
 |---|---|---|
 | `edit` / `edit_votes` / `edit_comments` / `mod_audit` | built, 4 480 lines in `internal/service/edit` | NexusXXX §3.4, §4.6, §17.2 |
-| `EntityType` polymorphism (`performer\|scene\|studio\|site\|tag`) — used by reviews, completion, elo, favorites, lists, `expected_totals` | built | every new content kind in §4 |
+| `EntityType` polymorphism (`performer|scene|studio|site|tag`) — used by reviews, completion, elo, favorites, lists, `expected_totals` | built | every new content kind in §4 |
 | `tags` with `aliases`, `tag_categories` **with nesting** (migration 106, cycle-guarded, `TagCategoryTreeNode`) | built; no tag-to-tag graph | §4 ontology (the gap is the level below the category) |
 | `content_denylist_tag/studio/performer` (migration 87), `AccessRuleSet` with `enforced`/`unenforced` | built | §5 tiers, §17 |
 | `completion` (score, `missing`, `countIncompleteEntities`) + `field_verification_state` (96) + `expected_totals` (97) | built | §3.4 measurement, §6 quests |

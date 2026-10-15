@@ -2845,6 +2845,54 @@ stops being served while its metadata stays (the metadata/media split's whole
 point); an appeal is heard by a different moderator — asserted by identity, not by
 role.
 
+### Phase 14, slice 1 — the takedown verb, built before anything that needs it — **DONE 2026-10-15**
+
+**Why this slice and not CCTV-hash matching:** the phase above is a list of machinery for a platform
+that HOSTS things. This programme does not host anything, so most of the phase is either moot (age
+verification as a precondition for real-person content — nothing here publishes content) or already
+satisfied by a different mechanism (a DMCA'd source stops being served **because there is nothing to
+serve**: the takedown takes the ADDRESS out of service and the metadata stays). What is NOT moot is the
+operator's ability to answer a notice the same day it arrives, which is the one piece of the phase this
+programme's posture depends on. So it is built first, and the rest of the phase stays open.
+
+**What exists now** (all of it in the tree, none of it a design note):
+
+| Surface | Where | What it does |
+|---|---|---|
+| `takedownContentUrl(url, reason)` | `internal/api/resolver_takedown.go` | Records the refusal against every source URL matching the normalized URL, and marks the catalogue record if a content item or scene matched it. ADMIN only. |
+| `blockContentHost(host, reason)` | same | Refuses an entire host going forward, so a notice about one page of a site can be answered at the site. |
+| `releaseContentBlock(id, reason)` | same | Undoes a block. A refusal with no release is a support queue, not a policy. |
+| `content_source_block` | migration `134_content_source_takedown` | `kind` (`HOST` \| `URL`) + `value`, `UNIQUE (kind, value)`, so a block is applied once however many times it is submitted. |
+| the refusal itself | `internal/service/content/takedown.go` | **Idempotent** (a second takedown of the same URL is a no-op that succeeds), and audited in `mod_audit` (`SOURCE_TAKEDOWN`, `URLBLOCK`, `HOSTBLOCK`, `RELEASE`) with the operator, the reason and the key. |
+| the enforcement point | `internal/service/content/policy.go` | `RequireFetching` + the block list, consulted by **both** `submitContentUrl` and the drain, so a blocked URL is refused at submission *and* skipped if it was already queued. |
+
+**Crawl hygiene — Phase 1's outbound requests, made well-behaved** (`internal/service/hostrules`, and
+wired into `internal/service/ingest/extract/http.go` and `internal/service/content/health.go`). This is
+Phase 1 work by location and an answer to the respec by intent: the first phase is where this instance
+decided to fetch other people's pages, and the respec's question — *what makes that behave like a
+crawler nobody minds* — belongs next to it. `robots.txt` is obeyed by both clients through one shared
+cache, a refused path is recorded as `robots_disallowed` and never requested, an unreadable `robots.txt`
+fails closed, and one per-host pace (`content_fetch_min_interval`) bounds what either sends. The rules
+are not configurable by a member: a host's terms are the host's.
+
+**Verification (ran, 2026-10-15 — commands and their real output, not a plan):**
+
+| Claim | Command | Result |
+|---|---|---|
+| the rules behave as RFC 9309 says, including the two cases implementations get wrong | `go test ./internal/service/hostrules/ -count=1` | `ok` — 3 groups of table cases + 9 behaviours; the caught bug: the first version recorded the *decision* time instead of the *departure* slot, so two requests could leave back-to-back (the test failed, the fix is in `wait`) |
+| the extractor ASKS, and the sweep separates a refusal from a death | `go test ./internal/service/ingest/extract/ ./internal/service/content/ -count=1` | `ok` — the page handler's request counter is asserted **zero** for a refused path and 1 for an allowed one; a 403 is inconclusive while a connection failure is a check failure |
+| the reason reaches the operator | `go test -tags integration -count=1 -p 1 -run TestADrainRecordsARobotsRefusal ./internal/api/` | `ok` — a real drain against an `httptest` host ends `reason=robots_disallowed`, `status=pending`, page hits 0; the control path (allowed) fetches and counts 1 |
+| the tree cannot grow a content plane | `python3 scripts/check-no-content-plane.py && python3 scripts/check-no-content-plane.py --self-test` | exit 0; self-test finds a planted `<video>` and tolerates a clean file. **Proven in the other direction too**: a probe file containing an `iframe` made it exit 1 naming `internal/service/content/player_probe_tmp.go:4`, and removing the file returned it to 0 |
+| the whole posture is in the gate | `python3 docs/goal-check.py` | C7 now runs the content-plane check as a fourth item, so a player cannot land in a green tree |
+
+**What is deliberately NOT built, and why** — so the next reader does not mistake an open phase for an
+oversight: hash matching against an external CSAM list (nothing here accepts uploads, so there is no
+ingest to match against — the refusal is at the source layer, where a refused source is simply not
+fetched); a registered DMCA agent and counter-notice workflow (paperwork about a host that this
+programme is not); performer age verification as a gate (nothing here publishes performer content); a
+transparency report (there is nothing to report yet — when this instance has blocked hosts, the
+`mod_audit` rows ARE the report, and rendering them is a UI task in Phase 16).
+
 ## Phase 15 — monetization
 
 **Goal:** NexusXXX §18 as **operator configuration**, open code, nothing behind it

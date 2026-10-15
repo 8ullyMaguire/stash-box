@@ -23,6 +23,8 @@ const (
 	ModAuditActionEDITCOMMENTUPDATE       ModAuditAction = "EDIT_COMMENT_UPDATE"
 	ModAuditActionEDITCOMMENTHIDE         ModAuditAction = "EDIT_COMMENT_HIDE"
 	ModAuditActionPERFORMERCOMMENTCONFIRM ModAuditAction = "PERFORMER_COMMENT_CONFIRM"
+	ModAuditActionSOURCETAKEDOWN          ModAuditAction = "SOURCE_TAKEDOWN"
+	ModAuditActionSOURCEBLOCK             ModAuditAction = "SOURCE_BLOCK"
 )
 
 func (e *ModAuditAction) Scan(src interface{}) error {
@@ -242,6 +244,16 @@ type ContentSource struct {
 	CreatedBy     uuid.NullUUID      `db:"created_by" json:"created_by"`
 	// The Go normaliser's key for this URL, written only by the ingest path. NULL means the row came from the edit path (scene_urls mirror) or predates this column; match those on LOWER(url).
 	UrlNormalized *string `db:"url_normalized" json:"url_normalized"`
+}
+
+// URLs and hosts nothing on this instance may point at. Current policy; mod_audit is the history.
+type ContentSourceBlock struct {
+	ID          uuid.UUID          `db:"id" json:"id"`
+	Kind        string             `db:"kind" json:"kind"`
+	Value       string             `db:"value" json:"value"`
+	Reason      string             `db:"reason" json:"reason"`
+	CreatedByID uuid.NullUUID      `db:"created_by_id" json:"created_by_id"`
+	CreatedAt   pgtype.Timestamptz `db:"created_at" json:"created_at"`
 }
 
 type Draft struct {

@@ -185,6 +185,13 @@ type ArchiveEntityCount struct {
 	Count int `json:"count"`
 }
 
+type BlockContentHostInput struct {
+	// A host, or any URL on it -- both are accepted and reduced to the host.
+	Host string `json:"host"`
+	// Why the whole host, rather than a URL. Required, for the same reason `reference` is.
+	Reason string `json:"reason"`
+}
+
 type BodyModification struct {
 	Location    string  `json:"location"`
 	Description *string `json:"description,omitempty"`
@@ -459,6 +466,27 @@ type ContentItemMedia struct {
 	Width           *int                 `json:"width,omitempty"`
 	Height          *int                 `json:"height,omitempty"`
 	DurationSeconds *int                 `json:"durationSeconds,omitempty"`
+}
+
+// What a takedown did, which is the operator's next question after asking for one.
+//
+// `sources` is empty in a normal and important case: a notice about a URL this instance has never
+// recorded. Nothing was serving it, and the block is now what stops it arriving -- so an operator who
+// read an empty list as a failure would remove the only protection the notice produced.
+type ContentTakedownResult struct {
+	// The key this instance now refuses.
+	Block *ContentSourceBlock `json:"block"`
+	// How many source records the decision moved to the terminal status.
+	Changed int `json:"changed"`
+	// Those records, as they were before the status changed. Empty is normal; see above.
+	Sources []ContentSource `json:"sources"`
+	// Whether this instance was already refusing the key before this call.
+	//
+	// A second notice is not an error: complaints repeat, and they name URLs an operator already
+	// removed. So the same call twice is a success twice, with `changed: 0` and this true the second
+	// time -- which is what tells an operator "this was handled" rather than sending them to escalate
+	// something that is already done.
+	AlreadyBlocked bool `json:"already_blocked"`
 }
 
 // A caution about a scene: a note the instance wants the reader to see.
@@ -2490,6 +2518,17 @@ type TagUpdateInput struct {
 	Description *string    `json:"description,omitempty"`
 	Aliases     []string   `json:"aliases,omitempty"`
 	CategoryID  *uuid.UUID `json:"category_id,omitempty"`
+}
+
+type TakedownContentURLInput struct {
+	// The URL the notice names, as the notice writes it. Normalized server-side with the same function
+	// the pipeline keys submissions by, so a notice's URL and a submission's URL are compared as one
+	// value rather than as two strings that look alike.
+	URL string `json:"url"`
+	// What prompted this: a notice id, an email reference, a case number, or the operator's own reason.
+	// Required. It is what the audit row records, and it is the field an instance answers a complaint
+	// with six months later.
+	Reference string `json:"reference"`
 }
 
 // Whether one tier is opted into, and when it takes effect if it is still cooling.

@@ -661,6 +661,12 @@ def c7_build_clean():
         ("build", "go build ./..."),
         ("vet", "go vet ./..."),
         ("gofmt", "gofmt -l internal pkg cmd graphql 2>/dev/null"),
+        # The tree's own invariant, and it belongs in "the tree is clean" rather than in a clause of
+        # its own: this is not a claim about the programme's behaviour, it is the mechanical refusal
+        # the respec of 2026-10-15 makes -- no player, no embed, no proxy, no transcode, no frame of
+        # anybody else's video. See the script's docstring for what a hit means and why the pattern
+        # list is checked to be empty of pre-existing hits.
+        ("content plane", "python3 scripts/check-no-content-plane.py"),
     ]
     dirty = []
     for label, cmd in checks:

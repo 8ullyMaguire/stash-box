@@ -1,4 +1,4 @@
-package ingest
+package urlkey
 
 import (
 	"testing"
@@ -7,10 +7,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The normaliser's rules as a table. Each case is named for the rule it pins, because a
+// The normaliser's rules as a table (package urlkey: the key the pipeline and the takedown both use). Each case is named for the rule it pins, because a
 // failure here should read as "the rule about ports broke" and not as "one of eighteen
 // URLs".
-func TestNormalizeURL(t *testing.T) {
+func TestNormalize(t *testing.T) {
 	cases := []struct {
 		name string
 		in   string
@@ -37,14 +37,14 @@ func TestNormalizeURL(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, err := NormalizeURL(c.in)
+			got, err := Normalize(c.in)
 			require.NoError(t, err, "%q should normalise", c.in)
 			assert.Equal(t, c.want, got)
 		})
 	}
 }
 
-func TestNormalizeURLRefuses(t *testing.T) {
+func TestNormalizeRefuses(t *testing.T) {
 	cases := []struct {
 		name string
 		in   string
@@ -59,7 +59,7 @@ func TestNormalizeURLRefuses(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, err := NormalizeURL(c.in)
+			got, err := Normalize(c.in)
 			assert.Error(t, err, "%q must be refused rather than fetched", c.in)
 			assert.Empty(t, got, "a refused URL must not come back with a usable key")
 		})
@@ -87,9 +87,9 @@ func TestNormalizationFoldsWhatDedupDependsOn(t *testing.T) {
 
 	for _, pair := range pairs {
 		t.Run(pair[0], func(t *testing.T) {
-			left, err := NormalizeURL(pair[0])
+			left, err := Normalize(pair[0])
 			require.NoError(t, err)
-			right, err := NormalizeURL(pair[1])
+			right, err := Normalize(pair[1])
 			require.NoError(t, err)
 			assert.Equal(t, right, left,
 				"these two are the same page, and a key that says otherwise makes every "+

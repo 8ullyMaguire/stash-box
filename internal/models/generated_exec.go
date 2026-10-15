@@ -34,6 +34,7 @@ type ResolverRoot interface {
 	CollageFrame() CollageFrameResolver
 	ContentItem() ContentItemResolver
 	ContentSource() ContentSourceResolver
+	ContentSourceBlock() ContentSourceBlockResolver
 	Draft() DraftResolver
 	Edit() EditResolver
 	EditComment() EditCommentResolver
@@ -258,6 +259,22 @@ type ComplexityRoot struct {
 		Site          func(childComplexity int) int
 		Status        func(childComplexity int) int
 		URL           func(childComplexity int) int
+	}
+
+	ContentSourceBlock struct {
+		CreatedAt func(childComplexity int) int
+		CreatedBy func(childComplexity int) int
+		ID        func(childComplexity int) int
+		Kind      func(childComplexity int) int
+		Reason    func(childComplexity int) int
+		Value     func(childComplexity int) int
+	}
+
+	ContentTakedownResult struct {
+		AlreadyBlocked func(childComplexity int) int
+		Block          func(childComplexity int) int
+		Changed        func(childComplexity int) int
+		Sources        func(childComplexity int) int
 	}
 
 	ContentWarning struct {
@@ -669,6 +686,7 @@ type ComplexityRoot struct {
 		AddSnapshot                       func(childComplexity int, sceneID uuid.UUID, timestamp int) int
 		AmendEdit                         func(childComplexity int, input AmendEditInput) int
 		ApproveEdit                       func(childComplexity int, input ApproveEditInput) int
+		BlockContentHost                  func(childComplexity int, input BlockContentHostInput) int
 		CancelEdit                        func(childComplexity int, input CancelEditInput) int
 		ChangePassword                    func(childComplexity int, input UserChangePasswordInput) int
 		ClearSessionState                 func(childComplexity int, input ClearSessionStateInput) int
@@ -721,6 +739,7 @@ type ComplexityRoot struct {
 		PerformerUpdate                   func(childComplexity int, input PerformerUpdateInput) int
 		PostIdentificationQuery           func(childComplexity int, input IdentificationPostInput) int
 		RegenerateAPIKey                  func(childComplexity int, userID *uuid.UUID) int
+		ReleaseContentBlock               func(childComplexity int, kind string, value string) int
 		RequestChangeEmail                func(childComplexity int) int
 		RescindInviteCode                 func(childComplexity int, code uuid.UUID) int
 		ResetPassword                     func(childComplexity int, input ResetPasswordInput) int
@@ -767,6 +786,7 @@ type ComplexityRoot struct {
 		TagEditUpdate                     func(childComplexity int, id uuid.UUID, input TagEditInput) int
 		TagSetContentTier                 func(childComplexity int, input TagContentTierInput) int
 		TagUpdate                         func(childComplexity int, input TagUpdateInput) int
+		TakedownContentURL                func(childComplexity int, input TakedownContentURLInput) int
 		UnfollowUser                      func(childComplexity int, input UnfollowInput) int
 		UnvoteIdentificationCandidate     func(childComplexity int, candidateID uuid.UUID) int
 		UpdateEditComment                 func(childComplexity int, input UpdateEditCommentInput) int
@@ -949,6 +969,7 @@ type ComplexityRoot struct {
 		ArchiveEntityCounts            func(childComplexity int) int
 		ContentAccessSetup             func(childComplexity int) int
 		ContentItem                    func(childComplexity int, id uuid.UUID) int
+		ContentSourceBlocks            func(childComplexity int, limit *int, offset *int) int
 		CountIncompleteEntities        func(childComplexity int, entityType EntityType, below int) int
 		EloLeaderboard                 func(childComplexity int, entityType EloEntityType, limit *int) int
 		EloMatchup                     func(childComplexity int, entityType EloEntityType) int
@@ -1567,6 +1588,11 @@ type ContentSourceResolver interface {
 
 	Status(ctx context.Context, obj *ContentSource) (ContentSourceStatus, error)
 }
+type ContentSourceBlockResolver interface {
+	ID(ctx context.Context, obj *ContentSourceBlock) (uuid.UUID, error)
+
+	CreatedBy(ctx context.Context, obj *ContentSourceBlock) (*User, error)
+}
 type DraftResolver interface {
 	Created(ctx context.Context, obj *Draft) (*time.Time, error)
 	Expires(ctx context.Context, obj *Draft) (*time.Time, error)
@@ -1722,6 +1748,9 @@ type MutationResolver interface {
 	AddSnapshot(ctx context.Context, sceneID uuid.UUID, timestamp int) (*CollageSnapshot, error)
 	GenerateCollage(ctx context.Context, sceneID uuid.UUID, frameCount *int) (*Collage, error)
 	SubmitContentURL(ctx context.Context, url string, sceneID *uuid.UUID) (*IngestSubmission, error)
+	TakedownContentURL(ctx context.Context, input TakedownContentURLInput) (*ContentTakedownResult, error)
+	BlockContentHost(ctx context.Context, input BlockContentHostInput) (*ContentTakedownResult, error)
+	ReleaseContentBlock(ctx context.Context, kind string, value string) (bool, error)
 	UserAcceptContentTerms(ctx context.Context) (*ContentAccessSetup, error)
 	ConfirmPerformerComment(ctx context.Context, input ConfirmPerformerCommentInput) (*Edit, error)
 	VoteElo(ctx context.Context, input EloVoteInput) (*EloVoteResult, error)
@@ -1883,6 +1912,7 @@ type QueryResolver interface {
 	UnderSnapshottedScenes(ctx context.Context, minimum *int, limit *int) ([]UnderSnapshottedScene, error)
 	StudioCompleteness(ctx context.Context, studioID uuid.UUID) (*CompletenessVerdict, error)
 	CountIncompleteEntities(ctx context.Context, entityType EntityType, below int) (int, error)
+	ContentSourceBlocks(ctx context.Context, limit *int, offset *int) ([]ContentSourceBlock, error)
 	ContentAccessSetup(ctx context.Context) (*ContentAccessSetup, error)
 	ContentItem(ctx context.Context, id uuid.UUID) (*ContentItem, error)
 	QueryContentItems(ctx context.Context, kind *ContentItemKind, limit *int) ([]ContentItem, error)
@@ -2763,6 +2793,68 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.ContentSource.URL(childComplexity), true
+
+	case "ContentSourceBlock.created_at":
+		if e.ComplexityRoot.ContentSourceBlock.CreatedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentSourceBlock.CreatedAt(childComplexity), true
+	case "ContentSourceBlock.created_by":
+		if e.ComplexityRoot.ContentSourceBlock.CreatedBy == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentSourceBlock.CreatedBy(childComplexity), true
+	case "ContentSourceBlock.id":
+		if e.ComplexityRoot.ContentSourceBlock.ID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentSourceBlock.ID(childComplexity), true
+	case "ContentSourceBlock.kind":
+		if e.ComplexityRoot.ContentSourceBlock.Kind == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentSourceBlock.Kind(childComplexity), true
+	case "ContentSourceBlock.reason":
+		if e.ComplexityRoot.ContentSourceBlock.Reason == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentSourceBlock.Reason(childComplexity), true
+	case "ContentSourceBlock.value":
+		if e.ComplexityRoot.ContentSourceBlock.Value == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentSourceBlock.Value(childComplexity), true
+
+	case "ContentTakedownResult.already_blocked":
+		if e.ComplexityRoot.ContentTakedownResult.AlreadyBlocked == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentTakedownResult.AlreadyBlocked(childComplexity), true
+	case "ContentTakedownResult.block":
+		if e.ComplexityRoot.ContentTakedownResult.Block == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentTakedownResult.Block(childComplexity), true
+	case "ContentTakedownResult.changed":
+		if e.ComplexityRoot.ContentTakedownResult.Changed == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentTakedownResult.Changed(childComplexity), true
+	case "ContentTakedownResult.sources":
+		if e.ComplexityRoot.ContentTakedownResult.Sources == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentTakedownResult.Sources(childComplexity), true
 
 	case "ContentWarning.reason":
 		if e.ComplexityRoot.ContentWarning.Reason == nil {
@@ -4329,6 +4421,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.ApproveEdit(childComplexity, args["input"].(ApproveEditInput)), true
+	case "Mutation.blockContentHost":
+		if e.ComplexityRoot.Mutation.BlockContentHost == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_blockContentHost_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.BlockContentHost(childComplexity, args["input"].(BlockContentHostInput)), true
 	case "Mutation.cancelEdit":
 		if e.ComplexityRoot.Mutation.CancelEdit == nil {
 			break
@@ -4896,6 +4999,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.RegenerateAPIKey(childComplexity, args["userID"].(*uuid.UUID)), true
+	case "Mutation.releaseContentBlock":
+		if e.ComplexityRoot.Mutation.ReleaseContentBlock == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_releaseContentBlock_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.ReleaseContentBlock(childComplexity, args["kind"].(string), args["value"].(string)), true
 	case "Mutation.requestChangeEmail":
 		if e.ComplexityRoot.Mutation.RequestChangeEmail == nil {
 			break
@@ -5392,6 +5506,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.TagUpdate(childComplexity, args["input"].(TagUpdateInput)), true
+	case "Mutation.takedownContentUrl":
+		if e.ComplexityRoot.Mutation.TakedownContentURL == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_takedownContentUrl_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.TakedownContentURL(childComplexity, args["input"].(TakedownContentURLInput)), true
 	case "Mutation.unfollowUser":
 		if e.ComplexityRoot.Mutation.UnfollowUser == nil {
 			break
@@ -6395,6 +6520,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.ContentItem(childComplexity, args["id"].(uuid.UUID)), true
+	case "Query.contentSourceBlocks":
+		if e.ComplexityRoot.Query.ContentSourceBlocks == nil {
+			break
+		}
+
+		args, err := ec.field_Query_contentSourceBlocks_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.ContentSourceBlocks(childComplexity, args["limit"].(*int), args["offset"].(*int)), true
 	case "Query.countIncompleteEntities":
 		if e.ComplexityRoot.Query.CountIncompleteEntities == nil {
 			break
@@ -9323,6 +9459,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputAmendEditInput,
 		ec.unmarshalInputAmendItemRemoval,
 		ec.unmarshalInputApproveEditInput,
+		ec.unmarshalInputBlockContentHostInput,
 		ec.unmarshalInputBodyModificationCriterionInput,
 		ec.unmarshalInputBodyModificationInput,
 		ec.unmarshalInputBreastTypeCriterionInput,
@@ -9435,6 +9572,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputTagEditInput,
 		ec.unmarshalInputTagQueryInput,
 		ec.unmarshalInputTagUpdateInput,
+		ec.unmarshalInputTakedownContentURLInput,
 		ec.unmarshalInputURLInput,
 		ec.unmarshalInputUnfollowInput,
 		ec.unmarshalInputUnorganizedImagesQueryInput,
@@ -10337,6 +10475,138 @@ extend type Scene {
   merely a similar one; the distance the server uses is deliberately tight for that reason.
   """
   mirror: ContentSource
+}
+
+"""
+Something this instance refuses to point at: a URL a notice named, or a whole host (migration 134).
+
+It is the CURRENT policy, not a history. Releasing a block deletes the row, and the record of the
+block and the release lives in ` + "`" + `mod_audit` + "`" + ` -- so this list is what an instance refuses RIGHT NOW, and
+there is no "released" flag for a reader to forget to filter on.
+
+ADMIN only, and the reason is not secrecy: the list is a set of decisions about who may be pointed
+at, and it is the operator's instrument. A member asking "why can I not add this URL" is answered by
+the submission's own refusal reason, not by this list.
+"""
+type ContentSourceBlock {
+  id: ID!
+
+  "` + "`" + `url` + "`" + ` for a single URL, ` + "`" + `host` + "`" + ` for everything on a host."
+  kind: String!
+
+  """
+  The key: a normalized URL, or a host.
+
+  Both are in the same spelling the pipeline computes before it records anything (pkg/urlkey), which
+  is the property that makes a block work: a block whose value did not match what the pipeline sees
+  would be stored, listed, and silently refuse nothing.
+  """
+  value: String!
+
+  """
+  Why, in the words of whoever asked for it: the notice's reference, the report's id, or the
+  operator's own reason. Required at the mutation, because an audit trail that says only "removed"
+  cannot answer the one question anyone asks of it.
+  """
+  reason: String!
+
+  "Who decided. Null for a row whose author was deleted, and for one migrated in by hand."
+  created_by: User
+
+  created_at: Time!
+}
+
+"""
+What a takedown did, which is the operator's next question after asking for one.
+
+` + "`" + `sources` + "`" + ` is empty in a normal and important case: a notice about a URL this instance has never
+recorded. Nothing was serving it, and the block is now what stops it arriving -- so an operator who
+read an empty list as a failure would remove the only protection the notice produced.
+"""
+type ContentTakedownResult {
+  "The key this instance now refuses."
+  block: ContentSourceBlock!
+
+  "How many source records the decision moved to the terminal status."
+  changed: Int!
+
+  "Those records, as they were before the status changed. Empty is normal; see above."
+  sources: [ContentSource!]!
+
+  """
+  Whether this instance was already refusing the key before this call.
+
+  A second notice is not an error: complaints repeat, and they name URLs an operator already
+  removed. So the same call twice is a success twice, with ` + "`" + `changed: 0` + "`" + ` and this true the second
+  time -- which is what tells an operator "this was handled" rather than sending them to escalate
+  something that is already done.
+  """
+  already_blocked: Boolean!
+}
+
+input TakedownContentURLInput {
+  """
+  The URL the notice names, as the notice writes it. Normalized server-side with the same function
+  the pipeline keys submissions by, so a notice's URL and a submission's URL are compared as one
+  value rather than as two strings that look alike.
+  """
+  url: String!
+
+  """
+  What prompted this: a notice id, an email reference, a case number, or the operator's own reason.
+  Required. It is what the audit row records, and it is the field an instance answers a complaint
+  with six months later.
+  """
+  reference: String!
+}
+
+input BlockContentHostInput {
+  "A host, or any URL on it -- both are accepted and reduced to the host."
+  host: String!
+
+  "Why the whole host, rather than a URL. Required, for the same reason ` + "`" + `reference` + "`" + ` is."
+  reason: String!
+}
+
+extend type Mutation {
+  """
+  Take down every record of a URL and refuse the URL from now on (migration 134).
+
+  ADMIN, because this is the instance's response to a legal notice and not a moderation action.
+
+  Two effects, both intended and both in one transaction: the records stop being served, and the URL
+  cannot be recorded again -- even though it may never have been recorded in the first place. The
+  audit row written alongside them is the record of who decided and on what.
+  """
+  takedownContentUrl(input: TakedownContentURLInput!): ContentTakedownResult!
+    @hasRole(role: ADMIN)
+
+  """
+  Refuse a whole host and take down every source on it.
+
+  The instrument for the report that names a site rather than a URL: a single takedown URL would
+  leave the same work re-uploaded under a different path live tomorrow. Every host already recorded
+  is moved to the terminal status in the same transaction.
+  """
+  blockContentHost(input: BlockContentHostInput!): ContentTakedownResult!
+    @hasRole(role: ADMIN)
+
+  """
+  Stop refusing a key. Reports whether there was a block to release.
+
+  Releasing does NOT restore the sources a block took down. They stay down until something
+  re-submits them: a release usually means the block was too broad or the material moved, not that
+  the complaint was withdrawn, and un-removing content on the strength of it would assert the
+  opposite.
+  """
+  releaseContentBlock(kind: String!, value: String!): Boolean!
+    @hasRole(role: ADMIN)
+}
+
+extend type Query {
+  "Every key this instance currently refuses, newest first. ADMIN only."
+  contentSourceBlocks(limit: Int = 100, offset: Int = 0): [ContentSourceBlock!]!
+    @hasRole(role: ADMIN)
 }
 `, BuiltIn: false},
 	{Name: "../../graphql/schema/types/content_access_setup.graphql", Input: `# Content access setup (aggregator phase 5 slice 5i; NexusXXX section 10).
@@ -16112,6 +16382,38 @@ func (ec *executionContext) childFields_ContentSource(ctx context.Context, field
 	return nil, fmt.Errorf("no field named %q was found under type ContentSource", field.Name)
 }
 
+func (ec *executionContext) childFields_ContentSourceBlock(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "id":
+		return ec.fieldContext_ContentSourceBlock_id(ctx, field)
+	case "kind":
+		return ec.fieldContext_ContentSourceBlock_kind(ctx, field)
+	case "value":
+		return ec.fieldContext_ContentSourceBlock_value(ctx, field)
+	case "reason":
+		return ec.fieldContext_ContentSourceBlock_reason(ctx, field)
+	case "created_by":
+		return ec.fieldContext_ContentSourceBlock_created_by(ctx, field)
+	case "created_at":
+		return ec.fieldContext_ContentSourceBlock_created_at(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type ContentSourceBlock", field.Name)
+}
+
+func (ec *executionContext) childFields_ContentTakedownResult(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "block":
+		return ec.fieldContext_ContentTakedownResult_block(ctx, field)
+	case "changed":
+		return ec.fieldContext_ContentTakedownResult_changed(ctx, field)
+	case "sources":
+		return ec.fieldContext_ContentTakedownResult_sources(ctx, field)
+	case "already_blocked":
+		return ec.fieldContext_ContentTakedownResult_already_blocked(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type ContentTakedownResult", field.Name)
+}
+
 func (ec *executionContext) childFields_ContentWarning(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 	switch field.Name {
 	case "reason":
@@ -18122,6 +18424,20 @@ func (ec *executionContext) field_Mutation_approveEdit_args(ctx context.Context,
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_blockContentHost_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
+		func(ctx context.Context, v any) (BlockContentHostInput, error) {
+			return ec.unmarshalNBlockContentHostInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐBlockContentHostInput(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_cancelEdit_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -18884,6 +19200,28 @@ func (ec *executionContext) field_Mutation_regenerateAPIKey_args(ctx context.Con
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_releaseContentBlock_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "kind",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNString2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["kind"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "value",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNString2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["value"] = arg1
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_rescindInviteCode_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -19532,6 +19870,20 @@ func (ec *executionContext) field_Mutation_tagUpdate_args(ctx context.Context, r
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_takedownContentUrl_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
+		func(ctx context.Context, v any) (TakedownContentURLInput, error) {
+			return ec.unmarshalNTakedownContentURLInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTakedownContentURLInput(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_unfollowUser_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -19911,6 +20263,28 @@ func (ec *executionContext) field_Query_contentItem_args(ctx context.Context, ra
 		return nil, err
 	}
 	args["id"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_contentSourceBlocks_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "limit",
+		func(ctx context.Context, v any) (*int, error) {
+			return ec.unmarshalOInt2ᚖint(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["limit"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "offset",
+		func(ctx context.Context, v any) (*int, error) {
+			return ec.unmarshalOInt2ᚖint(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["offset"] = arg1
 	return args, nil
 }
 
@@ -23906,6 +24280,263 @@ func (ec *executionContext) _ContentSource_archived_url(ctx context.Context, fie
 }
 func (ec *executionContext) fieldContext_ContentSource_archived_url(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("ContentSource", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _ContentSourceBlock_id(ctx context.Context, field graphql.CollectedField, obj *ContentSourceBlock) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentSourceBlock_id(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.ContentSourceBlock().ID(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v uuid.UUID) graphql.Marshaler {
+			return ec.marshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ContentSourceBlock_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContentSourceBlock", field, true, true, errors.New("field of type ID does not have child fields"))
+}
+
+func (ec *executionContext) _ContentSourceBlock_kind(ctx context.Context, field graphql.CollectedField, obj *ContentSourceBlock) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentSourceBlock_kind(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Kind, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ContentSourceBlock_kind(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContentSourceBlock", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _ContentSourceBlock_value(ctx context.Context, field graphql.CollectedField, obj *ContentSourceBlock) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentSourceBlock_value(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Value, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ContentSourceBlock_value(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContentSourceBlock", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _ContentSourceBlock_reason(ctx context.Context, field graphql.CollectedField, obj *ContentSourceBlock) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentSourceBlock_reason(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Reason, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ContentSourceBlock_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContentSourceBlock", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _ContentSourceBlock_created_by(ctx context.Context, field graphql.CollectedField, obj *ContentSourceBlock) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentSourceBlock_created_by(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.ContentSourceBlock().CreatedBy(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *User) graphql.Marshaler {
+			return ec.marshalOUser2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐUser(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_ContentSourceBlock_created_by(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ContentSourceBlock",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_User(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ContentSourceBlock_created_at(ctx context.Context, field graphql.CollectedField, obj *ContentSourceBlock) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentSourceBlock_created_at(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.CreatedAt, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v time.Time) graphql.Marshaler {
+			return ec.marshalNTime2timeᚐTime(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ContentSourceBlock_created_at(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContentSourceBlock", field, false, false, errors.New("field of type Time does not have child fields"))
+}
+
+func (ec *executionContext) _ContentTakedownResult_block(ctx context.Context, field graphql.CollectedField, obj *ContentTakedownResult) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentTakedownResult_block(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Block, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *ContentSourceBlock) graphql.Marshaler {
+			return ec.marshalNContentSourceBlock2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentSourceBlock(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ContentTakedownResult_block(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ContentTakedownResult",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ContentSourceBlock(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ContentTakedownResult_changed(ctx context.Context, field graphql.CollectedField, obj *ContentTakedownResult) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentTakedownResult_changed(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Changed, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ContentTakedownResult_changed(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContentTakedownResult", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _ContentTakedownResult_sources(ctx context.Context, field graphql.CollectedField, obj *ContentTakedownResult) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentTakedownResult_sources(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Sources, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []ContentSource) graphql.Marshaler {
+			return ec.marshalNContentSource2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentSourceᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ContentTakedownResult_sources(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ContentTakedownResult",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ContentSource(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ContentTakedownResult_already_blocked(ctx context.Context, field graphql.CollectedField, obj *ContentTakedownResult) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentTakedownResult_already_blocked(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.AlreadyBlocked, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ContentTakedownResult_already_blocked(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContentTakedownResult", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
 func (ec *executionContext) _ContentWarning_reason(ctx context.Context, field graphql.CollectedField, obj *ContentWarning) (ret graphql.Marshaler) {
@@ -35212,6 +35843,192 @@ func (ec *executionContext) fieldContext_Mutation_submitContentUrl(ctx context.C
 	return fc, nil
 }
 
+func (ec *executionContext) _Mutation_takedownContentUrl(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_takedownContentUrl(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().TakedownContentURL(ctx, fc.Args["input"].(TakedownContentURLInput))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "ADMIN")
+				if err != nil {
+					var zeroVal *ContentTakedownResult
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *ContentTakedownResult
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *ContentTakedownResult) graphql.Marshaler {
+			return ec.marshalNContentTakedownResult2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentTakedownResult(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_takedownContentUrl(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ContentTakedownResult(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_takedownContentUrl_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_blockContentHost(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_blockContentHost(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().BlockContentHost(ctx, fc.Args["input"].(BlockContentHostInput))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "ADMIN")
+				if err != nil {
+					var zeroVal *ContentTakedownResult
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *ContentTakedownResult
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *ContentTakedownResult) graphql.Marshaler {
+			return ec.marshalNContentTakedownResult2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentTakedownResult(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_blockContentHost(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ContentTakedownResult(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_blockContentHost_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_releaseContentBlock(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_releaseContentBlock(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().ReleaseContentBlock(ctx, fc.Args["kind"].(string), fc.Args["value"].(string))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "ADMIN")
+				if err != nil {
+					var zeroVal bool
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal bool
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_releaseContentBlock(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_releaseContentBlock_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Mutation_userAcceptContentTerms(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -44091,6 +44908,68 @@ func (ec *executionContext) fieldContext_Query_countIncompleteEntities(ctx conte
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Query_countIncompleteEntities_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_contentSourceBlocks(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_contentSourceBlocks(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().ContentSourceBlocks(ctx, fc.Args["limit"].(*int), fc.Args["offset"].(*int))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "ADMIN")
+				if err != nil {
+					var zeroVal []ContentSourceBlock
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal []ContentSourceBlock
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v []ContentSourceBlock) graphql.Marshaler {
+			return ec.marshalNContentSourceBlock2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentSourceBlockᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_contentSourceBlocks(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ContentSourceBlock(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_contentSourceBlocks_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -55819,6 +56698,43 @@ func (ec *executionContext) unmarshalInputApproveEditInput(ctx context.Context, 
 	return it, nil
 }
 
+func (ec *executionContext) unmarshalInputBlockContentHostInput(ctx context.Context, obj any) (BlockContentHostInput, error) {
+	var it BlockContentHostInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"host", "reason"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "host":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("host"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Host = data
+		case "reason":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("reason"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Reason = data
+		}
+	}
+	return it, nil
+}
+
 func (ec *executionContext) unmarshalInputBodyModificationCriterionInput(ctx context.Context, obj any) (BodyModificationCriterionInput, error) {
 	var it BodyModificationCriterionInput
 	if obj == nil {
@@ -62235,6 +63151,43 @@ func (ec *executionContext) unmarshalInputTagUpdateInput(ctx context.Context, ob
 	return it, nil
 }
 
+func (ec *executionContext) unmarshalInputTakedownContentURLInput(ctx context.Context, obj any) (TakedownContentURLInput, error) {
+	var it TakedownContentURLInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"url", "reference"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "url":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("url"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.URL = data
+		case "reference":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("reference"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Reference = data
+		}
+	}
+	return it, nil
+}
+
 func (ec *executionContext) unmarshalInputURLInput(ctx context.Context, obj any) (URL, error) {
 	var it URL
 	if obj == nil {
@@ -64855,6 +65808,188 @@ func (ec *executionContext) _ContentSource(ctx context.Context, sel ast.Selectio
 			out.Values[i] = ec._ContentSource_archived_url(ctx, field, obj)
 			if out.Values[i] == graphql.RequiredNull {
 				atomic.AddUint32(&out.Invalids, 1)
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var contentSourceBlockImplementors = []string{"ContentSourceBlock"}
+
+func (ec *executionContext) _ContentSourceBlock(ctx context.Context, sel ast.SelectionSet, obj *ContentSourceBlock) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, contentSourceBlockImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ContentSourceBlock")
+		case "id":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._ContentSourceBlock_id(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "kind":
+			out.Values[i] = ec._ContentSourceBlock_kind(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "value":
+			out.Values[i] = ec._ContentSourceBlock_value(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "reason":
+			out.Values[i] = ec._ContentSourceBlock_reason(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "created_by":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._ContentSourceBlock_created_by(ctx, field, obj)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "created_at":
+			out.Values[i] = ec._ContentSourceBlock_created_at(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var contentTakedownResultImplementors = []string{"ContentTakedownResult"}
+
+func (ec *executionContext) _ContentTakedownResult(ctx context.Context, sel ast.SelectionSet, obj *ContentTakedownResult) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, contentTakedownResultImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ContentTakedownResult")
+		case "block":
+			out.Values[i] = ec._ContentTakedownResult_block(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "changed":
+			out.Values[i] = ec._ContentTakedownResult_changed(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "sources":
+			out.Values[i] = ec._ContentTakedownResult_sources(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "already_blocked":
+			out.Values[i] = ec._ContentTakedownResult_already_blocked(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
 			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
@@ -69886,6 +71021,27 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "takedownContentUrl":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_takedownContentUrl(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "blockContentHost":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_blockContentHost(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "releaseContentBlock":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_releaseContentBlock(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "userAcceptContentTerms":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_userAcceptContentTerms(ctx, field)
@@ -73914,6 +75070,28 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 					}
 				}()
 				res = ec._Query_countIncompleteEntities(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "contentSourceBlocks":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_contentSourceBlocks(ctx, field)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -82367,6 +83545,11 @@ func (ec *executionContext) marshalNArchiveEntityCount2ᚕgithubᚗcomᚋstashap
 	return ret
 }
 
+func (ec *executionContext) unmarshalNBlockContentHostInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐBlockContentHostInput(ctx context.Context, v any) (BlockContentHostInput, error) {
+	res, err := ec.unmarshalInputBlockContentHostInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
 func (ec *executionContext) marshalNBodyModification2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐBodyModification(ctx context.Context, sel ast.SelectionSet, v BodyModification) graphql.Marshaler {
 	return ec._BodyModification(ctx, sel, &v)
 }
@@ -82648,6 +83831,36 @@ func (ec *executionContext) marshalNContentSource2ᚕgithubᚗcomᚋstashappᚋs
 	return ret
 }
 
+func (ec *executionContext) marshalNContentSourceBlock2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentSourceBlock(ctx context.Context, sel ast.SelectionSet, v ContentSourceBlock) graphql.Marshaler {
+	return ec._ContentSourceBlock(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNContentSourceBlock2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentSourceBlockᚄ(ctx context.Context, sel ast.SelectionSet, v []ContentSourceBlock) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNContentSourceBlock2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentSourceBlock(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNContentSourceBlock2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentSourceBlock(ctx context.Context, sel ast.SelectionSet, v *ContentSourceBlock) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._ContentSourceBlock(ctx, sel, v)
+}
+
 func (ec *executionContext) unmarshalNContentSourceStatus2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentSourceStatus(ctx context.Context, v any) (ContentSourceStatus, error) {
 	var res ContentSourceStatus
 	err := res.UnmarshalGQL(v)
@@ -82656,6 +83869,16 @@ func (ec *executionContext) unmarshalNContentSourceStatus2githubᚗcomᚋstashap
 
 func (ec *executionContext) marshalNContentSourceStatus2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentSourceStatus(ctx context.Context, sel ast.SelectionSet, v ContentSourceStatus) graphql.Marshaler {
 	return v
+}
+
+func (ec *executionContext) marshalNContentTakedownResult2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentTakedownResult(ctx context.Context, sel ast.SelectionSet, v *ContentTakedownResult) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._ContentTakedownResult(ctx, sel, v)
 }
 
 func (ec *executionContext) marshalNContentWarning2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentWarning(ctx context.Context, sel ast.SelectionSet, v ContentWarning) graphql.Marshaler {
@@ -85585,6 +86808,11 @@ func (ec *executionContext) marshalNTagSortEnum2githubᚗcomᚋstashappᚋstash�
 
 func (ec *executionContext) unmarshalNTagUpdateInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTagUpdateInput(ctx context.Context, v any) (TagUpdateInput, error) {
 	res, err := ec.unmarshalInputTagUpdateInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) unmarshalNTakedownContentURLInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐTakedownContentURLInput(ctx context.Context, v any) (TakedownContentURLInput, error) {
+	res, err := ec.unmarshalInputTakedownContentURLInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 

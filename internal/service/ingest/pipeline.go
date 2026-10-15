@@ -14,8 +14,10 @@ import (
 
 	"github.com/stashapp/stash-box/internal/queries"
 	"github.com/stashapp/stash-box/internal/service/content"
+	"github.com/stashapp/stash-box/internal/service/hostrules"
 	"github.com/stashapp/stash-box/internal/service/ingest/extract"
 	"github.com/stashapp/stash-box/pkg/logger"
+	"github.com/stashapp/stash-box/pkg/urlkey"
 )
 
 // The pipeline: a submitted URL becomes a content record, or a recorded reason why not
@@ -86,7 +88,7 @@ func (s *Service) Submit(ctx context.Context, rawURL string, target, submittedBy
 		return Submission{}, err
 	}
 
-	normalized, err := NormalizeURL(rawURL)
+	normalized, err := urlkey.Normalize(rawURL)
 	if err != nil {
 		return Submission{}, fmt.Errorf("%w: %v", ErrInvalidURL, err)
 	}
@@ -216,7 +218,7 @@ func (s *Service) process(ctx context.Context, job queries.IngestQueue) error {
 	if meta.ResolvedURL != "" {
 		sourceURL = meta.ResolvedURL
 	}
-	normalized, err := NormalizeURL(sourceURL)
+	normalized, err := urlkey.Normalize(sourceURL)
 	if err != nil {
 		// The extractor followed a redirect to something the normaliser refuses (a
 		// javascript: redirect, a non-http scheme). Keep the submitted key: the row is
@@ -258,6 +260,22 @@ func (s *Service) gatherURLFacts(ctx context.Context, job queries.IngestQueue) (
 		known.EntityID = &id
 	}
 
+	// THE BLOCK LIST, first, and before the rows: this is the one question that is a decision
+	// rather than an observation (migration 134). A URL a notice named, or a host this instance was
+	// told to refuse, is refused whether or not it has been seen before -- which is the case the
+	// status alone cannot cover, because the URL in a notice may never have been recorded here.
+	//
+	// It is asked first because a denial must outrank everything else Decide can conclude: attaching
+	// a blocked URL to the scene that already claims it would report a successful submission for a
+	// URL the instance has been told to remove.
+	if reason, blocked, err := s.deniedByBlock(ctx, job.Url, job.UrlNormalized); err != nil {
+		return known, err
+	} else if blocked {
+		known.Denied = true
+		known.DenyReason = reason
+		return known, nil
+	}
+
 	rows, err := s.q.FindContentSourcesByNormalizedURL(ctx, queries.FindContentSourcesByNormalizedURLParams{
 		EntityType:    "scene",
 		UrlNormalized: &job.UrlNormalized,
@@ -280,6 +298,53 @@ func (s *Service) gatherURLFacts(ctx context.Context, job queries.IngestQueue) (
 		// sweep owns that judgement; the ingest path only refuses what a human refused.
 	}
 	return known, nil
+}
+
+// deniedByBlock answers whether this instance refuses this URL or its host.
+//
+// TWO LOOKUPS, because a takedown can be keyed on either and the URL's own key is not enough: a
+// notice about a site names a host, and the work behind fifty URLs on that host is the material the
+// host block exists to refuse. Both keys are the values `pkg/urlkey` computes for this same job, so
+// a block written by the takedown path and the job being admitted are compared as one spelling.
+//
+// A miss is the normal case (`pgx.ErrNoRows`), so it returns no error and denied == false. Anything
+// else is an error and NOT a silent admit: failing open here would mean a database blip admitting a
+// URL that is blocked, which is the one direction a refusal may not fail in.
+func (s *Service) deniedByBlock(ctx context.Context, rawURL, normalized string) (string, bool, error) {
+	keys := []struct {
+		kind   string
+		value  string
+		reason string
+	}{
+		{"url", normalized, "this URL is on the takedown list"},
+	}
+	// The host is derived here rather than passed in: it is the same function the takedown's host
+	// block goes through (`urlkey.SiteHost`), and deriving it at the point of use is what keeps that
+	// true if the caller ever changes.
+	if host := urlkey.SiteHost(rawURL); host != "" {
+		keys = append(keys, struct {
+			kind   string
+			value  string
+			reason string
+		}{"host", host, "this host is blocked"})
+	}
+
+	for _, key := range keys {
+		if key.value == "" {
+			continue
+		}
+		_, err := s.q.FindContentSourceBlock(ctx, queries.FindContentSourceBlockParams{
+			Kind:  key.kind,
+			Value: key.value,
+		})
+		if err == nil {
+			return key.reason, true, nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return "", false, fmt.Errorf("could not read the block list for %s %q: %w", key.kind, key.value, err)
+		}
+	}
+	return "", false, nil
 }
 
 // addFingerprintMatch looks up the hashes the extractor produced and records the first
@@ -343,7 +408,7 @@ func (s *Service) attach(ctx context.Context, job queries.IngestQueue, target uu
 
 // requireSite resolves a source's directory entry, or records the job as refused.
 //
-// The nil case is unreachable after NormalizeURL (which refuses a URL with no host), and it
+// The nil case is unreachable after urlkey.Normalize (which refuses a URL with no host), and it
 // is handled by RECORDING a refusal rather than by returning an error, because of what an
 // error out of process means: Drain stops on one (see its own comment), so a single
 // unlabellable URL would halt every job behind it rather than failing alone.
@@ -501,6 +566,13 @@ func (s *Service) recordExtractFailure(ctx context.Context, job queries.IngestQu
 		reason = "gone"
 	case errors.Is(extractErr, extract.ErrUnsupportedPage):
 		reason = "unsupported_page"
+	case errors.Is(extractErr, hostrules.ErrDisallowed):
+		// TRANSIENT, not permanent, and that is a decision rather than a slip: robots.txt is a file
+		// the host can change, so the URL is not "gone" and the queue's backoff is the right way to
+		// ask again. The reason is its own value rather than "unreachable" because the operator
+		// reading the column must not go looking for a network problem: the host answered, and what
+		// it answered was a rule.
+		reason = "robots_disallowed"
 	}
 
 	msg := extractErr.Error()
@@ -577,11 +649,11 @@ var ingestSiteValidTypes = []string{"SCENE"}
 // per host rather than once per URL: FindSiteForURL matches on regex, and the pattern is
 // deliberately unanchored because that is the directory's own convention (`@url ~ regex`).
 func (s *Service) ensureSite(ctx context.Context, rawURL string) (uuid.NullUUID, string, error) {
-	host := SiteHost(rawURL)
+	host := urlkey.SiteHost(rawURL)
 	if host == "" {
 		// No host, so no site, and the caller handles a nil site: the source is still
-		// recorded in content_sources. Reaching here means NormalizeURL accepted a URL
-		// whose host SiteHost cannot see, and refusing the whole ingestion over that would
+		// recorded in content_sources. Reaching here means urlkey.Normalize accepted a URL
+		// whose host urlkey.SiteHost cannot see, and refusing the whole ingestion over that would
 		// trade a complete record for a missing label.
 		return uuid.NullUUID{}, "", nil
 	}
