@@ -21,6 +21,45 @@ func (q *Queries) CancelUserEdits(ctx context.Context, userID uuid.NullUUID) err
 	return err
 }
 
+const confirmEditComment = `-- name: ConfirmEditComment :one
+UPDATE edit_comments
+SET confirmed_at = NOW(), confirmed_edit_id = $2, confirmed_by_id = $3
+WHERE id = $1 AND confirmed_at IS NULL
+RETURNING id, edit_id, user_id, created_at, text, updated_at, is_hidden, kind, performer_id, confirmed_at, confirmed_edit_id, confirmed_by_id
+`
+
+type ConfirmEditCommentParams struct {
+	ID              uuid.UUID     `db:"id" json:"id"`
+	ConfirmedEditID uuid.NullUUID `db:"confirmed_edit_id" json:"confirmed_edit_id"`
+	ConfirmedByID   uuid.NullUUID `db:"confirmed_by_id" json:"confirmed_by_id"`
+}
+
+// Records that an identification comment was confirmed, and by which edit.
+//
+// `AND confirmed_at IS NULL` is the whole of the idempotence rule, and it lives HERE rather than in a
+// read-then-write in Go: two moderators confirming at once cannot both win, because the second update
+// matches no row. A caller that gets no row knows the comment was already confirmed and says so,
+// instead of creating a second edit for the same suggestion.
+func (q *Queries) ConfirmEditComment(ctx context.Context, arg ConfirmEditCommentParams) (EditComment, error) {
+	row := q.db.QueryRow(ctx, confirmEditComment, arg.ID, arg.ConfirmedEditID, arg.ConfirmedByID)
+	var i EditComment
+	err := row.Scan(
+		&i.ID,
+		&i.EditID,
+		&i.UserID,
+		&i.CreatedAt,
+		&i.Text,
+		&i.UpdatedAt,
+		&i.IsHidden,
+		&i.Kind,
+		&i.PerformerID,
+		&i.ConfirmedAt,
+		&i.ConfirmedEditID,
+		&i.ConfirmedByID,
+	)
+	return i, err
+}
+
 const createContentItemEdit = `-- name: CreateContentItemEdit :exec
 INSERT INTO content_item_edits (edit_id, content_item_id) VALUES ($1, $2)
 ON CONFLICT DO NOTHING
@@ -97,7 +136,7 @@ const createEditComment = `-- name: CreateEditComment :one
 
 INSERT INTO edit_comments (id, edit_id, user_id, text, kind, performer_id, created_at)
 VALUES ($1, $2, $3, $4, $5, $6, NOW())
-RETURNING id, edit_id, user_id, created_at, text, updated_at, is_hidden, kind, performer_id
+RETURNING id, edit_id, user_id, created_at, text, updated_at, is_hidden, kind, performer_id, confirmed_at, confirmed_edit_id, confirmed_by_id
 `
 
 type CreateEditCommentParams struct {
@@ -134,6 +173,9 @@ func (q *Queries) CreateEditComment(ctx context.Context, arg CreateEditCommentPa
 		&i.IsHidden,
 		&i.Kind,
 		&i.PerformerID,
+		&i.ConfirmedAt,
+		&i.ConfirmedEditID,
+		&i.ConfirmedByID,
 	)
 	return i, err
 }
@@ -365,7 +407,7 @@ func (q *Queries) FindEdit(ctx context.Context, id uuid.UUID) (Edit, error) {
 }
 
 const findEditComment = `-- name: FindEditComment :one
-SELECT id, edit_id, user_id, created_at, text, updated_at, is_hidden, kind, performer_id FROM edit_comments WHERE id = $1
+SELECT id, edit_id, user_id, created_at, text, updated_at, is_hidden, kind, performer_id, confirmed_at, confirmed_edit_id, confirmed_by_id FROM edit_comments WHERE id = $1
 `
 
 func (q *Queries) FindEditComment(ctx context.Context, id uuid.UUID) (EditComment, error) {
@@ -381,6 +423,9 @@ func (q *Queries) FindEditComment(ctx context.Context, id uuid.UUID) (EditCommen
 		&i.IsHidden,
 		&i.Kind,
 		&i.PerformerID,
+		&i.ConfirmedAt,
+		&i.ConfirmedEditID,
+		&i.ConfirmedByID,
 	)
 	return i, err
 }
@@ -489,7 +534,7 @@ func (q *Queries) FindPendingSceneCreation(ctx context.Context, arg FindPendingS
 }
 
 const getEditComments = `-- name: GetEditComments :many
-SELECT id, edit_id, user_id, created_at, text, updated_at, is_hidden, kind, performer_id FROM edit_comments WHERE edit_id = $1 ORDER BY created_at ASC
+SELECT id, edit_id, user_id, created_at, text, updated_at, is_hidden, kind, performer_id, confirmed_at, confirmed_edit_id, confirmed_by_id FROM edit_comments WHERE edit_id = $1 ORDER BY created_at ASC
 `
 
 func (q *Queries) GetEditComments(ctx context.Context, editID uuid.UUID) ([]EditComment, error) {
@@ -511,6 +556,9 @@ func (q *Queries) GetEditComments(ctx context.Context, editID uuid.UUID) ([]Edit
 			&i.IsHidden,
 			&i.Kind,
 			&i.PerformerID,
+			&i.ConfirmedAt,
+			&i.ConfirmedEditID,
+			&i.ConfirmedByID,
 		); err != nil {
 			return nil, err
 		}
@@ -523,7 +571,7 @@ func (q *Queries) GetEditComments(ctx context.Context, editID uuid.UUID) ([]Edit
 }
 
 const getEditCommentsByIds = `-- name: GetEditCommentsByIds :many
-SELECT id, edit_id, user_id, created_at, text, updated_at, is_hidden, kind, performer_id FROM edit_comments WHERE id = ANY($1::UUID[])
+SELECT id, edit_id, user_id, created_at, text, updated_at, is_hidden, kind, performer_id, confirmed_at, confirmed_edit_id, confirmed_by_id FROM edit_comments WHERE id = ANY($1::UUID[])
 `
 
 func (q *Queries) GetEditCommentsByIds(ctx context.Context, dollar_1 []uuid.UUID) ([]EditComment, error) {
@@ -545,6 +593,9 @@ func (q *Queries) GetEditCommentsByIds(ctx context.Context, dollar_1 []uuid.UUID
 			&i.IsHidden,
 			&i.Kind,
 			&i.PerformerID,
+			&i.ConfirmedAt,
+			&i.ConfirmedEditID,
+			&i.ConfirmedByID,
 		); err != nil {
 			return nil, err
 		}
@@ -1444,7 +1495,7 @@ func (q *Queries) ResolveEntityTypes(ctx context.Context, ids []uuid.UUID) ([]Re
 }
 
 const setEditCommentHidden = `-- name: SetEditCommentHidden :one
-UPDATE edit_comments SET is_hidden = $2 WHERE id = $1 RETURNING id, edit_id, user_id, created_at, text, updated_at, is_hidden, kind, performer_id
+UPDATE edit_comments SET is_hidden = $2 WHERE id = $1 RETURNING id, edit_id, user_id, created_at, text, updated_at, is_hidden, kind, performer_id, confirmed_at, confirmed_edit_id, confirmed_by_id
 `
 
 type SetEditCommentHiddenParams struct {
@@ -1465,6 +1516,9 @@ func (q *Queries) SetEditCommentHidden(ctx context.Context, arg SetEditCommentHi
 		&i.IsHidden,
 		&i.Kind,
 		&i.PerformerID,
+		&i.ConfirmedAt,
+		&i.ConfirmedEditID,
+		&i.ConfirmedByID,
 	)
 	return i, err
 }
@@ -1517,7 +1571,7 @@ func (q *Queries) UpdateEdit(ctx context.Context, arg UpdateEditParams) (Edit, e
 }
 
 const updateEditCommentText = `-- name: UpdateEditCommentText :one
-UPDATE edit_comments SET text = $2, updated_at = NOW() WHERE id = $1 RETURNING id, edit_id, user_id, created_at, text, updated_at, is_hidden, kind, performer_id
+UPDATE edit_comments SET text = $2, updated_at = NOW() WHERE id = $1 RETURNING id, edit_id, user_id, created_at, text, updated_at, is_hidden, kind, performer_id, confirmed_at, confirmed_edit_id, confirmed_by_id
 `
 
 type UpdateEditCommentTextParams struct {
@@ -1538,6 +1592,9 @@ func (q *Queries) UpdateEditCommentText(ctx context.Context, arg UpdateEditComme
 		&i.IsHidden,
 		&i.Kind,
 		&i.PerformerID,
+		&i.ConfirmedAt,
+		&i.ConfirmedEditID,
+		&i.ConfirmedByID,
 	)
 	return i, err
 }

@@ -56,6 +56,12 @@ type EditComment {
     makes a vote on an edit a vote and not an application.
     """
     performerId: ID
+
+    """
+    When the suggestion was confirmed, and the edit it became. Set together or not at all.
+    """
+    confirmedAt: Time
+    confirmedEditId: ID
 }
 
 union EditDetails = PerformerEdit | SceneEdit | StudioEdit | TagEdit | ContentItemEdit
@@ -243,4 +249,32 @@ input AmendItemRemoval {
     field: String!
     """Indices to remove from the array"""
     indices: [Int!]!
+}
+
+"""
+Confirming an identification. A MODERATOR action: the confirmation creates an edit rather than
+writing the relationship, because a comment is evidence and never authority.
+"""
+input ConfirmPerformerCommentInput {
+    """
+    The comment being confirmed. It must be of the PERFORMER_ID kind and unconfirmed; confirming one
+    twice is refused rather than creating a second edit.
+    """
+    commentId: ID!
+
+    """
+    Recorded on the moderator audit row, like every other moderator action.
+    """
+    reason: String
+}
+
+extend type Mutation {
+    """
+    Confirms a PERFORMER_ID comment by submitting an edit that adds the performer to the scene.
+
+    THE EDIT IS THE OUTPUT: nothing here links the performer. Applying the returned edit is what
+    does, through the same pipeline as any other scene change, and that separation is the point --
+    a comment that wrote the link would be a vote acting as an application.
+    """
+    confirmPerformerComment(input: ConfirmPerformerCommentInput!): Edit! @hasRole(role: MODERATE)
 }

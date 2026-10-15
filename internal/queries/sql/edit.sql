@@ -153,6 +153,18 @@ UPDATE edit_comments SET text = $2, updated_at = NOW() WHERE id = $1 RETURNING *
 -- name: SetEditCommentHidden :one
 UPDATE edit_comments SET is_hidden = $2 WHERE id = $1 RETURNING *;
 
+-- name: ConfirmEditComment :one
+-- Records that an identification comment was confirmed, and by which edit.
+--
+-- `AND confirmed_at IS NULL` is the whole of the idempotence rule, and it lives HERE rather than in a
+-- read-then-write in Go: two moderators confirming at once cannot both win, because the second update
+-- matches no row. A caller that gets no row knows the comment was already confirmed and says so,
+-- instead of creating a second edit for the same suggestion.
+UPDATE edit_comments
+SET confirmed_at = NOW(), confirmed_edit_id = $2, confirmed_by_id = $3
+WHERE id = $1 AND confirmed_at IS NULL
+RETURNING *;
+
 -- Edit votes
 
 -- name: CreateEditVote :exec

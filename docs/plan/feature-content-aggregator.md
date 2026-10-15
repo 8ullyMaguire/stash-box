@@ -1919,7 +1919,7 @@ probe then killed it. Same lesson as 6d, 6f and 6g, now for the fourth slice: a 
 nothing to kill it is a missing test — **and this one named a missing LAYER rather than a
 missing fixture.**
 
-### Slice 8b — confirming an identification routes into an edit (NOT BUILT)
+### Slice 8b — confirming an identification routes into an edit (BUILT)
 
 The phase's own verification, and the reason this slice is separate: **a confirmed
 `performer_id` comment creates an edit, and applying that edit links the performer — the test
@@ -1943,6 +1943,57 @@ Design notes recorded here so the slice starts from them:
 - **The comment records its outcome** — confirmed, and by which edit — or a moderator
   confirms the same suggestion twice and nobody can tell. That is a small column pair and it
   is the part most likely to be skipped.
+
+
+**Verification (DONE).** One test, in the order the phase asks for: a scene with **no performers**
+is created; an editor comments on an edit of it with kind `performer_id` naming a performer; a
+moderator confirms; and then — **the edit exists, and the scene does NOT have the performer**. Only
+after that does an admin approve the edit, and the performer is linked. A version of this feature that
+wrote the link would pass the last assertion and fail the earlier one, which is exactly what the
+phase's verification asks for. A second confirmation is refused with the named error, and the comment
+records which edit it became. A discussion cannot be confirmed at all.
+
+**TWO MISTAKES, BOTH WORTH MORE THAN THE CODE.**
+
+**1. `Scene().Update` IS THE APPLY PATH, NOT THE PROPOSE PATH.** The first version of the resolver
+called it, and the compile error for the return type (`*Scene` where an `*Edit` belongs) is the only
+reason it did not ship: that function calls `tx.UpdateScene` and `updatePerformers` **directly**, which
+is how an *approved* edit is applied. Calling it would have written the relationship — the exact
+failure the phase names, *a comment that silently writes the link*. The proposal path is
+`CreateSceneEdit`, which diffs the appearances against the scene's own and stores an edit. **A compile
+error caught a design error**, which is the cheapest kind of catch there is and the reason the phase's
+verification is phrased around what must NOT happen.
+
+**2. THE RESOLVERS GO THROUGH A DATALOADER, WHICH CACHES PER REQUEST.** The test read the scene's
+performers twice in one context — once before the confirmation and once after the approval — and the
+second read answered with the first read's empty list, so a working apply looked like it had done
+nothing. The reader is a fresh session now. This is a **test** hazard in the direction of a false
+failure, and a real one in the direction of a false success: any handler that reads the same field
+twice in one request sees the first answer, which is correct for a batch loader and wrong for a
+verifier.
+
+**PROBE RESULTS, STATED AS THEY ARE: three killed, two not validly run.** Killed: the confirmation
+writing the link as well as proposing it (the headline — it reddens exactly the assertion that says the
+scene does NOT have the performer), a second confirmation being allowed, and any comment being
+confirmable. **Two mutations did not run**: one invented a helper that does not exist, and the other
+anchored on a function's signature rather than its call site, so both reported BROKEN — which is not a
+verdict about anything, and neither is counted. The tree was re-verified green after the batch, not
+trusted.
+
+**AND ONE PROBE THAT WOULD SURVIVE, RECORDED RATHER THAN LEFT TO BE FOUND: the fixture's scene has NO
+existing performers**, so a mutation that REPLACED the appearance list instead of adding to it changes
+nothing observable here — every assertion stays green. The adding-vs-replacing rule needs a scene that
+already has somebody on it, with the identified performer asserted to be present ALONGSIDE them. That
+is a missing fixture, not a missing assertion, and it is the third time in this phase that a probe's
+design found one.
+
+**The confirmation is idempotent in the QUERY, not in Go:** `ConfirmEditComment` carries
+`AND confirmed_at IS NULL`, so two moderators confirming at once cannot both win — the second update
+matches no row and reports the same error the sequential case does. And the confirmation is recorded
+**after** the edit exists, which is forced by the schema (a confirmation with no edit to point at is
+refused) and is also the direction to fail in: if the recording fails, an extra edit stands, which is
+visible and refusable, where a comment recorded as confirmed with no edit behind it is a suggestion
+nobody will look at again.
 
 ## Phase 9 — preservation at scale
 

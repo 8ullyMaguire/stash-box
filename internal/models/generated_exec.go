@@ -348,15 +348,17 @@ type ComplexityRoot struct {
 	}
 
 	EditComment struct {
-		Comment     func(childComplexity int) int
-		Date        func(childComplexity int) int
-		Edit        func(childComplexity int) int
-		Hidden      func(childComplexity int) int
-		ID          func(childComplexity int) int
-		Kind        func(childComplexity int) int
-		PerformerID func(childComplexity int) int
-		Updated     func(childComplexity int) int
-		User        func(childComplexity int) int
+		Comment         func(childComplexity int) int
+		ConfirmedAt     func(childComplexity int) int
+		ConfirmedEditID func(childComplexity int) int
+		Date            func(childComplexity int) int
+		Edit            func(childComplexity int) int
+		Hidden          func(childComplexity int) int
+		ID              func(childComplexity int) int
+		Kind            func(childComplexity int) int
+		PerformerID     func(childComplexity int) int
+		Updated         func(childComplexity int) int
+		User            func(childComplexity int) int
 	}
 
 	EditVote struct {
@@ -668,6 +670,7 @@ type ComplexityRoot struct {
 		ChangePassword                    func(childComplexity int, input UserChangePasswordInput) int
 		ClearSessionState                 func(childComplexity int, input ClearSessionStateInput) int
 		ConfirmChangeEmail                func(childComplexity int, token uuid.UUID) int
+		ConfirmPerformerComment           func(childComplexity int, input ConfirmPerformerCommentInput) int
 		ContentItemEdit                   func(childComplexity int, input ContentItemEditInput) int
 		ContentItemEditUpdate             func(childComplexity int, id uuid.UUID, input ContentItemEditInput) int
 		CreateSavedSearch                 func(childComplexity int, input SavedSearchInput) int
@@ -1595,6 +1598,8 @@ type EditCommentResolver interface {
 	Edit(ctx context.Context, obj *EditComment) (*Edit, error)
 	Kind(ctx context.Context, obj *EditComment) (EditCommentKind, error)
 	PerformerID(ctx context.Context, obj *EditComment) (*uuid.UUID, error)
+
+	ConfirmedEditID(ctx context.Context, obj *EditComment) (*uuid.UUID, error)
 }
 type EditVoteResolver interface {
 	User(ctx context.Context, obj *EditVote) (*User, error)
@@ -1712,6 +1717,7 @@ type MutationResolver interface {
 	GenerateCollage(ctx context.Context, sceneID uuid.UUID, frameCount *int) (*Collage, error)
 	SubmitContentURL(ctx context.Context, url string, sceneID *uuid.UUID) (*IngestSubmission, error)
 	UserAcceptContentTerms(ctx context.Context) (*ContentAccessSetup, error)
+	ConfirmPerformerComment(ctx context.Context, input ConfirmPerformerCommentInput) (*Edit, error)
 	VoteElo(ctx context.Context, input EloVoteInput) (*EloVoteResult, error)
 	FederationPeerCreate(ctx context.Context, input FederationPeerCreateInput) (*FederationPeer, error)
 	FederationPeerUpdate(ctx context.Context, input FederationPeerUpdateInput) (*FederationPeer, error)
@@ -3073,6 +3079,18 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.EditComment.Comment(childComplexity), true
+	case "EditComment.confirmedAt":
+		if e.ComplexityRoot.EditComment.ConfirmedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EditComment.ConfirmedAt(childComplexity), true
+	case "EditComment.confirmedEditId":
+		if e.ComplexityRoot.EditComment.ConfirmedEditID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EditComment.ConfirmedEditID(childComplexity), true
 	case "EditComment.date":
 		if e.ComplexityRoot.EditComment.Date == nil {
 			break
@@ -4328,6 +4346,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.ConfirmChangeEmail(childComplexity, args["token"].(uuid.UUID)), true
+	case "Mutation.confirmPerformerComment":
+		if e.ComplexityRoot.Mutation.ConfirmPerformerComment == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_confirmPerformerComment_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.ConfirmPerformerComment(childComplexity, args["input"].(ConfirmPerformerCommentInput)), true
 	case "Mutation.contentItemEdit":
 		if e.ComplexityRoot.Mutation.ContentItemEdit == nil {
 			break
@@ -9239,6 +9268,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputBreastTypeCriterionInput,
 		ec.unmarshalInputCancelEditInput,
 		ec.unmarshalInputClearSessionStateInput,
+		ec.unmarshalInputConfirmPerformerCommentInput,
 		ec.unmarshalInputContentItemEditDetailsInput,
 		ec.unmarshalInputContentItemEditInput,
 		ec.unmarshalInputDateCriterionInput,
@@ -10595,6 +10625,12 @@ type EditComment {
     makes a vote on an edit a vote and not an application.
     """
     performerId: ID
+
+    """
+    When the suggestion was confirmed, and the edit it became. Set together or not at all.
+    """
+    confirmedAt: Time
+    confirmedEditId: ID
 }
 
 union EditDetails = PerformerEdit | SceneEdit | StudioEdit | TagEdit | ContentItemEdit
@@ -10782,6 +10818,34 @@ input AmendItemRemoval {
     field: String!
     """Indices to remove from the array"""
     indices: [Int!]!
+}
+
+"""
+Confirming an identification. A MODERATOR action: the confirmation creates an edit rather than
+writing the relationship, because a comment is evidence and never authority.
+"""
+input ConfirmPerformerCommentInput {
+    """
+    The comment being confirmed. It must be of the PERFORMER_ID kind and unconfirmed; confirming one
+    twice is refused rather than creating a second edit.
+    """
+    commentId: ID!
+
+    """
+    Recorded on the moderator audit row, like every other moderator action.
+    """
+    reason: String
+}
+
+extend type Mutation {
+    """
+    Confirms a PERFORMER_ID comment by submitting an edit that adds the performer to the scene.
+
+    THE EDIT IS THE OUTPUT: nothing here links the performer. Applying the returned edit is what
+    does, through the same pipeline as any other scene change, and that separation is the point --
+    a comment that wrote the link would be a vote acting as an application.
+    """
+    confirmPerformerComment(input: ConfirmPerformerCommentInput!): Edit! @hasRole(role: MODERATE)
 }
 `, BuiltIn: false},
 	{Name: "../../graphql/schema/types/elo.graphql", Input: `# Elo ranking (SPEC §9).
@@ -16082,6 +16146,10 @@ func (ec *executionContext) childFields_EditComment(ctx context.Context, field g
 		return ec.fieldContext_EditComment_kind(ctx, field)
 	case "performerId":
 		return ec.fieldContext_EditComment_performerId(ctx, field)
+	case "confirmedAt":
+		return ec.fieldContext_EditComment_confirmedAt(ctx, field)
+	case "confirmedEditId":
+		return ec.fieldContext_EditComment_confirmedEditId(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type EditComment", field.Name)
 }
@@ -17959,6 +18027,20 @@ func (ec *executionContext) field_Mutation_confirmChangeEmail_args(ctx context.C
 		return nil, err
 	}
 	args["token"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_confirmPerformerComment_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
+		func(ctx context.Context, v any) (ConfirmPerformerCommentInput, error) {
+			return ec.unmarshalNConfirmPerformerCommentInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐConfirmPerformerCommentInput(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
 	return args, nil
 }
 
@@ -25085,6 +25167,52 @@ func (ec *executionContext) _EditComment_performerId(ctx context.Context, field 
 	)
 }
 func (ec *executionContext) fieldContext_EditComment_performerId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("EditComment", field, true, true, errors.New("field of type ID does not have child fields"))
+}
+
+func (ec *executionContext) _EditComment_confirmedAt(ctx context.Context, field graphql.CollectedField, obj *EditComment) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_EditComment_confirmedAt(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ConfirmedAt, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *time.Time) graphql.Marshaler {
+			return ec.marshalOTime2ᚖtimeᚐTime(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_EditComment_confirmedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("EditComment", field, false, false, errors.New("field of type Time does not have child fields"))
+}
+
+func (ec *executionContext) _EditComment_confirmedEditId(ctx context.Context, field graphql.CollectedField, obj *EditComment) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_EditComment_confirmedEditId(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.EditComment().ConfirmedEditID(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *uuid.UUID) graphql.Marshaler {
+			return ec.marshalOID2ᚖgithubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_EditComment_confirmedEditId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("EditComment", field, true, true, errors.New("field of type ID does not have child fields"))
 }
 
@@ -34862,6 +34990,68 @@ func (ec *executionContext) fieldContext_Mutation_userAcceptContentTerms(_ conte
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return ec.childFields_ContentAccessSetup(ctx, field)
 		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_confirmPerformerComment(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_confirmPerformerComment(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().ConfirmPerformerComment(ctx, fc.Args["input"].(ConfirmPerformerCommentInput))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "MODERATE")
+				if err != nil {
+					var zeroVal *Edit
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *Edit
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *Edit) graphql.Marshaler {
+			return ec.marshalNEdit2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐEdit(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_confirmPerformerComment(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_Edit(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_confirmPerformerComment_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
 	}
 	return fc, nil
 }
@@ -55360,6 +55550,43 @@ func (ec *executionContext) unmarshalInputClearSessionStateInput(ctx context.Con
 	return it, nil
 }
 
+func (ec *executionContext) unmarshalInputConfirmPerformerCommentInput(ctx context.Context, obj any) (ConfirmPerformerCommentInput, error) {
+	var it ConfirmPerformerCommentInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"commentId", "reason"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "commentId":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("commentId"))
+			data, err := ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.CommentID = data
+		case "reason":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("reason"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Reason = data
+		}
+	}
+	return it, nil
+}
+
 func (ec *executionContext) unmarshalInputContentItemEditDetailsInput(ctx context.Context, obj any) (ContentItemEditDetailsInput, error) {
 	var it ContentItemEditDetailsInput
 	if obj == nil {
@@ -65787,6 +66014,49 @@ func (ec *executionContext) _EditComment(ctx context.Context, sel ast.SelectionS
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "confirmedAt":
+			out.Values[i] = ec._EditComment_confirmedAt(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "confirmedEditId":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._EditComment_confirmedEditId(ctx, field, obj)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -69076,6 +69346,13 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 		case "userAcceptContentTerms":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_userAcceptContentTerms(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "confirmPerformerComment":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_confirmPerformerComment(ctx, field)
 			})
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
@@ -81685,6 +81962,11 @@ func (ec *executionContext) marshalNCompletenessVerdict2ᚖgithubᚗcomᚋstasha
 		return graphql.Null
 	}
 	return ec._CompletenessVerdict(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalNConfirmPerformerCommentInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐConfirmPerformerCommentInput(ctx context.Context, v any) (ConfirmPerformerCommentInput, error) {
+	res, err := ec.unmarshalInputConfirmPerformerCommentInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
 }
 
 func (ec *executionContext) marshalNContentAccessSetup2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentAccessSetup(ctx context.Context, sel ast.SelectionSet, v *ContentAccessSetup) graphql.Marshaler {

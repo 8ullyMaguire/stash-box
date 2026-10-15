@@ -351,6 +351,16 @@ type Completion struct {
 	Earned int `json:"earned"`
 }
 
+// Confirming an identification. A MODERATOR action: the confirmation creates an edit rather than
+// writing the relationship, because a comment is evidence and never authority.
+type ConfirmPerformerCommentInput struct {
+	// The comment being confirmed. It must be of the PERFORMER_ID kind and unconfirmed; confirming one
+	// twice is refused rather than creating a second edit.
+	CommentID uuid.UUID `json:"commentId"`
+	// Recorded on the moderator audit row, like every other moderator action.
+	Reason *string `json:"reason,omitempty"`
+}
+
 // A member's standing against the content-viewing gate.
 type ContentAccessSetup struct {
 	// Whether this member has accepted the content-viewing terms. Until they have, the gate refuses.

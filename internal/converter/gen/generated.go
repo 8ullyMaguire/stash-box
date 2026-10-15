@@ -490,6 +490,9 @@ func (c *ModelConverterImpl) ConvertEditComment(source queries.EditComment) mode
 	modelsEditComment.IsHidden = source.IsHidden
 	modelsEditComment.Kind = source.Kind
 	modelsEditComment.PerformerID = c.uuidNullUUIDToUuidNullUUID2(source.PerformerID)
+	modelsEditComment.ConfirmedAt = c.pTimeTimeToPTimeTime(source.ConfirmedAt)
+	modelsEditComment.ConfirmedEditID = c.uuidNullUUIDToUuidNullUUID2(source.ConfirmedEditID)
+	modelsEditComment.ConfirmedByID = c.uuidNullUUIDToUuidNullUUID2(source.ConfirmedByID)
 	return modelsEditComment
 }
 func (c *ModelConverterImpl) ConvertEditComments(source []queries.EditComment) []models.EditComment {

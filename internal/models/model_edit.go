@@ -38,6 +38,13 @@ type EditComment struct {
 	// PerformerID is the structured field of the `performer_id` kind, and is NULL for every other
 	// kind -- a rule the database enforces as well, so no reader has to guess.
 	PerformerID uuid.NullUUID `json:"performer_id"`
+
+	// ConfirmedAt and ConfirmedEditID record that an identification became an edit, and which one.
+	// They are set together or not at all -- the schema refuses a confirmation with no edit to point
+	// at -- so a reader learns both the proposal's fate and where to follow it.
+	ConfirmedAt     *time.Time    `json:"confirmed_at"`
+	ConfirmedEditID uuid.NullUUID `json:"confirmed_edit_id"`
+	ConfirmedByID   uuid.NullUUID `json:"confirmed_by_id"`
 }
 
 type EditVote struct {

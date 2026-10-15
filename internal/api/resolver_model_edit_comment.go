@@ -81,3 +81,18 @@ func (r *editCommentResolver) PerformerID(ctx context.Context, obj *models.EditC
 	id := obj.PerformerID.UUID
 	return &id, nil
 }
+
+// ConfirmedAt is when an identification comment became an edit, and is null until one does.
+func (r *editCommentResolver) ConfirmedAt(ctx context.Context, obj *models.EditComment) (*time.Time, error) {
+	return obj.ConfirmedAt, nil
+}
+
+// ConfirmedEditID is the edit a confirmed identification became: null for a comment that is not a
+// suggestion and for one nobody has confirmed.
+func (r *editCommentResolver) ConfirmedEditID(ctx context.Context, obj *models.EditComment) (*uuid.UUID, error) {
+	if !obj.ConfirmedEditID.Valid {
+		return nil, nil
+	}
+	id := obj.ConfirmedEditID.UUID
+	return &id, nil
+}

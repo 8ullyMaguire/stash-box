@@ -131,6 +131,13 @@ type Querier interface {
 	// one).
 	ClearDownvoteEditNotifications(ctx context.Context, id uuid.UUID) error
 	ClearScenePerformerAlias(ctx context.Context, arg ClearScenePerformerAliasParams) error
+	// Records that an identification comment was confirmed, and by which edit.
+	//
+	// `AND confirmed_at IS NULL` is the whole of the idempotence rule, and it lives HERE rather than in a
+	// read-then-write in Go: two moderators confirming at once cannot both win, because the second update
+	// matches no row. A caller that gets no row knows the comment was already confirmed and says so,
+	// instead of creating a second edit for the same suggestion.
+	ConfirmEditComment(ctx context.Context, arg ConfirmEditCommentParams) (EditComment, error)
 	// Whether this instance denylists anything at all. The scene query's optimized trending path LIMITs
 	// its subquery before the filters run, so a page that must exclude denylisted scenes cannot take it
 	// -- the same guard the tiers need, and it needs the same answer to "is there anything to exclude".
