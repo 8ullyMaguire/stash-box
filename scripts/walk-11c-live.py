@@ -29,6 +29,7 @@ See docs/plan/feature-content-aggregator.md, phase 11 slice 11c.
 """
 
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -36,19 +37,82 @@ import time
 import urllib.error
 import urllib.request
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from importlib.machinery import SourceFileLoader
+# THE PLUMBING IS COPIED, AND THAT IS DELIBERATE. The sibling walks are SCRIPTS whose whole body is
+# the walk (walk-11b-live.py has no `main()`), so importing one to borrow its helpers RUNS it: the
+# first version of this file did exactly that and performed an entire unasked-for 11b walk on the live
+# instance before failing on a missing name. A script that cannot be imported can be read instead.
+import base64
+import hashlib
+import hmac
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.error
+import urllib.request
 
-_11b = SourceFileLoader("walk11b", os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                                "walk-11b-live.py"))
+URL = "http://127.0.0.1:9998/graphql"
+DB = "stash-box"
+CONFIG = "/home/alvaro/stash-box-deploy/config/stash-box-config.yml"
 
-psql = _11b.psql
-gql = _11b.gql
-show = _11b.show
-MEMBER = _11b.MEMBER
-OPERATOR = _11b.OPERATOR
-TOKENS = _11b.TOKENS
-STAMP = _11b.STAMP
+
+def psql(sql):
+    out = subprocess.run(
+        ["sudo", "docker", "exec", "-i", "stashbox-pg", "psql", "-U", "stashbox", "-d", DB, "-tAc", sql],
+        capture_output=True, text=True,
+    )
+    if out.returncode != 0:
+        sys.exit("psql failed: " + out.stderr.strip())
+    return out.stdout.strip()
+
+
+secret = next(l.split(":", 1)[1].strip() for l in open(CONFIG).read().splitlines()
+              if l.startswith("jwt_secret_key:"))
+
+
+def mint(uid):
+    b64 = lambda raw: base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+    now = int(time.time())
+    head = b64(json.dumps({"alg": "HS256", "typ": "JWT"}, separators=(",", ":")).encode())
+    pay = b64(json.dumps({"uid": uid, "sub": "APIKey", "iat": now, "exp": now + 3600},
+                         separators=(",", ":")).encode())
+    sig = b64(hmac.new(secret.encode(), f"{head}.{pay}".encode(), hashlib.sha256).digest())
+    return f"{head}.{pay}.{sig}"
+
+
+def gql(key, query, variables=None):
+    body = json.dumps({"query": query, "variables": variables or {}}).encode()
+    req = urllib.request.Request(URL, data=body,
+                                headers={"Content-Type": "application/json", "ApiKey": key or ""})
+    try:
+        with urllib.request.urlopen(req) as r:
+            return r.status, json.loads(r.read().decode())
+    except urllib.error.HTTPError as e:
+        return e.code, e.read().decode()
+
+
+def user_id(name):
+    return psql("select id from users where name = '%s'" % name)
+
+
+MEMBER_NAME = os.environ.get("WALK_MEMBER", "Lutrification")
+MEMBER = user_id(MEMBER_NAME)
+if not MEMBER:
+    sys.exit(f"need an account named {MEMBER_NAME} on this instance")
+
+# A MINTED TOKEN IS ONLY VALID IF IT IS THE USER'S STORED `api_key`: the middleware compares the
+# header byte-for-byte with the column (internal/api/server.go), so a JWT with a correct signature and
+# a fresh `iat` is still a 401 -- measured, after the first version of this walk authenticated with
+# nothing but a signature. The walk therefore LENDS the member its own token and puts the column back
+# afterwards, which is what the sibling walks do and why they save api_keys.
+api_key_before = psql(f"select coalesce(api_key, '') from users where id = '{MEMBER}'")
+if not api_key_before:
+    sys.exit("the member has no api_key to restore; refusing to run")
+TOKENS = {MEMBER: mint(MEMBER)}
+psql(f"update users set api_key = '{TOKENS[MEMBER]}' where id = '{MEMBER}'")
 
 # The landing page is served by the running instance, on the same port as the API.
 BASE = os.environ.get("WALK_BASE", "http://127.0.0.1:9998")
@@ -74,31 +138,69 @@ def http_get(path):
         return e.code, e.read().decode("utf-8", "replace"), dict(e.headers)
 
 
-def scans_now():
+def decode_and_check(svg, share):
+    """The deployed instance's own SVG, through an INDEPENDENT decoder, on a host that has one."""
+    with tempfile.TemporaryDirectory() as tmp:
+        svg_path = os.path.join(tmp, "key.svg")
+        png_path = os.path.join(tmp, "key.png")
+        with open(svg_path, "w") as f:
+            f.write(svg)
+        rendered = subprocess.run(["rsvg-convert", "-w", "600", svg_path, "-o", png_path],
+                                  capture_output=True, text=True)
+        if rendered.returncode != 0:
+            check("D3", False, "rsvg-convert could not render the SVG", rendered.stderr.strip())
+            return
+        decoded = subprocess.run(["zbarimg", "--quiet", "--raw", png_path],
+                                 capture_output=True, text=True)
+        payload = decoded.stdout.strip()
+        check("D3", decoded.returncode == 0 and share is not None and payload == share["link"],
+              "and it DECODES BACK to that same link with an independent decoder (zbarimg, through "
+              "rsvg-convert): if these disagree the code is a lie",
+              f"decoded: {payload}")
+
+
+def scans_now(quiet=False):
     status, body = gql(TOKENS[MEMBER], "{ me { invite_stats { scans signups activations } } }")
     if status != 200 or not isinstance(body, dict) or not body.get("data"):
+        if not quiet:
+            print(f"   (me.invite_stats answered http {status}: "
+                  f"{json.dumps(body)[:200] if not isinstance(body, str) else body[:200]})")
         return None
     return body["data"]["me"]["invite_stats"]
+
+
+def restart_and_wait():
+    """Clear the running instance's auth cache, then wait until the token it just lent is accepted."""
+    subprocess.run(["systemctl", "--user", "restart", "stash-box"],
+                   check=True, env=dict(os.environ, XDG_RUNTIME_DIR="/run/user/1000"))
+    for _ in range(30):
+        time.sleep(1)
+        if scans_now(quiet=True) is not None:
+            return
+    sys.exit("the service did not come back with the lent token accepted")
 
 
 def main():
     member_name = psql(f"select name from users where id = '{MEMBER}'")
     print(f"=== 11c walk: the landing page, the counters and the QR (member {member_name}) ===")
+    restart_and_wait()
+    print("   (the member's api_key was LENT to this walk for the duration, and is put back at the end)")
 
     before_max = int(psql("select coalesce(max(id), 0) from invite_key_events"))
     before_keys = psql(f"select count(*) from invite_keys where generated_by = '{MEMBER}'")
-    api_key = psql(f"select api_key from users where id = '{MEMBER}'")
-    if not api_key or api_key == "":
-        sys.exit("the member has no api_key to restore; refusing to run")
 
     keys = []
     try:
         # --- A/B. a live key, visited twice, unauthenticated -------------------------------------
-        status, body = gql(TOKENS[MEMBER],
-                           "mutation { generateInviteKeys(input: { keys: 1 }) { id } }")
-        if status != 200 or not isinstance(body, dict) or not body.get("data"):
-            sys.exit(f"could not mint a key: http {status} {body}")
-        key = body["data"]["generateInviteKeys"][0]["id"]
+        # The key is INSERTED rather than minted through the API, so the walk does not need to lend
+        # itself roles or an invite allowance: the surface under test is the landing page (which is
+        # unauthenticated) and the member's own read of their keys (which is owner-scoped), and
+        # neither of those is a permission question. Nothing about minting is being verified here.
+        # `.splitlines()[0]`: psql -tA prints the command tag ("INSERT 0 1") after the value, and a
+        # uuid with a newline and a tag glued to it is not a uuid.
+        key = psql("insert into invite_keys (id, generated_by, generated_at, uses, expire_time) "
+                   "values (gen_random_uuid(), '%s', now(), 5, null) returning id"
+                   % MEMBER).splitlines()[0].strip()
         keys.append(key)
         print(f"   minted key {key[:8]}...")
 
@@ -142,7 +244,7 @@ def main():
         # --- C. a dead key and an invented code: same page, no row --------------------------------
         expired = psql(f"insert into invite_keys (id, generated_by, generated_at, uses, expire_time) "
                        f"values (gen_random_uuid(), '{MEMBER}', now(), 5, now() - interval '1 day') "
-                       f"returning id")
+                       f"returning id").splitlines()[0].strip()
         keys.append(expired)
 
         dead_code, dead_page, dead_headers = http_get("/invite/" + expired)
@@ -174,9 +276,14 @@ def main():
         shares = (body["data"]["me"]["invite_codes"]
                   if status == 200 and isinstance(body, dict) and body.get("data") else [])
         share = next((s for s in shares if s["id"] == key), None)
-        check("D", share is not None and share["link"].endswith("/invite/" + key),
-              "the key reports the LINK it is shared as, built from the instance's own address",
-              share["link"] if share else "(no link for the minted key)")
+        # ABSOLUTE, not merely well-formed: a link that is only a path is a link nobody can be given.
+        # This verdict is what found that the deployment had no `host_url` at all -- the link read
+        # "/invite/<code>", which ends with the path and looks right in a printout.
+        link = share["link"] if share else ""
+        check("D", bool(link) and link.startswith("http") and link.endswith("/invite/" + key),
+              "the key reports the LINK it is shared as, an ABSOLUTE address built from the "
+              "instance's own configured url (a path alone cannot be handed to anybody)",
+              link or "(no link for the minted key)")
 
         svg = share["qr_svg"] if share else ""
         check("D2", bool(svg) and svg.startswith("<svg ") and svg.endswith("</svg>")
@@ -184,24 +291,23 @@ def main():
               "the QR is a standalone SVG document with the URL as GEOMETRY, not as text",
               f"{len(svg)} bytes")
 
-        with tempfile.TemporaryDirectory() as tmp:
-            svg_path = os.path.join(tmp, "key.svg")
-            png_path = os.path.join(tmp, "key.png")
-            with open(svg_path, "w") as f:
+        # THE DECODER IS NOT ON EVERY HOST. Measured: this deployment host has neither zbarimg nor
+        # rsvg-convert (the build host has both), so the decode is SKIPPED WITH ITS REASON rather
+        # than reported as a pass -- and the deployed instance's own SVG is decoded on the host that
+        # does have them, from the file this walk writes out below.
+        missing = [t for t in ("rsvg-convert", "zbarimg") if not shutil.which(t)]
+        if missing:
+            out_path = "/tmp/walk-11c-key.svg"
+            with open(out_path, "w") as f:
                 f.write(svg)
-            rendered = subprocess.run(["rsvg-convert", "-w", "600", svg_path, "-o", png_path],
-                                      capture_output=True, text=True)
-            if rendered.returncode != 0:
-                check("D3", False, "rsvg-convert could not render the SVG", rendered.stderr.strip())
-            else:
-                decoded = subprocess.run(["zbarimg", "--quiet", "--raw", png_path],
-                                         capture_output=True, text=True)
-                payload = decoded.stdout.strip()
-                check("D3", decoded.returncode == 0 and share is not None
-                      and payload == share["link"],
-                      "and it DECODES BACK to that same link with an independent decoder "
-                      "(zbarimg, through rsvg-convert): if these disagree the code is a lie",
-                      f"decoded: {payload}")
+            print(f"   VERDICT D3: SKIPPED -- no independent decoder on this host "
+                  f"({', '.join(missing)} absent); the SVG it served is written to {out_path} "
+                  f"so the host that HAS the tools can decode it")
+            print("      that host was measured to have zbarimg + rsvg-convert + qrencode, and the "
+                  "same decode is an assertion in internal/api/invite_link_qr_integration_test.go")
+
+        if not missing:
+            decode_and_check(svg, share)
 
     finally:
         # THE RESTORE IS CODE. The journal is append-only history, so this walk removes exactly the
@@ -210,7 +316,7 @@ def main():
             psql(f"delete from invite_key_events where invite_key_id = '{k}'")
             psql(f"delete from invite_keys where id = '{k}'")
         psql(f"delete from invite_key_events where id > {before_max} and generated_by = '{MEMBER}'")
-        psql(f"update users set api_key = '{api_key}' where id = '{MEMBER}'")
+        psql(f"update users set api_key = '{api_key_before}' where id = '{MEMBER}'")
 
         print("\nRESTORE:")
         print("   event rows left behind:",
@@ -218,7 +324,7 @@ def main():
         print("   the member's key count is back:",
               psql(f"select count(*) from invite_keys where generated_by = '{MEMBER}'") == before_keys)
         print("   the member's api_key is byte-identical:",
-              psql(f"select api_key from users where id = '{MEMBER}'") == api_key)
+              psql(f"select coalesce(api_key, '') from users where id = '{MEMBER}'") == api_key_before)
 
     print("\n=== " + ("WALK COMPLETE" if not FAILED else f"WALK FAILED: {', '.join(FAILED)}") + " ===")
     return 1 if FAILED else 0

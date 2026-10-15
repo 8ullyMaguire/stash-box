@@ -3347,6 +3347,20 @@ constant with inline CSS -- no assets, so it renders before the application and 
 application cannot -- and it carries `X-Robots-Tag: noindex` and the existing `Referrer-Policy`, because
 a key in a search index is a key that is no longer private.
 
+**FOUND WHILE DEPLOYING, and it is the same family as the rest of this slice -- a value that reads
+correctly and cannot be used.** The link was built from `host_url` ALONE, and the deployment sets no
+`host_url`, so a member's link came out as `/invite/<code>`: it ends with the right path, it prints
+correctly, and it is a PATH -- nobody can be handed it, and a QR code encoding it sends a scanner to
+nothing. Measured, not reasoned: the walk's `D` verdict failed on the deployed instance with exactly that
+string. The rule is now CONFIGURED WINS, OTHERWISE THE REQUEST'S OWN ADDRESS (`host_url` when the operator
+has set one, else `BaseURLCtxKey`, which nginx's forwarded `Host` and `X-Forwarded-Proto` make the address
+the member is actually using -- and therefore the address their invitee needs). The staging objection that
+justified preferring `host_url` still holds and is why the configured value wins; what it cannot justify is
+a default deployment producing a link that does not work. The walk now asserts the link is ABSOLUTE, so
+this cannot come back as a pass: the assertion was written first, it FAILED against the deployed binary,
+and it passes now (precedence and fallback each have their own case in
+`TestTheSharedAddressPrefersTheConfiguredOneAndFallsBackToTheRequest`).
+
 **The rule the page spends is the SAME rule the signup path spends** (`invite.Unusable`, one function,
 two callers): expiry and exhaustion are the key's own facts, equally true on an instance that requires
 invites and on one that does not, and a rule asked twice is a rule answered differently eventually --

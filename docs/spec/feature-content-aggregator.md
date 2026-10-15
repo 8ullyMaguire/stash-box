@@ -436,7 +436,10 @@ and ignores a kind it does not know.
 records nobody (a count, a kind and a time: no address, no agent, no cookie, no account), serves the SAME
 document and headers for a live, expired, spent or invented code (only the echo of what the visitor typed
 differs), and counts no visit to a key nobody could have used. The link it shares, the link the QR encodes
-and the path the router serves are one string built from `host_url` (`invite.LinkURL`); the QR is SVG
+and the path the router serves are one string (`invite.LinkURL`), built from `host_url` when the operator
+has configured one and otherwise from the address the request arrived at — a configured value wins because
+a link shared from a staging hostname must not send somebody to staging, but a default deployment must
+still produce a link somebody can be handed, and `host_url` alone produced a bare path; the QR is SVG
 geometry rendered server-side (`InviteKey.qr_svg`), verified by decoding back with an independent decoder.
 
 **Counters are row counts, and the rows must OUTLIVE what they count.** A scan is a row, a signup is a row

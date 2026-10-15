@@ -22,13 +22,32 @@ import (
 // owner-directive; the field resolvers below cannot tell whom the object was fetched for.)
 type inviteKeyResolver struct{ *Resolver }
 
-// Link is the address the key is shared as.
+// shareBaseURL is where a shared link points: the configured `host_url` when the operator has set
+// one, and otherwise the address this request arrived at.
 //
-// The base is the configured `host_url`, not the request's Host header: a member who asks from a
-// staging hostname must not be handed a link that only works on that hostname, because the person
-// they hand it to is somewhere else.
+// THE PRECEDENCE IS THE POINT, AND THE FALLBACK IS A MEASURED DECISION rather than a convenience. A
+// deployment with no `host_url` is the DEFAULT deployment, and on one of those the first version of
+// this resolver produced a link of the form "/invite/<code>" -- which ends with the right path, reads
+// correctly in a printout, and cannot be handed to anybody. Measured on the deployed instance.
+//
+// The reason to prefer the configured value is unchanged: a member who shares a link from a staging
+// hostname should not hand somebody a link that only works on staging. But the default has to produce
+// a USABLE link, and the request's own address is the only other one this process knows -- nginx
+// forwards `Host` and `X-Forwarded-Proto`, so on a proxied instance it is the address the member is
+// actually using, which is the address their invitee needs.
+func (r *inviteKeyResolver) shareBaseURL(ctx context.Context) string {
+	if configured := config.GetHostURL(); configured != "" {
+		return configured
+	}
+	if fromRequest, ok := ctx.Value(BaseURLCtxKey).(string); ok {
+		return fromRequest
+	}
+	return ""
+}
+
+// Link is the address the key is shared as.
 func (r *inviteKeyResolver) Link(ctx context.Context, key *models.InviteKey) (string, error) {
-	return invite.LinkURL(config.GetHostURL(), key.ID), nil
+	return invite.LinkURL(r.shareBaseURL(ctx), key.ID), nil
 }
 
 // QRSVG renders that same link as an SVG document.
@@ -36,5 +55,5 @@ func (r *inviteKeyResolver) Link(ctx context.Context, key *models.InviteKey) (st
 // The failure is a real error rather than an empty string: a member who is shown a blank square
 // instead of a QR code has no way to tell it is not their link that is broken.
 func (r *inviteKeyResolver) QRSVG(ctx context.Context, key *models.InviteKey) (string, error) {
-	return qr.SVG(invite.LinkURL(config.GetHostURL(), key.ID), 4)
+	return qr.SVG(invite.LinkURL(r.shareBaseURL(ctx), key.ID), 4)
 }

@@ -49,6 +49,13 @@ func (c *graphqlClient) inviteShares() ([]inviteShare, error) {
 }
 
 func TestAKeysLinkIsTheInstancesOwnAddressAndTheQrEncodesThatSameLink(t *testing.T) {
+	// A CONFIGURED ADDRESS, so what is decoded below is a URL somebody could open rather than a path.
+	// (Nothing in the test suite loads a config file, so without this the link is the relative form
+	// the default deployment produces -- which is asserted in the internal test next door.)
+	old := config.C.HostURL
+	config.C.HostURL = "https://catalogue.example"
+	defer func() { config.C.HostURL = old }()
+
 	member, runner := inviteMember(t)
 	grantInvite(t, member.ID, 1)
 	keys := keyIDs(t, mustKeys(t, runner, 1, nil))

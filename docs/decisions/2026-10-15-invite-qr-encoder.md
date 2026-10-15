@@ -32,12 +32,20 @@ last upstream commit: 2020-06-17 (a pinned pseudo-version: no tagged releases)
 SVG writer: NONE           # ls | grep -i svg → nothing; the package renders matrices, PNG and text
 ```
 
-And on this host, for the verification the plan asks for:
+And on THIS HOST (the build host), for the verification the plan asks for:
 
 ```
 which zbarimg rsvg-convert qrencode
   → /usr/bin/zbarimg /usr/bin/rsvg-convert /usr/bin/qrencode
 ```
+
+**Corrected 2026-10-15, after deploying: those tools are on the BUILD host, not on the deployment host.**
+`which zbarimg rsvg-convert` on thinkcentre answers with nothing, so the live walk cannot decode what the
+deployment serves and says so instead of reporting a pass (verdict D3: SKIPPED, naming the absent tools and
+writing the served SVG to a file). The decode is therefore run WHERE THE TOOLS ARE: the deployed instance's
+own SVG, fetched from the host that produced it, decoded here with `rsvg-convert` + `zbarimg` -- which is
+stronger evidence than an in-process test, because it is the artefact the running binary actually served.
+The Go test keeps the same decode behind a skip, so the suite stays runnable on a host without the tools.
 
 ## Decision
 

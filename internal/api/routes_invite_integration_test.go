@@ -3,6 +3,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/stashapp/stash-box/internal/config"
 	"github.com/stashapp/stash-box/internal/database/testutil"
+	"github.com/stashapp/stash-box/internal/models"
 )
 
 // THE LANDING PAGE (SPEC §11, plan phase 11 slice 11c): GET /invite/<code>.
@@ -207,6 +209,46 @@ func TestACodeThatIsNotAKeyGetsTheSamePageAndCountsNothing(t *testing.T) {
 	}
 	assert.Equal(t, before+1, len(eventsFor(t, member)),
 		"and neither invented code recorded anything: there was no key to record a visit to")
+}
+
+// THE SHARED ADDRESS: configured wins, and when nothing is configured the request's own address is
+// used. The fallback is what a DEFAULT deployment gets, and getting it wrong is how a member ends up
+// with a link that is only a path -- measured on the deployed instance, where the link read
+// "/invite/<code>" because the deployment sets no `host_url`.
+func TestTheSharedAddressPrefersTheConfiguredOneAndFallsBackToTheRequest(t *testing.T) {
+	resolver := &inviteKeyResolver{&Resolver{}}
+	id := uuid.Must(uuid.NewV4())
+	key := &models.InviteKey{ID: id}
+
+	old := config.C.HostURL
+	defer func() { config.C.HostURL = old }()
+
+	config.C.HostURL = "https://catalogue.example"
+	link, err := resolver.Link(context.Background(), key)
+	require.NoError(t, err)
+	assert.Equal(t, "https://catalogue.example/invite/"+id.String(), link,
+		"a configured host_url is what a member shares, so a link generated from a staging hostname "+
+			"does not send somebody to staging")
+
+	config.C.HostURL = ""
+	ctx := context.WithValue(context.Background(), BaseURLCtxKey, "http://proxied.example:8011")
+	link, err = resolver.Link(ctx, key)
+	require.NoError(t, err)
+	assert.Equal(t, "http://proxied.example:8011/invite/"+id.String(), link,
+		"with nothing configured the request's own address is used, which is the address the member "+
+			"is actually on and the address their invitee needs")
+
+	svg, err := resolver.QRSVG(ctx, key)
+	require.NoError(t, err)
+	assert.True(t, strings.HasPrefix(svg, "<svg "))
+	assert.NotContains(t, svg, "catalogue.example",
+		"the QR encodes the link in force, not a different one")
+
+	// And with nothing at all -- no configuration and no request in context -- the path is still the
+	// path the router serves, which is a link that does not work and does not pretend to.
+	link, err = resolver.Link(context.Background(), key)
+	require.NoError(t, err)
+	assert.Equal(t, "/invite/"+id.String(), link)
 }
 
 // normalizeKey removes the one thing that legitimately differs between two visits, the echoed code, so

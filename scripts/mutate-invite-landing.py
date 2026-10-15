@@ -22,8 +22,12 @@ DSN = os.environ.get(
 
 PURE_RULE = ["go", "test", "-count=1", "-run", "TestUnusable|TestLinkURL", "-v", "./internal/service/invite/"]
 PURE_QR = ["go", "test", "-count=1", "-v", "./internal/qr/"]
+# The `-run` filter is coverage: a probe whose subject is not in this pattern cannot be killed by it,
+# and reports SURVIVED for a reason that is about the battery rather than about the code. It cost one
+# false survivor (the shared-address precedence test was written after this line, so P8 ran without it).
 WIRE = ["go", "test", "-tags=integration", "-count=1", "-p", "1", "-run",
-        "TestTheLandingPage|TestAnExpiredKeysScan|TestACodeThatIsNotAKey|TestAKeysLink|TestASpentInviteKey|TestAnExpiredInviteKey",
+        "TestTheLandingPage|TestAnExpiredKeysScan|TestACodeThatIsNotAKey|TestAKeysLink"
+        "|TestASpentInviteKey|TestAnExpiredInviteKey|TestTheSharedAddressPrefers",
         "-v", "./internal/api/"]
 
 MUTATIONS = [
@@ -76,6 +80,19 @@ MUTATIONS = [
         "\tfor i := 0; i < 0; i++ {",
         [PURE_QR],
         "the refusal test: a matrix with no margin must not be rendered",
+    ),
+    (
+        # The defect that was LIVE on the deployed instance a moment before this probe was written: the
+        # link was built only from `host_url`, which the default deployment does not set, so a member's
+        # link read "/invite/<code>" -- a path, which cannot be handed to anybody. The walk's D verdict
+        # FAILED on the deployment in that state (measured), and this probe makes the same defect
+        # redden the test in the suite.
+        "P8 the shared address stops falling back to the request's own address",
+        "internal/api/resolver_model_invite_key.go",
+        '\tif configured := config.GetHostURL(); configured != "" {',
+        '\tif configured := config.GetHostURL(); true {',
+        [WIRE],
+        "the precedence test's fallback branch: a default deployment must still produce a usable link",
     ),
     (
         # The first aim at this probe was a BUILD BREAK, not a kill: dropping the TrimSuffix call left
