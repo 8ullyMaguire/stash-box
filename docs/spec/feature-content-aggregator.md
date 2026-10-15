@@ -527,9 +527,48 @@ migration 108's projection is a trigger on writes made after it and this instanc
 so on that deployment a submission of a record's own address is NOT recognised by the pipeline, and
 `walk-13c-live.py` reports that measurement instead of fetching somebody else's page to make a green tick.
 
-**NOT built, and named rather than implied:** 13d's rate limits are specified
-in the plan and not started, and there is still no REST surface, no user-facing export and no consuming of
-external MCP servers (that is a provider, per `feature-04-identification-federation.md` §8).
+**13d — the limit, and why the unit is what the caller PRESENTS.** `internal/ratelimit` counts requests per
+credential and refuses the ones over the limit, mounted on the two public surfaces (`/graphql` and the feed
+route) and on nothing else -- the SPA, the assets and the invitation landing page are not a caller spending an
+API budget, and a limit that covered them would be felt by a member loading a page. **The unit is the API key
+for GraphQL and the feed's own token for a feed URL**, because the plan's reasoning is exact: a limit keyed on
+the address punishes everyone behind a shared one (a house, a university, a VPN) and a limit keyed on the
+ACCOUNT punishes a member for using two clients. The address is used only as the fallback for a caller that
+presents NOTHING, where there is no identity to share -- which is also why a feed reader is counted by its
+token: it sends no headers, so a reader counted by address would share one bucket with every other reader
+behind the same proxy.
+
+**The numbers, and where "off" lives.** 600 requests per minute per credential with a burst of 120, both
+configurable; **ZERO MEANS OFF**, expressed as the number rather than a boolean beside it, because a switch
+next to a number is two places to state one thing and the number already says whether there is a limit. On by
+default, UNLIKE the content switches, and the difference is what each protects: those gate a capability an
+operator adopts deliberately, so the safe default is off; this one protects the instance from a caller that
+loops -- an accident or a scraper -- and a limit that is off by default protects nobody. A refusal is 429 with
+`Retry-After`, `X-RateLimit-Limit` and `X-RateLimit-Remaining` -- on the allowed responses too, because a
+client that only learns the limit when it is refused will be refused again -- and a body of
+`{"errors":[{"message": "... allows 600 requests per minute ... Retry in 5 seconds."}]}`, which is the shape
+every other error on this API already has. That shape is the defect the plan names: a 429 returning HTML or a
+bare string is a client bug reported as a server mystery.
+
+**Buckets are memory, and they forget on purpose.** A row per request would be a write per read on a read
+surface, and a limit whose history survives a restart is a limit an operator cannot lower in a hurry. A restart
+resets every bucket, which is honest: the question a bucket answers is "how fast is this caller going RIGHT
+NOW", and that question has no yesterday. The table is bounded by a hard cap with two passes -- first the
+credentials that have refilled (a bucket nobody has touched since it refilled carries no information, so
+forgetting it costs the limit nothing), then, if that frees nothing, the least recently used. **The trade is
+stated rather than hidden:** a caller who invents enough credentials can push a real one out of the table and
+get its own burst back, at a cost of thousands of requests per victim -- against which the alternative is
+memory that any client can make this process allocate without limit.
+
+**Two defects this slice's own tests found, both in the bound.** Making room on EVERY request is destructive
+rather than merely wasteful: at the cap, every request evicts somebody, so a busy instance's table spends its
+time throwing away the credentials it is supposed to be counting -- room is now made only for a credential that
+is not already tracked. And the least-recently-used search was seeded with the current instant, which made every
+bucket whose last touch was that same instant ineligible -- so a flood of credentials arriving in one moment
+never evicted anything while the map sat over the cap looking like the pass had run.
+
+**NOT built, and named rather than implied:** there is still no REST surface, no user-facing export UI, and
+no consuming of external MCP servers (that is a provider, per `feature-04-identification-federation.md` §8).
 
 **Counters are row counts, and the rows must OUTLIVE what they count.** A scan is a row, a signup is a row
 for the key, an activation is a row that was consumed; a member sees all three because "someone looked",

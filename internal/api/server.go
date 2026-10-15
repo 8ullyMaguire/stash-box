@@ -35,6 +35,7 @@ import (
 	"github.com/stashapp/stash-box/internal/config"
 	"github.com/stashapp/stash-box/internal/dataloader"
 	"github.com/stashapp/stash-box/internal/models"
+	"github.com/stashapp/stash-box/internal/ratelimit"
 	"github.com/stashapp/stash-box/internal/service"
 	"github.com/stashapp/stash-box/internal/service/mediaplane"
 	"github.com/stashapp/stash-box/internal/service/user"
@@ -198,7 +199,11 @@ func Start(fac service.Factory, ui embed.FS) {
 		return err
 	})
 
-	r.Handle("/graphql", dataloader.Middleware(fac)(gqlSrv))
+	// THE PUBLIC SURFACE, and the limit is mounted on it rather than on the router so that nothing else is
+	// counted: the SPA, the assets and the invitation landing page are not a caller spending an API budget,
+	// and a limit that covered them would be felt by a member loading a page.
+	limiter := ratelimit.New(config.GetRateLimit())
+	r.Handle("/graphql", ratelimit.Middleware(limiter, ratelimit.Credential)(dataloader.Middleware(fac)(gqlSrv)))
 
 	if !config.GetIsProduction() {
 		r.Handle("/playground", gqlPlayground.Handler("GraphQL playground", "/graphql"))
@@ -219,7 +224,7 @@ func Start(fac service.Factory, ui embed.FS) {
 		logger.Infof("serving frontend from %s at %s", fe.Path, fe.Prefix)
 	}
 
-	r.Mount("/", rootRoutes{ui: ui}.Routes(fac))
+	r.Mount("/", rootRoutes{ui: ui, limiter: limiter}.Routes(fac))
 
 	if config.GetProfilerPort() != nil {
 		go func() {
@@ -328,6 +333,7 @@ func printVersion() {
 // only runtime evidence of which posture the instance is in.
 func logPosture() {
 	logger.Infof("%s", mediaplane.PostureLine())
+	logger.Infof("%s", ratelimit.PostureLine(ratelimit.New(config.GetRateLimit())))
 }
 
 func GetVersion() (string, string, string) {

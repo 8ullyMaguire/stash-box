@@ -9,12 +9,16 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/stashapp/stash-box/internal/config"
+	"github.com/stashapp/stash-box/internal/ratelimit"
 	"github.com/stashapp/stash-box/internal/service"
 )
 
 type rootRoutes struct {
 	ui    embed.FS
 	index []byte
+	// limiter counts the feeds, which are a public surface of their own: a feed URL is a credential a reader
+	// presents with every poll, so it is counted the same way an API key is (plan slice 13d).
+	limiter *ratelimit.Limiter
 }
 
 func (rr rootRoutes) Routes(fac service.Factory) chi.Router {
@@ -44,9 +48,10 @@ func (rr rootRoutes) Routes(fac service.Factory) chi.Router {
 	// reason the invitation page is: the application answers every other path, and a feed request that
 	// reached it would be handed HTML with a 200 -- a reader would report a parse failure rather than a
 	// missing feed.
-	r.Mount("/feeds/saved-search", feedRoutes{
+	r.Mount("/feeds/saved-search", ratelimit.Middleware(rr.limiter,
+		ratelimit.FeedToken("/feeds/saved-search/"))(feedRoutes{
 		fac: fac,
-	}.Routes())
+	}.Routes()))
 
 	// Serve static assets
 	r.HandleFunc("/assets/*", rr.assets)

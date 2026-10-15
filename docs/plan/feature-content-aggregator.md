@@ -3773,6 +3773,28 @@ successful restore reported FAILED.
   instance's public surface, and an API key is the unit that is limited -- per-IP would punish a shared
   address and per-account would punish one member's two clients.
 
+  **BUILT 2026-10-15.** `internal/ratelimit` (the bucket and the HTTP half, so the refusal's shape is testable
+  without a database), wired in `internal/api/server.go` onto `/graphql` and onto the feed route in
+  `routes_root.go`, with the limit configured as `rate_limit_requests_per_minute` (default 600, **zero means
+  off**) and `rate_limit_burst` (default 120) and stated in the startup log beside the content postures.
+
+  **Decisions the plan left open, taken and recorded:** the feed URL is limited too, keyed on ITS TOKEN rather
+  than the address (a reader sends no headers, so the address is all it has and every reader behind one proxy
+  would share a bucket); the address is the fallback ONLY for a caller presenting no credential at all; the
+  buckets are memory and a restart resets them (a row per request would be a write per read on a read
+  surface); and the table is bounded by a hard cap -- first dropping the credentials that have refilled, then
+  the least recently used -- with the trade stated: rotating credentials can push a real one out and get a
+  burst back, against memory any client could otherwise make this process allocate without limit.
+
+  **Verified:** 13 unit tests in `internal/ratelimit` under `-race` (burst then refill at the stated rate,
+  Retry-After never zero, a backwards clock minting nothing, two credentials as two buckets both directly and
+  through the wire, the map bounded, the two passes of the bound, the refusal's body parsed as JSON, and the
+  CONTROL -- the same requests with no limit configured are all served); `scripts/mutate-ratelimit.py`, 12
+  probes, **12 killed** (M12 is the regression this slice's own test found: making room on every request);
+  `scripts/walk-13d-live.py` against the deployed instance, which is where "is the limiter MOUNTED" is
+  answered -- 12 verdicts green, including two credentials from the SAME address where one is refused and the
+  other served.
+
 ## Phase 14 — moderation and legal (policy text, and it DOES gate phase 10's first stored byte)
 
 *Corrected 2026-10-15:* this heading said "no longer a gate on a media plane", written when the first

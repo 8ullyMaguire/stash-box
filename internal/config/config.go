@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/viper"
 
+	"github.com/stashapp/stash-box/internal/ratelimit"
 	"github.com/stashapp/stash-box/internal/service/trust"
 	"github.com/stashapp/stash-box/pkg/utils"
 )
@@ -139,6 +140,20 @@ type config struct {
 	// and proxying stay refused, and scripts/check-no-content-plane.py keeps failing the build for
 	// them whatever this key says.
 	ContentDelivery bool `mapstructure:"content_delivery"`
+	// RateLimitRequestsPerMinute is the sustained request rate one credential may make against this
+	// instance's public surfaces (plan slice 13d). ZERO MEANS NO LIMIT, and there is no separate switch
+	// beside it: the number already says whether there is a limit, and a boolean could only contradict it.
+	//
+	// ON BY DEFAULT, unlike the content switches above it, and the difference is what each one protects
+	// against. Those gate a CAPABILITY an operator adopts deliberately, so the safe default is off. This
+	// one protects the instance from a caller that loops -- an accident or a scraper -- and a limit that
+	// is off by default protects nobody. It is set high enough (600/minute, burst 120) that no ordinary
+	// client reaches it, and a client that does gets the limit named and a Retry-After to obey.
+	RateLimitRequestsPerMinute int `mapstructure:"rate_limit_requests_per_minute"`
+	// RateLimitBurst is how many requests a credential may make at once, before the sustained rate applies.
+	// A page load issues several requests in a moment, so a limit with no burst breaks ordinary use while
+	// barely slowing a loop.
+	RateLimitBurst int `mapstructure:"rate_limit_burst"`
 	// How often subscribed saved searches are run and their owners notified. One query per
 	// subscribed search per tick, so the cost is proportional to how many exist.
 	SavedSearchNotifyInterval string `mapstructure:"saved_search_notify_interval"`
@@ -279,8 +294,12 @@ var C = &config{
 	// Off, and for the same reason as the line above it: serving content is what makes an instance a
 	// host. See the field's comment -- the capability is specified and planned, and every shipped
 	// config leaves it off.
-	ContentDelivery:           false,
-	SavedSearchNotifyInterval: "15m",
+	ContentDelivery: false,
+	// See the field comments: on by default because this one protects the instance rather than gating a
+	// capability, and generous because a limit a member can hit while browsing is a bug in the limit.
+	RateLimitRequestsPerMinute: 600,
+	RateLimitBurst:             120,
+	SavedSearchNotifyInterval:  "15m",
 	// No embedding model produces vectors on this instance, so the default store holds
 	// nothing and the re-ranker provably does nothing -- rather than a half-wired store
 	// whose emptiness would be indistinguishable from a bug.
@@ -699,6 +718,16 @@ func GetContentFetchSources() bool {
 // belong together, and a caller that reads the bool has to invent its own message for the refusal.
 func GetContentDelivery() bool {
 	return C.ContentDelivery
+}
+
+// GetRateLimit is the limit this instance enforces per credential on its public surfaces (plan slice 13d).
+// Zero requests per minute, or a zero burst, means no limit -- see the fields' comments for why that is
+// expressed as a number rather than a switch.
+func GetRateLimit() ratelimit.Config {
+	return ratelimit.Config{
+		RequestsPerMinute: C.RateLimitRequestsPerMinute,
+		Burst:             C.RateLimitBurst,
+	}
 }
 
 // GetContentFetchMinInterval is the least time between two requests to the same host
