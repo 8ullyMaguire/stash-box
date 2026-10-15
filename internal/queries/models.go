@@ -852,6 +852,30 @@ type SeasonalEvent struct {
 	CreatedAt   pgtype.Timestamptz `db:"created_at" json:"created_at"`
 }
 
+type SeedCampaign struct {
+	ID        uuid.UUID          `db:"id" json:"id"`
+	CohortID  uuid.UUID          `db:"cohort_id" json:"cohort_id"`
+	Name      string             `db:"name" json:"name"`
+	Points    int                `db:"points" json:"points"`
+	CreatedBy uuid.NullUUID      `db:"created_by" json:"created_by"`
+	CreatedAt pgtype.Timestamptz `db:"created_at" json:"created_at"`
+	LastRunAt pgtype.Timestamptz `db:"last_run_at" json:"last_run_at"`
+	LastRunBy uuid.NullUUID      `db:"last_run_by" json:"last_run_by"`
+}
+
+type SeedCohort struct {
+	ID          uuid.UUID          `db:"id" json:"id"`
+	Name        string             `db:"name" json:"name"`
+	Description *string            `db:"description" json:"description"`
+	CreatedAt   pgtype.Timestamptz `db:"created_at" json:"created_at"`
+}
+
+type SeedCohortMember struct {
+	CohortID uuid.UUID          `db:"cohort_id" json:"cohort_id"`
+	UserID   uuid.UUID          `db:"user_id" json:"user_id"`
+	AddedAt  pgtype.Timestamptz `db:"added_at" json:"added_at"`
+}
+
 type SessionState struct {
 	UserID    uuid.UUID          `db:"user_id" json:"user_id"`
 	Kind      string             `db:"kind" json:"kind"`

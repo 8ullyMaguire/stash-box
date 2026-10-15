@@ -704,6 +704,7 @@ type ComplexityRoot struct {
 	Mutation struct {
 		AbandonIdentificationQuery        func(childComplexity int, id uuid.UUID) int
 		ActivateNewUser                   func(childComplexity int, input ActivateNewUserInput) int
+		AddSeedCohortMembers              func(childComplexity int, input SeedCohortMembersInput) int
 		AddSnapshot                       func(childComplexity int, sceneID uuid.UUID, timestamp int) int
 		AmendEdit                         func(childComplexity int, input AmendEditInput) int
 		ApproveEdit                       func(childComplexity int, input ApproveEditInput) int
@@ -716,6 +717,8 @@ type ComplexityRoot struct {
 		ContentItemEdit                   func(childComplexity int, input ContentItemEditInput) int
 		ContentItemEditUpdate             func(childComplexity int, id uuid.UUID, input ContentItemEditInput) int
 		CreateSavedSearch                 func(childComplexity int, input SavedSearchInput) int
+		CreateSeedCampaign                func(childComplexity int, input SeedCampaignCreateInput) int
+		CreateSeedCohort                  func(childComplexity int, input SeedCohortCreateInput) int
 		DeleteEdit                        func(childComplexity int, input DeleteEditInput) int
 		DeleteSavedSearch                 func(childComplexity int, id uuid.UUID) int
 		DestroyDraft                      func(childComplexity int, id uuid.UUID) int
@@ -763,6 +766,7 @@ type ComplexityRoot struct {
 		PostIdentificationQuery           func(childComplexity int, input IdentificationPostInput) int
 		RegenerateAPIKey                  func(childComplexity int, userID *uuid.UUID) int
 		ReleaseContentBlock               func(childComplexity int, kind string, value string) int
+		RemoveSeedCohortMember            func(childComplexity int, cohortID uuid.UUID, userID uuid.UUID) int
 		RequestChangeEmail                func(childComplexity int) int
 		RescindInviteCode                 func(childComplexity int, code uuid.UUID) int
 		ResetPassword                     func(childComplexity int, input ResetPasswordInput) int
@@ -770,6 +774,7 @@ type ComplexityRoot struct {
 		ReviewDelete                      func(childComplexity int, id uuid.UUID) int
 		ReviewSubmit                      func(childComplexity int, input ReviewSubmitInput) int
 		RevokeInvite                      func(childComplexity int, input RevokeInviteInput) int
+		RunSeedCampaign                   func(childComplexity int, id uuid.UUID) int
 		SaveSessionState                  func(childComplexity int, input SessionStateInput) int
 		SceneCreate                       func(childComplexity int, input SceneCreateInput) int
 		SceneDeleteFingerprintSubmissions func(childComplexity int, input DeleteFingerprintSubmissionsInput) int
@@ -1066,6 +1071,10 @@ type ComplexityRoot struct {
 		SearchStudio                   func(childComplexity int, term string, limit *int) int
 		SearchTag                      func(childComplexity int, term string, limit *int) int
 		SeasonalEvents                 func(childComplexity int) int
+		SeedCampaign                   func(childComplexity int, id uuid.UUID) int
+		SeedCampaigns                  func(childComplexity int) int
+		SeedCohort                     func(childComplexity int, id uuid.UUID) int
+		SeedCohorts                    func(childComplexity int) int
 		SessionState                   func(childComplexity int, kind string, key string) int
 		SessionStates                  func(childComplexity int, kind string) int
 		StudioChangelog                func(childComplexity int, since time.Time, afterID *uuid.UUID, limit *int) int
@@ -1277,6 +1286,38 @@ type ComplexityRoot struct {
 		Contributions func(childComplexity int) int
 		Event         func(childComplexity int) int
 		Reached       func(childComplexity int) int
+	}
+
+	SeedCampaign struct {
+		Cohort    func(childComplexity int) int
+		CreatedAt func(childComplexity int) int
+		ID        func(childComplexity int) int
+		LastRunAt func(childComplexity int) int
+		LastRunBy func(childComplexity int) int
+		Name      func(childComplexity int) int
+		Points    func(childComplexity int) int
+	}
+
+	SeedCampaignRunResult struct {
+		Campaign func(childComplexity int) int
+		Members  func(childComplexity int) int
+		Paid     func(childComplexity int) int
+		Skipped  func(childComplexity int) int
+	}
+
+	SeedCohort struct {
+		CreatedAt   func(childComplexity int) int
+		Description func(childComplexity int) int
+		ID          func(childComplexity int) int
+		MemberCount func(childComplexity int) int
+		Members     func(childComplexity int) int
+		Name        func(childComplexity int) int
+	}
+
+	SeedCohortMember struct {
+		AddedAt func(childComplexity int) int
+		Name    func(childComplexity int) int
+		UserID  func(childComplexity int) int
 	}
 
 	SessionState struct {
@@ -1813,6 +1854,11 @@ type MutationResolver interface {
 	ListClearSourceSearch(ctx context.Context, listID uuid.UUID) (*List, error)
 	ReviewSubmit(ctx context.Context, input ReviewSubmitInput) (*Review, error)
 	ReviewDelete(ctx context.Context, id uuid.UUID) (bool, error)
+	CreateSeedCohort(ctx context.Context, input SeedCohortCreateInput) (*SeedCohort, error)
+	AddSeedCohortMembers(ctx context.Context, input SeedCohortMembersInput) (int, error)
+	RemoveSeedCohortMember(ctx context.Context, cohortID uuid.UUID, userID uuid.UUID) (bool, error)
+	CreateSeedCampaign(ctx context.Context, input SeedCampaignCreateInput) (*SeedCampaign, error)
+	RunSeedCampaign(ctx context.Context, id uuid.UUID) (*SeedCampaignRunResult, error)
 	SaveSessionState(ctx context.Context, input SessionStateInput) (*SessionState, error)
 	ClearSessionState(ctx context.Context, input ClearSessionStateInput) (bool, error)
 	SpendStreakFreeze(ctx context.Context) (*Streak, error)
@@ -1970,6 +2016,10 @@ type QueryResolver interface {
 	Review(ctx context.Context, id uuid.UUID) (*Review, error)
 	ForYou(ctx context.Context, input *ForYouInput) ([]ForYouScene, error)
 	SeasonalEvents(ctx context.Context) ([]SeasonalEventProgress, error)
+	SeedCohorts(ctx context.Context) ([]SeedCohort, error)
+	SeedCohort(ctx context.Context, id uuid.UUID) (*SeedCohort, error)
+	SeedCampaigns(ctx context.Context) ([]SeedCampaign, error)
+	SeedCampaign(ctx context.Context, id uuid.UUID) (*SeedCampaign, error)
 	SessionState(ctx context.Context, kind string, key string) (*SessionState, error)
 	SessionStates(ctx context.Context, kind string) ([]SessionState, error)
 	UserStreak(ctx context.Context) (*Streak, error)
@@ -4506,6 +4556,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.ActivateNewUser(childComplexity, args["input"].(ActivateNewUserInput)), true
+	case "Mutation.addSeedCohortMembers":
+		if e.ComplexityRoot.Mutation.AddSeedCohortMembers == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_addSeedCohortMembers_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.AddSeedCohortMembers(childComplexity, args["input"].(SeedCohortMembersInput)), true
 	case "Mutation.addSnapshot":
 		if e.ComplexityRoot.Mutation.AddSnapshot == nil {
 			break
@@ -4638,6 +4699,28 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.CreateSavedSearch(childComplexity, args["input"].(SavedSearchInput)), true
+	case "Mutation.createSeedCampaign":
+		if e.ComplexityRoot.Mutation.CreateSeedCampaign == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_createSeedCampaign_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.CreateSeedCampaign(childComplexity, args["input"].(SeedCampaignCreateInput)), true
+	case "Mutation.createSeedCohort":
+		if e.ComplexityRoot.Mutation.CreateSeedCohort == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_createSeedCohort_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.CreateSeedCohort(childComplexity, args["input"].(SeedCohortCreateInput)), true
 	case "Mutation.deleteEdit":
 		if e.ComplexityRoot.Mutation.DeleteEdit == nil {
 			break
@@ -5150,6 +5233,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.ReleaseContentBlock(childComplexity, args["kind"].(string), args["value"].(string)), true
+	case "Mutation.removeSeedCohortMember":
+		if e.ComplexityRoot.Mutation.RemoveSeedCohortMember == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_removeSeedCohortMember_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.RemoveSeedCohortMember(childComplexity, args["cohort_id"].(uuid.UUID), args["user_id"].(uuid.UUID)), true
 	case "Mutation.requestChangeEmail":
 		if e.ComplexityRoot.Mutation.RequestChangeEmail == nil {
 			break
@@ -5222,6 +5316,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.RevokeInvite(childComplexity, args["input"].(RevokeInviteInput)), true
+	case "Mutation.runSeedCampaign":
+		if e.ComplexityRoot.Mutation.RunSeedCampaign == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_runSeedCampaign_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.RunSeedCampaign(childComplexity, args["id"].(uuid.UUID)), true
 	case "Mutation.saveSessionState":
 		if e.ComplexityRoot.Mutation.SaveSessionState == nil {
 			break
@@ -7400,6 +7505,40 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.SeasonalEvents(childComplexity), true
+	case "Query.seedCampaign":
+		if e.ComplexityRoot.Query.SeedCampaign == nil {
+			break
+		}
+
+		args, err := ec.field_Query_seedCampaign_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.SeedCampaign(childComplexity, args["id"].(uuid.UUID)), true
+	case "Query.seedCampaigns":
+		if e.ComplexityRoot.Query.SeedCampaigns == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Query.SeedCampaigns(childComplexity), true
+	case "Query.seedCohort":
+		if e.ComplexityRoot.Query.SeedCohort == nil {
+			break
+		}
+
+		args, err := ec.field_Query_seedCohort_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.SeedCohort(childComplexity, args["id"].(uuid.UUID)), true
+	case "Query.seedCohorts":
+		if e.ComplexityRoot.Query.SeedCohorts == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Query.SeedCohorts(childComplexity), true
 	case "Query.sessionState":
 		if e.ComplexityRoot.Query.SessionState == nil {
 			break
@@ -8308,6 +8447,130 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.SeasonalEventProgress.Reached(childComplexity), true
+
+	case "SeedCampaign.cohort":
+		if e.ComplexityRoot.SeedCampaign.Cohort == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SeedCampaign.Cohort(childComplexity), true
+	case "SeedCampaign.created_at":
+		if e.ComplexityRoot.SeedCampaign.CreatedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SeedCampaign.CreatedAt(childComplexity), true
+	case "SeedCampaign.id":
+		if e.ComplexityRoot.SeedCampaign.ID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SeedCampaign.ID(childComplexity), true
+	case "SeedCampaign.last_run_at":
+		if e.ComplexityRoot.SeedCampaign.LastRunAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SeedCampaign.LastRunAt(childComplexity), true
+	case "SeedCampaign.last_run_by":
+		if e.ComplexityRoot.SeedCampaign.LastRunBy == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SeedCampaign.LastRunBy(childComplexity), true
+	case "SeedCampaign.name":
+		if e.ComplexityRoot.SeedCampaign.Name == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SeedCampaign.Name(childComplexity), true
+	case "SeedCampaign.points":
+		if e.ComplexityRoot.SeedCampaign.Points == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SeedCampaign.Points(childComplexity), true
+
+	case "SeedCampaignRunResult.campaign":
+		if e.ComplexityRoot.SeedCampaignRunResult.Campaign == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SeedCampaignRunResult.Campaign(childComplexity), true
+	case "SeedCampaignRunResult.members":
+		if e.ComplexityRoot.SeedCampaignRunResult.Members == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SeedCampaignRunResult.Members(childComplexity), true
+	case "SeedCampaignRunResult.paid":
+		if e.ComplexityRoot.SeedCampaignRunResult.Paid == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SeedCampaignRunResult.Paid(childComplexity), true
+	case "SeedCampaignRunResult.skipped":
+		if e.ComplexityRoot.SeedCampaignRunResult.Skipped == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SeedCampaignRunResult.Skipped(childComplexity), true
+
+	case "SeedCohort.created_at":
+		if e.ComplexityRoot.SeedCohort.CreatedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SeedCohort.CreatedAt(childComplexity), true
+	case "SeedCohort.description":
+		if e.ComplexityRoot.SeedCohort.Description == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SeedCohort.Description(childComplexity), true
+	case "SeedCohort.id":
+		if e.ComplexityRoot.SeedCohort.ID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SeedCohort.ID(childComplexity), true
+	case "SeedCohort.member_count":
+		if e.ComplexityRoot.SeedCohort.MemberCount == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SeedCohort.MemberCount(childComplexity), true
+	case "SeedCohort.members":
+		if e.ComplexityRoot.SeedCohort.Members == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SeedCohort.Members(childComplexity), true
+	case "SeedCohort.name":
+		if e.ComplexityRoot.SeedCohort.Name == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SeedCohort.Name(childComplexity), true
+
+	case "SeedCohortMember.added_at":
+		if e.ComplexityRoot.SeedCohortMember.AddedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SeedCohortMember.AddedAt(childComplexity), true
+	case "SeedCohortMember.name":
+		if e.ComplexityRoot.SeedCohortMember.Name == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SeedCohortMember.Name(childComplexity), true
+	case "SeedCohortMember.user_id":
+		if e.ComplexityRoot.SeedCohortMember.UserID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SeedCohortMember.UserID(childComplexity), true
 
 	case "SessionState.cursor":
 		if e.ComplexityRoot.SessionState.Cursor == nil {
@@ -9706,6 +9969,9 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputSceneEditInput,
 		ec.unmarshalInputSceneQueryInput,
 		ec.unmarshalInputSceneUpdateInput,
+		ec.unmarshalInputSeedCampaignCreateInput,
+		ec.unmarshalInputSeedCohortCreateInput,
+		ec.unmarshalInputSeedCohortMembersInput,
 		ec.unmarshalInputSessionStateInput,
 		ec.unmarshalInputSiteCategoryCreateInput,
 		ec.unmarshalInputSiteCategoryDestroyInput,
@@ -14789,6 +15055,137 @@ extend type Query {
   seasonalEvents: [SeasonalEventProgress!]! @hasRole(role: READ)
 }
 `, BuiltIn: false},
+	{Name: "../../graphql/schema/types/seed.graphql", Input: `"""
+Seed cohorts and the campaigns that pay them a head start (SPEC §11, plan phase 11 slice 11d).
+
+A COHORT IS A LIST OF PEOPLE, and nothing else: it grants nothing by existing, it is not a role (a role
+is a permission, a cohort is a group), and it is not a level. What a cohort is FOR is being the set a
+campaign pays.
+
+A CAMPAIGN AWARDS POINTS, NEVER A LEVEL. That is the rule this whole surface is shaped around: the
+level has exactly one implementation (` + "`" + `LevelForTotals` + "`" + `), so a campaign that set a level directly would
+be a second answer to "what level is this person", and the two answers would disagree the first time the
+member contributed anything. The head start is paid ONCE per member per campaign, and the enforcement is
+the trust event log's own dedup index -- running a campaign twice pays nobody twice.
+
+EVERY FIELD HERE IS ADMIN. Deciding who gets a head start is not a moderation decision about this
+database's content; it is a decision about standing, taken with the numbers in front of you.
+"""
+type SeedCohort {
+  id: ID!
+  name: String!
+  description: String
+  created_at: Time!
+  """How many members the cohort has right now -- which is not how many a campaign paid."""
+  member_count: Int!
+  """
+  The members, with names. Read at the moment it is asked for, because membership is never cached into
+  a payment: a campaign pays the cohort it has WHEN IT RUNS.
+  """
+  members: [SeedCohortMember!]!
+}
+
+"""
+One member of a cohort.
+
+Not a ` + "`" + `User` + "`" + `: this is the join's own row, and a ` + "`" + `User` + "`" + ` would promise fields the join does not carry.
+"""
+type SeedCohortMember {
+  user_id: ID!
+  name: String!
+  added_at: Time!
+}
+
+type SeedCampaign {
+  id: ID!
+  """The cohort this campaign pays. Read per campaign; campaigns are curated handfuls, not feeds."""
+  cohort: SeedCohort!
+  name: String!
+  """The head start, per member, paid once."""
+  points: Int!
+  created_at: Time!
+  """
+  When it was last APPLIED, and NULL means never -- which is a different state from "ran and paid
+  nobody new", and an operator needs to tell those apart.
+  """
+  last_run_at: Time
+  last_run_by: User
+}
+
+"""
+What running a campaign did.
+
+Three numbers rather than one, because "done" hides the questions an operator is asking: how many were
+in the cohort when it ran, how many received the head start now, and how many already had it (the normal
+answer on a re-run, and not an error).
+"""
+type SeedCampaignRunResult {
+  campaign: SeedCampaign!
+  """The cohort's size AT THE MOMENT OF THE RUN."""
+  members: Int!
+  """Members this run paid."""
+  paid: Int!
+  """Members who already had the head start -- an earlier run, not a failure."""
+  skipped: Int!
+}
+
+input SeedCohortCreateInput {
+  name: String!
+  description: String
+}
+
+input SeedCohortMembersInput {
+  cohort_id: ID!
+  """Accounts to put in the cohort. Adding one that is already there changes nothing."""
+  user_ids: [ID!]!
+}
+
+input SeedCampaignCreateInput {
+  cohort_id: ID!
+  name: String!
+  """The head start each member receives, once. Must be positive: a campaign is a head start."""
+  points: Int!
+}
+
+extend type Query {
+  """Every cohort, newest first."""
+  seedCohorts: [SeedCohort!]! @hasRole(role: ADMIN)
+  seedCohort(id: ID!): SeedCohort @hasRole(role: ADMIN)
+  """Every campaign, newest first."""
+  seedCampaigns: [SeedCampaign!]! @hasRole(role: ADMIN)
+  seedCampaign(id: ID!): SeedCampaign @hasRole(role: ADMIN)
+}
+
+extend type Mutation {
+  """Creates a cohort. The name is unique; a duplicate name is refused by the schema, not by a check."""
+  createSeedCohort(input: SeedCohortCreateInput!): SeedCohort! @hasRole(role: ADMIN)
+
+  """
+  Puts accounts in a cohort, and returns HOW MANY were newly added -- which is not the length of the
+  list, because one already in it changes nothing and counting it would report work that did not happen.
+  """
+  addSeedCohortMembers(input: SeedCohortMembersInput!): Int! @hasRole(role: ADMIN)
+
+  """
+  Takes an account out of a cohort, reporting whether it was in it. Points a previous run already paid
+  are NOT taken back: those are in the ledger, and un-paying them is a trust adjustment, not a roster
+  edit.
+  """
+  removeSeedCohortMember(cohort_id: ID!, user_id: ID!): Boolean! @hasRole(role: ADMIN)
+
+  """Creates a campaign that pays its cohort's members a head start, once each."""
+  createSeedCampaign(input: SeedCampaignCreateInput!): SeedCampaign! @hasRole(role: ADMIN)
+
+  """
+  Runs a campaign against the cohort AS IT IS NOW.
+
+  Safe to run twice: the second run pays nobody and reports them as skipped. Safe to run after a
+  failure: the members already paid are skipped, and the campaign is only marked as run once every
+  member has been dealt with.
+  """
+  runSeedCampaign(id: ID!): SeedCampaignRunResult! @hasRole(role: ADMIN)
+}
+`, BuiltIn: false},
 	{Name: "../../graphql/schema/types/session_state.graphql", Input: `# "Where I left off": opt-in session state (feature-discovery SPEC section 11, aggregator phase 7
 # slice 7).
 #
@@ -18041,6 +18438,70 @@ func (ec *executionContext) childFields_SeasonalEventProgress(ctx context.Contex
 	return nil, fmt.Errorf("no field named %q was found under type SeasonalEventProgress", field.Name)
 }
 
+func (ec *executionContext) childFields_SeedCampaign(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "id":
+		return ec.fieldContext_SeedCampaign_id(ctx, field)
+	case "cohort":
+		return ec.fieldContext_SeedCampaign_cohort(ctx, field)
+	case "name":
+		return ec.fieldContext_SeedCampaign_name(ctx, field)
+	case "points":
+		return ec.fieldContext_SeedCampaign_points(ctx, field)
+	case "created_at":
+		return ec.fieldContext_SeedCampaign_created_at(ctx, field)
+	case "last_run_at":
+		return ec.fieldContext_SeedCampaign_last_run_at(ctx, field)
+	case "last_run_by":
+		return ec.fieldContext_SeedCampaign_last_run_by(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type SeedCampaign", field.Name)
+}
+
+func (ec *executionContext) childFields_SeedCampaignRunResult(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "campaign":
+		return ec.fieldContext_SeedCampaignRunResult_campaign(ctx, field)
+	case "members":
+		return ec.fieldContext_SeedCampaignRunResult_members(ctx, field)
+	case "paid":
+		return ec.fieldContext_SeedCampaignRunResult_paid(ctx, field)
+	case "skipped":
+		return ec.fieldContext_SeedCampaignRunResult_skipped(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type SeedCampaignRunResult", field.Name)
+}
+
+func (ec *executionContext) childFields_SeedCohort(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "id":
+		return ec.fieldContext_SeedCohort_id(ctx, field)
+	case "name":
+		return ec.fieldContext_SeedCohort_name(ctx, field)
+	case "description":
+		return ec.fieldContext_SeedCohort_description(ctx, field)
+	case "created_at":
+		return ec.fieldContext_SeedCohort_created_at(ctx, field)
+	case "member_count":
+		return ec.fieldContext_SeedCohort_member_count(ctx, field)
+	case "members":
+		return ec.fieldContext_SeedCohort_members(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type SeedCohort", field.Name)
+}
+
+func (ec *executionContext) childFields_SeedCohortMember(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "user_id":
+		return ec.fieldContext_SeedCohortMember_user_id(ctx, field)
+	case "name":
+		return ec.fieldContext_SeedCohortMember_name(ctx, field)
+	case "added_at":
+		return ec.fieldContext_SeedCohortMember_added_at(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type SeedCohortMember", field.Name)
+}
+
 func (ec *executionContext) childFields_SessionState(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 	switch field.Name {
 	case "kind":
@@ -18785,6 +19246,20 @@ func (ec *executionContext) field_Mutation_activateNewUser_args(ctx context.Cont
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_addSeedCohortMembers_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
+		func(ctx context.Context, v any) (SeedCohortMembersInput, error) {
+			return ec.unmarshalNSeedCohortMembersInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSeedCohortMembersInput(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_addSnapshot_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -18961,6 +19436,34 @@ func (ec *executionContext) field_Mutation_createSavedSearch_args(ctx context.Co
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
 		func(ctx context.Context, v any) (SavedSearchInput, error) {
 			return ec.unmarshalNSavedSearchInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSavedSearchInput(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_createSeedCampaign_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
+		func(ctx context.Context, v any) (SeedCampaignCreateInput, error) {
+			return ec.unmarshalNSeedCampaignCreateInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSeedCampaignCreateInput(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_createSeedCohort_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
+		func(ctx context.Context, v any) (SeedCohortCreateInput, error) {
+			return ec.unmarshalNSeedCohortCreateInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSeedCohortCreateInput(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -19661,6 +20164,28 @@ func (ec *executionContext) field_Mutation_releaseContentBlock_args(ctx context.
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_removeSeedCohortMember_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "cohort_id",
+		func(ctx context.Context, v any) (uuid.UUID, error) {
+			return ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["cohort_id"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "user_id",
+		func(ctx context.Context, v any) (uuid.UUID, error) {
+			return ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["user_id"] = arg1
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_rescindInviteCode_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -19742,6 +20267,20 @@ func (ec *executionContext) field_Mutation_revokeInvite_args(ctx context.Context
 		return nil, err
 	}
 	args["input"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_runSeedCampaign_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (uuid.UUID, error) {
+			return ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
 	return args, nil
 }
 
@@ -21760,6 +22299,34 @@ func (ec *executionContext) field_Query_searchTag_args(ctx context.Context, rawA
 		return nil, err
 	}
 	args["limit"] = arg1
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_seedCampaign_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (uuid.UUID, error) {
+			return ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_seedCohort_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (uuid.UUID, error) {
+			return ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
 	return args, nil
 }
 
@@ -38482,6 +39049,316 @@ func (ec *executionContext) fieldContext_Mutation_reviewDelete(ctx context.Conte
 	return fc, nil
 }
 
+func (ec *executionContext) _Mutation_createSeedCohort(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_createSeedCohort(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().CreateSeedCohort(ctx, fc.Args["input"].(SeedCohortCreateInput))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "ADMIN")
+				if err != nil {
+					var zeroVal *SeedCohort
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *SeedCohort
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *SeedCohort) graphql.Marshaler {
+			return ec.marshalNSeedCohort2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSeedCohort(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_createSeedCohort(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_SeedCohort(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_createSeedCohort_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_addSeedCohortMembers(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_addSeedCohortMembers(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().AddSeedCohortMembers(ctx, fc.Args["input"].(SeedCohortMembersInput))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "ADMIN")
+				if err != nil {
+					var zeroVal int
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal int
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_addSeedCohortMembers(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_addSeedCohortMembers_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_removeSeedCohortMember(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_removeSeedCohortMember(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().RemoveSeedCohortMember(ctx, fc.Args["cohort_id"].(uuid.UUID), fc.Args["user_id"].(uuid.UUID))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "ADMIN")
+				if err != nil {
+					var zeroVal bool
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal bool
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_removeSeedCohortMember(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_removeSeedCohortMember_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_createSeedCampaign(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_createSeedCampaign(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().CreateSeedCampaign(ctx, fc.Args["input"].(SeedCampaignCreateInput))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "ADMIN")
+				if err != nil {
+					var zeroVal *SeedCampaign
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *SeedCampaign
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *SeedCampaign) graphql.Marshaler {
+			return ec.marshalNSeedCampaign2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSeedCampaign(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_createSeedCampaign(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_SeedCampaign(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_createSeedCampaign_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_runSeedCampaign(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_runSeedCampaign(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().RunSeedCampaign(ctx, fc.Args["id"].(uuid.UUID))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "ADMIN")
+				if err != nil {
+					var zeroVal *SeedCampaignRunResult
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *SeedCampaignRunResult
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *SeedCampaignRunResult) graphql.Marshaler {
+			return ec.marshalNSeedCampaignRunResult2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSeedCampaignRunResult(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_runSeedCampaign(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_SeedCampaignRunResult(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_runSeedCampaign_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Mutation_saveSessionState(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -47077,6 +47954,230 @@ func (ec *executionContext) fieldContext_Query_seasonalEvents(_ context.Context,
 	return fc, nil
 }
 
+func (ec *executionContext) _Query_seedCohorts(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_seedCohorts(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Query().SeedCohorts(ctx)
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "ADMIN")
+				if err != nil {
+					var zeroVal []SeedCohort
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal []SeedCohort
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v []SeedCohort) graphql.Marshaler {
+			return ec.marshalNSeedCohort2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSeedCohortᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_seedCohorts(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_SeedCohort(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_seedCohort(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_seedCohort(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().SeedCohort(ctx, fc.Args["id"].(uuid.UUID))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "ADMIN")
+				if err != nil {
+					var zeroVal *SeedCohort
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *SeedCohort
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *SeedCohort) graphql.Marshaler {
+			return ec.marshalOSeedCohort2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSeedCohort(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_Query_seedCohort(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_SeedCohort(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_seedCohort_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_seedCampaigns(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_seedCampaigns(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Query().SeedCampaigns(ctx)
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "ADMIN")
+				if err != nil {
+					var zeroVal []SeedCampaign
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal []SeedCampaign
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v []SeedCampaign) graphql.Marshaler {
+			return ec.marshalNSeedCampaign2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSeedCampaignᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_seedCampaigns(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_SeedCampaign(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_seedCampaign(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_seedCampaign(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().SeedCampaign(ctx, fc.Args["id"].(uuid.UUID))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "ADMIN")
+				if err != nil {
+					var zeroVal *SeedCampaign
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *SeedCampaign
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *SeedCampaign) graphql.Marshaler {
+			return ec.marshalOSeedCampaign2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSeedCampaign(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_Query_seedCampaign(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_SeedCampaign(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_seedCampaign_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Query_sessionState(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -50835,6 +51936,502 @@ func (ec *executionContext) _SeasonalEventProgress_reached(ctx context.Context, 
 }
 func (ec *executionContext) fieldContext_SeasonalEventProgress_reached(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("SeasonalEventProgress", field, false, false, errors.New("field of type Boolean does not have child fields"))
+}
+
+func (ec *executionContext) _SeedCampaign_id(ctx context.Context, field graphql.CollectedField, obj *SeedCampaign) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SeedCampaign_id(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v uuid.UUID) graphql.Marshaler {
+			return ec.marshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SeedCampaign_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SeedCampaign", field, false, false, errors.New("field of type ID does not have child fields"))
+}
+
+func (ec *executionContext) _SeedCampaign_cohort(ctx context.Context, field graphql.CollectedField, obj *SeedCampaign) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SeedCampaign_cohort(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Cohort, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *SeedCohort) graphql.Marshaler {
+			return ec.marshalNSeedCohort2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSeedCohort(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SeedCampaign_cohort(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SeedCampaign",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_SeedCohort(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SeedCampaign_name(ctx context.Context, field graphql.CollectedField, obj *SeedCampaign) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SeedCampaign_name(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Name, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SeedCampaign_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SeedCampaign", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _SeedCampaign_points(ctx context.Context, field graphql.CollectedField, obj *SeedCampaign) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SeedCampaign_points(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Points, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SeedCampaign_points(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SeedCampaign", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _SeedCampaign_created_at(ctx context.Context, field graphql.CollectedField, obj *SeedCampaign) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SeedCampaign_created_at(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.CreatedAt, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v time.Time) graphql.Marshaler {
+			return ec.marshalNTime2timeᚐTime(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SeedCampaign_created_at(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SeedCampaign", field, false, false, errors.New("field of type Time does not have child fields"))
+}
+
+func (ec *executionContext) _SeedCampaign_last_run_at(ctx context.Context, field graphql.CollectedField, obj *SeedCampaign) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SeedCampaign_last_run_at(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.LastRunAt, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *time.Time) graphql.Marshaler {
+			return ec.marshalOTime2ᚖtimeᚐTime(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_SeedCampaign_last_run_at(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SeedCampaign", field, false, false, errors.New("field of type Time does not have child fields"))
+}
+
+func (ec *executionContext) _SeedCampaign_last_run_by(ctx context.Context, field graphql.CollectedField, obj *SeedCampaign) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SeedCampaign_last_run_by(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.LastRunBy, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *User) graphql.Marshaler {
+			return ec.marshalOUser2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐUser(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_SeedCampaign_last_run_by(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SeedCampaign",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_User(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SeedCampaignRunResult_campaign(ctx context.Context, field graphql.CollectedField, obj *SeedCampaignRunResult) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SeedCampaignRunResult_campaign(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Campaign, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *SeedCampaign) graphql.Marshaler {
+			return ec.marshalNSeedCampaign2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSeedCampaign(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SeedCampaignRunResult_campaign(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SeedCampaignRunResult",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_SeedCampaign(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SeedCampaignRunResult_members(ctx context.Context, field graphql.CollectedField, obj *SeedCampaignRunResult) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SeedCampaignRunResult_members(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Members, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SeedCampaignRunResult_members(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SeedCampaignRunResult", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _SeedCampaignRunResult_paid(ctx context.Context, field graphql.CollectedField, obj *SeedCampaignRunResult) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SeedCampaignRunResult_paid(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Paid, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SeedCampaignRunResult_paid(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SeedCampaignRunResult", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _SeedCampaignRunResult_skipped(ctx context.Context, field graphql.CollectedField, obj *SeedCampaignRunResult) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SeedCampaignRunResult_skipped(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Skipped, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SeedCampaignRunResult_skipped(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SeedCampaignRunResult", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _SeedCohort_id(ctx context.Context, field graphql.CollectedField, obj *SeedCohort) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SeedCohort_id(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v uuid.UUID) graphql.Marshaler {
+			return ec.marshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SeedCohort_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SeedCohort", field, false, false, errors.New("field of type ID does not have child fields"))
+}
+
+func (ec *executionContext) _SeedCohort_name(ctx context.Context, field graphql.CollectedField, obj *SeedCohort) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SeedCohort_name(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Name, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SeedCohort_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SeedCohort", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _SeedCohort_description(ctx context.Context, field graphql.CollectedField, obj *SeedCohort) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SeedCohort_description(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Description, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
+			return ec.marshalOString2ᚖstring(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_SeedCohort_description(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SeedCohort", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _SeedCohort_created_at(ctx context.Context, field graphql.CollectedField, obj *SeedCohort) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SeedCohort_created_at(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.CreatedAt, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v time.Time) graphql.Marshaler {
+			return ec.marshalNTime2timeᚐTime(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SeedCohort_created_at(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SeedCohort", field, false, false, errors.New("field of type Time does not have child fields"))
+}
+
+func (ec *executionContext) _SeedCohort_member_count(ctx context.Context, field graphql.CollectedField, obj *SeedCohort) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SeedCohort_member_count(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.MemberCount, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SeedCohort_member_count(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SeedCohort", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _SeedCohort_members(ctx context.Context, field graphql.CollectedField, obj *SeedCohort) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SeedCohort_members(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Members, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []SeedCohortMember) graphql.Marshaler {
+			return ec.marshalNSeedCohortMember2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSeedCohortMemberᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SeedCohort_members(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SeedCohort",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_SeedCohortMember(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SeedCohortMember_user_id(ctx context.Context, field graphql.CollectedField, obj *SeedCohortMember) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SeedCohortMember_user_id(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.UserID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v uuid.UUID) graphql.Marshaler {
+			return ec.marshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SeedCohortMember_user_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SeedCohortMember", field, false, false, errors.New("field of type ID does not have child fields"))
+}
+
+func (ec *executionContext) _SeedCohortMember_name(ctx context.Context, field graphql.CollectedField, obj *SeedCohortMember) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SeedCohortMember_name(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Name, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SeedCohortMember_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SeedCohortMember", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _SeedCohortMember_added_at(ctx context.Context, field graphql.CollectedField, obj *SeedCohortMember) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SeedCohortMember_added_at(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.AddedAt, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v time.Time) graphql.Marshaler {
+			return ec.marshalNTime2timeᚐTime(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SeedCohortMember_added_at(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SeedCohortMember", field, false, false, errors.New("field of type Time does not have child fields"))
 }
 
 func (ec *executionContext) _SessionState_kind(ctx context.Context, field graphql.CollectedField, obj *SessionState) (ret graphql.Marshaler) {
@@ -62867,6 +64464,124 @@ func (ec *executionContext) unmarshalInputSceneUpdateInput(ctx context.Context, 
 	return it, nil
 }
 
+func (ec *executionContext) unmarshalInputSeedCampaignCreateInput(ctx context.Context, obj any) (SeedCampaignCreateInput, error) {
+	var it SeedCampaignCreateInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"cohort_id", "name", "points"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "cohort_id":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("cohort_id"))
+			data, err := ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.CohortID = data
+		case "name":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("name"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Name = data
+		case "points":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("points"))
+			data, err := ec.unmarshalNInt2int(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Points = data
+		}
+	}
+	return it, nil
+}
+
+func (ec *executionContext) unmarshalInputSeedCohortCreateInput(ctx context.Context, obj any) (SeedCohortCreateInput, error) {
+	var it SeedCohortCreateInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"name", "description"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "name":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("name"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Name = data
+		case "description":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("description"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Description = data
+		}
+	}
+	return it, nil
+}
+
+func (ec *executionContext) unmarshalInputSeedCohortMembersInput(ctx context.Context, obj any) (SeedCohortMembersInput, error) {
+	var it SeedCohortMembersInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"cohort_id", "user_ids"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "cohort_id":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("cohort_id"))
+			data, err := ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.CohortID = data
+		case "user_ids":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("user_ids"))
+			data, err := ec.unmarshalNID2ᚕgithubᚗcomᚋgofrsᚋuuidᚐUUIDᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.UserIds = data
+		}
+	}
+	return it, nil
+}
+
 func (ec *executionContext) unmarshalInputSessionStateInput(ctx context.Context, obj any) (SessionStateInput, error) {
 	var it SessionStateInput
 	if obj == nil {
@@ -72522,6 +74237,41 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "createSeedCohort":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_createSeedCohort(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "addSeedCohortMembers":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_addSeedCohortMembers(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "removeSeedCohortMember":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_removeSeedCohortMember(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "createSeedCampaign":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_createSeedCampaign(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "runSeedCampaign":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_runSeedCampaign(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "saveSessionState":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_saveSessionState(ctx, field)
@@ -76864,6 +78614,94 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "seedCohorts":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_seedCohorts(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "seedCohort":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_seedCohort(ctx, field)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "seedCampaigns":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_seedCampaigns(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "seedCampaign":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_seedCampaign(ctx, field)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
 		case "sessionState":
 			field := field
 
@@ -80127,6 +81965,238 @@ func (ec *executionContext) _SeasonalEventProgress(ctx context.Context, sel ast.
 			}
 		case "reached":
 			out.Values[i] = ec._SeasonalEventProgress_reached(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var seedCampaignImplementors = []string{"SeedCampaign"}
+
+func (ec *executionContext) _SeedCampaign(ctx context.Context, sel ast.SelectionSet, obj *SeedCampaign) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, seedCampaignImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("SeedCampaign")
+		case "id":
+			out.Values[i] = ec._SeedCampaign_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "cohort":
+			out.Values[i] = ec._SeedCampaign_cohort(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "name":
+			out.Values[i] = ec._SeedCampaign_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "points":
+			out.Values[i] = ec._SeedCampaign_points(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "created_at":
+			out.Values[i] = ec._SeedCampaign_created_at(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "last_run_at":
+			out.Values[i] = ec._SeedCampaign_last_run_at(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		case "last_run_by":
+			out.Values[i] = ec._SeedCampaign_last_run_by(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var seedCampaignRunResultImplementors = []string{"SeedCampaignRunResult"}
+
+func (ec *executionContext) _SeedCampaignRunResult(ctx context.Context, sel ast.SelectionSet, obj *SeedCampaignRunResult) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, seedCampaignRunResultImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("SeedCampaignRunResult")
+		case "campaign":
+			out.Values[i] = ec._SeedCampaignRunResult_campaign(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "members":
+			out.Values[i] = ec._SeedCampaignRunResult_members(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "paid":
+			out.Values[i] = ec._SeedCampaignRunResult_paid(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "skipped":
+			out.Values[i] = ec._SeedCampaignRunResult_skipped(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var seedCohortImplementors = []string{"SeedCohort"}
+
+func (ec *executionContext) _SeedCohort(ctx context.Context, sel ast.SelectionSet, obj *SeedCohort) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, seedCohortImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("SeedCohort")
+		case "id":
+			out.Values[i] = ec._SeedCohort_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "name":
+			out.Values[i] = ec._SeedCohort_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "description":
+			out.Values[i] = ec._SeedCohort_description(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		case "created_at":
+			out.Values[i] = ec._SeedCohort_created_at(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "member_count":
+			out.Values[i] = ec._SeedCohort_member_count(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "members":
+			out.Values[i] = ec._SeedCohort_members(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var seedCohortMemberImplementors = []string{"SeedCohortMember"}
+
+func (ec *executionContext) _SeedCohortMember(ctx context.Context, sel ast.SelectionSet, obj *SeedCohortMember) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, seedCohortMemberImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("SeedCohortMember")
+		case "user_id":
+			out.Values[i] = ec._SeedCohortMember_user_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "name":
+			out.Values[i] = ec._SeedCohortMember_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "added_at":
+			out.Values[i] = ec._SeedCohortMember_added_at(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -87570,6 +89640,111 @@ func (ec *executionContext) marshalNSeasonalEventStatus2githubᚗcomᚋstashapp�
 	return v
 }
 
+func (ec *executionContext) marshalNSeedCampaign2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSeedCampaign(ctx context.Context, sel ast.SelectionSet, v SeedCampaign) graphql.Marshaler {
+	return ec._SeedCampaign(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNSeedCampaign2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSeedCampaignᚄ(ctx context.Context, sel ast.SelectionSet, v []SeedCampaign) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNSeedCampaign2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSeedCampaign(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNSeedCampaign2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSeedCampaign(ctx context.Context, sel ast.SelectionSet, v *SeedCampaign) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._SeedCampaign(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalNSeedCampaignCreateInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSeedCampaignCreateInput(ctx context.Context, v any) (SeedCampaignCreateInput, error) {
+	res, err := ec.unmarshalInputSeedCampaignCreateInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNSeedCampaignRunResult2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSeedCampaignRunResult(ctx context.Context, sel ast.SelectionSet, v *SeedCampaignRunResult) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._SeedCampaignRunResult(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNSeedCohort2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSeedCohort(ctx context.Context, sel ast.SelectionSet, v SeedCohort) graphql.Marshaler {
+	return ec._SeedCohort(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNSeedCohort2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSeedCohortᚄ(ctx context.Context, sel ast.SelectionSet, v []SeedCohort) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNSeedCohort2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSeedCohort(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNSeedCohort2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSeedCohort(ctx context.Context, sel ast.SelectionSet, v *SeedCohort) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._SeedCohort(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalNSeedCohortCreateInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSeedCohortCreateInput(ctx context.Context, v any) (SeedCohortCreateInput, error) {
+	res, err := ec.unmarshalInputSeedCohortCreateInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNSeedCohortMember2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSeedCohortMember(ctx context.Context, sel ast.SelectionSet, v SeedCohortMember) graphql.Marshaler {
+	return ec._SeedCohortMember(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNSeedCohortMember2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSeedCohortMemberᚄ(ctx context.Context, sel ast.SelectionSet, v []SeedCohortMember) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNSeedCohortMember2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSeedCohortMember(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) unmarshalNSeedCohortMembersInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSeedCohortMembersInput(ctx context.Context, v any) (SeedCohortMembersInput, error) {
+	res, err := ec.unmarshalInputSeedCohortMembersInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
 func (ec *executionContext) marshalNSessionState2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSessionState(ctx context.Context, sel ast.SelectionSet, v SessionState) graphql.Marshaler {
 	return ec._SessionState(ctx, sel, &v)
 }
@@ -89882,6 +92057,20 @@ func (ec *executionContext) marshalOSceneSortEnum2ᚖgithubᚗcomᚋstashappᚋs
 		return graphql.Null
 	}
 	return v
+}
+
+func (ec *executionContext) marshalOSeedCampaign2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSeedCampaign(ctx context.Context, sel ast.SelectionSet, v *SeedCampaign) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._SeedCampaign(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalOSeedCohort2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSeedCohort(ctx context.Context, sel ast.SelectionSet, v *SeedCohort) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._SeedCohort(ctx, sel, v)
 }
 
 func (ec *executionContext) marshalOSessionState2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSessionState(ctx context.Context, sel ast.SelectionSet, v *SessionState) graphql.Marshaler {

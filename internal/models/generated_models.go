@@ -2236,6 +2236,88 @@ type SeasonalEventProgress struct {
 	Reached bool `json:"reached"`
 }
 
+type SeedCampaign struct {
+	ID uuid.UUID `json:"id"`
+	// The cohort this campaign pays. Read per campaign; campaigns are curated handfuls, not feeds.
+	Cohort *SeedCohort `json:"cohort"`
+	Name   string      `json:"name"`
+	// The head start, per member, paid once.
+	Points    int       `json:"points"`
+	CreatedAt time.Time `json:"created_at"`
+	// When it was last APPLIED, and NULL means never -- which is a different state from "ran and paid
+	// nobody new", and an operator needs to tell those apart.
+	LastRunAt *time.Time `json:"last_run_at,omitempty"`
+	LastRunBy *User      `json:"last_run_by,omitempty"`
+}
+
+type SeedCampaignCreateInput struct {
+	CohortID uuid.UUID `json:"cohort_id"`
+	Name     string    `json:"name"`
+	// The head start each member receives, once. Must be positive: a campaign is a head start.
+	Points int `json:"points"`
+}
+
+// What running a campaign did.
+//
+// Three numbers rather than one, because "done" hides the questions an operator is asking: how many were
+// in the cohort when it ran, how many received the head start now, and how many already had it (the normal
+// answer on a re-run, and not an error).
+type SeedCampaignRunResult struct {
+	Campaign *SeedCampaign `json:"campaign"`
+	// The cohort's size AT THE MOMENT OF THE RUN.
+	Members int `json:"members"`
+	// Members this run paid.
+	Paid int `json:"paid"`
+	// Members who already had the head start -- an earlier run, not a failure.
+	Skipped int `json:"skipped"`
+}
+
+// Seed cohorts and the campaigns that pay them a head start (SPEC §11, plan phase 11 slice 11d).
+//
+// A COHORT IS A LIST OF PEOPLE, and nothing else: it grants nothing by existing, it is not a role (a role
+// is a permission, a cohort is a group), and it is not a level. What a cohort is FOR is being the set a
+// campaign pays.
+//
+// A CAMPAIGN AWARDS POINTS, NEVER A LEVEL. That is the rule this whole surface is shaped around: the
+// level has exactly one implementation (`LevelForTotals`), so a campaign that set a level directly would
+// be a second answer to "what level is this person", and the two answers would disagree the first time the
+// member contributed anything. The head start is paid ONCE per member per campaign, and the enforcement is
+// the trust event log's own dedup index -- running a campaign twice pays nobody twice.
+//
+// EVERY FIELD HERE IS ADMIN. Deciding who gets a head start is not a moderation decision about this
+// database's content; it is a decision about standing, taken with the numbers in front of you.
+type SeedCohort struct {
+	ID          uuid.UUID `json:"id"`
+	Name        string    `json:"name"`
+	Description *string   `json:"description,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	// How many members the cohort has right now -- which is not how many a campaign paid.
+	MemberCount int `json:"member_count"`
+	// The members, with names. Read at the moment it is asked for, because membership is never cached into
+	// a payment: a campaign pays the cohort it has WHEN IT RUNS.
+	Members []SeedCohortMember `json:"members"`
+}
+
+type SeedCohortCreateInput struct {
+	Name        string  `json:"name"`
+	Description *string `json:"description,omitempty"`
+}
+
+// One member of a cohort.
+//
+// Not a `User`: this is the join's own row, and a `User` would promise fields the join does not carry.
+type SeedCohortMember struct {
+	UserID  uuid.UUID `json:"user_id"`
+	Name    string    `json:"name"`
+	AddedAt time.Time `json:"added_at"`
+}
+
+type SeedCohortMembersInput struct {
+	CohortID uuid.UUID `json:"cohort_id"`
+	// Accounts to put in the cohort. Adding one that is already there changes nothing.
+	UserIds []uuid.UUID `json:"user_ids"`
+}
+
 // One stored cursor.
 type SessionState struct {
 	// What the cursor is for (`scenes`, `forum-thread`, ...).

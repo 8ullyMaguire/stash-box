@@ -59,6 +59,7 @@ import (
 	"github.com/stashapp/stash-box/internal/service/savedsearch"
 	"github.com/stashapp/stash-box/internal/service/scene"
 	"github.com/stashapp/stash-box/internal/service/seasonal"
+	"github.com/stashapp/stash-box/internal/service/seed"
 	"github.com/stashapp/stash-box/internal/service/sessionstate"
 	"github.com/stashapp/stash-box/internal/service/similar"
 	"github.com/stashapp/stash-box/internal/service/site"
@@ -362,6 +363,15 @@ func (f *Factory) SavedSearch() *savedsearch.SavedSearch {
 
 func (f *Factory) Invite() *invite.Invite {
 	return invite.NewInvite(queries.New(f.db), f.withTxn)
+}
+
+// Seed returns the seed-cohort and campaign service.
+//
+// It is handed f.Trust() rather than building one, and that is the point: the campaign's head start is
+// a TRUST EVENT, and the trust service is the only thing that may write one. A campaign service with
+// its own recorder would be a second way to move a member's points.
+func (f *Factory) Seed() *seed.Service {
+	return seed.NewService(queries.New(f.db), f.withTxn, f.Trust())
 }
 
 // Trust returns a TrustService instance

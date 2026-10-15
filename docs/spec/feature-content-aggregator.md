@@ -327,7 +327,7 @@ behaviour. "New" = nothing to extend. Phase numbers are §Phases in
 | §9.2 | forums | **deferred by the respec** — a moderation surface that scales with traffic, competing with Reddit and Discord for posts | — |
 | §9.3 | playlists, fork, auto-update | `list` (107) | 8 (extend) |
 | §10 | T0–T3 tiers, warnings vs gates, onboarding wizard | denylist + access rules | 5 |
-| §11 | invite allocation, referrals, QR, seed cohorts | `InviteKey` + the level-derived allowance (11a), the referral payment (11b), the durable event journal, the three counters, the landing page and the QR (11c: `invite_key_events` + `User.invite_stats` + `GET /invite/<code>` + `InviteKey.link`/`qr_svg`) | 11 |
+| §11 | invite allocation, referrals, QR, seed cohorts | `InviteKey` + the level-derived allowance (11a), the referral payment (11b), the durable event journal, the three counters, the landing page and the QR (11c: `invite_key_events` + `User.invite_stats` + `GET /invite/<code>` + `InviteKey.link`/`qr_svg`), seed cohorts and campaigns (11d: `seed_cohorts`/`seed_cohort_members`/`seed_campaigns` + `SeedCampaignRunResult` + the `seed_fast_track` points-only kind) | 11 |
 | §12.1–12.5 | metadata federation, ontology sync, hash network, specialised instances | mesh §7.17/§7.18 is **ahead**; hash network new | 12 |
 | §12.6 | ActivityPub | none (rejected in the crosswalk) | 12 |
 | §13.1–13.5 | 5 players/viewers | **refused by the respec** — no player, no embed, no proxy. Reading *metadata* is a different surface and it is in: a comic's chapter list and page count are `content_item_chapters` (phase 3) | — |

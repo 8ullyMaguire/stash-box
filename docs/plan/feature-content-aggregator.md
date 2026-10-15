@@ -3403,6 +3403,64 @@ entity key, so re-running a campaign pays nobody twice), and the level follows f
 identical history gains nothing; running the campaign twice pays the cohort once; a member who leaves the
 cohort before the campaign runs is not paid.
 
+**BUILT 2026-10-15 (11d is complete).** Migration **139** adds `seed_cohorts` (a name, unique, and a
+description), `seed_cohort_members` (the pair IS the identity, so adding somebody who is already there is
+a no-op rather than an error, with the reverse index a member's own page asks for) and `seed_campaigns`
+(its cohort, the head start, who created it, and when it was last APPLIED — `NULL` meaning never, which is
+a different state from "ran and paid nobody new", and an operator needs to tell those apart). THE FAST
+TRACK IS A POINTS-ONLY KIND: `seed_fast_track` joins `KindBountyBonus` in the set of kinds that are known
+without being counted, so the amount travels as the delta and lands in `bonus_points`, and the level
+follows from `LevelForTotals` like every other point. It is deliberately absent from `AllKinds` and
+`PointsPerKind` — a campaign's worth is per-campaign, and folding it into a counted kind would credit a
+count that never happened. Adding the kind touched FOUR places: its own constant, `knownKind`, and the two
+SQL rollup queries — and the one that would have been missed is the second query, **`RecomputeUserTrustTotals`'s
+SUM**, because without that term a REBUILD would silently take a campaign's head start away from every
+member it was paid to. The two points-only kinds share ONE
+expression there because `bonus_points` is one column (the first aim added a second `VALUES` entry and
+`sqlc` refused it: "INSERT has more expressions than target columns" — which is the generator catching a
+schema-shaped mistake rather than a code one). DEDUPLICATION IS THE LEDGER'S, NOT A FLAG'S: the campaign's
+id travels in the event's `entity_id`, so `trust_events_dedup_idx` refuses a second payment and a re-run
+pays nobody — and the pair `(seed_campaign, campaign_id)` is what keeps two campaigns' payments for one
+member from contending for one slot, which is the failure that would be silent (a member loses points and
+nothing says so). MEMBERSHIP IS READ WHEN THE RUN RUNS, which is what makes "a member who left before the
+campaign ran is not paid" true by construction rather than by a check that happens to work — and it also
+makes the run RESUMABLE: a member added later is paid by the next run. THE ORDER OF THE TWO WRITES IS THE
+DESIGN: the payments go first and the campaign is marked as run LAST, so a run that dies halfway leaves a
+campaign that says it has not been run while some members have their points, and the fix is to run it again
+(marking it first would produce the opposite and much worse state — a campaign that says it was applied
+with members unpaid, indistinguishable from a finished one). It is deliberately NOT one transaction across
+all the members: wrapping a cohort in one transaction would hold locks on a thousand rollup rows to make a
+report tidier, and what that trades away is bought back by the resumability above. **ONE NEW PUBLIC PATH
+IN THE TRUST SERVICE, for one caller**: `RecordEventIfNew` is the same recording path with the one fact
+`RecordEvent` throws away — whether the event was NEW — because a campaign's report says "paid N, skipped
+M" and every other caller's duplicate is a silent no-op. Both entry points go through `recordReporting`, so
+the rules (non-zero delta, unknown kind, dedup, policy, the referral chain) exist once. A campaign must be
+WORTH something: `points > 0` is a CHECK in the migration AND a guard in the service, and the CHECK is the
+rule while the guard is only the message — a negative head start is a punishment campaign, a different
+feature with different consent questions, and it does not arrive through this door. The GraphQL surface is
+ADMIN throughout (deciding who gets a head start is a decision about standing, taken with the numbers in
+front of you), the models are BUILT rather than read off a row because a cohort's size, its members and a
+campaign's cohort are QUESTIONS (the roster is read when it is asked for) — a trade that is right for lists
+of curated handfuls and wrong for a feed, and 11d is the former. EVIDENCE: **9 integration tests** against
+real Postgres (`internal/service/seed/campaign_integration_test.go`), one per claim plus the roster's own
+arithmetic and the "a cohort grants nothing" negative (no level, no points, no role, no ledger row — a
+cohort that widened an account's reach would be a permission granted by a membership list); the level claim
+is asserted AGAINST THE CURVE APPLIED TO THE STORED COUNTERS rather than against a number written in the
+test, which is what "not an override" means and what would still hold if the curve were retuned.
+THE FIXTURE LESSON, and M1 is the probe that proves it was not merely cosmetic: the fixture's operator is
+NOT a member, because a fixture where the person who runs the campaign is also the person it pays cannot
+tell "paid the cohort" apart from "paid the caller" — the first version had the runner among the members
+and the "pays the creator" mutant would have survived it. MUTATIONS: `scripts/mutate-seed-campaign.py`,
+**6 probes, 6 KILLED** (pays the creator; an already-paid member reported as paid; the dedup key loses the
+campaign's id; the head start arrives as a counted kind; the add reports the list's length; the recording
+path reports every event as already paid). M5 was a BUILD BREAK on its first two aims (`after`, then
+`before`, left unused) and was re-aimed at the whole block — a mutation that does not compile is not a
+verdict, the same lesson the 11a and 11c batteries each recorded once. The `points > 0` rule is
+deliberately NOT probed and the script says why: it lives in two places, the database's CHECK is the rule,
+and neutering the guard alone leaves the test green because the constraint still refuses. NOT BUILT, named:
+no `frontend/` surface reads a cohort or a campaign, a campaign is run by an explicit operator mutation
+(there is no scheduler and no window/expiry), and nothing sends a member the news that they were paid.
+
 ## Phase 12 — federation extensions
 
 **Goal:** NexusXXX §12.3–§12.6 on top of the existing mesh (§7.17/§7.18): ontology

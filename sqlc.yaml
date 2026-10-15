@@ -151,6 +151,7 @@ sql:
       - internal/database/migrations/postgres/136_user_role_width.up.sql
       - internal/database/migrations/postgres/137_invite_activated_count.up.sql
       - internal/database/migrations/postgres/138_invite_key_events.up.sql
+      - internal/database/migrations/postgres/139_seed_cohorts.up.sql
     queries: "internal/queries/sql"
     gen:
       go:

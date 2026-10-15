@@ -48,6 +48,20 @@ const (
 	// and "how much are they worth" are different questions and one integer
 	// cannot answer both.
 	KindBountyBonus KindEnum = "bounty_bonus"
+	// KindSeedFastTrack is a seed campaign's head start (plan phase 11 slice 11d): the EXTRA points a
+	// campaign pays each of its cohort's members, once.
+	//
+	// A points-only kind, like KindBountyBonus and for the same reason: the amount is per-campaign and
+	// arrives in the delta, so it belongs in BonusPoints rather than in any count. It is deliberately
+	// absent from AllKinds and from PointsPerKind, and deliberately NOT a level override -- a campaign
+	// that set a level directly would be a second answer to "what level is this person", which is the
+	// mistake the whole trust phase exists to avoid. It awards points; the level follows from the one
+	// curve.
+	//
+	// Deduplication is the event log's, not this kind's: the campaign's id travels in the event's
+	// entity_id, so a second run of the same campaign conflicts on
+	// trust_events_dedup_idx (user_id, kind, entity_type, entity_id) and pays nobody twice.
+	KindSeedFastTrack KindEnum = "seed_fast_track"
 )
 
 // AllKinds is every kind the rollup knows how to count.
@@ -216,8 +230,8 @@ type Totals struct {
 	// InvitesActivated is how many of this member's invitees reached Registered.
 	InvitesActivated int
 	// BonusPoints is points earned from events that are not contributions of a
-	// countable kind -- currently a quest's bounty. Summed, not counted, because
-	// "a bounty is worth this much" is a total and not a tally.
+	// countable kind -- a quest's bounty, and a seed campaign's head start. Summed,
+	// not counted, because "this is worth that much" is a total and not a tally.
 	BonusPoints int
 }
 

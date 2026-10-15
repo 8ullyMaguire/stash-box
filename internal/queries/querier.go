@@ -38,6 +38,10 @@ type Querier interface {
 	// which is the only place that question is decided.
 	AddListCollaborator(ctx context.Context, arg AddListCollaboratorParams) error
 	AddListItem(ctx context.Context, arg AddListItemParams) (ListItem, error)
+	// Adding somebody who is already in the cohort is a NO-OP rather than an error: the pair is the fact,
+	// and "make sure this person is in the cohort" is the operation an operator actually wants. The
+	// reported count of members added comes from the difference either side of the call.
+	AddSeedCohortMember(ctx context.Context, arg AddSeedCohortMemberParams) error
 	// Record that `alternative_site_id` is an alternative to `site_id`.
 	//
 	// The self-link is prevented by the table's CHECK and NOT re-checked here. Adding
@@ -310,6 +314,7 @@ type Querier interface {
 	// ON DELETE CASCADE on tag_implications plus the cycle trigger (migration 111) are what make
 	// this terminate.
 	CountScenesForTagsThroughImplications(ctx context.Context, tagIds []uuid.UUID) ([]CountScenesForTagsThroughImplicationsRow, error)
+	CountSeedCohortMembers(ctx context.Context, cohortID uuid.UUID) (int, error)
 	// How many performers clear the shared-scene floor for a subject.
 	//
 	// Separate from FindSimilarPerformers on purpose: the list is limited to a page,
@@ -609,6 +614,15 @@ type Querier interface {
 	CreateSceneTags(ctx context.Context, arg []CreateSceneTagsParams) (int64, error)
 	// Scene URLs
 	CreateSceneURLs(ctx context.Context, arg []CreateSceneURLsParams) (int64, error)
+	CreateSeedCampaign(ctx context.Context, arg CreateSeedCampaignParams) (SeedCampaign, error)
+	// Seed cohorts and their campaigns (plan phase 11 slice 11d).
+	//
+	// The queries here are deliberately plain: a cohort is a list of people, a campaign is one row naming
+	// its cohort and the head start it pays, and the only interesting thing about any of it is what
+	// happens when a campaign RUNS (see the service). No counter column is read or written anywhere.
+	// A cohort is created by name. The UNIQUE constraint is the error a caller gets for a name already in
+	// use, so there is no check-then-insert here.
+	CreateSeedCohort(ctx context.Context, arg CreateSeedCohortParams) (SeedCohort, error)
 	// Site queries
 	CreateSite(ctx context.Context, arg CreateSiteParams) (Site, error)
 	// Site category queries
@@ -1212,6 +1226,8 @@ type Querier interface {
 	FindScenesByFingerprintsExactWithHash(ctx context.Context, hashes []int64) ([]FindScenesByFingerprintsExactWithHashRow, error)
 	// Scene fingerprints (use fingerprint.sql for most fingerprint operations)
 	FindScenesByFullFingerprintsWithHash(ctx context.Context, arg FindScenesByFullFingerprintsWithHashParams) ([]FindScenesByFullFingerprintsWithHashRow, error)
+	FindSeedCampaign(ctx context.Context, id uuid.UUID) (SeedCampaign, error)
+	FindSeedCohort(ctx context.Context, id uuid.UUID) (SeedCohort, error)
 	// A SYNCED cursor, addressed by what it is for. A `local` row is skipped by the predicate rather
 	// than filtered afterwards, so there is no code path in which the payload is read and then
 	// discarded: "nothing reads it unless the user turned it on" is this WHERE clause.
@@ -2024,6 +2040,15 @@ type Querier interface {
 	// looks up the viewer's progress, because "which of these is running" is a question about
 	// the current instant and not about the rows.
 	ListSeasonalEvents(ctx context.Context) ([]SeasonalEvent, error)
+	ListSeedCampaigns(ctx context.Context) ([]SeedCampaign, error)
+	// THE RUN'S MEMBER SET. Membership is read at RUN TIME and not cached anywhere, which is what makes
+	// "a member who left the cohort before the campaign ran is not paid" true by construction rather than
+	// by a check.
+	ListSeedCohortMemberIDs(ctx context.Context, cohortID uuid.UUID) ([]uuid.UUID, error)
+	// The same set with names, for the operator's screen.
+	ListSeedCohortMembers(ctx context.Context, cohortID uuid.UUID) ([]ListSeedCohortMembersRow, error)
+	// Newest first: an operator looking for the cohort they just made finds it at the top.
+	ListSeedCohorts(ctx context.Context) ([]SeedCohort, error)
 	// A site's direct alternatives, by name for display.
 	//
 	// The JOIN is to sites rather than returning bare ids, because the alternative
@@ -2205,6 +2230,10 @@ type Querier interface {
 	LockUserForVouch(ctx context.Context, id uuid.UUID) (uuid.UUID, error)
 	MarkAllNotificationsRead(ctx context.Context, userID uuid.UUID) error
 	MarkNotificationRead(ctx context.Context, arg MarkNotificationReadParams) error
+	// Records that the campaign was APPLIED, and by whom. Deliberately a separate write from the paying of
+	// it: the payment is idempotent (the event log decides), and this column is only what an operator reads
+	// to see whether anybody has run it yet.
+	MarkSeedCampaignRun(ctx context.Context, arg MarkSeedCampaignRunParams) (SeedCampaign, error)
 	MarkWebhookDelivered(ctx context.Context, id uuid.UUID) (WebhookDelivery, error)
 	// Records a failed attempt and schedules the next one.
 	//
@@ -2392,6 +2421,9 @@ type Querier interface {
 	RemoveListCollaborator(ctx context.Context, arg RemoveListCollaboratorParams) (int64, error)
 	RemoveListItem(ctx context.Context, id uuid.UUID) error
 	RemoveListItemsByEntity(ctx context.Context, arg RemoveListItemsByEntityParams) error
+	// :execrows because "removed" and "was never in it" are different answers, and the second usually means
+	// the operator is looking at the wrong cohort.
+	RemoveSeedCohortMember(ctx context.Context, arg RemoveSeedCohortMemberParams) (int64, error)
 	RemoveSiteAlternative(ctx context.Context, arg RemoveSiteAlternativeParams) error
 	// Set an explicit position for one item. Reordering is one row at a time rather than a bulk
 	// swap, because a list has no version column and a concurrent reorder would otherwise be

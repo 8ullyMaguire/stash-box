@@ -59,7 +59,13 @@ VALUES (
     -- A points-ONLY kind: bounty_bonus moves bonus_points and no count at all.
     -- That is the whole reason it is a separate kind -- folding it into
     -- quests_completed would credit 500 completed quests for one bounty.
-    CASE WHEN sqlc.arg(event_kind)::TEXT = 'bounty_bonus' THEN sqlc.arg(event_delta)::INTEGER ELSE 0 END,
+    -- BOTH points-ONLY kinds, and they share ONE expression because bonus_points is one column:
+    -- `bounty_bonus` (a quest's extra worth) and `seed_fast_track` (a campaign's head start, plan phase
+    -- 11 slice 11d). Neither moves a count -- the amount is per-event and arrives as the delta, and
+    -- folding either into a counted kind would credit a count that never happened ("one campaign" is
+    -- not a contribution).
+    CASE WHEN sqlc.arg(event_kind)::TEXT IN ('bounty_bonus', 'seed_fast_track')
+         THEN sqlc.arg(event_delta)::INTEGER ELSE 0 END,
     NOW()
 )
 ON CONFLICT (user_id) DO UPDATE SET
@@ -89,7 +95,11 @@ SELECT
     COALESCE(SUM(CASE WHEN kind = 'quest_completed' THEN delta ELSE 0 END), 0),
     COALESCE(SUM(CASE WHEN kind = 'replica_hosted' THEN delta ELSE 0 END), 0),
     COALESCE(SUM(CASE WHEN kind = 'invite_activated' THEN delta ELSE 0 END), 0),
-    COALESCE(SUM(CASE WHEN kind = 'bounty_bonus' THEN delta ELSE 0 END), 0),
+    -- BOTH points-only kinds, and this line is load-bearing rather than symmetrical: without the
+    -- seed_fast_track term a REBUILD would silently take a campaign's head start away from every
+    -- member it was paid to, because the rebuild recomputes bonus_points from scratch.
+    COALESCE(SUM(CASE WHEN kind = 'bounty_bonus' THEN delta ELSE 0 END), 0)
+    + COALESCE(SUM(CASE WHEN kind = 'seed_fast_track' THEN delta ELSE 0 END), 0),
     NOW()
 FROM trust_events
 WHERE user_id = $1

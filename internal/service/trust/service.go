@@ -132,7 +132,10 @@ func idsToSet(ids []uuid.UUID) map[string]struct{} {
 // record it and then decline to roll it up -- the exact silent-invisible-
 // contribution failure the enum is meant to prevent.
 func knownKind(k KindEnum) bool {
-	if k == KindBountyBonus {
+	// The POINTS-ONLY kinds are known without being counted: they move bonus_points, carry their
+	// magnitude in the delta, and have no entry in PointsPerKind -- which is what AllKinds is summed
+	// over, so an entry there would either double-credit them or need a zero weight.
+	if k == KindBountyBonus || k == KindSeedFastTrack {
 		return true
 	}
 	_, ok := PointsPerKind[k]
@@ -175,11 +178,18 @@ func (s *Trust) RecordEventWithoutChain(ctx context.Context, event Event) (*quer
 }
 
 func (s *Trust) record(ctx context.Context, event Event, chain bool) (*queries.UserTrust, error) {
+	_, rollup, err := s.recordReporting(ctx, event, chain)
+	return rollup, err
+}
+
+// recordReporting is the recording path WITH the one fact RecordEvent throws away: whether the event was
+// new. Both entry points come through here, so there is no second implementation of the rules to drift.
+func (s *Trust) recordReporting(ctx context.Context, event Event, chain bool) (bool, *queries.UserTrust, error) {
 	if event.Delta == 0 {
 		// A zero delta would insert a row that moves no counter, and would still
 		// occupy the dedup slot -- so a later real event for the same entity
 		// would be silently discarded as a "duplicate".
-		return nil, errors.New("trust event delta must be non-zero")
+		return false, nil, errors.New("trust event delta must be non-zero")
 	}
 
 	if !knownKind(event.Kind) {
@@ -188,15 +198,29 @@ func (s *Trust) record(ctx context.Context, event Event, chain bool) (*queries.U
 		// invisible to every future rebuild.
 		if _, err := s.queries.RecordTrustEvent(ctx, toRecordParams(event)); err != nil &&
 			!errors.Is(err, pgx.ErrNoRows) {
-			return nil, err
+			return false, nil, err
 		}
-		return nil, ErrUnknownKind
+		return false, nil, ErrUnknownKind
 	}
 
 	return s.withRecordTx(ctx, event, chain)
 }
 
-func (s *Trust) withRecordTx(ctx context.Context, event Event, chain bool) (*queries.UserTrust, error) {
+// RecordEventIfNew is RecordEvent that also reports whether the event was NEW.
+//
+// ONE FACT, ASKED BY ONE CALLER (plan phase 11 slice 11d). A seed campaign's run reports "paid N,
+// skipped M" to the operator who ran it, and the only fact separating those two is whether the event
+// already existed. Every other caller does not care -- a duplicate is a silent no-op and the answer
+// would be noise -- so RecordEvent does not say, and this is the same path with the answer kept.
+//
+// It is not a second way to record: the rules (a non-zero delta, an unknown kind, the dedup, the
+// policy, the referral chain) all live in recordReporting, which both call.
+func (s *Trust) RecordEventIfNew(ctx context.Context, event Event) (bool, *queries.UserTrust, error) {
+	return s.recordReporting(ctx, event, true)
+}
+
+func (s *Trust) withRecordTx(ctx context.Context, event Event, chain bool) (bool, *queries.UserTrust, error) {
+	var inserted bool
 	var out *queries.UserTrust
 	err := s.withTxn(func(tx *queries.Queries) error {
 		// ON CONFLICT DO NOTHING makes a duplicate report no rows, which
@@ -206,7 +230,9 @@ func (s *Trust) withRecordTx(ctx context.Context, event Event, chain bool) (*que
 		switch {
 		case errors.Is(err, pgx.ErrNoRows):
 			// This exact event already exists. Leave the rollup alone rather
-			// than incrementing a second time for one contribution.
+			// than incrementing a second time for one contribution, and leave
+			// `inserted` false: the caller that reports "paid" versus "already
+			// paid" reads that flag and nothing else.
 			existing, gerr := tx.GetUserTrust(ctx, event.UserID)
 			switch {
 			case gerr == nil:
@@ -242,23 +268,27 @@ func (s *Trust) withRecordTx(ctx context.Context, event Event, chain bool) (*que
 		if err != nil {
 			return err
 		}
+		// THE ONE BRANCH THAT MAKES THIS EVENT NEW: the insert returned a row, so the dedup index did
+		// not reject it. The duplicate branch above leaves this false, and that is the whole answer the
+		// campaign's report is built from.
+		inserted = true
 		out = &rollup
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return inserted, nil, err
 	}
 
 	updated, _, err := s.applyPolicy(ctx, out)
 	if err != nil {
-		return nil, err
+		return inserted, nil, err
 	}
 	if chain && s.referral != nil {
 		if err := s.payReferral(ctx, updated); err != nil {
-			return nil, err
+			return inserted, nil, err
 		}
 	}
-	return updated, nil
+	return inserted, updated, nil
 }
 
 // payReferral asks the instance's referral payment whether this event completed an
