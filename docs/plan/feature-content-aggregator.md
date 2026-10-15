@@ -1,6 +1,6 @@
 # PLAN — the content aggregator programme (NexusXXX parity)
 
-Status: **in progress** — phases 1, 2, 3, 4, 5, 6, 7 and 9 are DONE and phase 17 is landed; phases 8 and 10–17 are open. Phase 6 (trust decay, vouching, heatmap, leaderboard, seasonal events) CLOSED on 2026-10-15: seven slices, each built, verified and probe-killed, each with a vault note. The one known gap inside a done phase: SweepDecay has no scheduler calling it, recorded in its own slice rather than left to be rediscovered. This line is the status of the WHOLE programme, so it is only Built when every phase is.
+Status: **in progress** — phases 1, 2, 3, 4, 5, 6, 7 and 9 are DONE and phase 17 has landed; phases 8 and 10–17 remain. Phase 6 (trust decay, vouching, heatmap, leaderboard, seasonal events) closed on 2026-10-15: seven slices, each built, verified and probe-killed, each with a vault note. Phase 8 is in progress: 8a is done and 8b is recorded with the phase's own verification attached. The one known gap inside a done phase: SweepDecay has no scheduler calling it, recorded in its own slice rather than left to be rediscovered. This line states the condition of the WHOLE programme, so it changes only when the last phase does.
 five non-video content kinds) closed on 2026-10-14 with slice 3g: they are stored, scoped,
 scored, tagged, reviewed, rated, listed, and now creatable through the edit system, which is
 the repository’s one route for shared metadata. This doc is deliberately NOT marked Built
