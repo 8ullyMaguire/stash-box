@@ -1994,7 +1994,7 @@ part of the commit message.
    16), no TTL on a session cursor (an expiry would silently forget a position someone came back
    for), and no ranking input on the feed at all.
 
-## Phase 8 — social
+## Phase 8 — social — **DONE** (slices 8a–8e built; 8f forums REMOVED by the 2026-10-15 respec)
 
 **Goal:** NexusXXX §9. Typed comments (`discussion`, `source_info`, `performer_id`,
 `timestamp`, `correction`, `request`, `review`) with **structured fields**, routed
