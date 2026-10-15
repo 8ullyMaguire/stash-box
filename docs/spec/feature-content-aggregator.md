@@ -487,7 +487,47 @@ NUMERIC zone (`time.RFC1123` writes the word "UTC"; Go behaviour, unreadable dat
 plain-text description of who is in it, who made it, when it came out and how long it is. No enclosure, no
 frame, no media URL: a feed that carried one would be the content plane with a polling schedule.
 
-**NOT built, and named rather than implied:** 13c's Hydrus-shaped export and 13d's rate limits are specified
+**13c — the export, and why what it leaves out goes in the envelope rather than in the document.**
+`exportScenes(ids: [ID!]!): HydrusExport!` renders records this instance holds as Hydrus import JSON. A GraphQL
+field rather than a route, for 13a's reason (one serving surface, one auth story), inheriting
+`@hasRole(role: READ)` -- and **bounded to 100 ids, with no query language, no browsing and no "everything"**,
+because an export renders records the caller ALREADY HAS; a field that took a query would be a second read
+surface with its own paging, ceilings and rate limit to keep in step. The document is a BUNDLE of sidecars keyed
+by record id, each value exactly the shape Hydrus documents for a JSON sidecar -- `metadata` holding lists of
+strings under `urls` and `tags`, with notes joined `name: text` -- read from Hydrus's own sidecar documentation
+rather than recalled, because a format guessed at produces an export that loads into nothing and the failure
+looks like the other program's bug. Every string emitted as a tag is namespaced (`studio:`, `performer:`,
+`tag:`, `code:`, `date:`), so an importer can take exactly what it wants and leave the rest; a title or a
+description is a **note, never a tag**, since routing one into a tag store gives the file a tag for every
+sentence in its name; the record's own tags are sorted while its addresses keep the record's own order, because
+a document whose bytes change between two runs over the same record is a document nobody can diff. Fingerprints
+are deliberately NOT carried: the documented sidecar has no hash field, and the one place Hydrus trusts a hash
+is as the key of a file it hashed itself -- a client-reported md5 in a note would be a false key in exactly the
+place that matters.
+
+**A denied record is ABSENT, and the envelope is where the caller learns it.** The payload carries
+`record_count` and `omitted`, and the omission list is ONE list: "this instance has no such record" and "this
+instance will not serve it" are one answer from here, because telling them apart would confirm the content
+exists. The absence is produced by the loader's own gate -- `LoadIds` -> `deniedSceneIDs`, the same code that
+makes a record absent from a search -- rather than by a check written beside the new feature, and the mutation
+battery proves that by neutering the gate at the LOADER and watching the export's own test go red. Nothing is
+annotated inside the document, because an export that carried a taken-down record with a flag on it would be a
+copy of that record in somebody else's client.
+
+**Measured 2026-10-15 — where the round trip actually lives, and the plan was wrong about it.** The plan
+predicted that feeding an exported address back through `submitContentURL` would answer `duplicate`. It does
+not: dedup is on the ingest QUEUE (migration 109's partial unique index over `url_normalized` for rows that are
+pending, running or done), and a record's own `scene_urls` rows were never queued, so the submission is
+`queued`. A test written to the old wording would have passed only on addresses an earlier test happened to
+queue, which is a test of the queue. The round trip that exists is the stronger one: the job is drained, the
+extractor is an instrument that FAILS the test if it is called, and the queue row must end `done` with outcome
+`attached` and `confidence` NULL -- the path settled from the database alone. **The live deployment widens the
+gap between the two tables:** `scene_urls` holds 1,171,306 rows and `content_sources` holds 0, because
+migration 108's projection is a trigger on writes made after it and this instance's catalogue predates it --
+so on that deployment a submission of a record's own address is NOT recognised by the pipeline, and
+`walk-13c-live.py` reports that measurement instead of fetching somebody else's page to make a green tick.
+
+**NOT built, and named rather than implied:** 13d's rate limits are specified
 in the plan and not started, and there is still no REST surface, no user-facing export and no consuming of
 external MCP servers (that is a provider, per `feature-04-identification-federation.md` §8).
 

@@ -3699,30 +3699,54 @@ lands -- the same rate limit, and there is nothing new listening. The cost is th
 rather than a typed object, which is the honest shape for an INTERCHANGE BLOB: this instance does not model
 Hydrus's format, it emits it.
 
-**"Round-trips back in" is not "the JSON parses" -- it is measurable against this instance's own ingest.**
-`submitContentURL` already exists (a queue with dedup on the normalized URL, returning
-`queued | duplicate | invalid`), so the verification is: export a record, feed its URLs back through
-`submitContentURL`, and the answer must be **`duplicate`** -- the instance recognises its own export as
-something it already holds. A test that only parsed the JSON would pass on an export whose addresses were
-invented.
+**"Round-trips back in" is not "the JSON parses" -- it is measurable against this instance's own ingest.** An
+exported record's address is fed back through `submitContentURL`, and the pipeline must settle it from the
+database alone -- already claimed, so it reads no page -- which is the instance recognising its own export as
+something it holds. A test that only parsed the JSON would pass on an export whose addresses were invented.
+
+**CORRECTED 2026-10-15 (measured, before the claim was tested):** this section first said the answer would be
+`duplicate`. It will not be, and the prediction was wrong about WHERE the recognition lives. Dedup is on the
+ingest QUEUE -- migration 109's partial unique index over `url_normalized` for rows that are pending, running
+or done -- and a record's own `scene_urls` rows were, in general, never queued, so submitting one comes back
+`queued`. A test written to the old wording would have passed only for addresses that happened to be queued by
+an earlier test in the same database, which is a test of the queue rather than of the export. The round trip
+that exists is the stronger one: the job is drained, the extractor is an instrument that FAILS the test if it
+is called, and the queue row must end `done` with outcome `attached` -- the path settled from the database
+alone -- with `confidence` NULL.
 
 **CHECK THE FORMAT BEFORE WRITING IT.** Hydrus's import JSON shape is an EXTERNAL format and this plan does
-not restate it from memory: the first step of this slice is to read the current documented shape (Hydrus's
-own client API/import documentation) and write the exact fixture into the test, because a format guessed at
-produces an export that loads into nothing -- and the failure would look like the OTHER program's bug.
+not restate it from memory. **Read 2026-10-15** (hydrusnetwork.github.io/hydrus/advanced_sidecars.html): a
+JSON sidecar is a nested object whose `metadata` holds LISTS OF STRINGS under `urls` and `tags`, notes are the
+same lists with a name and the value joined as `name: text` (the format's own convention, chosen there because
+a sidecar carries lists of single strings), the user names the keys, and a sidecar is PER FILE. Two
+consequences follow, and both are the export's shape rather than an afterthought: the document is a BUNDLE of
+sidecars keyed by record id, so each value is exactly the documented per-file shape and splitting it into
+per-record files is a key/value loop; and a title or a description is a NOTE, never a tag -- an importer that
+routed `title: ...` to its tag store would give the file a tag for every sentence in its name.
 
 **Constraints that decide correctness:**
 
 | constraint | why |
 |---|---|
 | the same read rule as the GraphQL surface, per record | an export is a rendering of records this instance holds, so it must not be able to reach a record the caller cannot open. It is bounded by ids the caller already has: no browsing, no "export everything", no query language. |
-| takedown and blocklist rows are ABSENT, not annotated | an export that carried a taken-down record with a flag would be a copy of it in somebody's client. `content_sources.status='dmca'` and the blocklist make the record absent from the document, the same way they make it absent from a search. |
-| the record's own id is the key, and the hashes we hold travel inside the entry | Hydrus keys a file import by the file's own hash, and this instance holds no file: it holds claims about works and the hashes clients reported. So the id keys the entry and our fingerprints are carried in it, with no pretence that a hash we were given is the hash of a file we can produce. |
+| a denied record is ABSENT, not annotated, and the denial comes from the one gate | an export that carried a taken-down record with a flag would be a copy of it in somebody's client. The absence is produced by `LoadIds` -> `deniedSceneIDs` (`internal/service/scene/denylist.go`), the same code that makes a record absent from a search, and the mutation battery proves it by neutering THE LOADER rather than a check beside the new feature. |
+| the record's own id is the key | Hydrus keys a file import by the file's own hash, and this instance holds no file. **Fingerprints are deliberately NOT carried (decision, 2026-10-15):** the documented sidecar has no field for a hash, and the one place Hydrus trusts a hash is as the key of a file it hashed itself -- so a client-reported md5 in a note would be a false key in exactly the place that matters, which is the same reasoning the third line of the spec's §5 already applies to our own reads. What the document carries is what Hydrus can ACT on: the addresses and the vocabulary. |
 
-**Verification:** a table-driven test over the fixture (a record with fingerprints, one with none, one taken
-down); the round trip above through `submitContentURL` asserting `duplicate`; the takedown case asserted as
-ABSENT from the document rather than flagged; and `scripts/walk-13c-live.py` doing the same against the
-deployed instance, with the export of a real record fed back in.
+**Built 2026-10-15.** `internal/hydrus/sidecar.go` (the format; pure, so every rule it makes about a
+document is testable without a database) and `internal/api/resolver_export.go` (the read, as the caller),
+surfaced as `exportScenes(ids: [ID!]!): HydrusExport!` -- `json`, `record_count`, `omitted`,
+`@hasRole(role: READ)`, bounded to 100 ids per call, with an empty id list answering an empty document rather
+than an error.
+
+**Verified:** 7 unit tests in `internal/hydrus`, each reading the rendered bytes back through `encoding/json`
+rather than matching substrings (Go's encoder HTML-escapes, so a string comparison asserts about the encoder);
+5 integration tests in `internal/api/export_integration_test.go` (what the instance holds; the round trip,
+where the extractor FAILS the test if it is called, so "no page was read" is measured and not assumed; a denied
+record absent from the document and named in the envelope; the bound; an empty export);
+`scripts/mutate-hydrus-export.py`, 10 probes, **10 killed** -- including M10, which neuters the denylist at
+`LoadIds` and is killed by the EXPORT's own test, which is what makes "the absence comes from the one gate"
+a claim rather than a hope; `scripts/walk-13c-live.py` against the deployed instance. Suites after: the full
+integration suite green, the full unit suite green, `gofmt -l` and `go vet ./...` clean.
 - **13d — rate limits and the error shape.** Per §15.1, with a breach returning 429 and the SAME body shape
   as every other error (this repo answers GraphQL errors as `{"errors":[{"message":...}]}`, so a 429 that
   returns HTML or a bare string is the defect to test for). Constraint: the limit is enforced on the

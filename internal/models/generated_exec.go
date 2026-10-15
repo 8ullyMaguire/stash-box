@@ -523,6 +523,12 @@ type ComplexityRoot struct {
 		Gender func(childComplexity int) int
 	}
 
+	HydrusExport struct {
+		JSON        func(childComplexity int) int
+		Omitted     func(childComplexity int) int
+		RecordCount func(childComplexity int) int
+	}
+
 	IdentificationCandidate struct {
 		CreatedAt   func(childComplexity int) int
 		Entity      func(childComplexity int) int
@@ -1004,6 +1010,7 @@ type ComplexityRoot struct {
 		EloLeaderboard                 func(childComplexity int, entityType EloEntityType, limit *int) int
 		EloMatchup                     func(childComplexity int, entityType EloEntityType) int
 		EloRating                      func(childComplexity int, entityType EloEntityType, id uuid.UUID) int
+		ExportScenes                   func(childComplexity int, ids []uuid.UUID) int
 		FederationForeignCandidates    func(childComplexity int, queryID uuid.UUID) int
 		FederationPeers                func(childComplexity int) int
 		FetchSiteFavicons              func(childComplexity int, url string) int
@@ -1960,6 +1967,7 @@ type QueryResolver interface {
 	FindScenesBySceneFingerprints(ctx context.Context, fingerprints [][]FingerprintQueryInput) ([][]*Scene, error)
 	QueryScenes(ctx context.Context, input SceneQueryInput) (*SceneQuery, error)
 	SavedSearches(ctx context.Context) ([]SavedSearch, error)
+	ExportScenes(ctx context.Context, ids []uuid.UUID) (*HydrusExport, error)
 	FindSavedSearch(ctx context.Context, id uuid.UUID) (*SavedSearch, error)
 	SceneChangelog(ctx context.Context, since time.Time, afterID *uuid.UUID, limit *int) ([]EntityChange, error)
 	FindSite(ctx context.Context, id uuid.UUID) (*Site, error)
@@ -3783,6 +3791,25 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.GenderFacet.Gender(childComplexity), true
+
+	case "HydrusExport.json":
+		if e.ComplexityRoot.HydrusExport.JSON == nil {
+			break
+		}
+
+		return e.ComplexityRoot.HydrusExport.JSON(childComplexity), true
+	case "HydrusExport.omitted":
+		if e.ComplexityRoot.HydrusExport.Omitted == nil {
+			break
+		}
+
+		return e.ComplexityRoot.HydrusExport.Omitted(childComplexity), true
+	case "HydrusExport.record_count":
+		if e.ComplexityRoot.HydrusExport.RecordCount == nil {
+			break
+		}
+
+		return e.ComplexityRoot.HydrusExport.RecordCount(childComplexity), true
 
 	case "IdentificationCandidate.createdAt":
 		if e.ComplexityRoot.IdentificationCandidate.CreatedAt == nil {
@@ -6847,6 +6874,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.EloRating(childComplexity, args["entityType"].(EloEntityType), args["id"].(uuid.UUID)), true
+	case "Query.exportScenes":
+		if e.ComplexityRoot.Query.ExportScenes == nil {
+			break
+		}
+
+		args, err := ec.field_Query_exportScenes_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.ExportScenes(childComplexity, args["ids"].([]uuid.UUID)), true
 	case "Query.federation_foreign_candidates":
 		if e.ComplexityRoot.Query.FederationForeignCandidates == nil {
 			break
@@ -12064,6 +12102,29 @@ input FingerprintClustersInput {
   distance: Int!
 }
 `, BuiltIn: false},
+	{Name: "../../graphql/schema/types/hydrus.graphql", Input: `"""
+The result of an export: the document, and what it does not contain.
+
+The two travel together because they are one answer. A document alone cannot say whether a record was left
+out because it does not exist, because the instance refuses to serve it, or because the caller forgot to ask
+-- and a caller assembling a client-side library needs to know which.
+"""
+type HydrusExport {
+  "The document. A bundle of sidecars keyed by record id."
+  json: String!
+  "How many records the document carries, stated rather than counted by the caller."
+  record_count: Int!
+  """
+  The ids that produced NO entry, in the order they were asked for: not there, or not served.
+
+  DELIBERATELY ONE LIST. "This instance has no such record" and "this instance will not serve it" are the
+  same answer from here (internal/service/scene/denylist.go), because telling them apart would confirm that
+  the content exists -- and the id is the only thing reported: an omitted record's absence is everything a
+  caller needs, and anything more would be the leak the omission is protecting.
+  """
+  omitted: [ID!]!
+}
+`, BuiltIn: false},
 	{Name: "../../graphql/schema/types/identification.graphql", Input: `# Identification board (SPEC §5): "Which Was That…?"
 #
 # The board turns collective memory into structured archive data. A user posts
@@ -16549,6 +16610,21 @@ type Query {
 
   """This user's saved searches, most recently touched first."""
   savedSearches: [SavedSearch!]! @hasRole(role: READ)
+
+  """
+  Records this instance holds, as Hydrus import JSON (plan slice 13c).
+
+  The payload is a String because this instance does not MODEL Hydrus's format -- it emits it, and an
+  interchange blob that pretends to be a typed object is a second schema to keep in step with somebody
+  else's. The document is a bundle of sidecars keyed by record id; each value is EXACTLY the shape Hydrus
+  documents for a JSON sidecar, so splitting it into per-record files is a key/value loop.
+
+  Bounded, and the bound is the point: an export is a rendering of records the caller ALREADY HAS, so it
+  takes ids and offers no browsing, no query language and no "everything". A record the instance refuses to
+  serve -- taken down, blocked -- is ABSENT from the document, and named in ` + "`" + `omitted` + "`" + ` so the omission is
+  visible in the envelope rather than annotated inside a copy somebody is about to keep.
+  """
+  exportScenes(ids: [ID!]!): HydrusExport! @hasRole(role: READ)
   """One of this user's saved searches. Another user's id is ` + "`" + `null` + "`" + `, not a row."""
   findSavedSearch(id: ID!): SavedSearch @hasRole(role: READ)
   """Incremental feed of scenes changed since a keyset cursor"""
@@ -17641,6 +17717,18 @@ func (ec *executionContext) childFields_GenderFacet(ctx context.Context, field g
 		return ec.fieldContext_GenderFacet_count(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type GenderFacet", field.Name)
+}
+
+func (ec *executionContext) childFields_HydrusExport(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "json":
+		return ec.fieldContext_HydrusExport_json(ctx, field)
+	case "record_count":
+		return ec.fieldContext_HydrusExport_record_count(ctx, field)
+	case "omitted":
+		return ec.fieldContext_HydrusExport_omitted(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type HydrusExport", field.Name)
 }
 
 func (ec *executionContext) childFields_IdentificationCandidate(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -21428,6 +21516,20 @@ func (ec *executionContext) field_Query_eloRating_args(ctx context.Context, rawA
 		return nil, err
 	}
 	args["id"] = arg1
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_exportScenes_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "ids",
+		func(ctx context.Context, v any) ([]uuid.UUID, error) {
+			return ec.unmarshalNID2ᚕgithubᚗcomᚋgofrsᚋuuidᚐUUIDᚄ(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["ids"] = arg0
 	return args, nil
 }
 
@@ -28939,6 +29041,75 @@ func (ec *executionContext) _GenderFacet_count(ctx context.Context, field graphq
 }
 func (ec *executionContext) fieldContext_GenderFacet_count(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("GenderFacet", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _HydrusExport_json(ctx context.Context, field graphql.CollectedField, obj *HydrusExport) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_HydrusExport_json(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.JSON, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_HydrusExport_json(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("HydrusExport", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _HydrusExport_record_count(ctx context.Context, field graphql.CollectedField, obj *HydrusExport) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_HydrusExport_record_count(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.RecordCount, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_HydrusExport_record_count(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("HydrusExport", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _HydrusExport_omitted(ctx context.Context, field graphql.CollectedField, obj *HydrusExport) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_HydrusExport_omitted(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Omitted, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []uuid.UUID) graphql.Marshaler {
+			return ec.marshalNID2ᚕgithubᚗcomᚋgofrsᚋuuidᚐUUIDᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_HydrusExport_omitted(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("HydrusExport", field, false, false, errors.New("field of type ID does not have child fields"))
 }
 
 func (ec *executionContext) _IdentificationCandidate_id(ctx context.Context, field graphql.CollectedField, obj *IdentificationCandidate) (ret graphql.Marshaler) {
@@ -44605,6 +44776,68 @@ func (ec *executionContext) fieldContext_Query_savedSearches(_ context.Context, 
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return ec.childFields_SavedSearch(ctx, field)
 		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_exportScenes(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_exportScenes(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().ExportScenes(ctx, fc.Args["ids"].([]uuid.UUID))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal *HydrusExport
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *HydrusExport
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *HydrusExport) graphql.Marshaler {
+			return ec.marshalNHydrusExport2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐHydrusExport(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_exportScenes(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_HydrusExport(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_exportScenes_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
 	}
 	return fc, nil
 }
@@ -71955,6 +72188,54 @@ func (ec *executionContext) _GenderFacet(ctx context.Context, sel ast.SelectionS
 	return out
 }
 
+var hydrusExportImplementors = []string{"HydrusExport"}
+
+func (ec *executionContext) _HydrusExport(ctx context.Context, sel ast.SelectionSet, obj *HydrusExport) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, hydrusExportImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("HydrusExport")
+		case "json":
+			out.Values[i] = ec._HydrusExport_json(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "record_count":
+			out.Values[i] = ec._HydrusExport_record_count(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "omitted":
+			out.Values[i] = ec._HydrusExport_omitted(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
 var identificationCandidateImplementors = []string{"IdentificationCandidate"}
 
 func (ec *executionContext) _IdentificationCandidate(ctx context.Context, sel ast.SelectionSet, obj *IdentificationCandidate) graphql.Marshaler {
@@ -77506,6 +77787,28 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 					}
 				}()
 				res = ec._Query_savedSearches(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "exportScenes":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_exportScenes(ctx, field)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -88428,6 +88731,16 @@ func (ec *executionContext) unmarshalNGrantInviteInput2githubᚗcomᚋstashapp�
 func (ec *executionContext) unmarshalNHideEditCommentInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐHideEditCommentInput(ctx context.Context, v any) (HideEditCommentInput, error) {
 	res, err := ec.unmarshalInputHideEditCommentInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNHydrusExport2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐHydrusExport(ctx context.Context, sel ast.SelectionSet, v *HydrusExport) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._HydrusExport(ctx, sel, v)
 }
 
 func (ec *executionContext) unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx context.Context, v any) (uuid.UUID, error) {

@@ -1029,6 +1029,25 @@ type HideEditCommentInput struct {
 	Reason *string `json:"reason,omitempty"`
 }
 
+// The result of an export: the document, and what it does not contain.
+//
+// The two travel together because they are one answer. A document alone cannot say whether a record was left
+// out because it does not exist, because the instance refuses to serve it, or because the caller forgot to ask
+// -- and a caller assembling a client-side library needs to know which.
+type HydrusExport struct {
+	// The document. A bundle of sidecars keyed by record id.
+	JSON string `json:"json"`
+	// How many records the document carries, stated rather than counted by the caller.
+	RecordCount int `json:"record_count"`
+	// The ids that produced NO entry, in the order they were asked for: not there, or not served.
+	//
+	// DELIBERATELY ONE LIST. "This instance has no such record" and "this instance will not serve it" are the
+	// same answer from here (internal/service/scene/denylist.go), because telling them apart would confirm that
+	// the content exists -- and the id is the only thing reported: an omitted record's absence is everything a
+	// caller needs, and anything more would be the leak the omission is protecting.
+	Omitted []uuid.UUID `json:"omitted"`
+}
+
 type IDCriterionInput struct {
 	Value    []uuid.UUID       `json:"value"`
 	Modifier CriterionModifier `json:"modifier"`

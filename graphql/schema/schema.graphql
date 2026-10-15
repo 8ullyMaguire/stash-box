@@ -88,6 +88,21 @@ type Query {
 
   """This user's saved searches, most recently touched first."""
   savedSearches: [SavedSearch!]! @hasRole(role: READ)
+
+  """
+  Records this instance holds, as Hydrus import JSON (plan slice 13c).
+
+  The payload is a String because this instance does not MODEL Hydrus's format -- it emits it, and an
+  interchange blob that pretends to be a typed object is a second schema to keep in step with somebody
+  else's. The document is a bundle of sidecars keyed by record id; each value is EXACTLY the shape Hydrus
+  documents for a JSON sidecar, so splitting it into per-record files is a key/value loop.
+
+  Bounded, and the bound is the point: an export is a rendering of records the caller ALREADY HAS, so it
+  takes ids and offers no browsing, no query language and no "everything". A record the instance refuses to
+  serve -- taken down, blocked -- is ABSENT from the document, and named in `omitted` so the omission is
+  visible in the envelope rather than annotated inside a copy somebody is about to keep.
+  """
+  exportScenes(ids: [ID!]!): HydrusExport! @hasRole(role: READ)
   """One of this user's saved searches. Another user's id is `null`, not a row."""
   findSavedSearch(id: ID!): SavedSearch @hasRole(role: READ)
   """Incremental feed of scenes changed since a keyset cursor"""
