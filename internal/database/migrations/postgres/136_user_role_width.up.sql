@@ -1,0 +1,29 @@
+-- The role column could not hold one of its own enum's values (plan phase 11 slice 11a).
+--
+-- WHAT WAS WRONG. `user_roles.role` has been varchar(10) since migration 01, and the RoleEnum
+-- this repository publishes in the schema -- and validates a client's request against -- spells
+-- MANAGE_INVITES in fourteen characters. So the API ACCEPTED a role the database refused, and the
+-- refusal arrived as a driver error (`value too long for type character varying(10)`, SQLSTATE
+-- 22001) rather than as a validation message naming the role.
+--
+-- THE CONSEQUENCE IS NOT COSMETIC, and it is why this ships with phase 11 rather than as
+-- tidying: `grantInvite` and `revokeInvite` are gated on MANAGE_INVITES, so the operator's
+-- invite-grant path -- the remedy phase 11 hands a member whose level grants no key slots -- was
+-- unreachable for every account that can hold roles at all. Only ADMIN could reach it, through
+-- `RoleEnum.Implies`, and this instance's only admin is an account that cannot authenticate.
+--
+-- FOUND BY WRITING, not by reading, exactly like `edits.target_type` in migration 118: the
+-- vocabulary is closed in Go and the ceiling is a varchar width in Postgres, and the two
+-- disagree without anything failing until a row is inserted. The test that found it
+-- (`internal/api/role_storage_integration_test.go`) walks the WHOLE enum through the real
+-- `userUpdate` mutation and reads each role back, so a role added later cannot repeat this.
+--
+-- WHY WIDEN AND NOT RENAME. The spelling is published in the schema, in the GraphQL enum and in
+-- every client that matches on it; shortening a role's name to fit a column width puts the
+-- storage format in charge of the vocabulary. 32 is a deliberate ceiling rather than a guess at
+-- the longest name -- the same width `elo_ratings` uses for its own vocabulary -- because a role
+-- that needs more than 32 characters is a design problem rather than a column-width problem.
+--
+-- WIDENING IS METADATA-ONLY in Postgres: every value in the column today is at most 14
+-- characters, so no row is rewritten and no existing value can fail the change.
+ALTER TABLE "user_roles" ALTER COLUMN "role" TYPE varchar(32);

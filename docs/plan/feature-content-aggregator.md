@@ -3012,17 +3012,49 @@ unconditionally — so a key that was USED could be rescinded for a second token
 never freed. The refund is now conditional on `FindUserTokensByInviteKey` (the query already exists)
 returning nothing. A cap without this is a cap with a known way around it.
 
-**What a client can read:** `User.inviteAllowance` (`@isUserOwner`, next to `invite_tokens`), carrying
-`cap`, `activeKeys`, `remaining`, `tokens`, `exempt`. Derived per request like the level's own counters,
-so it cannot disagree with the refusal the mutation would give.
+**What a client can read:** `User.invite_allowance` (`@isUserOwner`, next to `invite_tokens`), carrying
+`level`, `cap`, `active_keys`, `tokens`, `exempt` and `can_generate`. Derived per request from the same two
+facts the mutation decides on, so it cannot disagree with the refusal the member would get. There is
+deliberately no `remaining`: see the note above on one integer meaning three things.
 
 **Verification:** `go test ./internal/service/invite/ -count=1` (the pure table); `go test -tags
-integration -count=1 -p 1 -run TestInviteAllowance ./internal/api/` (a member's slots come from their
-level, the refusal names the level, an expired key frees a slot, a rescinded USED key does not refund, and
-a token lets a level-less member invite); the wire test that asks for `inviteAllowance` through the
-handler. Then mutations: allocation curve flattened to a constant → the monotonicity test reddens; the cap
-raised by one → the at-the-cap refusal reddens; the refund made unconditional again → the double-refund
-test reddens.
+integration -count=1 -p 1 -run TestInvite ./internal/api/` (a member's slots come from their level, the
+refusal names the level, an expired key frees a slot, a rescinded USED key does not refund, a token lets a
+level-less member invite, a batch cannot outrun the cap, and the operator's delegation is exempt); the wire
+tests that ask for `invite_allowance` through the handler. Then mutations: allocation curve flattened to a
+constant → the golden table and the Public-cap test redden; the cap raised by one → the at-the-cap refusal
+reddens; off-by-one in the slot check → the same; the grant arm removed → the grant path reddens; the
+exemption dropped → the delegate test reddens; the refusal branch collapsed → both refusals' identity
+assertions redden; the key count replaced by a constant → the at-cap tests redden; the per-key re-read moved
+out of the loop → the batch test reddens; the refund made unconditional → the activated-key test reddens.
+Nine mutations, nine kills.
+
+**The walk found a role the database could not hold — and that is why it ships in this slice.** The walk
+needs an operator: `grantInvite` is gated on MANAGE_INVITES, and granting that role in the deployed database
+failed with `value too long for type character varying(10)` (SQLSTATE 22001). `user_roles.role` had been
+`varchar(10)` since migration 01 while the enum spells MANAGE_INVITES in fourteen characters, so **the API
+accepted a role the database refused**, and the operator's invite-grant path — this slice's own remedy for a
+member whose level grants no keys — was reachable only through `RoleEnum.Implies`' admin shortcut, on an
+instance whose only admin cannot authenticate. Found by WRITING, exactly like `edits.target_type` in
+migration 118: a closed vocabulary in Go and a varchar width in Postgres are different things, and the two
+disagree without anything failing until a row is inserted. Migration 136 widens the column to varchar(32)
+(metadata-only, no rewrite), and `internal/api/role_storage_integration_test.go` walks the WHOLE enum through
+the real `userUpdate` mutation and reads each role back — red on MANAGE_INVITES before the migration, green
+after, so the fix's evidence is the failing test it turned green rather than an argument about widths.
+
+**The walk, green on the deployed instance** (`scripts/walk-11a-live.py`, binary `bb356741`, migration 136
+applied, 0 restarts): a member with no trust rollup reads `level 0, cap 0, tokens 0, can_generate false`;
+minting is refused with `"no invite tokens available: your level (Public) grants no invite keys"` and NOT
+with the slots-in-use refusal, and nothing is created; the operator grants one token and the member's own
+allowance shows it; the member mints one key, the grant is spent, `active_keys` is 1 and **`cap` is still
+0** — the slice's headline rule, live; a second mint is refused by the level again; rescinding the
+never-used key returns the grant; and the same operator — who may manage that member's tokens — is REFUSED
+the allowance itself, because it is owner-only by directive. All eleven verdicts OK, and the residue check
+found the instance exactly as it was: 19 invite keys, every api_key byte-identical, the temporary roles
+removed, the member's balance back to 0. **What the walk could not show, and says so**: the level arm. Every
+account on this instance has no trust rollup, so all of them sit at the starting level; raising one honestly
+means contributions scored through the voting system, which is not a walk. That arm is covered by the wire
+tests, which drive a real member from level 0 to 1 to 2 with real trust events.
 
 ### Slice 11b — the referral chain pays on the invitee's first REAL level, one level deep
 
