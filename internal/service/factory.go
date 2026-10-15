@@ -51,6 +51,7 @@ import (
 	"github.com/stashapp/stash-box/internal/service/invite"
 	"github.com/stashapp/stash-box/internal/service/leaderboard"
 	listsvc "github.com/stashapp/stash-box/internal/service/list"
+	"github.com/stashapp/stash-box/internal/service/metrics"
 	"github.com/stashapp/stash-box/internal/service/mod_audit"
 	"github.com/stashapp/stash-box/internal/service/notification"
 	"github.com/stashapp/stash-box/internal/service/performer"
@@ -456,6 +457,14 @@ func (f *Factory) trustSvc() *trust.Trust {
 	return svc.WithReferral(func(ctx context.Context, inviteeID uuid.UUID, level trust.LevelEnum) error {
 		return invite.NewReferral(queries.New(f.db), svc).Pay(ctx, inviteeID, level)
 	})
+}
+
+// Metrics returns the instance-metrics service (spec section 16.2).
+//
+// The figures it serves are derived from rows every other service already writes, so this one depends on
+// nothing but the database.
+func (f *Factory) Metrics() *metrics.Service {
+	return metrics.NewService(queries.New(f.db))
 }
 
 // ModAudit returns a ModAuditService instance

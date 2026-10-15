@@ -718,3 +718,65 @@ motion and the WCAG 2.1 AA target are phase 16's remaining work and are NOT clai
 commitments are served as part of the report's own next slice, with the switches that enforce them, rather
 than asserted in prose.
 
+
+## 16.2 The instance metrics, defined once and recomputed (phase 16, slice 16b)
+
+`instanceMetrics` on the GraphQL API, `@hasRole(role: ADMIN)`. This section defines the counters, because a
+metric is a number plus a DEFINITION and a number without one is not a measurement: two readers of
+`scenes_total` who disagree about whether it includes deleted scenes are reading two different figures, and
+nothing in the response would tell them so. So every metric is served with its definition attached, and the
+definition lives beside the column that computes it in one place — `internal/service/metrics/metrics.go` —
+where adding a metric means wiring a column explicitly, and the compiler refuses the wiring without it.
+
+**The §23 list is not in this repository, and this section does not pretend to be it.** The owner's draft
+names "17 metrics with targets"; the draft is not here, so this slice measures WHAT THIS INSTANCE CAN
+ACTUALLY COUNT — from tables the programme already writes — and names the two things it deliberately does
+not do:
+
+- **No invented targets.** A target is a statement of the owner's intent about what the instance SHOULD do,
+  and fabricating one would put a claim about somebody else's plans into a served response. The figure is
+  reported; the target stays an owner decision, recorded here as such rather than guessed.
+- **No product-metric machinery (no event log, no session tracking, no per-action counters).** A counter that
+  is incremented at a mutation site is a second write path that can disagree with the table it counts, and
+  every figure here is instead DERIVED from the rows the features already write — the same discipline as §16.1
+  and the same rule from `docs/goal-check.py` ("Never trust a count written in a document. Recompute it.").
+  What this buys is that a metric cannot be wrong about the record without the record being wrong, and what it
+  costs is stated in the metrics themselves: **activity is measured by `users.last_api_call`, the only
+  activity signal this instance keeps**, and each such metric's definition says so.
+
+**One window, named once.** Every windowed figure uses the same 30 days, served as `windowDays` alongside
+`since`, because a response where each metric had its own window would be a table nobody could read across.
+The definitions that are NOT windowed are the totals, and the response separates them by saying so in each
+definition rather than by grouping them: a reader scanning one metric needs its own sentence, not a section
+heading three screens up.
+
+**The metrics, and what each counts** (served with these definitions):
+
+| key | counts |
+|---|---|
+| `members_total` | Accounts, excluding the instance's own bots (`user_roles.role = 'BOT'`) and the `[deleted user]` placeholder row. |
+| `members_active_window` | Of those, the ones whose `last_api_call` is inside the window — the only activity signal this instance keeps. |
+| `members_created_window` | Of those, the ones whose account was created inside the window. |
+| `members_invited` | Accounts that arrived through an invite (`invited_by` is set) — phase 11's chain, counted rather than asserted. |
+| `scenes_total` | Catalogue scenes not marked deleted. |
+| `scenes_created_window` | Of those, the ones created inside the window. |
+| `scenes_with_sources` | Non-deleted scenes with at least one recorded source address — the aggregation coverage this programme exists for. |
+| `scenes_with_fingerprint` | Non-deleted scenes carrying a fingerprint. |
+| `fingerprints_total` | Fingerprint rows. |
+| `tags_total` | Tags. |
+| `tag_implications_total` | Tag implications (phase 4's ontology). |
+| `sources_total` | Recorded source addresses, whatever their health. |
+| `sources_checked_window` | Source addresses whose health was last checked inside the window. |
+| `sources_unknown` | Source addresses no health check has ever looked at (`status = 'unknown'`) — `0` here means the sweep has seen everything it holds. |
+| `edits_pending` | Edits awaiting a decision (`status = 'PENDING'`). |
+| `edits_decided_window` | Edits that reached a decision inside the window (`closed_at`). |
+| `identification_candidates_pending` | Candidate identifications waiting for a moderator. |
+| `invites_issued` | Invite keys generated (phase 11). |
+| `invites_unused` | Of those, the ones with no use recorded. |
+
+**Why `instanceMetrics` and not a metrics PAGE as the primary surface.** The report (§16.1) is addressed to
+the public and is served as a page; this is an OPERATOR surface about the instance's own operation, so it is
+behind `ADMIN` and shaped as data a page or a script can render. Slice 16c adds the page over this query —
+and the query has to exist first, because a page that computes its own figures would be a second definition of
+every metric, which is the failure this section's first paragraph is about.
+

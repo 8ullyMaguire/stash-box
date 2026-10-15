@@ -635,6 +635,20 @@ type ComplexityRoot struct {
 		Status        func(childComplexity int) int
 	}
 
+	InstanceMetric struct {
+		Definition func(childComplexity int) int
+		Key        func(childComplexity int) int
+		Unit       func(childComplexity int) int
+		Value      func(childComplexity int) int
+	}
+
+	InstanceMetrics struct {
+		GeneratedAt func(childComplexity int) int
+		Metrics     func(childComplexity int) int
+		Since       func(childComplexity int) int
+		WindowDays  func(childComplexity int) int
+	}
+
 	InviteAllowance struct {
 		ActiveKeys  func(childComplexity int) int
 		CanGenerate func(childComplexity int) int
@@ -1062,6 +1076,7 @@ type ComplexityRoot struct {
 		IdentificationQuery            func(childComplexity int, id uuid.UUID) int
 		IdentificationSources          func(childComplexity int) int
 		ImageTypeGroups                func(childComplexity int, target *ImageTypeScopeEnum, includeDisabled *bool) int
+		InstanceMetrics                func(childComplexity int) int
 		Leaderboard                    func(childComplexity int, input *LeaderboardInput) int
 		List                           func(childComplexity int, id uuid.UUID) int
 		ListOpenIdentificationQueries  func(childComplexity int, limit *int) int
@@ -2054,6 +2069,7 @@ type QueryResolver interface {
 	ResolvedIdentificationQueries(ctx context.Context, entityType IdentificationTargetType, entityID uuid.UUID, limit *int) ([]IdentificationQuery, error)
 	MyIdentificationDetectiveScore(ctx context.Context) (*IdentificationDetective, error)
 	IdentificationSources(ctx context.Context) ([]IdentificationSource, error)
+	InstanceMetrics(ctx context.Context) (*InstanceMetrics, error)
 	Leaderboard(ctx context.Context, input *LeaderboardInput) ([]LeaderboardEntry, error)
 	List(ctx context.Context, id uuid.UUID) (*List, error)
 	PublishedLists(ctx context.Context, perPage *int, page *int) (*ListBrowseResult, error)
@@ -4307,6 +4323,56 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.IngestSubmission.Status(childComplexity), true
+
+	case "InstanceMetric.definition":
+		if e.ComplexityRoot.InstanceMetric.Definition == nil {
+			break
+		}
+
+		return e.ComplexityRoot.InstanceMetric.Definition(childComplexity), true
+	case "InstanceMetric.key":
+		if e.ComplexityRoot.InstanceMetric.Key == nil {
+			break
+		}
+
+		return e.ComplexityRoot.InstanceMetric.Key(childComplexity), true
+	case "InstanceMetric.unit":
+		if e.ComplexityRoot.InstanceMetric.Unit == nil {
+			break
+		}
+
+		return e.ComplexityRoot.InstanceMetric.Unit(childComplexity), true
+	case "InstanceMetric.value":
+		if e.ComplexityRoot.InstanceMetric.Value == nil {
+			break
+		}
+
+		return e.ComplexityRoot.InstanceMetric.Value(childComplexity), true
+
+	case "InstanceMetrics.generated_at":
+		if e.ComplexityRoot.InstanceMetrics.GeneratedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.InstanceMetrics.GeneratedAt(childComplexity), true
+	case "InstanceMetrics.metrics":
+		if e.ComplexityRoot.InstanceMetrics.Metrics == nil {
+			break
+		}
+
+		return e.ComplexityRoot.InstanceMetrics.Metrics(childComplexity), true
+	case "InstanceMetrics.since":
+		if e.ComplexityRoot.InstanceMetrics.Since == nil {
+			break
+		}
+
+		return e.ComplexityRoot.InstanceMetrics.Since(childComplexity), true
+	case "InstanceMetrics.window_days":
+		if e.ComplexityRoot.InstanceMetrics.WindowDays == nil {
+			break
+		}
+
+		return e.ComplexityRoot.InstanceMetrics.WindowDays(childComplexity), true
 
 	case "InviteAllowance.active_keys":
 		if e.ComplexityRoot.InviteAllowance.ActiveKeys == nil {
@@ -7335,6 +7401,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.ImageTypeGroups(childComplexity, args["target"].(*ImageTypeScopeEnum), args["include_disabled"].(*bool)), true
+	case "Query.instanceMetrics":
+		if e.ComplexityRoot.Query.InstanceMetrics == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Query.InstanceMetrics(childComplexity), true
 
 	case "Query.leaderboard":
 		if e.ComplexityRoot.Query.Leaderboard == nil {
@@ -13053,6 +13125,54 @@ input ImageTypeEnabledInput {
   disabled_types: [ImageTypeEnum!]! = []
 }
 `, BuiltIn: false},
+	{Name: "../../graphql/schema/types/instance_metrics.graphql", Input: `"""
+One instance metric: a figure and the definition that decides what it counts.
+
+The definition is not decoration. Two readers of a bare "scenes_total" who disagree about whether deleted
+scenes are counted are reading two different numbers, and nothing in a response carrying only the value would
+tell them so -- so every figure is served with the sentence that settles it.
+"""
+type InstanceMetric {
+  "The stable key a client reads the figure by."
+  key: String!
+  "What the number IS, so a client can format it without knowing the key. ` + "`" + `count` + "`" + ` today."
+  unit: String!
+  "One sentence: what this counts, which rows it excludes, and -- where it is bound to one -- the window."
+  definition: String!
+  value: Int!
+}
+
+"""
+The instance's own counters, as one snapshot.
+
+Every figure is DERIVED from rows the features already write rather than incremented at a mutation site, so a
+metric cannot be wrong about the record without the record being wrong. The consequence is stated in the
+metrics themselves: activity is measured by the last authenticated call this instance recorded, and the metric
+that reads it says so.
+"""
+type InstanceMetrics {
+  "When these figures were computed, so a reader knows the snapshot's age."
+  generated_at: Time!
+  "The start of the one window every windowed figure is bound to."
+  since: Time!
+  "The width of that window, in days."
+  window_days: Int!
+  "The figures, in the order this instance publishes them."
+  metrics: [InstanceMetric!]!
+}
+
+extend type Query {
+  """
+  This instance's counters, each with the definition that decides what it counts.
+
+  Requires ADMIN. The figures describe the instance's own operation -- how much of its catalogue has sources,
+  how much the health sweep has looked at, what is waiting in its queues -- which is an operator's view of the
+  machine rather than something addressed to the public. What IS addressed to the public is the moderation
+  accounting at ` + "`" + `GET /transparency` + "`" + ` (spec section 16.1), and this query does not duplicate it.
+  """
+  instanceMetrics: InstanceMetrics! @hasRole(role: ADMIN)
+}
+`, BuiltIn: false},
 	{Name: "../../graphql/schema/types/leaderboard.graphql", Input: `# The contribution leaderboard (plan phase 6 slice 6f).
 #
 # THE ONE SURFACE THAT PUBLISHES NUMBERS THAT ARE OTHERWISE PRIVATE. Slice 6a settled that
@@ -18207,6 +18327,34 @@ func (ec *executionContext) childFields_IngestSubmission(ctx context.Context, fi
 		return ec.fieldContext_IngestSubmission_message(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type IngestSubmission", field.Name)
+}
+
+func (ec *executionContext) childFields_InstanceMetric(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "key":
+		return ec.fieldContext_InstanceMetric_key(ctx, field)
+	case "unit":
+		return ec.fieldContext_InstanceMetric_unit(ctx, field)
+	case "definition":
+		return ec.fieldContext_InstanceMetric_definition(ctx, field)
+	case "value":
+		return ec.fieldContext_InstanceMetric_value(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type InstanceMetric", field.Name)
+}
+
+func (ec *executionContext) childFields_InstanceMetrics(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "generated_at":
+		return ec.fieldContext_InstanceMetrics_generated_at(ctx, field)
+	case "since":
+		return ec.fieldContext_InstanceMetrics_since(ctx, field)
+	case "window_days":
+		return ec.fieldContext_InstanceMetrics_window_days(ctx, field)
+	case "metrics":
+		return ec.fieldContext_InstanceMetrics_metrics(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type InstanceMetrics", field.Name)
 }
 
 func (ec *executionContext) childFields_InviteAllowance(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -31338,6 +31486,199 @@ func (ec *executionContext) _IngestSubmission_message(ctx context.Context, field
 }
 func (ec *executionContext) fieldContext_IngestSubmission_message(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("IngestSubmission", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _InstanceMetric_key(ctx context.Context, field graphql.CollectedField, obj *InstanceMetric) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_InstanceMetric_key(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Key, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_InstanceMetric_key(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("InstanceMetric", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _InstanceMetric_unit(ctx context.Context, field graphql.CollectedField, obj *InstanceMetric) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_InstanceMetric_unit(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Unit, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_InstanceMetric_unit(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("InstanceMetric", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _InstanceMetric_definition(ctx context.Context, field graphql.CollectedField, obj *InstanceMetric) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_InstanceMetric_definition(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Definition, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_InstanceMetric_definition(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("InstanceMetric", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _InstanceMetric_value(ctx context.Context, field graphql.CollectedField, obj *InstanceMetric) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_InstanceMetric_value(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Value, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_InstanceMetric_value(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("InstanceMetric", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _InstanceMetrics_generated_at(ctx context.Context, field graphql.CollectedField, obj *InstanceMetrics) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_InstanceMetrics_generated_at(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.GeneratedAt, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v time.Time) graphql.Marshaler {
+			return ec.marshalNTime2timeᚐTime(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_InstanceMetrics_generated_at(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("InstanceMetrics", field, false, false, errors.New("field of type Time does not have child fields"))
+}
+
+func (ec *executionContext) _InstanceMetrics_since(ctx context.Context, field graphql.CollectedField, obj *InstanceMetrics) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_InstanceMetrics_since(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Since, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v time.Time) graphql.Marshaler {
+			return ec.marshalNTime2timeᚐTime(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_InstanceMetrics_since(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("InstanceMetrics", field, false, false, errors.New("field of type Time does not have child fields"))
+}
+
+func (ec *executionContext) _InstanceMetrics_window_days(ctx context.Context, field graphql.CollectedField, obj *InstanceMetrics) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_InstanceMetrics_window_days(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.WindowDays, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_InstanceMetrics_window_days(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("InstanceMetrics", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _InstanceMetrics_metrics(ctx context.Context, field graphql.CollectedField, obj *InstanceMetrics) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_InstanceMetrics_metrics(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Metrics, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []InstanceMetric) graphql.Marshaler {
+			return ec.marshalNInstanceMetric2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐInstanceMetricᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_InstanceMetrics_metrics(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "InstanceMetrics",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_InstanceMetric(ctx, field)
+		},
+	}
+	return fc, nil
 }
 
 func (ec *executionContext) _InviteAllowance_level(ctx context.Context, field graphql.CollectedField, obj *InviteAllowance) (ret graphql.Marshaler) {
@@ -48837,6 +49178,56 @@ func (ec *executionContext) fieldContext_Query_identificationSources(_ context.C
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return ec.childFields_IdentificationSource(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_instanceMetrics(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_instanceMetrics(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Query().InstanceMetrics(ctx)
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "ADMIN")
+				if err != nil {
+					var zeroVal *InstanceMetrics
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *InstanceMetrics
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *InstanceMetrics) graphql.Marshaler {
+			return ec.marshalNInstanceMetrics2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐInstanceMetrics(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_instanceMetrics(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_InstanceMetrics(ctx, field)
 		},
 	}
 	return fc, nil
@@ -74216,6 +74607,112 @@ func (ec *executionContext) _IngestSubmission(ctx context.Context, sel ast.Selec
 	return out
 }
 
+var instanceMetricImplementors = []string{"InstanceMetric"}
+
+func (ec *executionContext) _InstanceMetric(ctx context.Context, sel ast.SelectionSet, obj *InstanceMetric) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, instanceMetricImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("InstanceMetric")
+		case "key":
+			out.Values[i] = ec._InstanceMetric_key(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "unit":
+			out.Values[i] = ec._InstanceMetric_unit(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "definition":
+			out.Values[i] = ec._InstanceMetric_definition(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "value":
+			out.Values[i] = ec._InstanceMetric_value(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var instanceMetricsImplementors = []string{"InstanceMetrics"}
+
+func (ec *executionContext) _InstanceMetrics(ctx context.Context, sel ast.SelectionSet, obj *InstanceMetrics) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, instanceMetricsImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("InstanceMetrics")
+		case "generated_at":
+			out.Values[i] = ec._InstanceMetrics_generated_at(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "since":
+			out.Values[i] = ec._InstanceMetrics_since(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "window_days":
+			out.Values[i] = ec._InstanceMetrics_window_days(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "metrics":
+			out.Values[i] = ec._InstanceMetrics_metrics(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
 var inviteAllowanceImplementors = []string{"InviteAllowance"}
 
 func (ec *executionContext) _InviteAllowance(ctx context.Context, sel ast.SelectionSet, obj *InviteAllowance) graphql.Marshaler {
@@ -80208,6 +80705,28 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 					}
 				}()
 				res = ec._Query_identificationSources(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "instanceMetrics":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_instanceMetrics(ctx, field)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -90427,6 +90946,36 @@ func (ec *executionContext) marshalNIngestSubmission2ᚖgithubᚗcomᚋstashapp�
 		return graphql.Null
 	}
 	return ec._IngestSubmission(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNInstanceMetric2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐInstanceMetric(ctx context.Context, sel ast.SelectionSet, v InstanceMetric) graphql.Marshaler {
+	return ec._InstanceMetric(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNInstanceMetric2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐInstanceMetricᚄ(ctx context.Context, sel ast.SelectionSet, v []InstanceMetric) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNInstanceMetric2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐInstanceMetric(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNInstanceMetrics2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐInstanceMetrics(ctx context.Context, sel ast.SelectionSet, v *InstanceMetrics) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._InstanceMetrics(ctx, sel, v)
 }
 
 func (ec *executionContext) unmarshalNInt2int(ctx context.Context, v any) (int, error) {

@@ -1357,6 +1357,38 @@ type IngestSubmission struct {
 	Message *string `json:"message,omitempty"`
 }
 
+// One instance metric: a figure and the definition that decides what it counts.
+//
+// The definition is not decoration. Two readers of a bare "scenes_total" who disagree about whether deleted
+// scenes are counted are reading two different numbers, and nothing in a response carrying only the value would
+// tell them so -- so every figure is served with the sentence that settles it.
+type InstanceMetric struct {
+	// The stable key a client reads the figure by.
+	Key string `json:"key"`
+	// What the number IS, so a client can format it without knowing the key. `count` today.
+	Unit string `json:"unit"`
+	// One sentence: what this counts, which rows it excludes, and -- where it is bound to one -- the window.
+	Definition string `json:"definition"`
+	Value      int    `json:"value"`
+}
+
+// The instance's own counters, as one snapshot.
+//
+// Every figure is DERIVED from rows the features already write rather than incremented at a mutation site, so a
+// metric cannot be wrong about the record without the record being wrong. The consequence is stated in the
+// metrics themselves: activity is measured by the last authenticated call this instance recorded, and the metric
+// that reads it says so.
+type InstanceMetrics struct {
+	// When these figures were computed, so a reader knows the snapshot's age.
+	GeneratedAt time.Time `json:"generated_at"`
+	// The start of the one window every windowed figure is bound to.
+	Since time.Time `json:"since"`
+	// The width of that window, in days.
+	WindowDays int `json:"window_days"`
+	// The figures, in the order this instance publishes them.
+	Metrics []InstanceMetric `json:"metrics"`
+}
+
 type IntCriterionInput struct {
 	Value    int               `json:"value"`
 	Modifier CriterionModifier `json:"modifier"`

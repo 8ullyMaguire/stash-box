@@ -1911,6 +1911,24 @@ type Querier interface {
 	// silently claimed canonicality for whatever it happened to ingest first would make the
 	// reader's destination depend on queue order.
 	InsertContentSource(ctx context.Context, arg InsertContentSourceParams) (ContentSource, error)
+	//
+	// The instance metrics (spec 16.2): every figure DERIVED from the rows the features already write.
+	//
+	// WHY ONE STATEMENT RATHER THAN ONE QUERY PER METRIC. These are read by an operator surface and by the live
+	// walk, and a walk that recomputed them one at a time would be reading a moving table. One statement is one
+	// snapshot, which is what makes relations like "members_active_window is never larger than members_total" true
+	// by construction rather than by luck.
+	//
+	// THE DEFINITIONS ARE NOT HERE, deliberately. Each figure is served with its own sentence, and that sentence
+	// lives beside the accessor that reads the column (internal/service/metrics/metrics.go) -- so a metric cannot
+	// be added without wiring its column, and cannot be served without its definition. Two readers of a bare
+	// "scenes_total" who disagree about deleted scenes are reading two different numbers, and nothing in the
+	// response would tell them.
+	//
+	// A figure that counts MEMBERS excludes the instance's own bots (user_roles.role = 'BOT') and the deleted-user
+	// placeholder row, because neither is a person using the catalogue. A figure that counts SCENES excludes
+	// deleted ones. Every figure that is WINDOWED is bound to the same @since, so the window is one window.
+	InstanceMetrics(ctx context.Context, since time.Time) (InstanceMetricsRow, error)
 	InviteKeyUsed(ctx context.Context, id uuid.UUID) (*int, error)
 	IsImageUnused(ctx context.Context, id uuid.UUID) (bool, error)
 	LinkContentItemTag(ctx context.Context, arg LinkContentItemTagParams) error

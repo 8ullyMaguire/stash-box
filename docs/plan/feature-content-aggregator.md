@@ -4195,6 +4195,60 @@ keyboard navigation, alt text, high contrast, reduced motion and the WCAG 2.1 AA
 and the anti-doomscroll commitments — those become their own slice, with the switches that ENFORCE them rather
 than prose asserting them. The report says so in its own text, so a reader is not misled about the phase.
 
+### Phase 16, slice 2 — the §23 counters, defined once and recomputed — **BUILT 2026-10-16**
+
+The metrics third of phase 16. A metric is a number plus a DEFINITION, so the slice's artifact is the pair:
+`internal/service/metrics/metrics.go` holds an ordered list in which every metric carries its own sentence and
+the accessor that reads its column, and `instanceMetrics` (`@hasRole(role: ADMIN)`) serves the list.
+
+**Files.** `internal/queries/sql/instance_metrics.sql` + generated `internal/queries/instance_metrics.sql.go`
+(ONE statement, `InstanceMetrics`, every windowed figure bound to the same `@since`);
+`internal/service/metrics/` (the list, the window, a unit test); `graphql/schema/types/instance_metrics.graphql`
++ `instanceMetrics` on `Query` + `internal/api/resolver_metrics.go`; the frontend page in slice 16c.
+
+**The decisions this slice made, and why each one is a decision:**
+
+1. **Every figure is DERIVED from rows the features already write, not incremented at a mutation site.** A
+   counter incremented by a handler is a second write path that can disagree with the table it counts, and
+   when it does, nothing detects it. A derived figure cannot be wrong about the record without the record
+   being wrong. The cost is stated in the metric itself: **activity is `users.last_api_call`, the only
+   activity signal this instance keeps**, and the definition says so rather than implying a session log.
+2. **A metric without its definition is not a measurement, so the definition travels with it.** Two readers of
+   `scenes_total` who disagree about deleted scenes are reading two figures, and nothing in a bare number
+   would tell them. The definition lives BESIDE the column accessor so adding a metric is a compile-time
+   wiring, and the unit test refuses a metric with an empty definition, a duplicate key or an unknown unit.
+3. **The §23 list is not in this repository and this slice does not pretend to be it.** The plan measures what
+   this instance can actually count, and it does NOT invent targets: a target is a statement of the owner's
+   intent, and fabricating one would serve a claim about somebody else's plans. Recorded as an open owner
+   decision rather than guessed.
+4. **One window (30 days), served as `windowDays` and `since`.** A response where each metric carried its own
+   window would be a table nobody could read across; the definitions that are NOT windowed say so themselves,
+   because a reader scanning one metric needs its own sentence and not a section heading.
+5. **`identification_candidates_pending` is the whole table, because that is what the table is** — a candidate
+   row IS the queue (§8's identification surface has no resolution column), so the definition says "waiting for
+   a moderator" rather than inventing a filter the schema does not have.
+
+**Verification (the commands; results below are what this tree returned):**
+
+```bash
+gofmt -l internal/ cmd/ ; go vet ./... ; go vet -tags integration ./...
+POSTGRES_DB='postgres:smoke_pw@127.0.0.1:55434/sbx-appeal-141?sslmode=disable' \
+  go test -tags integration -count=1 -p 1 -run 'InstantMetrics|InstanceMetrics' ./internal/api/
+python3 scripts/mutate-metrics.py      # the ledger, including one mutation that needs `gqlgen generate`
+python3 scripts/walk-16b-live.py       # every figure recomputed against the deployed database
+```
+
+The integration test recomputes EVERY figure with its own SQL, asserts the ADMIN requirement in both
+directions, and takes exact deltas for a fixture it creates (a scene, an account, a source row): the totals
+move by the fixture's count while the WINDOWED figures do not, which is what makes the window a filter rather
+than a word. The live walk is where the figures are worth something for the first time — this instance holds
+1.1M scenes and 2.9k tags, so the walk compares real numbers rather than zeros.
+
+**What slice 2 deliberately does NOT do:** the five key pages, the metrics PAGE over this query, keyboard
+navigation, alt text, high contrast, reduced motion, the WCAG 2.1 AA target and the anti-doomscroll
+commitments. Those are slice 3, and the page belongs there because a page that computed its own figures would
+be a second definition of every metric — the failure this slice's first decision is about.
+
 ## Phase 17 — the predicate grows (threaded, not separate)
 
 Every phase adds its clause to `docs/goal-check.py`, asserting an observable surface:

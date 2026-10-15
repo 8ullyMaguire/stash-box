@@ -1,0 +1,47 @@
+"""
+One instance metric: a figure and the definition that decides what it counts.
+
+The definition is not decoration. Two readers of a bare "scenes_total" who disagree about whether deleted
+scenes are counted are reading two different numbers, and nothing in a response carrying only the value would
+tell them so -- so every figure is served with the sentence that settles it.
+"""
+type InstanceMetric {
+  "The stable key a client reads the figure by."
+  key: String!
+  "What the number IS, so a client can format it without knowing the key. `count` today."
+  unit: String!
+  "One sentence: what this counts, which rows it excludes, and -- where it is bound to one -- the window."
+  definition: String!
+  value: Int!
+}
+
+"""
+The instance's own counters, as one snapshot.
+
+Every figure is DERIVED from rows the features already write rather than incremented at a mutation site, so a
+metric cannot be wrong about the record without the record being wrong. The consequence is stated in the
+metrics themselves: activity is measured by the last authenticated call this instance recorded, and the metric
+that reads it says so.
+"""
+type InstanceMetrics {
+  "When these figures were computed, so a reader knows the snapshot's age."
+  generated_at: Time!
+  "The start of the one window every windowed figure is bound to."
+  since: Time!
+  "The width of that window, in days."
+  window_days: Int!
+  "The figures, in the order this instance publishes them."
+  metrics: [InstanceMetric!]!
+}
+
+extend type Query {
+  """
+  This instance's counters, each with the definition that decides what it counts.
+
+  Requires ADMIN. The figures describe the instance's own operation -- how much of its catalogue has sources,
+  how much the health sweep has looked at, what is waiting in its queues -- which is an operator's view of the
+  machine rather than something addressed to the public. What IS addressed to the public is the moderation
+  accounting at `GET /transparency` (spec section 16.1), and this query does not duplicate it.
+  """
+  instanceMetrics: InstanceMetrics! @hasRole(role: ADMIN)
+}
