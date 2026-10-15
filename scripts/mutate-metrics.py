@@ -37,8 +37,14 @@ SERVICE = ROOT / "internal/service/metrics/metrics.go"
 QUERY = ROOT / "internal/queries/instance_metrics.sql.go"
 SCHEMA = ROOT / "graphql/schema/types/instance_metrics.graphql"
 
+# THE PATTERN IS PART OF THE GATE. The fingerprint row survived its second run because the test written to
+# catch it -- `TestTheCatalogueFiguresCountScenesAndFingerprintsSeparately` -- was not in this regex, so the row
+# mutated the code and ran a suite that could not see the mutation. A named list of tests is a list somebody has
+# to remember to extend; the whole `metrics_integration_test.go` file is included by naming the tests it holds,
+# and a test added to that file must be added here or it is a test this ledger does not run.
 GRAPHQL = ["go", "test", "-tags", "integration", "-count=1", "-p", "1", "-run",
-           "InstanceMetrics|WindowIsAFilter|FigureAgrees|InviteFigures|PendingEdit", "./internal/api/"]
+           "InstanceMetrics|WindowIsAFilter|FigureAgrees|InviteFigures|PendingEdit|CatalogueFigures",
+           "./internal/api/"]
 UNIT = ["go", "test", "-count=1", "-run", "MetricList|EveryMetric|WindowedMetric", "./internal/service/metrics/"]
 
 # The window over members: the arm that plants an account 60 days old.
