@@ -3745,8 +3745,28 @@ where the extractor FAILS the test if it is called, so "no page was read" is mea
 record absent from the document and named in the envelope; the bound; an empty export);
 `scripts/mutate-hydrus-export.py`, 10 probes, **10 killed** -- including M10, which neuters the denylist at
 `LoadIds` and is killed by the EXPORT's own test, which is what makes "the absence comes from the one gate"
-a claim rather than a hope; `scripts/walk-13c-live.py` against the deployed instance. Suites after: the full
-integration suite green, the full unit suite green, `gofmt -l` and `go vet ./...` clean.
+a claim rather than a hope. Suites after: the full integration suite green, the full unit suite green,
+`gofmt -l` and `go vet ./...` clean.
+
+**Walked live 2026-10-15** (`scripts/walk-13c-live.py`, deployed on thinkbox): 14 verdicts green. The document
+keyed a real record by its own id; six addresses in it were equal, in order, to the record's `scene_urls` rows
+AND to what `findScene { sources { url } }` returns, so the export is not a second opinion about the record;
+the vocabulary arrived namespaced (`code:STAP-038`, `date:2024-11-28`) with the title and description as
+notes; a record with no addresses emitted `[]`; an id that names nothing was named in the envelope and absent
+from the document; 101 ids were refused with the bound in the message; and the walk measured the deployment's
+own gap -- `scene_urls` 1,171,306 rows, `content_sources` 0 -- so it reports why it does not submit an address
+instead of fetching somebody else's page to make a green tick.
+
+**THE LIVE RUN FOUND TWO DEFECTS, both in the walk rather than the feature, and both the same mistake made
+twice -- an assertion built from an assumption about the data instead of a measurement of it.** The first
+asserted an EMPTY tag list on a record "because the instance has no tag relations", and the record's list
+correctly held two entries: the code and the date are tags in this mapping. The second replaced that with "a
+record the instance holds nothing about", and this catalogue has no such record at all: 594,413 rows lack a
+code, **0 lack a date**, 19,343 lack an address -- so the check reported NOT JUDGED rather than passing, which
+is the right failure but not a verdict. It now draws its fixture from what exists (a record with no addresses)
+and prints the measured counts it chose from. The walk's restore check had a third defect of the same family:
+it ran `update ...; select ...` through `psql -tAc` and compared the concatenated output against the key, so a
+successful restore reported FAILED.
 - **13d — rate limits and the error shape.** Per §15.1, with a breach returning 429 and the SAME body shape
   as every other error (this repo answers GraphQL errors as `{"errors":[{"message":...}]}`, so a 429 that
   returns HTML or a bare string is the defect to test for). Constraint: the limit is enforced on the
