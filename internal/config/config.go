@@ -191,6 +191,13 @@ type config struct {
 	HostURL      string `mapstructure:"host_url"`
 
 	// Image storage settings
+	// The address a notice is sent to. Optional in the file and REQUIRED by the published policy: an
+	// instance that hosts nothing may run without one, and the policy page says out loud when it is unset
+	// (`GET /policy`), because "we answer notices" with no address to send one to is a promise nobody can
+	// collect on. Phase 14's ordering makes that concrete: the policy text gates phase 10's first stored
+	// byte, and the text is not complete until this is set.
+	AbuseContact string `mapstructure:"abuse_contact"`
+
 	ImageLocation    string `mapstructure:"image_location"`
 	ImageBackend     string `mapstructure:"image_backend"`
 	FaviconPath      string `mapstructure:"favicon_path"`
@@ -440,6 +447,14 @@ func GetHostURL() string {
 
 func GetGuidelinesURL() string {
 	return C.GuidelinesURL
+}
+
+// GetAbuseContact returns the address a notice is sent to.
+//
+// Empty is a legitimate state for an instance that hosts nothing, and the policy page reports it rather
+// than hiding it: see the field's own comment, and phase 14's ordering.
+func GetAbuseContact() string {
+	return C.AbuseContact
 }
 
 // GetImageLocation returns the path of where to locally store images.

@@ -690,6 +690,16 @@ type Querier interface {
 	// timestamptz would hand the driver an instant to re-render in the HOST's zone, undoing
 	// the whole point of AT TIME ZONE.
 	DatabaseNow(ctx context.Context) (time.Time, error)
+	// Decides an appeal, ONCE.
+	//
+	// `WHERE decided_at IS NULL` in the UPDATE is the whole guard: a second decision matches no row, so this
+	// statement returns pgx.ErrNoRows and the service reports ErrAppealAlreadyDecided instead of overwriting
+	// the first outcome with the second. The service also reads the row first (for the identity rule), so this
+	// is the concurrency backstop -- two operators deciding at the same moment cannot both win.
+	//
+	// The three decision columns are written together, which is what the table's two CHECK constraints
+	// require; setting any two of them is a constraint violation rather than a half-decided row.
+	DecideContentSourceAppeal(ctx context.Context, arg DecideContentSourceAppealParams) (ContentSourceBlockAppeal, error)
 	DeleteAllSceneFingerprintSubmissions(ctx context.Context, arg DeleteAllSceneFingerprintSubmissionsParams) (int64, error)
 	DeleteAuthoredQuest(ctx context.Context, id uuid.UUID) error
 	// Removing a collage. The snapshots it referenced are NOT deleted: the FK is ON
@@ -887,6 +897,23 @@ type Querier interface {
 	// used only as a CASE condition, and answers "could not determine data type of parameter"
 	// rather than guessing boolean.
 	FailIngestJob(ctx context.Context, arg FailIngestJobParams) (IngestQueue, error)
+	// Records a contest against a block, in the appellant's words.
+	//
+	// NO ON CONFLICT, for the reason migration 141's own comment gives: the caller READ the block first (so
+	// the appeal names a row that exists at the time it is filed), and a conflict on
+	// (block_id, filed_by_id) means this person has already contested this block -- which is a refusal the
+	// service reports BY NAME (ErrAppealAlreadyFiled) rather than a silent second row. The partial unique
+	// index is the backstop, not the mechanism.
+	//
+	// `block_id` is written here and is the ONLY place it is ever set: it goes NULL when a release deletes the
+	// block, which is decision 1 of migration 141 -- the appeal keeps `kind`/`value` and loses only the
+	// reference.
+	//
+	// `blocked_by_id` is copied from the block IN THE SAME STATEMENT's transaction as it is read, because that
+	// is the last moment the block is guaranteed to exist. It is what makes the "a different moderator decides"
+	// rule enforceable on a pending appeal after a release has deleted the block row: the rule reads this
+	// appeal, never the block.
+	FileContentSourceAppeal(ctx context.Context, arg FileContentSourceAppealParams) (ContentSourceBlockAppeal, error)
 	// The quest board. Active quests only, because an expired quest is not a quest
 	// anybody acts on, and the count of expired ones grows forever.
 	//
@@ -918,6 +945,10 @@ type Querier interface {
 	// an edit that was amended keeps its place in the history, and re-ordering the list on
 	// every amendment would make the page move under a reader.
 	FindContentItemEditsForItem(ctx context.Context, contentItemID uuid.UUID) ([]Edit, error)
+	// One appeal by id, decided or not. The decision path reads the row it is about to rule on, because the
+	// two rules it enforces (not already decided, decider is neither the blocker nor the appellant) are
+	// properties of THIS row.
+	FindContentSourceAppeal(ctx context.Context, id uuid.UUID) (ContentSourceBlockAppeal, error)
 	// "May this URL, or anything on this host, enter the database at all?"
 	//
 	// The pipeline asks this BEFORE it records anything, which is the whole point of the table: a
@@ -1880,6 +1911,13 @@ type Querier interface {
 	// The tag page's direction: items carrying one tag, newest first. Both directions of the link
 	// matter and only one of them is covered by the unique index.
 	ListContentItemsForTag(ctx context.Context, arg ListContentItemsForTagParams) ([]ContentItem, error)
+	// The moderator's queue: undecided appeals, oldest first, because a queue is answered in the order people
+	// waited. `@pending_only` is a column-free boolean rather than two queries, so the ordered listing and the
+	// pending listing cannot drift apart in their ordering or their limit handling.
+	//
+	// An appeal nobody can list is an appeal nobody answers, which is why this query exists at all: the appeal
+	// is only a policy if the queue is a surface.
+	ListContentSourceAppeals(ctx context.Context, arg ListContentSourceAppealsParams) ([]ContentSourceBlockAppeal, error)
 	// What this instance currently refuses, for the operator who has to be able to answer that.
 	//
 	// Newest first, because the question "did the block I added yesterday land?" is asked more often

@@ -824,6 +824,17 @@ type FederationPeerUpdateInput struct {
 	Enabled     bool    `json:"enabled"`
 }
 
+type FileContentSourceAppealInput struct {
+	// "url" or "host", matching the kind of the block being contested.
+	Kind string `json:"kind"`
+	// The key, in the spelling the pipeline uses: a URL as submitted (normalized server-side) or a bare host.
+	// A member appeals against the ADDRESS THEY WERE REFUSED -- the block list is an operator surface, and an
+	// appeal that can only be filed with a row id nobody shows them is an appeal nobody files.
+	Value string `json:"value"`
+	// What should be reviewed, and why. Required: a queue of appeals with no reasons cannot be answered.
+	Statement string `json:"statement"`
+}
+
 type Fingerprint struct {
 	Hash      FingerprintHash      `json:"hash"`
 	Algorithm FingerprintAlgorithm `json:"algorithm"`

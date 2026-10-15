@@ -153,6 +153,7 @@ sql:
       - internal/database/migrations/postgres/138_invite_key_events.up.sql
       - internal/database/migrations/postgres/139_seed_cohorts.up.sql
       - internal/database/migrations/postgres/140_saved_search_feed.up.sql
+      - internal/database/migrations/postgres/141_content_source_appeal.up.sql
     queries: "internal/queries/sql"
     gen:
       go:

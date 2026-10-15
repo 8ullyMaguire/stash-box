@@ -3893,6 +3893,198 @@ programme is not); performer age verification as a gate (nothing here publishes 
 transparency report (there is nothing to report yet — when this instance has blocked hosts, the
 `mod_audit` rows ARE the report, and rendering them is a UI task in Phase 16).
 
+### Phase 14, slice 2 — the policy text, and the appeal a DIFFERENT moderator hears
+
+**Why this is the rest of phase 14.** Slice 1 built the notice path. Spec §9 states what is left and why it
+gates phase 10: the published TEXT, and the one piece of §17 that is not machinery for a host — an appeal
+that a moderator other than the one who acted decides, asserted by identity. Everything else in §17 is named
+there as deliberately not built, with the reason.
+
+**Files, in dependency order.** Nothing here is written from imagination; each line names what it replaces or
+extends, and the schema decisions are the ones spec §9 argues.
+
+1. **Migration `141_content_source_appeal`** (up + down), added to `sqlc.yaml`'s explicit migration list via
+   `scripts/gen-sqlc-schema-list.sh`, then `sqlc generate`:
+
+   * `content_source_block_appeal`:
+     * `id UUID PRIMARY KEY DEFAULT gen_random_uuid()`
+     * `block_id UUID REFERENCES content_source_block(id) ON DELETE SET NULL` — **no cascade, deliberately**
+       (spec §9: release deletes the block row, and an appeal that dies with its subject reports nothing).
+     * `kind VARCHAR(8) NOT NULL` + `value TEXT NOT NULL` — the block's key, DENORMALISED so the appeal still
+       says WHAT was blocked after the block is gone. CHECK `kind IN ('url','host')`, the same closed
+       vocabulary `content_source_block` uses.
+     * `filed_by_id UUID REFERENCES users(id) ON DELETE SET NULL`, `statement TEXT NOT NULL`,
+       `filed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`
+     * **`blocked_by_id UUID REFERENCES users(id) ON DELETE SET NULL`** — **the blocker, carried on the
+       appeal.** This is the fourth schema decision and it was NOT in the first draft of this plan; it was
+       added when the identity rule was read against the release path. The rule is a comparison with "the
+       operator who recorded the block", and decision 1 above DELETES that block row on release — so a rule
+       read from the block is unenforceable exactly when it matters most: the appeal that is still pending
+       after somebody released the block would be decidable by the very operator whose decision is in
+       question. The rule is therefore a property of the appeal row, which nothing deletes, and the value is
+       copied from the block IN THE SAME TRANSACTION that reads it — the last moment the block is guaranteed
+       to exist.
+     * `decided_by_id UUID REFERENCES users(id) ON DELETE SET NULL`, `outcome VARCHAR(7)`, `decision_note TEXT`,
+       `decided_at TIMESTAMPTZ`
+     * CHECK `outcome IS NULL OR outcome IN ('granted','denied')`
+     * CHECK `(decided_by_id IS NULL) = (decided_at IS NULL)` and `(outcome IS NULL) = (decided_at IS NULL)` —
+       the half-states, one constraint each, so "decided by nobody" and "granted at no time" are unrepresentable.
+     * Partial unique index on `(block_id, filed_by_id) WHERE block_id IS NOT NULL` — one appeal per person per
+       block, and no constraint at all once the block is gone (there is nothing left to appeal).
+   * `ALTER TYPE mod_audit_action ADD VALUE IF NOT EXISTS 'SOURCE_APPEAL'` and `'SOURCE_APPEAL_DECISION'` —
+     one value per decision, the convention migration 134's own comment states.
+
+2. **`internal/queries/sql/content_source_appeal.sql`** (+ regenerated models): `FileContentSourceAppeal`
+   (writing `blocked_by_id` in the same insert that copies it off the block), `FindContentSourceAppeal` (by
+   id), `ListContentSourceAppeals` (`WHERE (NOT @pending_only::boolean OR decided_at IS NULL)`, oldest first
+   with `LIMIT`/`OFFSET`), `DecideContentSourceAppeal` (an UPDATE with `WHERE id = @id AND decided_at IS NULL`
+   that RETURNS the row, so a second decision matches nothing and reports `pgx.ErrNoRows`).
+   There is deliberately NO `FindAppealableBlock`: the filing path calls the SAME `FindContentSourceBlock` the
+   release path uses, because a second lookup written for appeals is how the two come to disagree about what a
+   block key is. The queue is ONE query with a boolean rather than two statements, so the ordered listing and
+   the pending listing cannot drift apart in their ordering or their limit handling.
+
+3. **`internal/service/content/appeal.go`** — `FileAppeal`, `DecideAppeal`, `Appeals`, `Appeal`, and the
+   sentinels (`ErrNoSuchAppeal`, `ErrNoSuchBlock`, `ErrAppealEmptyStatement`, `ErrAppealAlreadyFiled`,
+   `ErrAppealAlreadyDecided`, `ErrAppealSelfDecision`, `ErrAppealOutcome`, `ErrAppealUnkeyable`). The rules,
+   each a comparison of identities rather than of roles:
+   * `FileAppeal(ctx, kind, value, statement, filedBy)`: normalize the key with the pipeline's OWN functions
+     (`urlkey.Normalize` for a URL, `NormalizeHost` for a host — a second normalization here is how an appeal
+     comes to name a key no block holds), refuse `ErrNoSuchBlock` when nothing is blocked under it, refuse an
+     empty statement, then insert with `blocked_by_id` copied off the block it just read. A repeat appeal by
+     the same person against the same live block is `ErrAppealAlreadyFiled`, detected by SQLSTATE `23505` so
+     the partial unique index is a backstop rather than the mechanism.
+   * `DecideAppeal(ctx, id, outcome, note, actor)`: `ErrAppealAlreadyDecided` when the row is decided;
+     **`appealDeciderAllowed` refuses when `actor == appeal.blocked_by_id`** (the operator who recorded it)
+     **or `actor == appeal.filed_by_id`** (the person who filed it) — two arms in ONE helper, each refusal's
+     message naming which arm fired, because the remedy differs between them. A nil actor is refused too, so an
+     unauthenticated path cannot match neither arm and silently pass.
+   * **On `granted` the release happens INSIDE the same transaction as the decision**, through a new
+     `releaseKey(ctx, tx, kind, value, actor)` extracted from `ReleaseBlock`'s body — one release path in the
+     instance, not two that eventually disagree about what releasing means. The decision and its effect are one
+     decision: a release that landed after a failed decision write would be an effect with no cause in the
+     trail. `Released` on the returned row reports what actually happened, so a grant against an
+     already-released block does not claim a removal it did not perform.
+   * `mod_audit` rows: `SOURCE_APPEAL` on filing, `SOURCE_APPEAL_DECISION` on decision with the outcome in
+     `data`, both carrying the actor and the key, both TARGETED AT THE APPEAL (not the block, which a release
+     can delete — pointing the trail at the block would make it unreadable in exactly the case an operator
+     investigates).
+
+4. **`internal/api/resolver_appeal.go`** + `graphql/schema/types/content_appeal.graphql`:
+   * `Mutation.fileContentAppeal(input: FileContentSourceAppealInput!): ContentSourceAppeal!` — any
+     authenticated member (no role directive: the person refused a submission is usually not an operator). An
+     input OBJECT, matching `TakedownContentURLInput` rather than three positional arguments, because the three
+     fields are one submission.
+   * `Mutation.decideContentAppeal(id: ID!, outcome: String!, note: String): ContentSourceAppeal!` —
+     `@hasRole(role: ADMIN)`, matching `takedownContentUrl`'s gate.
+   * `Query.contentAppeals(pending_only: Boolean! = true, limit: Int, offset: Int):
+     [ContentSourceAppeal!]!` — ADMIN. An appeal nobody can list is an appeal nobody answers, and §9's whole
+     point is that this one gets answered. Defaults live in the resolver for the reason the block list's do.
+   * Types: `ContentSourceAppeal` (id, block_id, kind, value, statement, filed_by, filed_at, blocked_by,
+     decided_by, outcome, decision_note, decided_at, released). Field names are snake_case like every other
+     type on this schema.
+   * **`kind` and `outcome` are `String`, NOT an enum — a deliberate deviation from this plan's first draft
+     (`enum AppealOutcome { GRANTED DENIED }`).** `ContentSourceBlock.kind`'s own doc comment records why, and
+     it applies twice over here: the vocabulary is a database CHECK constraint today, and publishing a GraphQL
+     enum before it settles makes every later addition a breaking schema change for every client. The accepted
+     values are in each field's description, so a client is not guessing. The service still validates the
+     outcome against the two words, so a closed vocabulary is enforced — just not frozen into the schema.
+   * The three user references (`filed_by`, `blocked_by`, `decided_by`) are resolved through the dataloader, so
+     a queue of appeals is one query for the people rather than one per row.
+   * `block_id`, `outcome`, `decision_note`, `decided_at` and `decided_by` are ALL nullable, and the resolver
+     reconstructs each null from the model's zero value, because a pending appeal must not report an empty
+     string outcome that reads as a decision to a client's `if (outcome)` test.
+
+5. **The policy text, served**: `docs/policy/abuse-and-takedown.md` is the text (this instance's notice
+   procedure, what it will not do, the per-peer expectation, the appeal path, the retention of the audit
+   trail), and `internal/api/routes_policy.go` serves it at `GET /policy` — public, unauthenticated, static
+   HTML in one constant like the invite landing page, mounted in `rootRoutes` BEFORE the SPA catch-all, with
+   `X-Robots-Tag: noindex` deliberately ABSENT (a policy is the one page an instance WANTS indexed).
+   `//go:embed` of the markdown is deliberately not used: the served document is written for a reader and the
+   file in `docs/` is written for the repository, and coupling them with an embed makes one of the two worse.
+   What keeps the two from drifting is not an import but a TEST: `internal/api/routes_policy_test.go` asserts
+   the served page still names the commitments an operator cannot quietly drop (the 24-hour acknowledgement,
+   the appeal heard by somebody who did not decide, what a catalogue is, and that the metadata survives the
+   removal of the pointer), so a page that stopped describing the process fails the build.
+   * **A policy with no address to send a notice to is not a policy**, so the page NAMES its own gap: the
+     contact comes from a new `abuse_contact` config key (`internal/config`, empty by default), and when it is
+     unset the page says so in as many words and says the instance should not be storing content until its
+     operator sets it. This is phase 14's ordering made visible in the artifact itself rather than only in
+     this plan. The value is HTML-escaped, because it is operator-supplied text rendered into a page.
+   * The test is a UNIT test (`package api`, no database, no account): the property under test is that this
+     page is reachable by somebody with no account and no fixture, so a test that needed one would be testing
+     a different page than the one a rights holder sees.
+
+**Verification, per step, with the expected output — AND WHAT IT RETURNED.**
+
+```bash
+gofmt -l internal/ cmd/ pkg/ ; go build ./...             # no output; exit 0
+go test -count=1 ./internal/service/content/              # ok -- the rules that need no database, as tables:
+                                                          #   the decider is neither the blocker nor the filer
+                                                          #     (6 cases, each naming which arm refused)
+                                                          #   the key is what the pipeline itself computes
+                                                          #     (5 spellings of one URL, 2 of one host)
+                                                          #   an unkeyable appeal is refused (4 cases)
+                                                          #   pending and decided rows read as such
+                                                          #   only a unique violation is one
+go test -count=1 -run 'Policy' ./internal/api/            # ok -- the published policy, 4 tests, NO DATABASE:
+                                                          #   served to an anonymous caller with every commitment
+                                                          #   its own gap named when no contact is configured
+                                                          #   the configured address linked and escaped
+POSTGRES_DB='postgres:smoke_pw@127.0.0.1:55434/sbx-appeal-141?sslmode=disable' \
+  go test -tags integration -count=1 -p 1 -run 'Appeal' ./internal/api/   # ok -- the wire, 4 tests:
+                                                          #   the wire identity rule: the blocker refused BY NAME,
+                                                          #     the FILER refused by name (both holding ADMIN, so
+                                                          #     the identity rule is what refused them), a THIRD
+                                                          #     moderator grants, and a second decision is refused
+                                                          #   a grant releases: re-blocking the same URL is a FIRST
+                                                          #     block with a NEW id, the appeal survives with
+                                                          #     block_id null and blocked_by intact, and the trail
+                                                          #     holds SOURCE_APPEAL then SOURCE_APPEAL_DECISION
+                                                          #     against the appeal plus the operator's own release
+                                                          #     row against the block (compared with a LIVE control
+                                                          #     release, not a constant)
+                                                          #   a denial leaves the block in force and the appeal
+                                                          #     out of the queue
+                                                          #   filing: nothing blocked -> refused by name; an empty
+                                                          #     statement -> refused; one per member per block;
+                                                          #     a SECOND member may still file; queue oldest-first
+python3 scripts/check-no-content-plane.py                 # exit 0 (no player smuggled in beside a policy page)
+python3 docs/goal-check.py                                # C7 stays green: build, vet, gofmt, the gate above
+```
+
+**Mutations (`scripts/mutate-appeal.py`), 8 probes, each aimed at a NAMED test and each KILLED — with one
+survivor that was the AIM's fault and not the test's.** The first run came back 7/8: the probe that forces the
+policy's contact branch (`if contact != "" || true`) was aimed at the CONFIGURED-address test, which passes
+either way because the mutation only changes what happens when nothing is configured. Re-aimed at the
+unset-state test it went red immediately — a survivor that says more about the probe than about the code, and
+the reason the ledger's table names the test it expects to redden. The eight: arm 1 inverted (blocker may
+decide) → the unit table's blocker case; arm 2 inverted (filer may decide) → its appellant case;
+`blocked_by_id` no longer copied off the block → the wire test's `blocked_by` assertion AND arm 1, which can
+no longer fire; the SQLSTATE branch forced to `false` → a second appeal becomes a 500 instead of a named
+refusal; a grant releasing `appeal.Value + "-not-this-one"` → `Released` false and the re-block finding the old
+block; `ON DELETE SET NULL` → CASCADE → the survival read finds no appeal; the acknowledgement sentence
+replaced → the served-commitment check; the contact branch forced → the unset-state check. Every file was
+restored byte-identically and the restore was verified, across 4 files.
+
+**The live walk (`scripts/walk-14-live.py`, run on the deployed instance):** `GET /policy` is served to an
+unauthenticated client with every commitment in the body and no `noindex` — and it reports its OWN state,
+naming the unset `abuse_contact` rather than showing a blank where an address belongs; an operator blocks a
+host; a member appeals against the HOST; the operator who recorded the block is REFUSED the decision in the
+live process, in the instance's own wording; so is the member who filed it — and BOTH of them hold ADMIN for
+the duration of the walk, deliberately, because a non-admin would be stopped by the role directive first and
+the identity rule would never be reached; a third moderator grants it; the block row is gone from
+`content_source_block` while the appeal survives with `block_id IS NULL`, its blocker still named and its
+outcome `granted`; `mod_audit` holds `SOURCE_APPEAL,SOURCE_APPEAL_DECISION` against the appeal; a second
+decision is refused by name; and the cleanup is BY NAME in foreign-key order with the residue read back as
+its own verdict (`accounts=0 blocks=0 appeals=0`, plus the operator's `api_key` restored byte-identically).
+
+**What slice 2 deliberately does NOT do:** it does not render the transparency report (phase 16 renders the
+`mod_audit` rows), it does not add a second appeal per person per block (one is the policy), it does not
+notify anybody (no mail transport is configured on this instance, and a policy that promises a notification
+it cannot deliver is worse than one that says the queue is checked), and it does not change the reversal
+semantics of a release — a granted appeal IS a release, recorded as one.
+
 ## Phase 15 — monetization
 
 **Goal:** NexusXXX §18 as **operator configuration**, open code, nothing behind it

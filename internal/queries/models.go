@@ -25,6 +25,8 @@ const (
 	ModAuditActionPERFORMERCOMMENTCONFIRM ModAuditAction = "PERFORMER_COMMENT_CONFIRM"
 	ModAuditActionSOURCETAKEDOWN          ModAuditAction = "SOURCE_TAKEDOWN"
 	ModAuditActionSOURCEBLOCK             ModAuditAction = "SOURCE_BLOCK"
+	ModAuditActionSOURCEAPPEAL            ModAuditAction = "SOURCE_APPEAL"
+	ModAuditActionSOURCEAPPEALDECISION    ModAuditAction = "SOURCE_APPEAL_DECISION"
 )
 
 func (e *ModAuditAction) Scan(src interface{}) error {
@@ -254,6 +256,22 @@ type ContentSourceBlock struct {
 	Reason      string             `db:"reason" json:"reason"`
 	CreatedByID uuid.NullUUID      `db:"created_by_id" json:"created_by_id"`
 	CreatedAt   pgtype.Timestamptz `db:"created_at" json:"created_at"`
+}
+
+// Contests against content_source_block rows, and their outcomes. Survives the block it names: an appeal outlives the policy it was about.
+type ContentSourceBlockAppeal struct {
+	ID           uuid.UUID          `db:"id" json:"id"`
+	BlockID      uuid.NullUUID      `db:"block_id" json:"block_id"`
+	Kind         string             `db:"kind" json:"kind"`
+	Value        string             `db:"value" json:"value"`
+	FiledByID    uuid.NullUUID      `db:"filed_by_id" json:"filed_by_id"`
+	Statement    string             `db:"statement" json:"statement"`
+	FiledAt      pgtype.Timestamptz `db:"filed_at" json:"filed_at"`
+	BlockedByID  uuid.NullUUID      `db:"blocked_by_id" json:"blocked_by_id"`
+	DecidedByID  uuid.NullUUID      `db:"decided_by_id" json:"decided_by_id"`
+	Outcome      *string            `db:"outcome" json:"outcome"`
+	DecisionNote *string            `db:"decision_note" json:"decision_note"`
+	DecidedAt    pgtype.Timestamptz `db:"decided_at" json:"decided_at"`
 }
 
 type Draft struct {

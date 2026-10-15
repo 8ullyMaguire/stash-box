@@ -235,6 +235,26 @@ func (s *Service) ReleaseBlock(ctx context.Context, kind, value string, actor uu
 
 	released := false
 	err := s.withTxn(func(tx *queries.Queries) error {
+		var err error
+		released, err = releaseKey(ctx, tx, kind, value, actor)
+		return err
+	})
+	if err != nil {
+		return false, err
+	}
+	return released, nil
+}
+
+// releaseKey is the release itself, on a caller's transaction.
+//
+// A FUNCTION rather than the body of ReleaseBlock because an appeal that is granted must release the block
+// through the SAME code path (one release, not two that eventually disagree about what releasing means) and
+// inside the SAME transaction as the decision that granted it -- the decision and its effect are one
+// decision, and a release that happened after a failed decision write would be an effect with no cause in
+// the audit trail. Everything below is ReleaseBlock's body, unchanged, with the actor's identity passed in.
+func releaseKey(ctx context.Context, tx *queries.Queries, kind, value string, actor uuid.UUID) (bool, error) {
+	released := false
+	{
 		block, err := tx.FindContentSourceBlock(ctx, queries.FindContentSourceBlockParams{Kind: kind, Value: value})
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
@@ -243,7 +263,7 @@ func (s *Service) ReleaseBlock(ctx context.Context, kind, value string, actor uu
 				// this and there was nothing to release" is a fact about the instance's state.
 				block = queries.ContentSourceBlock{Kind: kind, Value: value, ID: mustUUID()}
 			} else {
-				return err
+				return false, err
 			}
 		} else {
 			released = true
@@ -251,26 +271,25 @@ func (s *Service) ReleaseBlock(ctx context.Context, kind, value string, actor uu
 
 		n, err := tx.DeleteContentSourceBlock(ctx, queries.DeleteContentSourceBlockParams{Kind: kind, Value: value})
 		if err != nil {
-			return err
+			return false, err
 		}
 		if n > 1 {
 			// Unreachable while the unique constraint holds. If it ever fires, the instance has two
 			// rows for one key and the audit below is recording a release that removed both.
-			return fmt.Errorf("expected at most one block row for (%s, %s), deleted %d", kind, value, n)
+			return false, fmt.Errorf("expected at most one block row for (%s, %s), deleted %d", kind, value, n)
 		}
 
 		action := queries.ModAuditActionSOURCEBLOCK
 		if kind == BlockKindURL {
 			action = queries.ModAuditActionSOURCETAKEDOWN
 		}
-		return createSourceAudit(ctx, tx, actor, action, block, sourceDecisionAudit{
+		if err := createSourceAudit(ctx, tx, actor, action, block, sourceDecisionAudit{
 			Kind:     kind,
 			Value:    value,
 			Released: true,
-		})
-	})
-	if err != nil {
-		return false, err
+		}); err != nil {
+			return false, err
+		}
 	}
 	return released, nil
 }

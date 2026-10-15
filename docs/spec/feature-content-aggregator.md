@@ -334,7 +334,7 @@ behaviour. "New" = nothing to extend. Phase numbers are §Phases in
 | §14 | facial recognition, community ID, profile claiming | identification board (untouched); local models live in `feature-04-identification-federation.md` §8, where a model's output is a suggestion | 4 (feature 04) |
 | §15.1–15.3 | REST+GraphQL API, integrations, exports | GraphQL, webhooks (13a: the read-only MCP server, `cmd/stash-box-mcp` + `internal/mcp`, four tools over the existing READ queries); no REST/RSS/exports yet (13b–13d) | 13 |
 | §16 | anti-doomscroll design + transparency report | none | 16 |
-| §17 | CSAM/DMCA/age/consent policy, appeals, elected mods | **nothing** — see §5 | 14 |
+| §17 | CSAM/DMCA/age/consent policy, appeals, elected mods | **the notice path (slice 14.1) and, from slice 14.2, the published policy text plus the appeal a DIFFERENT moderator hears** — still nothing for hash matching, age verification, a registered agent or elected moderators, each named in §9 | 14 |
 | §18 | premium, creator subs, ads, data licensing | none (MIT) | 15 |
 | §19 | service split, ES/Meili, vector store, NATS, MinIO, CDN | single Go binary, PG + pg_search. MinIO and the CDN are phase 10's (gated, off by default); the vector store is phase 7's | 7 |
 | §20 | UI: 5 key pages, mobile PWA, WCAG 2.1 AA | React SPA, 25 page dirs | 16 |
@@ -585,3 +585,85 @@ asks about. **A scan records nobody** — it is an unauthenticated GET, so it ca
 timestamp, and never an address, an agent or an account; signups and activations carry the account they
 became, and what the member is shown stays counts. An expired or spent key gets the same landing page as a
 live one (minus the scan row), so the page cannot be used to probe for a valid key.
+
+
+---
+
+## 9. Moderation and legal: the notice, the appeal, and the text (phase 14)
+
+**What phase 14 owes phase 10, stated as the hard constraint it is.** The notice path itself is built
+(`takedownContentUrl` / `blockContentHost` / `releaseContentBlock`, `content_source_block`, the refusal
+consulted by both the submit path and the drain — §25 line above and the plan's slice 14.1). What phase 10
+waits for is the **TEXT**: a published statement of what this instance does with a notice, what it will not
+do, what a PEER instance is asked to do, and what a person can do about a decision they disagree with. The
+ordering is not bureaucracy. The moment this instance stores a byte of somebody's work it is a host, and a
+host whose operator improvises a response to the first notice it receives has no policy — it has a mood.
+
+**Written per-instance AND per-peer, never per-platform.** What a peer must do when it receives a takedown
+forwarded by this instance, and what happens when it refuses, is a relationship between two instances; a
+platform-wide policy is a claim about machines this operator does not administer, and this programme
+federates with people it does not administer by design.
+
+**The appeal is the one part of §17 that is not machinery for a host, and it is the part with a rule worth
+enforcing in code.** A takedown that can only go one way is not a policy, it is a verdict. So an appeal is a
+ROW (never a counter, for the reason §8's counters are rows), and three things are structural rather than
+procedural:
+
+- **A different moderator, asserted by IDENTITY.** The operator who recorded the block cannot decide the
+  appeal against it, and the person who filed it cannot decide it either. Both are comparisons between
+  `users.id` values, not role checks: a role check would pass for the same human holding a second role, which
+  is the failure mode this rule exists to prevent.
+- **A granted appeal RELEASES the block, through the one release path an operator's own release already
+  uses.** Two code paths that both unblock a host eventually disagree about what unblocking means, and the
+  audit trail is where the disagreement shows up first.
+- **The appeal SURVIVES the block it contests.** Release deletes the block row, so the appeal's reference to
+  it is `ON DELETE SET NULL` with the block's `(kind, value)` denormalised onto the appeal. This is §8's
+  invite-counter lesson one layer down: a record that dies with its subject reports nothing about the one
+  decision a person wants to read.
+
+- **The blocker is carried ON the appeal, not read back from the block.** This is the fourth structural
+  point and the one that took a second reading to see: "a different moderator" is a comparison against the
+  operator who recorded the block, and a release DELETES that block row — so a rule read from the block is
+  unenforceable in exactly the case that matters, the appeal still pending after somebody released the block,
+  where the sole decider left would be the operator whose decision is in question. `blocked_by_id` is
+  therefore a column on the appeal, copied from the block in the same transaction that reads it — the last
+  moment the block is guaranteed to exist — and the rule reads the appeal, which nothing deletes.
+
+**What a person appeals AGAINST is the `(kind, value)` key, not an internal id.** The block list is an
+operator surface; a member who was refused knows the address they submitted, not a row id, and an appeal
+that can only be filed with an id nobody shows them is an appeal nobody files.
+
+**Half-states are unrepresentable, not merely unlikely.** Outcome, decider and decision time travel together
+under CHECK constraints, so "decided with no outcome" and "granted by nobody" cannot be stored — the same
+shape as phase 9e's archive pair and §8's key-must-have-an-object rule.
+
+**The surface, and who may reach it.** `fileContentAppeal(input)` is gated on being signed in and NOTHING
+else — an operator cannot know whose submission an address was, and requiring an appellant to prove ownership
+turns a complaint about a block into a claim about a person. `decideContentAppeal(id, outcome, note)` is
+ADMIN, matching `takedownContentUrl`: the same authority answers for the decision and for the objection to
+it, and the rule neither directive can express (the decider is neither the blocker nor the appellant) is the
+service's, by identity. `contentAppeals(pending_only, limit, offset)` is ADMIN and defaults to the pending
+queue, because an appeal nobody can list is an appeal nobody answers. Every decision-derived field
+(`block_id`, `outcome`, `decision_note`, `decided_at`, `decided_by`) is NULLABLE and null until the moment it
+exists: a pending appeal that reported an empty-string outcome would read as a decision to any client's
+`if (outcome)` test. `kind` and `outcome` are STRINGS rather than enums, like `ContentSourceBlock.kind` and
+for its recorded reason — the closed vocabulary is a CHECK constraint today, and publishing a GraphQL enum
+before it settles makes every later addition a breaking schema change.
+
+**A policy with no address to send a notice to is not a policy, and the page says so.** The contact is a new
+`abuse_contact` config key, empty by default; when it is unset the served page names the gap in as many words
+and says the instance should not be storing content until its operator sets it. That is phase 14's ordering
+made visible in the artifact itself rather than only argued here — and it is the one page whose own state is
+part of its text.
+
+**The text is SERVED, not filed.** `GET /policy` is public, unauthenticated and static, like the invite
+landing page: a notice path nobody can find is not a notice path, and a complainant should not need an
+account to read what an instance will do with their notice. The transparency REPORT stays phase 16 — the
+`mod_audit` rows already are the report, and rendering them is UI work.
+
+**NOT built, and named rather than implied:** CSAM hash matching against an external list (nothing here
+accepts uploads, so there is no ingest to match against; the refusal is at the source layer, where a refused
+source is simply not fetched); a registered DMCA agent, counter-notice paperwork and a designated-agent
+registration (paperwork about a host this programme is not); performer age verification as a gate (nothing
+here publishes performer content); elected moderators (a governance question about a membership, not a code
+shape, and it needs members first).

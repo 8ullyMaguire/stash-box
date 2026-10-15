@@ -1,0 +1,122 @@
+"""
+An appeal against a refusal, and how it was answered (migration 141).
+
+WHY THIS TYPE IS ITS OWN FILE. This is the only surface in the programme where a decision can be
+undone by somebody other than the person who made it, and the rule that makes that true -- the decider
+is neither the operator who recorded the block nor the member who filed the appeal -- is enforced by
+IDENTITY in `internal/service/content/appeal.go`. Keeping it beside `content.graphql` would bury the one
+place a reader must not miss.
+
+`kind` and `outcome` are STRINGS rather than enums, for the reason `ContentSourceBlock.kind`'s doc
+comment gives: the vocabulary is a database CHECK constraint today, and publishing a GraphQL enum before
+it settles makes every later addition a breaking schema change. The accepted values are in each field's
+own description, so a client is not guessing.
+"""
+type ContentSourceAppeal {
+  id: ID!
+
+  """
+  The block this contested, or null once that block is RELEASED.
+
+  A release deletes the block row and this reference goes null with it (ON DELETE SET NULL, deliberately
+  not a cascade): the appeal SURVIVES the block it was about, because "somebody contested this and here
+  is what happened" is the fact an operator investigates months later. `kind` and `value` stay filled, so
+  a null here is not a missing record -- it is the honest statement that the block is no longer in force.
+  """
+  block_id: ID
+
+  "\"url\" for a single address, \"host\" for everything on a host -- the block's key."
+  kind: String!
+
+  "The normalized key: what the pipeline computes before it records anything (pkg/urlkey)."
+  value: String!
+
+  "The appellant's own words. Never empty: an appeal that does not say what to review is not one."
+  statement: String!
+
+  "Who filed it. Null only when that account has since been deleted."
+  filed_by: User
+
+  filed_at: Time!
+
+  """
+  Who recorded the block being contested. Carried on the appeal rather than read from the block, because
+  a release deletes the block while a pending appeal survives it -- and this is the value the
+  different-moderator rule compares a decider against.
+  """
+  blocked_by: User
+
+  "Who decided. Null while the appeal is pending. Never the operator who recorded the block."
+  decided_by: User
+
+  """
+  `granted` or `denied`, or null while pending. All three decision fields move together: the table's
+  CHECK constraints make "decided with no outcome" and "granted by nobody" unrepresentable.
+  """
+  outcome: String
+
+  "The moderator's reasoning, in their words. Optional, and worth filling in: it is what an appeal is for."
+  decision_note: String
+
+  decided_at: Time
+
+  """
+  Whether a GRANTED appeal actually removed a live block.
+
+  A different fact from the outcome: a grant against a block somebody had already released changes
+  nothing, and reporting a release that did not happen would put a false line in the audit trail.
+  """
+  released: Boolean!
+}
+
+input FileContentSourceAppealInput {
+  "\"url\" or \"host\", matching the kind of the block being contested."
+  kind: String!
+
+  """
+  The key, in the spelling the pipeline uses: a URL as submitted (normalized server-side) or a bare host.
+  A member appeals against the ADDRESS THEY WERE REFUSED -- the block list is an operator surface, and an
+  appeal that can only be filed with a row id nobody shows them is an appeal nobody files.
+  """
+  value: String!
+
+  "What should be reviewed, and why. Required: a queue of appeals with no reasons cannot be answered."
+  statement: String!
+}
+
+extend type Mutation {
+  """
+  Contest a refusal. Any authenticated member may file one.
+
+  An operator cannot know whose submission an address was, and requiring an appellant to prove ownership
+  would turn a complaint about a block into a claim about a person -- so this is gated on being signed in
+  and nothing else. One appeal per person per block; a second is refused by name, not silently merged.
+  """
+  fileContentAppeal(input: FileContentSourceAppealInput!): ContentSourceAppeal!
+
+  """
+  Decide an appeal: `granted` or `denied`, once.
+
+  ADMIN, matching `takedownContentUrl` -- the same authority answers for the decision and for the
+  objection to it. The service refuses a decision by the operator who recorded the block, and by the
+  member who filed the appeal, by comparing identities; a role check would pass for the same human
+  holding a second role, which is exactly the failure this rule exists to prevent.
+
+  A GRANTED appeal releases the block through the same code path and the same transaction as an
+  operator's own release. A second decision is refused, so the first outcome is the outcome.
+  """
+  decideContentAppeal(id: ID!, outcome: String!, note: String): ContentSourceAppeal!
+    @hasRole(role: ADMIN)
+}
+
+extend type Query {
+  """
+  Appeals, oldest first: a queue is answered in the order people waited.
+
+  `pending_only` defaults to true, which is the moderator's queue. False is the history an operator reads
+  to answer "has anybody contested our decisions, and how did we answer" -- and it is ADMIN, like the
+  block list it is the counterpart of.
+  """
+  contentAppeals(pending_only: Boolean! = true, limit: Int = 100, offset: Int = 0): [ContentSourceAppeal!]!
+    @hasRole(role: ADMIN)
+}

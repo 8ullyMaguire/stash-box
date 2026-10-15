@@ -34,6 +34,7 @@ type ResolverRoot interface {
 	CollageFrame() CollageFrameResolver
 	ContentItem() ContentItemResolver
 	ContentSource() ContentSourceResolver
+	ContentSourceAppeal() ContentSourceAppealResolver
 	ContentSourceBlock() ContentSourceBlockResolver
 	Draft() DraftResolver
 	Edit() EditResolver
@@ -261,6 +262,22 @@ type ComplexityRoot struct {
 		Site          func(childComplexity int) int
 		Status        func(childComplexity int) int
 		URL           func(childComplexity int) int
+	}
+
+	ContentSourceAppeal struct {
+		BlockID      func(childComplexity int) int
+		BlockedBy    func(childComplexity int) int
+		DecidedAt    func(childComplexity int) int
+		DecidedBy    func(childComplexity int) int
+		DecisionNote func(childComplexity int) int
+		FiledAt      func(childComplexity int) int
+		FiledBy      func(childComplexity int) int
+		ID           func(childComplexity int) int
+		Kind         func(childComplexity int) int
+		Outcome      func(childComplexity int) int
+		Released     func(childComplexity int) int
+		Statement    func(childComplexity int) int
+		Value        func(childComplexity int) int
 	}
 
 	ContentSourceBlock struct {
@@ -725,6 +742,7 @@ type ComplexityRoot struct {
 		CreateSavedSearch                 func(childComplexity int, input SavedSearchInput) int
 		CreateSeedCampaign                func(childComplexity int, input SeedCampaignCreateInput) int
 		CreateSeedCohort                  func(childComplexity int, input SeedCohortCreateInput) int
+		DecideContentAppeal               func(childComplexity int, id uuid.UUID, outcome string, note *string) int
 		DeleteEdit                        func(childComplexity int, input DeleteEditInput) int
 		DeleteSavedSearch                 func(childComplexity int, id uuid.UUID) int
 		DestroyDraft                      func(childComplexity int, id uuid.UUID) int
@@ -737,6 +755,7 @@ type ComplexityRoot struct {
 		FederationPeerCreate              func(childComplexity int, input FederationPeerCreateInput) int
 		FederationPeerDelete              func(childComplexity int, id uuid.UUID) int
 		FederationPeerUpdate              func(childComplexity int, input FederationPeerUpdateInput) int
+		FileContentAppeal                 func(childComplexity int, input FileContentSourceAppealInput) int
 		FollowUser                        func(childComplexity int, input FollowInput) int
 		GenerateCollage                   func(childComplexity int, sceneID uuid.UUID, frameCount *int) int
 		GenerateInviteCode                func(childComplexity int) int
@@ -1004,6 +1023,7 @@ type ComplexityRoot struct {
 		ActivityFeed                   func(childComplexity int, input *ActivityFeedInput) int
 		ArchiveEntityCounts            func(childComplexity int) int
 		ContentAccessSetup             func(childComplexity int) int
+		ContentAppeals                 func(childComplexity int, pendingOnly bool, limit *int, offset *int) int
 		ContentItem                    func(childComplexity int, id uuid.UUID) int
 		ContentSourceBlocks            func(childComplexity int, limit *int, offset *int) int
 		CountIncompleteEntities        func(childComplexity int, entityType EntityType, below int) int
@@ -1665,6 +1685,15 @@ type ContentSourceResolver interface {
 
 	Status(ctx context.Context, obj *ContentSource) (ContentSourceStatus, error)
 }
+type ContentSourceAppealResolver interface {
+	ID(ctx context.Context, obj *ContentSourceAppeal) (uuid.UUID, error)
+	BlockID(ctx context.Context, obj *ContentSourceAppeal) (*uuid.UUID, error)
+
+	FiledBy(ctx context.Context, obj *ContentSourceAppeal) (*User, error)
+
+	BlockedBy(ctx context.Context, obj *ContentSourceAppeal) (*User, error)
+	DecidedBy(ctx context.Context, obj *ContentSourceAppeal) (*User, error)
+}
 type ContentSourceBlockResolver interface {
 	ID(ctx context.Context, obj *ContentSourceBlock) (uuid.UUID, error)
 
@@ -1839,6 +1868,8 @@ type MutationResolver interface {
 	BlockContentHost(ctx context.Context, input BlockContentHostInput) (*ContentTakedownResult, error)
 	ReleaseContentBlock(ctx context.Context, kind string, value string) (bool, error)
 	UserAcceptContentTerms(ctx context.Context) (*ContentAccessSetup, error)
+	FileContentAppeal(ctx context.Context, input FileContentSourceAppealInput) (*ContentSourceAppeal, error)
+	DecideContentAppeal(ctx context.Context, id uuid.UUID, outcome string, note *string) (*ContentSourceAppeal, error)
 	ConfirmPerformerComment(ctx context.Context, input ConfirmPerformerCommentInput) (*Edit, error)
 	VoteElo(ctx context.Context, input EloVoteInput) (*EloVoteResult, error)
 	FederationPeerCreate(ctx context.Context, input FederationPeerCreateInput) (*FederationPeer, error)
@@ -2009,6 +2040,7 @@ type QueryResolver interface {
 	CountIncompleteEntities(ctx context.Context, entityType EntityType, below int) (int, error)
 	ContentSourceBlocks(ctx context.Context, limit *int, offset *int) ([]ContentSourceBlock, error)
 	ContentAccessSetup(ctx context.Context) (*ContentAccessSetup, error)
+	ContentAppeals(ctx context.Context, pendingOnly bool, limit *int, offset *int) ([]ContentSourceAppeal, error)
 	ContentItem(ctx context.Context, id uuid.UUID) (*ContentItem, error)
 	QueryContentItems(ctx context.Context, kind *ContentItemKind, limit *int) ([]ContentItem, error)
 	EloMatchup(ctx context.Context, entityType EloEntityType) (*EloMatchup, error)
@@ -2894,6 +2926,85 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.ContentSource.URL(childComplexity), true
+
+	case "ContentSourceAppeal.block_id":
+		if e.ComplexityRoot.ContentSourceAppeal.BlockID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentSourceAppeal.BlockID(childComplexity), true
+	case "ContentSourceAppeal.blocked_by":
+		if e.ComplexityRoot.ContentSourceAppeal.BlockedBy == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentSourceAppeal.BlockedBy(childComplexity), true
+	case "ContentSourceAppeal.decided_at":
+		if e.ComplexityRoot.ContentSourceAppeal.DecidedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentSourceAppeal.DecidedAt(childComplexity), true
+	case "ContentSourceAppeal.decided_by":
+		if e.ComplexityRoot.ContentSourceAppeal.DecidedBy == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentSourceAppeal.DecidedBy(childComplexity), true
+	case "ContentSourceAppeal.decision_note":
+		if e.ComplexityRoot.ContentSourceAppeal.DecisionNote == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentSourceAppeal.DecisionNote(childComplexity), true
+	case "ContentSourceAppeal.filed_at":
+		if e.ComplexityRoot.ContentSourceAppeal.FiledAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentSourceAppeal.FiledAt(childComplexity), true
+	case "ContentSourceAppeal.filed_by":
+		if e.ComplexityRoot.ContentSourceAppeal.FiledBy == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentSourceAppeal.FiledBy(childComplexity), true
+	case "ContentSourceAppeal.id":
+		if e.ComplexityRoot.ContentSourceAppeal.ID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentSourceAppeal.ID(childComplexity), true
+	case "ContentSourceAppeal.kind":
+		if e.ComplexityRoot.ContentSourceAppeal.Kind == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentSourceAppeal.Kind(childComplexity), true
+	case "ContentSourceAppeal.outcome":
+		if e.ComplexityRoot.ContentSourceAppeal.Outcome == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentSourceAppeal.Outcome(childComplexity), true
+	case "ContentSourceAppeal.released":
+		if e.ComplexityRoot.ContentSourceAppeal.Released == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentSourceAppeal.Released(childComplexity), true
+	case "ContentSourceAppeal.statement":
+		if e.ComplexityRoot.ContentSourceAppeal.Statement == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentSourceAppeal.Statement(childComplexity), true
+	case "ContentSourceAppeal.value":
+		if e.ComplexityRoot.ContentSourceAppeal.Value == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ContentSourceAppeal.Value(childComplexity), true
 
 	case "ContentSourceBlock.created_at":
 		if e.ComplexityRoot.ContentSourceBlock.CreatedAt == nil {
@@ -4753,6 +4864,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.CreateSeedCohort(childComplexity, args["input"].(SeedCohortCreateInput)), true
+	case "Mutation.decideContentAppeal":
+		if e.ComplexityRoot.Mutation.DecideContentAppeal == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_decideContentAppeal_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.DecideContentAppeal(childComplexity, args["id"].(uuid.UUID), args["outcome"].(string), args["note"].(*string)), true
 	case "Mutation.deleteEdit":
 		if e.ComplexityRoot.Mutation.DeleteEdit == nil {
 			break
@@ -4885,6 +5007,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.FederationPeerUpdate(childComplexity, args["input"].(FederationPeerUpdateInput)), true
+	case "Mutation.fileContentAppeal":
+		if e.ComplexityRoot.Mutation.FileContentAppeal == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_fileContentAppeal_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.FileContentAppeal(childComplexity, args["input"].(FileContentSourceAppealInput)), true
 	case "Mutation.followUser":
 		if e.ComplexityRoot.Mutation.FollowUser == nil {
 			break
@@ -6808,6 +6941,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.ContentAccessSetup(childComplexity), true
+	case "Query.contentAppeals":
+		if e.ComplexityRoot.Query.ContentAppeals == nil {
+			break
+		}
+
+		args, err := ec.field_Query_contentAppeals_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.ContentAppeals(childComplexity, args["pending_only"].(bool), args["limit"].(*int), args["offset"].(*int)), true
 	case "Query.contentItem":
 		if e.ComplexityRoot.Query.ContentItem == nil {
 			break
@@ -9973,6 +10117,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputEyeColorCriterionInput,
 		ec.unmarshalInputFederationPeerCreateInput,
 		ec.unmarshalInputFederationPeerUpdateInput,
+		ec.unmarshalInputFileContentSourceAppealInput,
 		ec.unmarshalInputFingerprintBatchSubmission,
 		ec.unmarshalInputFingerprintClustersInput,
 		ec.unmarshalInputFingerprintEditInput,
@@ -11201,6 +11346,129 @@ extend type Mutation {
   wizard, whose next screen is this object.
   """
   userAcceptContentTerms: ContentAccessSetup! @hasRole(role: READ)
+}
+`, BuiltIn: false},
+	{Name: "../../graphql/schema/types/content_appeal.graphql", Input: `"""
+An appeal against a refusal, and how it was answered (migration 141).
+
+WHY THIS TYPE IS ITS OWN FILE. This is the only surface in the programme where a decision can be
+undone by somebody other than the person who made it, and the rule that makes that true -- the decider
+is neither the operator who recorded the block nor the member who filed the appeal -- is enforced by
+IDENTITY in ` + "`" + `internal/service/content/appeal.go` + "`" + `. Keeping it beside ` + "`" + `content.graphql` + "`" + ` would bury the one
+place a reader must not miss.
+
+` + "`" + `kind` + "`" + ` and ` + "`" + `outcome` + "`" + ` are STRINGS rather than enums, for the reason ` + "`" + `ContentSourceBlock.kind` + "`" + `'s doc
+comment gives: the vocabulary is a database CHECK constraint today, and publishing a GraphQL enum before
+it settles makes every later addition a breaking schema change. The accepted values are in each field's
+own description, so a client is not guessing.
+"""
+type ContentSourceAppeal {
+  id: ID!
+
+  """
+  The block this contested, or null once that block is RELEASED.
+
+  A release deletes the block row and this reference goes null with it (ON DELETE SET NULL, deliberately
+  not a cascade): the appeal SURVIVES the block it was about, because "somebody contested this and here
+  is what happened" is the fact an operator investigates months later. ` + "`" + `kind` + "`" + ` and ` + "`" + `value` + "`" + ` stay filled, so
+  a null here is not a missing record -- it is the honest statement that the block is no longer in force.
+  """
+  block_id: ID
+
+  "\"url\" for a single address, \"host\" for everything on a host -- the block's key."
+  kind: String!
+
+  "The normalized key: what the pipeline computes before it records anything (pkg/urlkey)."
+  value: String!
+
+  "The appellant's own words. Never empty: an appeal that does not say what to review is not one."
+  statement: String!
+
+  "Who filed it. Null only when that account has since been deleted."
+  filed_by: User
+
+  filed_at: Time!
+
+  """
+  Who recorded the block being contested. Carried on the appeal rather than read from the block, because
+  a release deletes the block while a pending appeal survives it -- and this is the value the
+  different-moderator rule compares a decider against.
+  """
+  blocked_by: User
+
+  "Who decided. Null while the appeal is pending. Never the operator who recorded the block."
+  decided_by: User
+
+  """
+  ` + "`" + `granted` + "`" + ` or ` + "`" + `denied` + "`" + `, or null while pending. All three decision fields move together: the table's
+  CHECK constraints make "decided with no outcome" and "granted by nobody" unrepresentable.
+  """
+  outcome: String
+
+  "The moderator's reasoning, in their words. Optional, and worth filling in: it is what an appeal is for."
+  decision_note: String
+
+  decided_at: Time
+
+  """
+  Whether a GRANTED appeal actually removed a live block.
+
+  A different fact from the outcome: a grant against a block somebody had already released changes
+  nothing, and reporting a release that did not happen would put a false line in the audit trail.
+  """
+  released: Boolean!
+}
+
+input FileContentSourceAppealInput {
+  "\"url\" or \"host\", matching the kind of the block being contested."
+  kind: String!
+
+  """
+  The key, in the spelling the pipeline uses: a URL as submitted (normalized server-side) or a bare host.
+  A member appeals against the ADDRESS THEY WERE REFUSED -- the block list is an operator surface, and an
+  appeal that can only be filed with a row id nobody shows them is an appeal nobody files.
+  """
+  value: String!
+
+  "What should be reviewed, and why. Required: a queue of appeals with no reasons cannot be answered."
+  statement: String!
+}
+
+extend type Mutation {
+  """
+  Contest a refusal. Any authenticated member may file one.
+
+  An operator cannot know whose submission an address was, and requiring an appellant to prove ownership
+  would turn a complaint about a block into a claim about a person -- so this is gated on being signed in
+  and nothing else. One appeal per person per block; a second is refused by name, not silently merged.
+  """
+  fileContentAppeal(input: FileContentSourceAppealInput!): ContentSourceAppeal!
+
+  """
+  Decide an appeal: ` + "`" + `granted` + "`" + ` or ` + "`" + `denied` + "`" + `, once.
+
+  ADMIN, matching ` + "`" + `takedownContentUrl` + "`" + ` -- the same authority answers for the decision and for the
+  objection to it. The service refuses a decision by the operator who recorded the block, and by the
+  member who filed the appeal, by comparing identities; a role check would pass for the same human
+  holding a second role, which is exactly the failure this rule exists to prevent.
+
+  A GRANTED appeal releases the block through the same code path and the same transaction as an
+  operator's own release. A second decision is refused, so the first outcome is the outcome.
+  """
+  decideContentAppeal(id: ID!, outcome: String!, note: String): ContentSourceAppeal!
+    @hasRole(role: ADMIN)
+}
+
+extend type Query {
+  """
+  Appeals, oldest first: a queue is answered in the order people waited.
+
+  ` + "`" + `pending_only` + "`" + ` defaults to true, which is the moderator's queue. False is the history an operator reads
+  to answer "has anybody contested our decisions, and how did we answer" -- and it is ADMIN, like the
+  block list it is the counterpart of.
+  """
+  contentAppeals(pending_only: Boolean! = true, limit: Int = 100, offset: Int = 0): [ContentSourceAppeal!]!
+    @hasRole(role: ADMIN)
 }
 `, BuiltIn: false},
 	{Name: "../../graphql/schema/types/content_item.graphql", Input: `"""
@@ -17277,6 +17545,38 @@ func (ec *executionContext) childFields_ContentSource(ctx context.Context, field
 	return nil, fmt.Errorf("no field named %q was found under type ContentSource", field.Name)
 }
 
+func (ec *executionContext) childFields_ContentSourceAppeal(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "id":
+		return ec.fieldContext_ContentSourceAppeal_id(ctx, field)
+	case "block_id":
+		return ec.fieldContext_ContentSourceAppeal_block_id(ctx, field)
+	case "kind":
+		return ec.fieldContext_ContentSourceAppeal_kind(ctx, field)
+	case "value":
+		return ec.fieldContext_ContentSourceAppeal_value(ctx, field)
+	case "statement":
+		return ec.fieldContext_ContentSourceAppeal_statement(ctx, field)
+	case "filed_by":
+		return ec.fieldContext_ContentSourceAppeal_filed_by(ctx, field)
+	case "filed_at":
+		return ec.fieldContext_ContentSourceAppeal_filed_at(ctx, field)
+	case "blocked_by":
+		return ec.fieldContext_ContentSourceAppeal_blocked_by(ctx, field)
+	case "decided_by":
+		return ec.fieldContext_ContentSourceAppeal_decided_by(ctx, field)
+	case "outcome":
+		return ec.fieldContext_ContentSourceAppeal_outcome(ctx, field)
+	case "decision_note":
+		return ec.fieldContext_ContentSourceAppeal_decision_note(ctx, field)
+	case "decided_at":
+		return ec.fieldContext_ContentSourceAppeal_decided_at(ctx, field)
+	case "released":
+		return ec.fieldContext_ContentSourceAppeal_released(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type ContentSourceAppeal", field.Name)
+}
+
 func (ec *executionContext) childFields_ContentSourceBlock(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 	switch field.Name {
 	case "id":
@@ -19617,6 +19917,36 @@ func (ec *executionContext) field_Mutation_createSeedCohort_args(ctx context.Con
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_decideContentAppeal_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (uuid.UUID, error) {
+			return ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "outcome",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNString2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["outcome"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "note",
+		func(ctx context.Context, v any) (*string, error) {
+			return ec.unmarshalOString2ᚖstring(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["note"] = arg2
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_deleteEdit_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -19793,6 +20123,20 @@ func (ec *executionContext) field_Mutation_federation_peer_update_args(ctx conte
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
 		func(ctx context.Context, v any) (FederationPeerUpdateInput, error) {
 			return ec.unmarshalNFederationPeerUpdateInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐFederationPeerUpdateInput(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_fileContentAppeal_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
+		func(ctx context.Context, v any) (FileContentSourceAppealInput, error) {
+			return ec.unmarshalNFileContentSourceAppealInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐFileContentSourceAppealInput(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -21400,6 +21744,36 @@ func (ec *executionContext) field_Query_activityFeed_args(ctx context.Context, r
 		return nil, err
 	}
 	args["input"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_contentAppeals_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "pending_only",
+		func(ctx context.Context, v any) (bool, error) {
+			return ec.unmarshalNBoolean2bool(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["pending_only"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "limit",
+		func(ctx context.Context, v any) (*int, error) {
+			return ec.unmarshalOInt2ᚖint(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["limit"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "offset",
+		func(ctx context.Context, v any) (*int, error) {
+			return ec.unmarshalOInt2ᚖint(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["offset"] = arg2
 	return args, nil
 }
 
@@ -25473,6 +25847,332 @@ func (ec *executionContext) _ContentSource_archived_url(ctx context.Context, fie
 }
 func (ec *executionContext) fieldContext_ContentSource_archived_url(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("ContentSource", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _ContentSourceAppeal_id(ctx context.Context, field graphql.CollectedField, obj *ContentSourceAppeal) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentSourceAppeal_id(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.ContentSourceAppeal().ID(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v uuid.UUID) graphql.Marshaler {
+			return ec.marshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ContentSourceAppeal_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContentSourceAppeal", field, true, true, errors.New("field of type ID does not have child fields"))
+}
+
+func (ec *executionContext) _ContentSourceAppeal_block_id(ctx context.Context, field graphql.CollectedField, obj *ContentSourceAppeal) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentSourceAppeal_block_id(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.ContentSourceAppeal().BlockID(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *uuid.UUID) graphql.Marshaler {
+			return ec.marshalOID2ᚖgithubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_ContentSourceAppeal_block_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContentSourceAppeal", field, true, true, errors.New("field of type ID does not have child fields"))
+}
+
+func (ec *executionContext) _ContentSourceAppeal_kind(ctx context.Context, field graphql.CollectedField, obj *ContentSourceAppeal) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentSourceAppeal_kind(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Kind, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ContentSourceAppeal_kind(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContentSourceAppeal", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _ContentSourceAppeal_value(ctx context.Context, field graphql.CollectedField, obj *ContentSourceAppeal) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentSourceAppeal_value(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Value, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ContentSourceAppeal_value(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContentSourceAppeal", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _ContentSourceAppeal_statement(ctx context.Context, field graphql.CollectedField, obj *ContentSourceAppeal) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentSourceAppeal_statement(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Statement, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ContentSourceAppeal_statement(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContentSourceAppeal", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _ContentSourceAppeal_filed_by(ctx context.Context, field graphql.CollectedField, obj *ContentSourceAppeal) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentSourceAppeal_filed_by(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.ContentSourceAppeal().FiledBy(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *User) graphql.Marshaler {
+			return ec.marshalOUser2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐUser(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_ContentSourceAppeal_filed_by(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ContentSourceAppeal",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_User(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ContentSourceAppeal_filed_at(ctx context.Context, field graphql.CollectedField, obj *ContentSourceAppeal) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentSourceAppeal_filed_at(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.FiledAt, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v time.Time) graphql.Marshaler {
+			return ec.marshalNTime2timeᚐTime(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ContentSourceAppeal_filed_at(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContentSourceAppeal", field, false, false, errors.New("field of type Time does not have child fields"))
+}
+
+func (ec *executionContext) _ContentSourceAppeal_blocked_by(ctx context.Context, field graphql.CollectedField, obj *ContentSourceAppeal) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentSourceAppeal_blocked_by(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.ContentSourceAppeal().BlockedBy(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *User) graphql.Marshaler {
+			return ec.marshalOUser2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐUser(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_ContentSourceAppeal_blocked_by(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ContentSourceAppeal",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_User(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ContentSourceAppeal_decided_by(ctx context.Context, field graphql.CollectedField, obj *ContentSourceAppeal) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentSourceAppeal_decided_by(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.ContentSourceAppeal().DecidedBy(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *User) graphql.Marshaler {
+			return ec.marshalOUser2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐUser(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_ContentSourceAppeal_decided_by(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ContentSourceAppeal",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_User(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ContentSourceAppeal_outcome(ctx context.Context, field graphql.CollectedField, obj *ContentSourceAppeal) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentSourceAppeal_outcome(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Outcome, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalOString2string(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_ContentSourceAppeal_outcome(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContentSourceAppeal", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _ContentSourceAppeal_decision_note(ctx context.Context, field graphql.CollectedField, obj *ContentSourceAppeal) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentSourceAppeal_decision_note(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.DecisionNote, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalOString2string(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_ContentSourceAppeal_decision_note(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContentSourceAppeal", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _ContentSourceAppeal_decided_at(ctx context.Context, field graphql.CollectedField, obj *ContentSourceAppeal) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentSourceAppeal_decided_at(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.DecidedAt, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v time.Time) graphql.Marshaler {
+			return ec.marshalOTime2timeᚐTime(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_ContentSourceAppeal_decided_at(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContentSourceAppeal", field, false, false, errors.New("field of type Time does not have child fields"))
+}
+
+func (ec *executionContext) _ContentSourceAppeal_released(ctx context.Context, field graphql.CollectedField, obj *ContentSourceAppeal) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ContentSourceAppeal_released(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Released, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ContentSourceAppeal_released(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ContentSourceAppeal", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
 func (ec *executionContext) _ContentSourceBlock_id(ctx context.Context, field graphql.CollectedField, obj *ContentSourceBlock) (ret graphql.Marshaler) {
@@ -37773,6 +38473,112 @@ func (ec *executionContext) fieldContext_Mutation_userAcceptContentTerms(_ conte
 	return fc, nil
 }
 
+func (ec *executionContext) _Mutation_fileContentAppeal(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_fileContentAppeal(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().FileContentAppeal(ctx, fc.Args["input"].(FileContentSourceAppealInput))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *ContentSourceAppeal) graphql.Marshaler {
+			return ec.marshalNContentSourceAppeal2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentSourceAppeal(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_fileContentAppeal(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ContentSourceAppeal(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_fileContentAppeal_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_decideContentAppeal(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_decideContentAppeal(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().DecideContentAppeal(ctx, fc.Args["id"].(uuid.UUID), fc.Args["outcome"].(string), fc.Args["note"].(*string))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "ADMIN")
+				if err != nil {
+					var zeroVal *ContentSourceAppeal
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *ContentSourceAppeal
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *ContentSourceAppeal) graphql.Marshaler {
+			return ec.marshalNContentSourceAppeal2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentSourceAppeal(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_decideContentAppeal(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ContentSourceAppeal(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_decideContentAppeal_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Mutation_confirmPerformerComment(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -47212,6 +48018,68 @@ func (ec *executionContext) fieldContext_Query_contentAccessSetup(_ context.Cont
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return ec.childFields_ContentAccessSetup(ctx, field)
 		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_contentAppeals(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_contentAppeals(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().ContentAppeals(ctx, fc.Args["pending_only"].(bool), fc.Args["limit"].(*int), fc.Args["offset"].(*int))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "ADMIN")
+				if err != nil {
+					var zeroVal []ContentSourceAppeal
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal []ContentSourceAppeal
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v []ContentSourceAppeal) graphql.Marshaler {
+			return ec.marshalNContentSourceAppeal2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentSourceAppealᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_contentAppeals(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ContentSourceAppeal(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_contentAppeals_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
 	}
 	return fc, nil
 }
@@ -60760,6 +61628,50 @@ func (ec *executionContext) unmarshalInputFederationPeerUpdateInput(ctx context.
 	return it, nil
 }
 
+func (ec *executionContext) unmarshalInputFileContentSourceAppealInput(ctx context.Context, obj any) (FileContentSourceAppealInput, error) {
+	var it FileContentSourceAppealInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"kind", "value", "statement"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "kind":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("kind"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Kind = data
+		case "value":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("value"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Value = data
+		case "statement":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("statement"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Statement = data
+		}
+	}
+	return it, nil
+}
+
 func (ec *executionContext) unmarshalInputFingerprintBatchSubmission(ctx context.Context, obj any) (FingerprintBatchSubmission, error) {
 	var it FingerprintBatchSubmission
 	if obj == nil {
@@ -69031,6 +69943,269 @@ func (ec *executionContext) _ContentSource(ctx context.Context, sel ast.Selectio
 	return out
 }
 
+var contentSourceAppealImplementors = []string{"ContentSourceAppeal"}
+
+func (ec *executionContext) _ContentSourceAppeal(ctx context.Context, sel ast.SelectionSet, obj *ContentSourceAppeal) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, contentSourceAppealImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ContentSourceAppeal")
+		case "id":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._ContentSourceAppeal_id(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "block_id":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._ContentSourceAppeal_block_id(ctx, field, obj)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "kind":
+			out.Values[i] = ec._ContentSourceAppeal_kind(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "value":
+			out.Values[i] = ec._ContentSourceAppeal_value(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "statement":
+			out.Values[i] = ec._ContentSourceAppeal_statement(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "filed_by":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._ContentSourceAppeal_filed_by(ctx, field, obj)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "filed_at":
+			out.Values[i] = ec._ContentSourceAppeal_filed_at(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "blocked_by":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._ContentSourceAppeal_blocked_by(ctx, field, obj)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "decided_by":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._ContentSourceAppeal_decided_by(ctx, field, obj)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "outcome":
+			out.Values[i] = ec._ContentSourceAppeal_outcome(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "decision_note":
+			out.Values[i] = ec._ContentSourceAppeal_decision_note(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "decided_at":
+			out.Values[i] = ec._ContentSourceAppeal_decided_at(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "released":
+			out.Values[i] = ec._ContentSourceAppeal_released(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
 var contentSourceBlockImplementors = []string{"ContentSourceBlock"}
 
 func (ec *executionContext) _ContentSourceBlock(ctx context.Context, sel ast.SelectionSet, obj *ContentSourceBlock) graphql.Marshaler {
@@ -74575,6 +75750,20 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "fileContentAppeal":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_fileContentAppeal(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "decideContentAppeal":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_decideContentAppeal(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "confirmPerformerComment":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_confirmPerformerComment(ctx, field)
@@ -78711,6 +79900,28 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 					}
 				}()
 				res = ec._Query_contentAccessSetup(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "contentAppeals":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_contentAppeals(ctx, field)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -87834,6 +89045,36 @@ func (ec *executionContext) marshalNContentSource2ᚕgithubᚗcomᚋstashappᚋs
 	return ret
 }
 
+func (ec *executionContext) marshalNContentSourceAppeal2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentSourceAppeal(ctx context.Context, sel ast.SelectionSet, v ContentSourceAppeal) graphql.Marshaler {
+	return ec._ContentSourceAppeal(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNContentSourceAppeal2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentSourceAppealᚄ(ctx context.Context, sel ast.SelectionSet, v []ContentSourceAppeal) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNContentSourceAppeal2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentSourceAppeal(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNContentSourceAppeal2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentSourceAppeal(ctx context.Context, sel ast.SelectionSet, v *ContentSourceAppeal) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._ContentSourceAppeal(ctx, sel, v)
+}
+
 func (ec *executionContext) marshalNContentSourceBlock2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐContentSourceBlock(ctx context.Context, sel ast.SelectionSet, v ContentSourceBlock) graphql.Marshaler {
 	return ec._ContentSourceBlock(ctx, sel, &v)
 }
@@ -88408,6 +89649,11 @@ func (ec *executionContext) unmarshalNFederationPeerCreateInput2githubᚗcomᚋs
 
 func (ec *executionContext) unmarshalNFederationPeerUpdateInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐFederationPeerUpdateInput(ctx context.Context, v any) (FederationPeerUpdateInput, error) {
 	res, err := ec.unmarshalInputFederationPeerUpdateInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) unmarshalNFileContentSourceAppealInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐFileContentSourceAppealInput(ctx context.Context, v any) (FileContentSourceAppealInput, error) {
+	res, err := ec.unmarshalInputFileContentSourceAppealInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
@@ -92841,6 +94087,18 @@ func (ec *executionContext) marshalOTargetTypeEnum2ᚖgithubᚗcomᚋstashappᚋ
 		return graphql.Null
 	}
 	return v
+}
+
+func (ec *executionContext) unmarshalOTime2timeᚐTime(ctx context.Context, v any) (time.Time, error) {
+	res, err := graphql.UnmarshalTime(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOTime2timeᚐTime(ctx context.Context, sel ast.SelectionSet, v time.Time) graphql.Marshaler {
+	_ = sel
+	_ = ctx
+	res := graphql.MarshalTime(v)
+	return res
 }
 
 func (ec *executionContext) unmarshalOTime2ᚖtimeᚐTime(ctx context.Context, v any) (*time.Time, error) {
