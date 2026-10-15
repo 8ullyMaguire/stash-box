@@ -407,6 +407,17 @@ func Init(fac service.Factory) {
 	if len(contentJobs) == 0 {
 		logger.Infof("content_fetch_sources is off: this instance makes no outbound requests to content sources, " +
 			"so the ingest drain and the health sweep are NOT registered (see docs/spec/feature-content-aggregator.md)")
+	} else {
+		// THE ON CASE ANNOUNCES ITSELF TOO, and not for symmetry: the off line is something an
+		// operator can notice by its absence, while the on posture had no line at all -- and
+		// "which posture is this process running" is the first question anybody asks of an
+		// instance, including the person reading a takedown notice. It also gives the
+		// deployment's verification a POSITIVE line to grep: an absence assertion is not evidence,
+		// whether it is a test or a log.
+		logger.Infof("content_fetch_sources is ON: registering %d outbound job(s) -- the ingest drain and the "+
+			"health sweep. They obey each host's robots.txt and one %s per-host pace, and a blocked URL or host "+
+			"is refused at submission AND at the drain (see docs/spec/feature-content-aggregator.md)",
+			len(contentJobs), config.GetContentFetchMinInterval())
 	}
 	if _, err := register(c, contentJobs); err != nil {
 		panic(err.Error())
