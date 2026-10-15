@@ -382,7 +382,10 @@ func (f *Factory) Review() *review.Service {
 // other accessor here does; the service holds only a *queries.Queries, so there is nothing
 // to cache and nothing to keep in sync.
 func (f *Factory) List() *listsvc.Service {
-	return listsvc.NewService(queries.New(f.db), f.withTxn)
+	// The scene service is the search runner: a derived list runs a saved search through the SAME query
+	// path `queryScenes` takes, because a second path could answer differently from the statement it
+	// stores and the difference would look like an empty list rather than a bug.
+	return listsvc.NewService(queries.New(f.db), f.withTxn, f.Scene())
 }
 
 // Streak returns a user's activity streak service.

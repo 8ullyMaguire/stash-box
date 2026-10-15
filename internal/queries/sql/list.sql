@@ -32,6 +32,32 @@ SELECT sqlc.arg(destination_id)::uuid, li.entity_type, li.entity_id, li.position
 FROM list_items li
 WHERE li.list_id = sqlc.arg(source_id)::uuid;
 
+-- name: SetListSourceSearch :execrows
+-- Scoped to the OWNER in the statement rather than checked beforehand: zero rows affected means
+-- "not your list, or no such list", and a write that cannot touch somebody else's row cannot be
+-- mis-called by a future second caller.
+--
+-- The nullable parameter sets NULL as readily as it sets an id, so clearing a list's source is this
+-- same statement -- one write path, so there is no second place for the ownership rule to live.
+UPDATE lists
+SET source_saved_search_id = sqlc.arg(source_saved_search_id),
+    updated_at = now()
+WHERE id = sqlc.arg(id) AND owner_id = sqlc.arg(owner_id);
+
+-- name: FindListSourceSearch :one
+-- The saved search a list derives its entries from, WITH ITS OWNER'S IDENTITY. The identity is not
+-- decoration: the filter can depend on who is asking (`favorites:` means the asker's favorites), so a
+-- derived list run as the VIEWER would answer differently for every reader -- and a published derived
+-- list would show each reader their own results while claiming to be one list.
+--
+-- user_id is the search's owner, which the service turns into the run context. owner_name is the
+-- denormalised users.name, for the same reason the list carries one.
+SELECT ss.id, ss.user_id, ss.name AS search_name, ss.query, u.name AS owner_name
+FROM lists l
+JOIN saved_searches ss ON ss.id = l.source_saved_search_id
+JOIN users u ON u.id = ss.user_id
+WHERE l.id = sqlc.arg(list_id);
+
 -- name: FindList :one
 SELECT * FROM lists WHERE id = $1;
 

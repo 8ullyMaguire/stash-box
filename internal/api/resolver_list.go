@@ -89,6 +89,9 @@ func (r *Resolver) listToModel(ctx context.Context, row *queries.List) (*models.
 		m.Description = &desc
 	}
 	m.ForkedFromID = nullUUIDToPtr(row.ForkedFromID)
+	// The one field that says the entries below are computed rather than stored. Read from the column
+	// itself, so it cannot disagree with the read path that decides the same thing.
+	m.IsDerived = row.SourceSavedSearchID.Valid
 	if row.OwnerName != "" {
 		// The denormalised name is enough for a browse listing and costs no query. It is a
 		// NAME and not a User: resolving the full user per row would turn a 25-list page
@@ -225,6 +228,14 @@ func mapListError(err error) error {
 		return errors.New("that entry is already in this list")
 	case errors.Is(err, listsvc.ErrAlreadyPublished):
 		return errors.New("this list is already published")
+	case errors.Is(err, listsvc.ErrListHasItems):
+		return errors.New("this list has entries of its own; empty it before following a search")
+	case errors.Is(err, listsvc.ErrDerivedList):
+		return errors.New("this list's entries come from a saved search, so they cannot be edited here")
+	case errors.Is(err, listsvc.ErrNoSuchSearch):
+		return errors.New("no saved search with that id")
+	case errors.Is(err, listsvc.ErrNoSearchRunner):
+		return errors.New("this instance cannot run saved searches")
 	case errors.Is(err, listsvc.ErrForkWouldExceedCap):
 		return errors.New("that list is too large to fork")
 	case errors.Is(err, listsvc.ErrNotPublished):
@@ -350,6 +361,23 @@ func (r *Resolver) hydrate(ctx context.Context, m *models.List) error {
 			return err
 		}
 		m.Owner = owner
+	}
+
+	// The saved search this list follows, filled here rather than by a field resolver because gqlgen
+	// maps an argument-less field straight onto the model -- a resolver for it would never be called.
+	//
+	// LOOKED UP THROUGH THE OWNER-SCOPED READ, which is what makes this the field's whole privacy rule:
+	// FindForUser answers nil for a search that belongs to somebody else, so the OWNER of a derived list
+	// sees what it follows and every other reader of a published one sees null. The criteria are not
+	// part of what publishing a list publishes.
+	if searchID, err := r.services.List().SourceSearchID(ctx, m.ID); err != nil {
+		return mapListError(err)
+	} else if searchID != nil {
+		search, err := r.services.SavedSearch().FindForUser(ctx, userID, *searchID)
+		if err != nil {
+			return err
+		}
+		m.SourceSavedSearch = search
 	}
 	return nil
 }

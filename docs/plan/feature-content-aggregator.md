@@ -1973,19 +1973,191 @@ fixture now sets the display order to the REVERSE of the insertion order, which 
 disagree, and the probe is killed with "the entries are copied AND in the source's order". This is the
 "two orderings rank the fixture the same way" trap, and the fixture — not the assertion — was wrong.
 
-### Slice 8d — the auto-updating list (NOT BUILT)
+### Slice 8d — the auto-updating list (BUILT)
 
-A list that follows a saved search: its entries are the search's current results rather than a copy, so
-membership is derived rather than stored. This is the slice that must NOT be folded into 8c — a fork is
-independent by definition, and the two features differ in exactly the property a reader cares about.
-The existing `savedsearch` service is the thing to audit first, by this phase's own rule.
+**A LIST THAT FOLLOWS A SAVED SEARCH: MEMBERSHIP IS COMPUTED ON EVERY READ AND NEVER STORED.** One
+sentence separates this from 8c, and it is the property a reader cares about: a fork copies once and
+tracks nothing, a derived list stores nothing and tracks the search, so a scene that matches appears in
+it with nothing written and no job to keep two things in step. A snapshot refreshed on a schedule would
+leave a window in which the list and its search disagree — and that window is the feature, not a
+detail of its implementation.
 
-### Slice 8e — collaborative lists (NOT BUILT)
+**The audit came first, by the phase's own rule, and it found a MISSING JOIN rather than a broken one:**
+`savedsearch` has create, get, update, delete, a notification job, and the run path (`SceneQuerier`
+with `Query`/`QueryCount`) — and nothing anywhere read a LIST's entries from it.
 
-More than one writer. The open question to settle before any code is **who may add**, which is not the
-same question as who may see: a collaborative list is a list whose write set is not its owner, and the
-obvious cheap answer (anyone who can see it) makes every published list publicly writable. The
-`list_audit` table already exists and is where the answer will show up.
+**One column carries three decisions** (`lists.source_saved_search_id`, migration 133):
+
+- **`ON DELETE RESTRICT`, not CASCADE and not SET NULL.** CASCADE deletes a member's list because
+  they deleted a search, and nobody asked for that. SET NULL is worse than it looks: it leaves a list
+  that LOOKS like an ordinary empty one, so the membership vanishes with no trace and "my list is
+  empty" is exactly what the owner reports as a bug. RESTRICT refuses and the error names the list; the
+  owner deletes the list or clears its source first, and both of those are decisions they get to make.
+- **A PARTIAL index** (`WHERE source_saved_search_id IS NOT NULL`), because almost every list is an
+  ordinary one and a full index would be mostly dead weight.
+- **The column is not a copy of the filter.** It names the search whose TEXT stays canonical, so a tag
+  merged away since the search was written still resolves through the redirect fallback on the next
+  run rather than being frozen into this row.
+
+**THE SEARCH RUNS AS ITS OWNER, NEVER AS THE VIEWER.** The filter can depend on who is asking, so a
+published derived list run as its reader would show every reader their OWN results while claiming to be
+one list. `derivedRunContext` is the whole rule, and it is why the runner takes a context rather than a
+user id: the query path reads the current user, so the only way to run somebody's search is to BE them
+for the length of the call. The order of the two questions is fixed and stated in `Items`: `Get`
+decides whether the VIEWER may read the list, and only then does the search run as the owner — swapping
+them would either leak a draft or answer a published list with the reader's own results.
+
+**A DERIVED LIST'S ENTRIES ARE NOT ITS OWN TO EDIT.** `listAddItem` names the reason, because the list
+is its argument. `listRemoveItem` and `listReorderItem` cannot, and that is a property of the id rather
+than an oversight: a derived entry has no row, so the id a client holds for one — **UUIDv5 over
+(list, entity)** — resolves to nothing and the answer is the read path's "no such entry". The minted id
+is a PRESENTATION key and not a handle: stable across reads (fresh uuids every read would lose the
+reader's selection and defeat any client-side cache), scoped to the list (two lists showing the same
+scene are two different rows), and distinct from stored ids in practice because stored ids are v4 and
+the version occupies a different nibble of the same field.
+
+**THE DERIVED GUARDS IN `RemoveItem`/`ReorderItem` ARE NOT THE PATH A DERIVED ENTRY TAKES**, and the
+first version of this code said they were. They are kept for a stored row on a derived list — a state
+only a future writer could produce, and one the read path IGNORES, so without the guard a removal would
+appear to work and then vanish on reload, which is the failure this whole slice is written to prevent.
+The comment now says that instead of claiming a reach it does not have, and **there is a test that
+constructs the state with raw SQL**, because `testutil.DB()` exists for exactly a claim the service
+cannot express. That is the difference between dead code and a guard.
+
+**BECOMING DERIVED WOULD DISCARD THE ENTRIES OF ITS OWN**, so a list that holds any is refused
+(`ErrListHasItems`) and the caller empties it first — a decision they make rather than one the call
+makes for them. The checks run in a fixed order — the list is yours, then the search is yours, then the
+list is empty — and the order is load-bearing: the first version of the wire test used a search owned
+by ANOTHER member and read `no saved search with that id` where it expected the refusal about entries.
+
+**A FORK OF A DERIVED LIST TAKES ITS CURRENT ENTRIES AND WRITES THEM AS ROWS** — it tracks nothing
+afterwards, which is precisely what keeps 8c and 8d from being the same feature. The entries are
+computed BEFORE the transaction opens: they come from another service's query, and holding a write
+transaction across it is how two locks get taken in two orders. The fork cap still applies, and for a
+derived source the count it checks is the SEARCH's total rather than a page of it.
+
+**`itemCount` IS THE SEARCH'S TOTAL, NOT THE PAGE.** A client rendering "100 of 4,312" needs both
+numbers, and deriving the second from the first would cap the displayed total at the query layer's
+ceiling. One page is fetched, bounded by `query.MaxPerPage` (the list cap bounds what a list may HOLD;
+nothing is held here), and the total is its own call.
+
+**`sourceSavedSearch` IS OWNER ONLY.** It is filled in `hydrate` — not by a field resolver, because
+gqlgen maps an argument-less field straight onto the model and a resolver for it would never be called
+— through the owner-scoped read, so the owner of a derived list sees what it follows and every other
+reader of a published one sees null. The results are what publishing a list publishes; the criteria are
+not part of that, and they can depend on the owner's own history.
+
+**Verification (DONE).** Pure (`internal/service/list/source_test.go`): the presentation key is stable,
+list-scoped, entity-scoped, v5 and RFC4122; the run input spells out what the schema would have
+defaulted for it — page 1 rather than 0, because a zero page is a negative offset, the QUERY layer's
+ceiling rather than the list cap, and newest-first — asserted by value so a changed default reddens;
+the run context carries the search's owner and leaves the caller's context alone; and a derived entry
+is a `SCENE` that the service's own vocabulary accepts.
+
+Against a real database with a FAKE runner (`source_integration_test.go`), which is the only layer at
+which the identity claim can be tested — the api harness always wires the real scene service, and a
+real one cannot be asked who it was handed: the run is the owner and **not** the viewer, and the count
+runs as the owner too; the input carries the stored text; a list with entries refuses to become
+derived and is read back to prove the refusal wrote nothing; a stranger's search and an id that does
+not exist answer the same error; clearing leaves an ordinary EMPTY list (asserted at the table, since
+the read path reports the same emptiness either way) and the search is untouched, so following it again
+shows its results; a followed search cannot be deleted, and can be once the list stops following it;
+and a fork of a derived list arrives with its entries in the search's order and is independent **in
+both directions** (the search moves on and the fork does not).
+
+At the wire (`internal/api/list_source_search_integration_test.go`): `isDerived`, `itemCount` and the
+entries as a client reads them; a scene created AFTER the list started following the search appears in
+it, with **zero `list_items` rows** — asserted at the table as well as on the wire, because "the client
+sees it" and "nothing was written" are two claims and only the second one is the feature; the same list
+read by two members answers different things about `sourceSavedSearch` while agreeing about the
+results; the refusals by name; and a stranger's draft answering the SAME message as a list that does
+not exist, asserted as a PAIR, because "it errored" is also true of an error returned for the wrong
+reason.
+
+**Twelve probes, 12/12 killed, each reddening exactly its own named test with no neighbour reddening**,
+and each restore verified by hash: no run identity at all; the identity taken from the wrong field; the
+membership served from stored rows; `listAddItem` allowed on a derived list; the entries check removed;
+the ownership scope dropped from the SQL that actually runs; a clear that writes a nonsense id instead
+of NULL; a count that ignores the search; a fork that copies nothing from a derived source; the
+presentation key not scoped to the list; the migration cascading instead of restricting; and page 0.
+`sqlc generate` and `gqlgen generate` were re-run on the finished tree and produced NO diff, so the
+generated code is in sync with the query file and the schema rather than merely compiling.
+
+**Three fixture mistakes, each of which is why the assertion was right and the test was wrong.** The
+entity vocabulary is UPPERCASE (`SCENE`, `PERFORMER`), so the wire test's `"scene"` was a value the
+service correctly refused as unsupported. A refusal test called for the entries refusal with a search
+owned by somebody else, which answers about the search instead — the caller's own search is now the
+fixture, and the ordering is stated in the test so nobody re-derives it. And a stranger's DRAFT was
+expected to answer "you do not own this list" when it answers "no such list", the read path's own
+message, because a distinct answer would confirm which guessed ids are real; the test asserts that pair
+now, which is what makes it a privacy test rather than an error test.
+
+### Slice 8e — collaborative lists (DESIGNED)
+
+**More than one writer.** The open question this slice settles before any code is **who may add**, which
+is not the same question as who may see: a collaborative list is a list whose write set is not its
+owner, and the obvious cheap answer — anyone who can see it — makes every published list publicly
+writable, which is a moderation surface handed to strangers by a rename.
+
+**THE ANSWER IS A NAMED SET, NOT A VISIBILITY RULE.** `list_collaborators (list_id, user_id, added_by,
+created_at)`, PK `(list_id, user_id)`, both FKs `ON DELETE CASCADE` — the rows have no meaning without
+the list or the member. **The owner is NOT a row in it**: `lists.owner_id` already answers "is this
+person a writer of this list", and storing the owner twice would be two answers to one question, which
+is how one of them comes to be wrong. The membership it grants is bounded (`MaxCollaborators = 25`)
+because a write set handed to a crowd is a moderation problem with a table attached.
+
+**A COLLABORATOR IS A WRITER OF THE CONTENT AND NOT OF THE LIST.** Exactly three acts are opened to
+them — add an entry, remove an entry, reorder an entry — and everything that changes what the list IS
+or who may write it stays the owner's: rename, re-describe, delete, publish, unpublish, set or clear the
+source search, and add or remove collaborators. The rule is not a role ladder; it is the line between a
+list's contents and a list's identity, and putting it anywhere else makes "collaborate on my list" mean
+"take my list".
+
+**A COLLABORATOR MUST BE ABLE TO SEE THE LIST, SO `canView` GAINS ONE ARM.** A collaborative list is
+usually a DRAFT — two people curating something before it is published, which is the case the feature
+exists for — so `canView` becomes: published, or the owner, or a collaborator. This is a change to the
+one pure privacy rule in the package, and it is the slice's sharp edge: the check costs a query on the
+draft path (never on the published one, which short-circuits first), and every existing refusal must
+keep answering the SAME way. A stranger asking for somebody's collaborative draft still gets
+`ErrNotFound` — the collaborator set is an extension of the read set, not a second answer for
+non-members.
+
+**LEAVING IS THE COLLABORATOR'S OWN DECISION.** `listRemoveCollaborator` is allowed for the owner AND
+for the collaborator themselves, because needing permission to stop working on somebody's list is the
+same trap as needing permission to leave a leaderboard. Removing a collaborator **does not remove their
+entries**: entries carry no author column, and deleting content because a curator moved on is data loss
+nobody asked for. What the removal does do is appear in the trail.
+
+**A DUPLICATE IS REFUSED BY NAME** (`ErrAlreadyCollaborator`), the same way a duplicate entry is: an
+idempotent no-op reads to a client like an invitation that was never sent. An id that is not a member is
+refused before the foreign key, so the answer is a message rather than a constraint violation.
+
+**A DERIVED LIST REFUSES COLLABORATION BY NAME.** Its membership is computed, so a second writer has
+nothing to write — accepting one would create a collaborator who can do nothing and would not be told,
+which is the silently-inert state slice 8d refused on the same grounds.
+
+**THE AUDIT IS THE OTHER HALF, AND THE AUDIT WAS ALREADY BROKEN.** `ActionAddItem` and `ActionRemoveItem`
+are declared in `internal/service/list/list.go` and **written nowhere**: `grep` finds the constants and
+no `RecordListAudit` call site outside publish/unpublish, while `AddItem`'s own comment says "adding is
+audited because it changes what a public list claims". So the trail the plan promised a collaborator's
+writes would appear in does not record entry writes at all — the answer to "who may add" is only
+answerable if the writes are recorded, which makes this half of the slice load-bearing rather than
+tidy-up. Entry writes (add, remove, reorder) record the ACTOR, and `ListAuditActionEnum` grows to
+`ADD_ITEM`, `REMOVE_ITEM`, `REORDER_ITEM`, `COLLABORATOR_ADD`, `COLLABORATOR_REMOVE` — a client-visible
+contract change, deliberately in the same commit, because the stored verb is uppercased into a
+non-nullable enum and an unmapped verb is the bug this codebase already shipped once for "publish".
+
+**Verification planned.** Pure: `canView` with all five arms (published / owner / collaborator /
+stranger / the zero uuid, which must still be refused so an unowned row is not readable); the
+collaborator cap inclusive at the bound; and the action vocabulary round-tripping against the GraphQL
+enum's members **by name and asserted the same length**, so a new verb cannot be written without a wire
+spelling. Against a real database: an invitee who is not the owner can READ a draft list and add,
+remove and reorder its entries; a stranger still gets the not-found answer for the same list; each of
+the seven owner-only acts is refused by name for a collaborator; a collaborator may remove themselves
+and the owner may remove them; the cap refuses one over; a duplicate is refused; a derived list refuses
+collaboration; removing a collaborator leaves their entries; and the trail names the actor of an entry
+write and both collaborator acts. At the wire: the mutations and the enum's new spellings, asserted by
+name.
 
 ### Slice 8f — forums (NOT BUILT)
 

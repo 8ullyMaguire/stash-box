@@ -124,11 +124,22 @@ func validEntityType(t string) bool {
 type Service struct {
 	queries *queries.Queries
 	withTxn queries.WithTxnFunc
+
+	// search runs a derived list's saved search. It is a field rather than an argument because the
+	// read path needs it, and the read path is `Items` -- an entry point with no place to pass a
+	// runner, called from three resolvers and from `hydrate`.
+	search SearchRunner
 }
 
 // NewService returns a list service.
-func NewService(q *queries.Queries, withTxn queries.WithTxnFunc) *Service {
-	return &Service{queries: q, withTxn: withTxn}
+//
+// The search runner is a required argument, and it is a real one even though only derived lists use it:
+// an optional runner would mean a wiring mistake shows up as an empty list on one instance and not
+// another, which is the class of bug that takes a week to find. `nil` is accepted only so a test can
+// construct the service without a scene engine, and reading a derived list through it reports
+// ErrNoSearchRunner rather than returning nothing.
+func NewService(q *queries.Queries, withTxn queries.WithTxnFunc, search SearchRunner) *Service {
+	return &Service{queries: q, withTxn: withTxn, search: search}
 }
 
 // normaliseName trims and bounds a list name, returning ErrInvalidName if unusable.
@@ -349,6 +360,21 @@ func (s *Service) Item(ctx context.Context, itemID, viewerID uuid.UUID) (*querie
 
 // CountItems returns how many entries a list holds.
 func (s *Service) CountItems(ctx context.Context, listID uuid.UUID) (int64, error) {
+	// The list has to be read first now, because a derived list's total is the SEARCH's total and there
+	// are no rows to count. No visibility rule is applied here, matching OwnerOf: every caller reaches
+	// this after a Get that decided the viewer's access, and a list id that does not exist is reported
+	// as ErrNotFound rather than as a count of zero -- the two are different facts and one of them is
+	// "you may not see this".
+	row, err := s.queries.FindList(ctx, listID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, ErrNotFound
+		}
+		return 0, err
+	}
+	if row.SourceSavedSearchID.Valid {
+		return s.derivedCount(ctx, row)
+	}
 	return s.queries.CountListItems(ctx, listID)
 }
 
@@ -606,6 +632,12 @@ func (s *Service) AddItem(ctx context.Context, listID, entityID, actorID uuid.UU
 	if current.OwnerID != actorID {
 		return nil, ErrNotOwner
 	}
+	// A derived list's membership is computed, so an inserted entry would be gone on the next read.
+	// REFUSED RATHER THAN IGNORED: a write that appears to work and vanishes is the worst of the three
+	// possible answers.
+	if current.SourceSavedSearchID.Valid {
+		return nil, ErrDerivedList
+	}
 
 	count, err := s.queries.CountListItems(ctx, listID)
 	if err != nil {
@@ -639,8 +671,16 @@ func (s *Service) AddItem(ctx context.Context, listID, entityID, actorID uuid.UU
 
 // Items returns a list's contents in display order.
 func (s *Service) Items(ctx context.Context, listID, viewerID uuid.UUID) ([]queries.ListItem, error) {
-	if _, err := s.Get(ctx, listID, viewerID); err != nil {
+	row, err := s.Get(ctx, listID, viewerID)
+	if err != nil {
 		return nil, err
+	}
+	// The visibility rule has already run: `Get` decided whether the VIEWER may read this list, and
+	// only then does the search run -- AS THE SEARCH'S OWNER. Those are two different questions asked
+	// in a fixed order, and swapping them would either leak a draft or answer a published list with
+	// the reader's own results.
+	if row.SourceSavedSearchID.Valid {
+		return s.derivedItems(ctx, *row)
 	}
 	return s.queries.FindListItems(ctx, listID)
 }
@@ -669,6 +709,13 @@ func (s *Service) RemoveItem(ctx context.Context, itemID, actorID uuid.UUID) err
 	}
 	if current.OwnerID != actorID {
 		return ErrNotOwner
+	}
+	// A DERIVED LIST IS NOT EDITED. This is NOT the path a derived entry's own id takes -- that id is
+	// minted from (list, entity) and resolves to no row, so it answers ErrNotFound above -- and it is
+	// kept for the state only a future writer could produce: a stored row on a derived list. The read
+	// path IGNORES stored rows there, so without this a removal would appear to work and vanish.
+	if current.SourceSavedSearchID.Valid {
+		return ErrDerivedList
 	}
 	return s.queries.RemoveListItem(ctx, itemID)
 }
@@ -699,6 +746,12 @@ func (s *Service) ReorderItem(ctx context.Context, itemID, actorID uuid.UUID, po
 	}
 	if current.OwnerID != actorID {
 		return ErrNotOwner
+	}
+	// A DERIVED LIST IS NOT REORDERED. As in RemoveItem: a derived entry's own id has no row, so it
+	// cannot arrive here; this is the guard for a stored row on a derived list, which the read path
+	// would ignore -- a move that appeared to work and vanished on reload.
+	if current.SourceSavedSearchID.Valid {
+		return ErrDerivedList
 	}
 	return s.queries.ReorderListItems(ctx, queries.ReorderListItemsParams{
 		ID:       itemID,

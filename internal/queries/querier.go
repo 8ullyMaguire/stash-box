@@ -1016,6 +1016,14 @@ type Querier interface {
 	// in one bulk request gets the same position), so id breaks them deterministically. Without
 	// the tiebreak, two clients paginating the same list can see different orders.
 	FindListItems(ctx context.Context, listID uuid.UUID) ([]ListItem, error)
+	// The saved search a list derives its entries from, WITH ITS OWNER'S IDENTITY. The identity is not
+	// decoration: the filter can depend on who is asking (`favorites:` means the asker's favorites), so a
+	// derived list run as the VIEWER would answer differently for every reader -- and a published derived
+	// list would show each reader their own results while claiming to be one list.
+	//
+	// user_id is the search's owner, which the service turns into the run context. owner_name is the
+	// denormalised users.name, for the same reason the list carries one.
+	FindListSourceSearch(ctx context.Context, listID uuid.UUID) (FindListSourceSearchRow, error)
 	// Batch lookup by id, used to resolve the lists a caller may see.
 	//
 	// Deliberately NOT filtered on published_at. Visibility is decided by the caller with the
@@ -2493,6 +2501,13 @@ type Querier interface {
 	// say. The row it creates is the zeroed rollup the read path already reports for a member
 	// with none -- level 0, every counter zero, which is what they have.
 	SetLeaderboardListed(ctx context.Context, arg SetLeaderboardListedParams) (UserTrust, error)
+	// Scoped to the OWNER in the statement rather than checked beforehand: zero rows affected means
+	// "not your list, or no such list", and a write that cannot touch somebody else's row cannot be
+	// mis-called by a future second caller.
+	//
+	// The nullable parameter sets NULL as readily as it sets an id, so clearing a list's source is this
+	// same statement -- one write path, so there is no second place for the ownership rule to live.
+	SetListSourceSearch(ctx context.Context, arg SetListSourceSearchParams) (int64, error)
 	// Moderation. Not restricted to flagged->published: a review can be flagged
 	// directly by a moderator, and a status transition table in SQL would need a
 	// trigger to enforce and a migration every time a state is added.

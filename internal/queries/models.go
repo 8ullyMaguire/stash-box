@@ -521,6 +521,8 @@ type List struct {
 	CreatedAt    pgtype.Timestamptz `db:"created_at" json:"created_at"`
 	UpdatedAt    pgtype.Timestamptz `db:"updated_at" json:"updated_at"`
 	ForkedFromID uuid.NullUUID      `db:"forked_from_id" json:"forked_from_id"`
+	// The saved search this list derives its entries from, or NULL for an ordinary list. A derived list stores no list_items rows; deleting a search a list follows is RESTRICTed.
+	SourceSavedSearchID uuid.NullUUID `db:"source_saved_search_id" json:"source_saved_search_id"`
 }
 
 type ListAudit struct {

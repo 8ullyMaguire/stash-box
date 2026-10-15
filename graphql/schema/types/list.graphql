@@ -66,6 +66,30 @@ type List {
   auto-updating list, a different feature.
   """
   forkedFromId: ID
+
+  """
+  Whether this list's entries come from a saved search rather than from rows.
+
+  A derived list stores no entries: its membership is computed from the search on every read, so a
+  matching scene appears in it without anything being written. A DERIVED LIST'S ENTRIES CANNOT BE
+  EDITED -- `listAddItem`, `listRemoveItem` and `listReorderItem` all refuse -- because the next read
+  recomputes them, and a write that appeared to work and then vanished is the worst of the possible
+  answers.
+  """
+  isDerived: Boolean!
+
+  """
+  The saved search this list follows, or null.
+
+  OWNER ONLY, always: null for everybody else INCLUDING the readers of a published derived list. A
+  derived list's results are what its owner chose to publish; the criteria that produced them are not
+  part of that, and a viewer who could read the search would learn the owner's filters -- including the
+  ones that depend on who is asking, which are the owner's own history.
+
+  Also null on an ordinary list, and null for a derived list with no source, which is every list that
+  has been un-followed.
+  """
+  sourceSavedSearch: SavedSearch
 }
 
 """
@@ -283,4 +307,31 @@ extend type Mutation {
   Its entries are copied in their existing order, and neither list changes the other afterwards.
   """
   listFork(input: ListForkInput!): List! @hasRole(role: READ)
+}
+
+input ListSourceSearchInput {
+  listId: ID!
+
+  "The saved search to follow. It must be YOUR OWN: a list cannot publish somebody else's criteria."
+  savedSearchId: ID!
+}
+
+extend type Mutation {
+  """
+  Make a list follow a saved search.
+
+  The list must be empty of entries of its own -- becoming derived would discard them -- and it must
+  already be the caller's. Switching a derived list from one search to another is allowed, because
+  nothing is discarded when nothing is stored.
+  """
+  listSetSourceSearch(input: ListSourceSearchInput!): List! @hasRole(role: MODIFY)
+
+  """
+  Stop following a saved search.
+
+  The list becomes an ordinary EMPTY list. Its former entries are NOT copied into it: stopping is what
+  the caller asked for, and materialising a snapshot they did not ask for would leave them unable to
+  tell which of their lists track anything.
+  """
+  listClearSourceSearch(listId: ID!): List! @hasRole(role: MODIFY)
 }

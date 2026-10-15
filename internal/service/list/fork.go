@@ -53,12 +53,27 @@ func (s *Service) Fork(ctx context.Context, sourceID, actorID uuid.UUID, name, d
 		return nil, err
 	}
 
+	// The count is the SOURCE's total, which for a derived source is the search's total rather than a
+	// page of it -- so the cap refuses a search too large to fork, before anything is written.
 	count, err := s.CountItems(ctx, sourceID)
 	if err != nil {
 		return nil, err
 	}
 	if err := CanFork(int(count)); err != nil {
 		return nil, err
+	}
+
+	// A FORK OF A DERIVED LIST TAKES ITS CURRENT ENTRIES AND TRACKS NOTHING. There are no rows to copy,
+	// so the entries are computed first and written as this fork's own -- which is what makes the fork
+	// independent, exactly as an ordinary fork is. Read BEFORE the transaction opens: the entries come
+	// from another service's query, and holding a write transaction across it is how two locks get
+	// taken in two orders.
+	var derived []queries.ListItem
+	if source.SourceSavedSearchID.Valid {
+		derived, err = s.derivedItems(ctx, *source)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	clean, err := normaliseName(name)
@@ -94,8 +109,26 @@ func (s *Service) Fork(ctx context.Context, sourceID, actorID uuid.UUID, name, d
 			return mapWriteError(err)
 		}
 
-		// One statement, so a fork never half-exists. The count is checked rather than the result:
-		// rows-affected would tell us the copy happened, not that it is within the bound.
+		// A derived source has no rows to copy, so its computed entries are written one by one -- still
+		// inside the transaction, so a fork cannot half-exist either way.
+		if derived != nil {
+			for i := range derived {
+				if _, err := tx.AddListItem(ctx, queries.AddListItemParams{
+					ListID:     id,
+					EntityType: derived[i].EntityType,
+					EntityID:   derived[i].EntityID,
+					Position:   derived[i].Position,
+				}); err != nil {
+					return fmt.Errorf("copying the list's entries: %w", err)
+				}
+			}
+			created = &row
+			return nil
+		}
+
+		// One statement for a stored source, so a fork never half-exists. The count is checked rather
+		// than the result: rows-affected would tell us the copy happened, not that it is within the
+		// bound.
 		copied, err := tx.CopyListItems(ctx, queries.CopyListItemsParams{
 			DestinationID: id,
 			SourceID:      sourceID,

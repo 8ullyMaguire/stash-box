@@ -1375,6 +1375,24 @@ type List struct {
 	// source do not reach it. The alternative -- a list that follows somebody else's -- is the
 	// auto-updating list, a different feature.
 	ForkedFromID *uuid.UUID `json:"forkedFromId,omitempty"`
+	// Whether this list's entries come from a saved search rather than from rows.
+	//
+	// A derived list stores no entries: its membership is computed from the search on every read, so a
+	// matching scene appears in it without anything being written. A DERIVED LIST'S ENTRIES CANNOT BE
+	// EDITED -- `listAddItem`, `listRemoveItem` and `listReorderItem` all refuse -- because the next read
+	// recomputes them, and a write that appeared to work and then vanished is the worst of the possible
+	// answers.
+	IsDerived bool `json:"isDerived"`
+	// The saved search this list follows, or null.
+	//
+	// OWNER ONLY, always: null for everybody else INCLUDING the readers of a published derived list. A
+	// derived list's results are what its owner chose to publish; the criteria that produced them are not
+	// part of that, and a viewer who could read the search would learn the owner's filters -- including the
+	// ones that depend on who is asking, which are the owner's own history.
+	//
+	// Also null on an ordinary list, and null for a derived list with no source, which is every list that
+	// has been un-followed.
+	SourceSavedSearch *SavedSearch `json:"sourceSavedSearch,omitempty"`
 }
 
 // One recorded act on a list.
@@ -1445,6 +1463,12 @@ type ListItemInput struct {
 	// Negative is rejected rather than sorted to the front: "add" must not silently mean
 	// "insert at the beginning".
 	Position *int `json:"position,omitempty"`
+}
+
+type ListSourceSearchInput struct {
+	ListID uuid.UUID `json:"listId"`
+	// The saved search to follow. It must be YOUR OWN: a list cannot publish somebody else's criteria.
+	SavedSearchID uuid.UUID `json:"savedSearchId"`
 }
 
 type ListUpdateInput struct {

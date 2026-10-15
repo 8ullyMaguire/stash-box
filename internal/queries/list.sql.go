@@ -94,7 +94,7 @@ func (q *Queries) CountPublishedLists(ctx context.Context) (int64, error) {
 const createForkedList = `-- name: CreateForkedList :one
 INSERT INTO lists (id, owner_id, name, description, owner_name, forked_from_id)
 VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, owner_id, name, description, published_at, published_by, owner_name, created_at, updated_at, forked_from_id
+RETURNING id, owner_id, name, description, published_at, published_by, owner_name, created_at, updated_at, forked_from_id, source_saved_search_id
 `
 
 type CreateForkedListParams struct {
@@ -133,6 +133,7 @@ func (q *Queries) CreateForkedList(ctx context.Context, arg CreateForkedListPara
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.ForkedFromID,
+		&i.SourceSavedSearchID,
 	)
 	return i, err
 }
@@ -140,7 +141,7 @@ func (q *Queries) CreateForkedList(ctx context.Context, arg CreateForkedListPara
 const createList = `-- name: CreateList :one
 INSERT INTO lists (id, owner_id, name, description, owner_name)
 VALUES ($1, $2, $3, $4, $5)
-RETURNING id, owner_id, name, description, published_at, published_by, owner_name, created_at, updated_at, forked_from_id
+RETURNING id, owner_id, name, description, published_at, published_by, owner_name, created_at, updated_at, forked_from_id, source_saved_search_id
 `
 
 type CreateListParams struct {
@@ -177,6 +178,7 @@ func (q *Queries) CreateList(ctx context.Context, arg CreateListParams) (List, e
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.ForkedFromID,
+		&i.SourceSavedSearchID,
 	)
 	return i, err
 }
@@ -191,7 +193,7 @@ func (q *Queries) DeleteList(ctx context.Context, id uuid.UUID) error {
 }
 
 const findList = `-- name: FindList :one
-SELECT id, owner_id, name, description, published_at, published_by, owner_name, created_at, updated_at, forked_from_id FROM lists WHERE id = $1
+SELECT id, owner_id, name, description, published_at, published_by, owner_name, created_at, updated_at, forked_from_id, source_saved_search_id FROM lists WHERE id = $1
 `
 
 func (q *Queries) FindList(ctx context.Context, id uuid.UUID) (List, error) {
@@ -208,6 +210,7 @@ func (q *Queries) FindList(ctx context.Context, id uuid.UUID) (List, error) {
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.ForkedFromID,
+		&i.SourceSavedSearchID,
 	)
 	return i, err
 }
@@ -244,7 +247,7 @@ func (q *Queries) FindListAudit(ctx context.Context, listID uuid.UUID) ([]ListAu
 }
 
 const findListByName = `-- name: FindListByName :one
-SELECT id, owner_id, name, description, published_at, published_by, owner_name, created_at, updated_at, forked_from_id FROM lists WHERE owner_id = $1 AND name = $2
+SELECT id, owner_id, name, description, published_at, published_by, owner_name, created_at, updated_at, forked_from_id, source_saved_search_id FROM lists WHERE owner_id = $1 AND name = $2
 `
 
 type FindListByNameParams struct {
@@ -268,6 +271,7 @@ func (q *Queries) FindListByName(ctx context.Context, arg FindListByNameParams) 
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.ForkedFromID,
+		&i.SourceSavedSearchID,
 	)
 	return i, err
 }
@@ -308,8 +312,44 @@ func (q *Queries) FindListItems(ctx context.Context, listID uuid.UUID) ([]ListIt
 	return items, nil
 }
 
+const findListSourceSearch = `-- name: FindListSourceSearch :one
+SELECT ss.id, ss.user_id, ss.name AS search_name, ss.query, u.name AS owner_name
+FROM lists l
+JOIN saved_searches ss ON ss.id = l.source_saved_search_id
+JOIN users u ON u.id = ss.user_id
+WHERE l.id = $1
+`
+
+type FindListSourceSearchRow struct {
+	ID         uuid.UUID `db:"id" json:"id"`
+	UserID     uuid.UUID `db:"user_id" json:"user_id"`
+	SearchName string    `db:"search_name" json:"search_name"`
+	Query      string    `db:"query" json:"query"`
+	OwnerName  string    `db:"owner_name" json:"owner_name"`
+}
+
+// The saved search a list derives its entries from, WITH ITS OWNER'S IDENTITY. The identity is not
+// decoration: the filter can depend on who is asking (`favorites:` means the asker's favorites), so a
+// derived list run as the VIEWER would answer differently for every reader -- and a published derived
+// list would show each reader their own results while claiming to be one list.
+//
+// user_id is the search's owner, which the service turns into the run context. owner_name is the
+// denormalised users.name, for the same reason the list carries one.
+func (q *Queries) FindListSourceSearch(ctx context.Context, listID uuid.UUID) (FindListSourceSearchRow, error) {
+	row := q.db.QueryRow(ctx, findListSourceSearch, listID)
+	var i FindListSourceSearchRow
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.SearchName,
+		&i.Query,
+		&i.OwnerName,
+	)
+	return i, err
+}
+
 const findListsByIds = `-- name: FindListsByIds :many
-SELECT id, owner_id, name, description, published_at, published_by, owner_name, created_at, updated_at, forked_from_id FROM lists WHERE id = ANY($1::UUID[])
+SELECT id, owner_id, name, description, published_at, published_by, owner_name, created_at, updated_at, forked_from_id, source_saved_search_id FROM lists WHERE id = ANY($1::UUID[])
 `
 
 // Batch lookup by id, used to resolve the lists a caller may see.
@@ -337,6 +377,7 @@ func (q *Queries) FindListsByIds(ctx context.Context, dollar_1 []uuid.UUID) ([]L
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.ForkedFromID,
+			&i.SourceSavedSearchID,
 		); err != nil {
 			return nil, err
 		}
@@ -349,7 +390,7 @@ func (q *Queries) FindListsByIds(ctx context.Context, dollar_1 []uuid.UUID) ([]L
 }
 
 const findListsByOwner = `-- name: FindListsByOwner :many
-SELECT id, owner_id, name, description, published_at, published_by, owner_name, created_at, updated_at, forked_from_id FROM lists WHERE owner_id = $1 ORDER BY name ASC
+SELECT id, owner_id, name, description, published_at, published_by, owner_name, created_at, updated_at, forked_from_id, source_saved_search_id FROM lists WHERE owner_id = $1 ORDER BY name ASC
 `
 
 // Everything an owner has, drafts included. This is the one listing that shows private
@@ -374,6 +415,7 @@ func (q *Queries) FindListsByOwner(ctx context.Context, ownerID uuid.UUID) ([]Li
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.ForkedFromID,
+			&i.SourceSavedSearchID,
 		); err != nil {
 			return nil, err
 		}
@@ -386,7 +428,7 @@ func (q *Queries) FindListsByOwner(ctx context.Context, ownerID uuid.UUID) ([]Li
 }
 
 const findPublishedLists = `-- name: FindPublishedLists :many
-SELECT id, owner_id, name, description, published_at, published_by, owner_name, created_at, updated_at, forked_from_id FROM lists
+SELECT id, owner_id, name, description, published_at, published_by, owner_name, created_at, updated_at, forked_from_id, source_saved_search_id FROM lists
  WHERE published_at IS NOT NULL
  ORDER BY published_at DESC, id DESC
  LIMIT $1 OFFSET $2
@@ -421,6 +463,7 @@ func (q *Queries) FindPublishedLists(ctx context.Context, arg FindPublishedLists
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.ForkedFromID,
+			&i.SourceSavedSearchID,
 		); err != nil {
 			return nil, err
 		}
@@ -459,7 +502,7 @@ func (q *Queries) GetListItem(ctx context.Context, id uuid.UUID) (ListItem, erro
 const publishList = `-- name: PublishList :one
 UPDATE lists SET published_at = now(), published_by = $2, updated_at = now()
 WHERE id = $1 AND published_at IS NULL
-RETURNING id, owner_id, name, description, published_at, published_by, owner_name, created_at, updated_at, forked_from_id
+RETURNING id, owner_id, name, description, published_at, published_by, owner_name, created_at, updated_at, forked_from_id, source_saved_search_id
 `
 
 type PublishListParams struct {
@@ -487,6 +530,7 @@ func (q *Queries) PublishList(ctx context.Context, arg PublishListParams) (List,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.ForkedFromID,
+		&i.SourceSavedSearchID,
 	)
 	return i, err
 }
@@ -546,10 +590,37 @@ func (q *Queries) ReorderListItems(ctx context.Context, arg ReorderListItemsPara
 	return err
 }
 
+const setListSourceSearch = `-- name: SetListSourceSearch :execrows
+UPDATE lists
+SET source_saved_search_id = $1,
+    updated_at = now()
+WHERE id = $2 AND owner_id = $3
+`
+
+type SetListSourceSearchParams struct {
+	SourceSavedSearchID uuid.NullUUID `db:"source_saved_search_id" json:"source_saved_search_id"`
+	ID                  uuid.UUID     `db:"id" json:"id"`
+	OwnerID             uuid.UUID     `db:"owner_id" json:"owner_id"`
+}
+
+// Scoped to the OWNER in the statement rather than checked beforehand: zero rows affected means
+// "not your list, or no such list", and a write that cannot touch somebody else's row cannot be
+// mis-called by a future second caller.
+//
+// The nullable parameter sets NULL as readily as it sets an id, so clearing a list's source is this
+// same statement -- one write path, so there is no second place for the ownership rule to live.
+func (q *Queries) SetListSourceSearch(ctx context.Context, arg SetListSourceSearchParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setListSourceSearch, arg.SourceSavedSearchID, arg.ID, arg.OwnerID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const unpublishList = `-- name: UnpublishList :one
 UPDATE lists SET published_at = NULL, published_by = NULL, updated_at = now()
 WHERE id = $1 AND published_at IS NOT NULL
-RETURNING id, owner_id, name, description, published_at, published_by, owner_name, created_at, updated_at, forked_from_id
+RETURNING id, owner_id, name, description, published_at, published_by, owner_name, created_at, updated_at, forked_from_id, source_saved_search_id
 `
 
 // Return to private. The `published_at IS NOT NULL` guard means unpublishing something
@@ -569,6 +640,7 @@ func (q *Queries) UnpublishList(ctx context.Context, id uuid.UUID) (List, error)
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.ForkedFromID,
+		&i.SourceSavedSearchID,
 	)
 	return i, err
 }
@@ -576,7 +648,7 @@ func (q *Queries) UnpublishList(ctx context.Context, id uuid.UUID) (List, error)
 const updateList = `-- name: UpdateList :one
 UPDATE lists SET name = $2, description = $3, updated_at = now()
 WHERE id = $1
-RETURNING id, owner_id, name, description, published_at, published_by, owner_name, created_at, updated_at, forked_from_id
+RETURNING id, owner_id, name, description, published_at, published_by, owner_name, created_at, updated_at, forked_from_id, source_saved_search_id
 `
 
 type UpdateListParams struct {
@@ -601,6 +673,7 @@ func (q *Queries) UpdateList(ctx context.Context, arg UpdateListParams) (List, e
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.ForkedFromID,
+		&i.SourceSavedSearchID,
 	)
 	return i, err
 }

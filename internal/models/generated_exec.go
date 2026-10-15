@@ -608,18 +608,20 @@ type ComplexityRoot struct {
 	}
 
 	List struct {
-		AuditTrail   func(childComplexity int) int
-		CreatedAt    func(childComplexity int) int
-		Description  func(childComplexity int) int
-		ForkedFromID func(childComplexity int) int
-		ID           func(childComplexity int) int
-		ItemCount    func(childComplexity int) int
-		Items        func(childComplexity int, perPage *int, page *int) int
-		Name         func(childComplexity int) int
-		Owner        func(childComplexity int) int
-		PublishedAt  func(childComplexity int) int
-		PublishedBy  func(childComplexity int) int
-		UpdatedAt    func(childComplexity int) int
+		AuditTrail        func(childComplexity int) int
+		CreatedAt         func(childComplexity int) int
+		Description       func(childComplexity int) int
+		ForkedFromID      func(childComplexity int) int
+		ID                func(childComplexity int) int
+		IsDerived         func(childComplexity int) int
+		ItemCount         func(childComplexity int) int
+		Items             func(childComplexity int, perPage *int, page *int) int
+		Name              func(childComplexity int) int
+		Owner             func(childComplexity int) int
+		PublishedAt       func(childComplexity int) int
+		PublishedBy       func(childComplexity int) int
+		SourceSavedSearch func(childComplexity int) int
+		UpdatedAt         func(childComplexity int) int
 	}
 
 	ListAudit struct {
@@ -700,12 +702,14 @@ type ComplexityRoot struct {
 		ImageTypeSetEnabled               func(childComplexity int, input ImageTypeEnabledInput) int
 		ImageUpdate                       func(childComplexity int, input ImageUpdateInput) int
 		ListAddItem                       func(childComplexity int, input ListItemInput) int
+		ListClearSourceSearch             func(childComplexity int, listID uuid.UUID) int
 		ListCreate                        func(childComplexity int, input ListCreateInput) int
 		ListDelete                        func(childComplexity int, id uuid.UUID) int
 		ListFork                          func(childComplexity int, input ListForkInput) int
 		ListPublish                       func(childComplexity int, id uuid.UUID) int
 		ListRemoveItem                    func(childComplexity int, id uuid.UUID) int
 		ListReorderItem                   func(childComplexity int, id uuid.UUID, position int) int
+		ListSetSourceSearch               func(childComplexity int, input ListSourceSearchInput) int
 		ListUnpublish                     func(childComplexity int, id uuid.UUID) int
 		ListUpdate                        func(childComplexity int, input ListUpdateInput) int
 		MarkNotificationsRead             func(childComplexity int, notification *MarkNotificationReadInput) int
@@ -1740,6 +1744,8 @@ type MutationResolver interface {
 	ListRemoveItem(ctx context.Context, id uuid.UUID) (bool, error)
 	ListReorderItem(ctx context.Context, id uuid.UUID, position int) (*ListItem, error)
 	ListFork(ctx context.Context, input ListForkInput) (*List, error)
+	ListSetSourceSearch(ctx context.Context, input ListSourceSearchInput) (*List, error)
+	ListClearSourceSearch(ctx context.Context, listID uuid.UUID) (*List, error)
 	ReviewSubmit(ctx context.Context, input ReviewSubmitInput) (*Review, error)
 	ReviewDelete(ctx context.Context, id uuid.UUID) (bool, error)
 	SaveSessionState(ctx context.Context, input SessionStateInput) (*SessionState, error)
@@ -4059,6 +4065,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.List.ID(childComplexity), true
+	case "List.isDerived":
+		if e.ComplexityRoot.List.IsDerived == nil {
+			break
+		}
+
+		return e.ComplexityRoot.List.IsDerived(childComplexity), true
 	case "List.itemCount":
 		if e.ComplexityRoot.List.ItemCount == nil {
 			break
@@ -4100,6 +4112,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.List.PublishedBy(childComplexity), true
+	case "List.sourceSavedSearch":
+		if e.ComplexityRoot.List.SourceSavedSearch == nil {
+			break
+		}
+
+		return e.ComplexityRoot.List.SourceSavedSearch(childComplexity), true
 	case "List.updatedAt":
 		if e.ComplexityRoot.List.UpdatedAt == nil {
 			break
@@ -4669,6 +4687,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.ListAddItem(childComplexity, args["input"].(ListItemInput)), true
+	case "Mutation.listClearSourceSearch":
+		if e.ComplexityRoot.Mutation.ListClearSourceSearch == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_listClearSourceSearch_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.ListClearSourceSearch(childComplexity, args["listId"].(uuid.UUID)), true
 	case "Mutation.listCreate":
 		if e.ComplexityRoot.Mutation.ListCreate == nil {
 			break
@@ -4735,6 +4764,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.ListReorderItem(childComplexity, args["id"].(uuid.UUID), args["position"].(int)), true
+	case "Mutation.listSetSourceSearch":
+		if e.ComplexityRoot.Mutation.ListSetSourceSearch == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_listSetSourceSearch_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.ListSetSourceSearch(childComplexity, args["input"].(ListSourceSearchInput)), true
 	case "Mutation.listUnpublish":
 		if e.ComplexityRoot.Mutation.ListUnpublish == nil {
 			break
@@ -9335,6 +9375,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputListCreateInput,
 		ec.unmarshalInputListForkInput,
 		ec.unmarshalInputListItemInput,
+		ec.unmarshalInputListSourceSearchInput,
 		ec.unmarshalInputListUpdateInput,
 		ec.unmarshalInputMarkNotificationReadInput,
 		ec.unmarshalInputModAuditQueryInput,
@@ -12136,6 +12177,30 @@ type List {
   auto-updating list, a different feature.
   """
   forkedFromId: ID
+
+  """
+  Whether this list's entries come from a saved search rather than from rows.
+
+  A derived list stores no entries: its membership is computed from the search on every read, so a
+  matching scene appears in it without anything being written. A DERIVED LIST'S ENTRIES CANNOT BE
+  EDITED -- ` + "`" + `listAddItem` + "`" + `, ` + "`" + `listRemoveItem` + "`" + ` and ` + "`" + `listReorderItem` + "`" + ` all refuse -- because the next read
+  recomputes them, and a write that appeared to work and then vanished is the worst of the possible
+  answers.
+  """
+  isDerived: Boolean!
+
+  """
+  The saved search this list follows, or null.
+
+  OWNER ONLY, always: null for everybody else INCLUDING the readers of a published derived list. A
+  derived list's results are what its owner chose to publish; the criteria that produced them are not
+  part of that, and a viewer who could read the search would learn the owner's filters -- including the
+  ones that depend on who is asking, which are the owner's own history.
+
+  Also null on an ordinary list, and null for a derived list with no source, which is every list that
+  has been un-followed.
+  """
+  sourceSavedSearch: SavedSearch
 }
 
 """
@@ -12353,6 +12418,33 @@ extend type Mutation {
   Its entries are copied in their existing order, and neither list changes the other afterwards.
   """
   listFork(input: ListForkInput!): List! @hasRole(role: READ)
+}
+
+input ListSourceSearchInput {
+  listId: ID!
+
+  "The saved search to follow. It must be YOUR OWN: a list cannot publish somebody else's criteria."
+  savedSearchId: ID!
+}
+
+extend type Mutation {
+  """
+  Make a list follow a saved search.
+
+  The list must be empty of entries of its own -- becoming derived would discard them -- and it must
+  already be the caller's. Switching a derived list from one search to another is allowed, because
+  nothing is discarded when nothing is stored.
+  """
+  listSetSourceSearch(input: ListSourceSearchInput!): List! @hasRole(role: MODIFY)
+
+  """
+  Stop following a saved search.
+
+  The list becomes an ordinary EMPTY list. Its former entries are NOT copied into it: stopping is what
+  the caller asked for, and materialising a snapshot they did not ask for would leave them unable to
+  tell which of their lists track anything.
+  """
+  listClearSourceSearch(listId: ID!): List! @hasRole(role: MODIFY)
 }
 `, BuiltIn: false},
 	{Name: "../../graphql/schema/types/misc.graphql", Input: `scalar Date
@@ -16662,6 +16754,10 @@ func (ec *executionContext) childFields_List(ctx context.Context, field graphql.
 		return ec.fieldContext_List_updatedAt(ctx, field)
 	case "forkedFromId":
 		return ec.fieldContext_List_forkedFromId(ctx, field)
+	case "isDerived":
+		return ec.fieldContext_List_isDerived(ctx, field)
+	case "sourceSavedSearch":
+		return ec.fieldContext_List_sourceSavedSearch(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type List", field.Name)
 }
@@ -18506,6 +18602,20 @@ func (ec *executionContext) field_Mutation_listAddItem_args(ctx context.Context,
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_listClearSourceSearch_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "listId",
+		func(ctx context.Context, v any) (uuid.UUID, error) {
+			return ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["listId"] = arg0
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_listCreate_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -18595,6 +18705,20 @@ func (ec *executionContext) field_Mutation_listReorderItem_args(ctx context.Cont
 		return nil, err
 	}
 	args["position"] = arg1
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_listSetSourceSearch_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
+		func(ctx context.Context, v any) (ListSourceSearchInput, error) {
+			return ec.unmarshalNListSourceSearchInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐListSourceSearchInput(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
 	return args, nil
 }
 
@@ -29193,6 +29317,61 @@ func (ec *executionContext) fieldContext_List_forkedFromId(_ context.Context, fi
 	return graphql.NewScalarFieldContext("List", field, false, false, errors.New("field of type ID does not have child fields"))
 }
 
+func (ec *executionContext) _List_isDerived(ctx context.Context, field graphql.CollectedField, obj *List) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_List_isDerived(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.IsDerived, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_List_isDerived(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("List", field, false, false, errors.New("field of type Boolean does not have child fields"))
+}
+
+func (ec *executionContext) _List_sourceSavedSearch(ctx context.Context, field graphql.CollectedField, obj *List) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_List_sourceSavedSearch(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.SourceSavedSearch, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *SavedSearch) graphql.Marshaler {
+			return ec.marshalOSavedSearch2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐSavedSearch(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_List_sourceSavedSearch(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "List",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_SavedSearch(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _ListAudit_id(ctx context.Context, field graphql.CollectedField, obj *ListAudit) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -36361,6 +36540,130 @@ func (ec *executionContext) fieldContext_Mutation_listFork(ctx context.Context, 
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Mutation_listFork_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_listSetSourceSearch(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_listSetSourceSearch(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().ListSetSourceSearch(ctx, fc.Args["input"].(ListSourceSearchInput))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "MODIFY")
+				if err != nil {
+					var zeroVal *List
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *List
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *List) graphql.Marshaler {
+			return ec.marshalNList2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐList(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_listSetSourceSearch(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_List(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_listSetSourceSearch_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_listClearSourceSearch(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_listClearSourceSearch(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().ListClearSourceSearch(ctx, fc.Args["listId"].(uuid.UUID))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "MODIFY")
+				if err != nil {
+					var zeroVal *List
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *List
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *List) graphql.Marshaler {
+			return ec.marshalNList2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐList(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_listClearSourceSearch(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_List(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_listClearSourceSearch_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -57867,6 +58170,43 @@ func (ec *executionContext) unmarshalInputListItemInput(ctx context.Context, obj
 	return it, nil
 }
 
+func (ec *executionContext) unmarshalInputListSourceSearchInput(ctx context.Context, obj any) (ListSourceSearchInput, error) {
+	var it ListSourceSearchInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"listId", "savedSearchId"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "listId":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("listId"))
+			data, err := ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ListID = data
+		case "savedSearchId":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("savedSearchId"))
+			data, err := ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.SavedSearchID = data
+		}
+	}
+	return it, nil
+}
+
 func (ec *executionContext) unmarshalInputListUpdateInput(ctx context.Context, obj any) (ListUpdateInput, error) {
 	var it ListUpdateInput
 	if obj == nil {
@@ -68528,6 +68868,16 @@ func (ec *executionContext) _List(ctx context.Context, sel ast.SelectionSet, obj
 			if out.Values[i] == graphql.RequiredNull {
 				out.Invalids++
 			}
+		case "isDerived":
+			out.Values[i] = ec._List_isDerived(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "sourceSavedSearch":
+			out.Values[i] = ec._List_sourceSavedSearch(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -69686,6 +70036,20 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 		case "listFork":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_listFork(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "listSetSourceSearch":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_listSetSourceSearch(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "listClearSourceSearch":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_listClearSourceSearch(ctx, field)
 			})
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
@@ -83774,6 +84138,11 @@ func (ec *executionContext) marshalNListItem2ᚖgithubᚗcomᚋstashappᚋstash�
 
 func (ec *executionContext) unmarshalNListItemInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐListItemInput(ctx context.Context, v any) (ListItemInput, error) {
 	res, err := ec.unmarshalInputListItemInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) unmarshalNListSourceSearchInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐListSourceSearchInput(ctx context.Context, v any) (ListSourceSearchInput, error) {
+	res, err := ec.unmarshalInputListSourceSearchInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
