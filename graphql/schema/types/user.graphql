@@ -65,6 +65,20 @@ type User {
   invite_allowance: InviteAllowance @isUserOwner
 
   """
+  What this member's invitations have DONE (SPEC §11, plan phase 11 slice 11c).
+
+  Owner only, like the allowance above and for the same reason: what a member's invitations
+  produced is part of their standing, and it is nobody else's business.
+
+  Everything here is DERIVED from event rows, never from a counter column, which is what makes
+  the three numbers able to disagree with each other honestly: "4 looked, 1 gave an address,
+  nobody joined" and "1 looked and joined" are the same total and completely different news.
+  DELIBERATELY NOT a `remaining`/`rate` field: converting an invite funnel into one number is a
+  rendering decision, and the instance is the wrong place to make it.
+  """
+  invite_stats: InviteStats @isUserOwner
+
+  """
   Trust level and contribution totals (SPEC section 6).
 
   Owner and admin only: trust is a reputation score, and a user's standing is
@@ -125,6 +139,24 @@ type InviteAllowance {
   exempt: Boolean!
   """Whether another key may be minted right now."""
   can_generate: Boolean!
+}
+
+"""
+The three things an invitation can do, counted.
+
+A scan is somebody opening the key's landing page (interest, and nobody in particular), a signup
+is an address registered with the key (somebody's intent), and an activation is the account the
+key produced (a person). Counted across EVERY key the member has ever minted, including keys
+that no longer exist: a key whose last use is consumed is deleted, and a counter that vanished
+with it would report zero for the one invitation a member actually asks about.
+"""
+type InviteStats {
+  """Landing pages opened. Records no visitor: no address, no agent, no account."""
+  scans: Int!
+  """Addresses registered with a key of this member's. Not yet accounts."""
+  signups: Int!
+  """Accounts those signups became. This is the number that is a person."""
+  activations: Int!
 }
 
 """

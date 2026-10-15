@@ -250,6 +250,12 @@ type Querier interface {
 	// deleted does not count: the vote is evidence about a question that no longer
 	// exists.
 	CountIdentificationVotesForUser(ctx context.Context, userID uuid.UUID) (int64, error)
+	// One key's counters. The key may be gone (invite_key_id is set to NULL on delete), in which case
+	// this returns nothing while the member's own counters still hold the events.
+	CountInviteKeyEventsForKey(ctx context.Context, inviteKeyID uuid.NullUUID) ([]CountInviteKeyEventsForKeyRow, error)
+	// The member's counters, grouped by kind. A kind with no rows is ABSENT rather than zero, which is
+	// why the caller maps over the kinds it knows rather than printing what the database returned.
+	CountInviteKeyEventsForUser(ctx context.Context, generatedBy uuid.UUID) ([]CountInviteKeyEventsForUserRow, error)
 	CountListCollaborators(ctx context.Context, listID uuid.UUID) (int64, error)
 	CountListItems(ctx context.Context, listID uuid.UUID) (int64, error)
 	CountNotificationsByUser(ctx context.Context, arg CountNotificationsByUserParams) (int64, error)
@@ -2329,6 +2335,11 @@ type Querier interface {
 	// silently recompute it on every replay, which is exactly the retroactive
 	// re-weighting the column exists to prevent.
 	RecordEloVote(ctx context.Context, arg RecordEloVoteParams) (EloVote, error)
+	// The invite key's journal: what a member's invitations did (plan phase 11 slice 11c).
+	//
+	// Every statement here is a COUNT or an append: nothing is ever updated, because an event that has
+	// happened cannot be un-happened, and a counter that could be edited is a counter nobody can trust.
+	RecordInviteKeyEvent(ctx context.Context, arg RecordInviteKeyEventParams) error
 	RecordListAudit(ctx context.Context, arg RecordListAuditParams) error
 	// The health sweep's write, and the only statement that may move `status`.
 	//

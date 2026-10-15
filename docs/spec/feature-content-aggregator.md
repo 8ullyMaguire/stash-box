@@ -327,7 +327,7 @@ behaviour. "New" = nothing to extend. Phase numbers are §Phases in
 | §9.2 | forums | **deferred by the respec** — a moderation surface that scales with traffic, competing with Reddit and Discord for posts | — |
 | §9.3 | playlists, fork, auto-update | `list` (107) | 8 (extend) |
 | §10 | T0–T3 tiers, warnings vs gates, onboarding wizard | denylist + access rules | 5 |
-| §11 | invite allocation, referrals, QR, seed cohorts | `InviteKey` + the level-derived allowance (11a) + the referral payment (11b) | 11 |
+| §11 | invite allocation, referrals, QR, seed cohorts | `InviteKey` + the level-derived allowance (11a), the referral payment (11b), the durable event journal and the three counters (11c: `invite_key_events` + `User.invite_stats`; the landing page and the QR remain) | 11 |
 | §12.1–12.5 | metadata federation, ontology sync, hash network, specialised instances | mesh §7.17/§7.18 is **ahead**; hash network new | 12 |
 | §12.6 | ActivityPub | none (rejected in the crosswalk) | 12 |
 | §13.1–13.5 | 5 players/viewers | **refused by the respec** — no player, no embed, no proxy. Reading *metadata* is a different surface and it is in: a comic's chapter list and page count are `content_item_chapters` (phase 3) | — |
@@ -423,6 +423,14 @@ level of depth means the grandparent is paid nothing, asserted by identity. A se
 trust event keyed to the campaign, and the level then follows from the single curve in
 `internal/service/trust`. A campaign that set a level directly would be a second implementation of "what
 level is this person" — the exact thing the trust phase exists to prevent.
+
+**Built 2026-10-15 as `invite_key_events` + `User.invite_stats`** (owner-only, reachable through `me`;
+counted across every key the member has ever minted, INCLUDING keys that no longer exist, which is what the
+denormalised referrer on each event is for). A signup is recorded in the transaction that creates the
+activation token and an activation in the one that creates the account, in both cases before the key is
+consumed — consuming the last use deletes the key, so that is the only moment both the referrer and the
+account are in hand. A kind with no events reads **0**, which is why the mapping starts every kind at zero
+and ignores a kind it does not know.
 
 **Counters are row counts, and the rows must OUTLIVE what they count.** A scan is a row, a signup is a row
 for the key, an activation is a row that was consumed; a member sees all three because "someone looked",

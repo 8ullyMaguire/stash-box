@@ -132,3 +132,4 @@ internal/database/migrations/postgres/134_content_source_takedown.up.sql
 internal/database/migrations/postgres/135_list_collaborators.up.sql
 internal/database/migrations/postgres/136_user_role_width.up.sql
 internal/database/migrations/postgres/137_invite_activated_count.up.sql
+internal/database/migrations/postgres/138_invite_key_events.up.sql

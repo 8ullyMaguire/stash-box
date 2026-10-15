@@ -511,6 +511,15 @@ type InviteKey struct {
 	ExpireTime  *time.Time `db:"expire_time" json:"expire_time"`
 }
 
+type InviteKeyEvent struct {
+	ID          int64              `db:"id" json:"id"`
+	InviteKeyID uuid.NullUUID      `db:"invite_key_id" json:"invite_key_id"`
+	GeneratedBy uuid.UUID          `db:"generated_by" json:"generated_by"`
+	Kind        string             `db:"kind" json:"kind"`
+	UserID      uuid.NullUUID      `db:"user_id" json:"user_id"`
+	CreatedAt   pgtype.Timestamptz `db:"created_at" json:"created_at"`
+}
+
 type LintQuestDefinition struct {
 	ID           uuid.UUID     `db:"id" json:"id"`
 	Slug         string        `db:"slug" json:"slug"`

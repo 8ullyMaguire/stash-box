@@ -232,25 +232,28 @@ func validateExistingEmail(ctx context.Context, tx *queries.Queries, emailAddr s
 // two halves interact: a spent key is DELETED once its last use is consumed at activation, so "no
 // such key" and "this key is used up" are the same state -- and previously it leaked out as
 // "no rows in result set", a driver error a member cannot act on and an operator cannot read.
-func validateInviteKey(ctx context.Context, tx *queries.Queries, inviteKey *uuid.UUID) error {
+// It RETURNS the resolved key (nil when no key was given), because the caller that records the
+// signup event needs the key's generator and looking the same row up twice in one transaction is how
+// two answers to one question start.
+func validateInviteKey(ctx context.Context, tx *queries.Queries, inviteKey *uuid.UUID) (*queries.InviteKey, error) {
 	if inviteKey == nil {
 		if config.GetRequireInvite() {
-			return errors.New("invite key required")
+			return nil, errors.New("invite key required")
 		}
-		return nil
+		return nil, nil
 	}
 
 	key, err := tx.FindInviteKey(ctx, *inviteKey)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return ErrInvalidInviteKey
+		return nil, ErrInvalidInviteKey
 	}
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// ensure invite key is not expired
 	if key.ExpireTime != nil && key.ExpireTime.Before(time.Now()) {
-		return errors.New("invite key expired")
+		return nil, errors.New("invite key expired")
 	}
 
 	// A USE IS CONSUMED AT ACTIVATION, so a key with uses left may already have all of them
@@ -258,11 +261,11 @@ func validateInviteKey(ctx context.Context, tx *queries.Queries, inviteKey *uuid
 	// promised" looks like, and a key with one use and one pending activation has none left.
 	tokens, err := tx.FindUserTokensByInviteKey(ctx, *inviteKey)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if key.Uses != nil && len(tokens) >= int(*key.Uses) {
-		return errors.New("invite key used")
+		return nil, errors.New("invite key used")
 	}
 
-	return nil
+	return &key, nil
 }

@@ -110,6 +110,30 @@ func (r *userResolver) InviteAllowance(ctx context.Context, user *models.User) (
 	}, nil
 }
 
+// InviteStats answers what a member's invitations have DONE (SPEC §11, phase 11
+// slice 11c).
+//
+// Three counts, derived from event rows every time they are asked for, so they cannot
+// disagree with the events and an event that was never recorded cannot be counted. The
+// service returns a map-shaped answer keyed by kind; this is where it becomes the three
+// named fields a client asked for, which is also what keeps "a kind with no events" (absent
+// from the database's answer) from being rendered as nothing.
+//
+// Owner-only by directive, like the allowance above: what a member's invitations produced is
+// part of their standing.
+func (r *userResolver) InviteStats(ctx context.Context, user *models.User) (*models.InviteStats, error) {
+	counts, err := r.services.Invite().Counts(ctx, user.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &models.InviteStats{
+		Scans:       counts.Scans,
+		Signups:     counts.Signups,
+		Activations: counts.Activations,
+	}, nil
+}
+
 func (r *userResolver) ImageTypePreferences(ctx context.Context, user *models.User) ([]models.ImageTypeEnum, error) {
 	return r.services.ImageType().Preferences(ctx, user.ID)
 }

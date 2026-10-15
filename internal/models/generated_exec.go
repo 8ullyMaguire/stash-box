@@ -626,6 +626,12 @@ type ComplexityRoot struct {
 		Uses    func(childComplexity int) int
 	}
 
+	InviteStats struct {
+		Activations func(childComplexity int) int
+		Scans       func(childComplexity int) int
+		Signups     func(childComplexity int) int
+	}
+
 	LeaderboardEntry struct {
 		Level    func(childComplexity int) int
 		Position func(childComplexity int) int
@@ -1507,6 +1513,7 @@ type ComplexityRoot struct {
 		ImageTypePreferences      func(childComplexity int) int
 		InviteAllowance           func(childComplexity int) int
 		InviteCodes               func(childComplexity int) int
+		InviteStats               func(childComplexity int) int
 		InviteTokens              func(childComplexity int) int
 		InvitedBy                 func(childComplexity int) int
 		Name                      func(childComplexity int) int
@@ -2130,6 +2137,7 @@ type UserResolver interface {
 	ActiveInviteCodes(ctx context.Context, obj *User) ([]string, error)
 	InviteCodes(ctx context.Context, obj *User) ([]InviteKey, error)
 	InviteAllowance(ctx context.Context, obj *User) (*InviteAllowance, error)
+	InviteStats(ctx context.Context, obj *User) (*InviteStats, error)
 	Trust(ctx context.Context, obj *User) (*UserTrust, error)
 	TrustLevel(ctx context.Context, obj *User) (int, error)
 	ContributionHeatmap(ctx context.Context, obj *User, days *int) ([]ContributionDay, error)
@@ -4155,6 +4163,25 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.InviteKey.Uses(childComplexity), true
+
+	case "InviteStats.activations":
+		if e.ComplexityRoot.InviteStats.Activations == nil {
+			break
+		}
+
+		return e.ComplexityRoot.InviteStats.Activations(childComplexity), true
+	case "InviteStats.scans":
+		if e.ComplexityRoot.InviteStats.Scans == nil {
+			break
+		}
+
+		return e.ComplexityRoot.InviteStats.Scans(childComplexity), true
+	case "InviteStats.signups":
+		if e.ComplexityRoot.InviteStats.Signups == nil {
+			break
+		}
+
+		return e.ComplexityRoot.InviteStats.Signups(childComplexity), true
 
 	case "LeaderboardEntry.level":
 		if e.ComplexityRoot.LeaderboardEntry.Level == nil {
@@ -9257,6 +9284,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.User.InviteCodes(childComplexity), true
+	case "User.invite_stats":
+		if e.ComplexityRoot.User.InviteStats == nil {
+			break
+		}
+
+		return e.ComplexityRoot.User.InviteStats(childComplexity), true
 	case "User.invite_tokens":
 		if e.ComplexityRoot.User.InviteTokens == nil {
 			break
@@ -15582,6 +15615,20 @@ type User {
   invite_allowance: InviteAllowance @isUserOwner
 
   """
+  What this member's invitations have DONE (SPEC §11, plan phase 11 slice 11c).
+
+  Owner only, like the allowance above and for the same reason: what a member's invitations
+  produced is part of their standing, and it is nobody else's business.
+
+  Everything here is DERIVED from event rows, never from a counter column, which is what makes
+  the three numbers able to disagree with each other honestly: "4 looked, 1 gave an address,
+  nobody joined" and "1 looked and joined" are the same total and completely different news.
+  DELIBERATELY NOT a ` + "`" + `remaining` + "`" + `/` + "`" + `rate` + "`" + ` field: converting an invite funnel into one number is a
+  rendering decision, and the instance is the wrong place to make it.
+  """
+  invite_stats: InviteStats @isUserOwner
+
+  """
   Trust level and contribution totals (SPEC section 6).
 
   Owner and admin only: trust is a reputation score, and a user's standing is
@@ -15642,6 +15689,24 @@ type InviteAllowance {
   exempt: Boolean!
   """Whether another key may be minted right now."""
   can_generate: Boolean!
+}
+
+"""
+The three things an invitation can do, counted.
+
+A scan is somebody opening the key's landing page (interest, and nobody in particular), a signup
+is an address registered with the key (somebody's intent), and an activation is the account the
+key produced (a person). Counted across EVERY key the member has ever minted, including keys
+that no longer exist: a key whose last use is consumed is deleted, and a counter that vanished
+with it would report zero for the one invitation a member actually asks about.
+"""
+type InviteStats {
+  """Landing pages opened. Records no visitor: no address, no agent, no account."""
+  scans: Int!
+  """Addresses registered with a key of this member's. Not yet accounts."""
+  signups: Int!
+  """Accounts those signups became. This is the number that is a person."""
+  activations: Int!
 }
 
 """
@@ -17301,6 +17366,18 @@ func (ec *executionContext) childFields_InviteKey(ctx context.Context, field gra
 	return nil, fmt.Errorf("no field named %q was found under type InviteKey", field.Name)
 }
 
+func (ec *executionContext) childFields_InviteStats(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "scans":
+		return ec.fieldContext_InviteStats_scans(ctx, field)
+	case "signups":
+		return ec.fieldContext_InviteStats_signups(ctx, field)
+	case "activations":
+		return ec.fieldContext_InviteStats_activations(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type InviteStats", field.Name)
+}
+
 func (ec *executionContext) childFields_LeaderboardEntry(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 	switch field.Name {
 	case "position":
@@ -18355,6 +18432,8 @@ func (ec *executionContext) childFields_User(ctx context.Context, field graphql.
 		return ec.fieldContext_User_invite_codes(ctx, field)
 	case "invite_allowance":
 		return ec.fieldContext_User_invite_allowance(ctx, field)
+	case "invite_stats":
+		return ec.fieldContext_User_invite_stats(ctx, field)
 	case "trust":
 		return ec.fieldContext_User_trust(ctx, field)
 	case "trust_level":
@@ -29906,6 +29985,75 @@ func (ec *executionContext) _InviteKey_expires(ctx context.Context, field graphq
 }
 func (ec *executionContext) fieldContext_InviteKey_expires(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("InviteKey", field, false, false, errors.New("field of type Time does not have child fields"))
+}
+
+func (ec *executionContext) _InviteStats_scans(ctx context.Context, field graphql.CollectedField, obj *InviteStats) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_InviteStats_scans(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Scans, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_InviteStats_scans(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("InviteStats", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _InviteStats_signups(ctx context.Context, field graphql.CollectedField, obj *InviteStats) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_InviteStats_signups(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Signups, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_InviteStats_signups(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("InviteStats", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _InviteStats_activations(ctx context.Context, field graphql.CollectedField, obj *InviteStats) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_InviteStats_activations(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Activations, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_InviteStats_activations(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("InviteStats", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
 func (ec *executionContext) _LeaderboardEntry_position(ctx context.Context, field graphql.CollectedField, obj *LeaderboardEntry) (ret graphql.Marshaler) {
@@ -55024,6 +55172,51 @@ func (ec *executionContext) fieldContext_User_invite_allowance(_ context.Context
 	return fc, nil
 }
 
+func (ec *executionContext) _User_invite_stats(ctx context.Context, field graphql.CollectedField, obj *User) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_User_invite_stats(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.User().InviteStats(ctx, obj)
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				if ec.Directives.IsUserOwner == nil {
+					var zeroVal *InviteStats
+					return zeroVal, errors.New("directive isUserOwner is not implemented")
+				}
+				return ec.Directives.IsUserOwner(ctx, obj, directive0)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *InviteStats) graphql.Marshaler {
+			return ec.marshalOInviteStats2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐInviteStats(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_User_invite_stats(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "User",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_InviteStats(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _User_trust(ctx context.Context, field graphql.CollectedField, obj *User) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -70648,6 +70841,54 @@ func (ec *executionContext) _InviteKey(ctx context.Context, sel ast.SelectionSet
 	return out
 }
 
+var inviteStatsImplementors = []string{"InviteStats"}
+
+func (ec *executionContext) _InviteStats(ctx context.Context, sel ast.SelectionSet, obj *InviteStats) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, inviteStatsImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("InviteStats")
+		case "scans":
+			out.Values[i] = ec._InviteStats_scans(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "signups":
+			out.Values[i] = ec._InviteStats_signups(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "activations":
+			out.Values[i] = ec._InviteStats_activations(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
 var leaderboardEntryImplementors = []string{"LeaderboardEntry"}
 
 func (ec *executionContext) _LeaderboardEntry(ctx context.Context, sel ast.SelectionSet, obj *LeaderboardEntry) graphql.Marshaler {
@@ -83383,6 +83624,44 @@ func (ec *executionContext) _User(ctx context.Context, sel ast.SelectionSet, obj
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "invite_stats":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._User_invite_stats(ctx, field, obj)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "trust":
 			field := field
 
@@ -89132,6 +89411,13 @@ func (ec *executionContext) marshalOInviteKey2ᚕgithubᚗcomᚋstashappᚋstash
 	}
 
 	return ret
+}
+
+func (ec *executionContext) marshalOInviteStats2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐInviteStats(ctx context.Context, sel ast.SelectionSet, v *InviteStats) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._InviteStats(ctx, sel, v)
 }
 
 func (ec *executionContext) unmarshalOLeaderboardInput2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐLeaderboardInput(ctx context.Context, v any) (*LeaderboardInput, error) {

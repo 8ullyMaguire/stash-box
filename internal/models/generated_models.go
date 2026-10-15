@@ -1362,6 +1362,22 @@ type InviteAllowance struct {
 	CanGenerate bool `json:"can_generate"`
 }
 
+// The three things an invitation can do, counted.
+//
+// A scan is somebody opening the key's landing page (interest, and nobody in particular), a signup
+// is an address registered with the key (somebody's intent), and an activation is the account the
+// key produced (a person). Counted across EVERY key the member has ever minted, including keys
+// that no longer exist: a key whose last use is consumed is deleted, and a counter that vanished
+// with it would report zero for the one invitation a member actually asks about.
+type InviteStats struct {
+	// Landing pages opened. Records no visitor: no address, no agent, no account.
+	Scans int `json:"scans"`
+	// Addresses registered with a key of this member's. Not yet accounts.
+	Signups int `json:"signups"`
+	// Accounts those signups became. This is the number that is a person.
+	Activations int `json:"activations"`
+}
+
 type LeaderboardEntry struct {
 	// The member's rank in the WHOLE ranking, before any level filter, so a level-scoped board
 	// shows 3, 7, 12 rather than renaming the handful of members who share a level. A board

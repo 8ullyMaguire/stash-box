@@ -3299,6 +3299,55 @@ move for the other two events; a scan of an expired key is not counted; and -- a
 counters survive the key's deletion, asserted by activating a `uses = 1` key and reading the counters AFTER
 the row it named is gone.
 
+**BUILT 2026-10-15, the data layer and the counters (the QR and the landing page are NOT built -- see
+below, named rather than implied).** `invite_key_events` (migration **138**, `sqlc` regenerated): one
+append-only row per event -- `invite_key_id` (nullable, **ON DELETE SET NULL**, deliberately no cascade),
+`generated_by` (NOT NULL, the column the member's counters group by), `kind` (free text, like
+`trust_events.kind`), `user_id` (nullable: the account a signup or an activation became, NULL for a scan,
+which is nobody) and `created_at`. The counters are `COUNT`s over it and **nothing else**: no counter
+column exists, so the numbers cannot disagree with the events and an event nobody recorded cannot be
+counted. Two write sites, both inside the transaction that does the thing they describe, because an event
+written outside it could outlive a signup that failed: `NewUser` records the SIGNUP (with the key's
+generator, `user_id` nil -- a signup is an ADDRESS) and `ActivateNewUser` records the ACTIVATION (with the
+account it produced) *before* the key is consumed, because consuming the last use deletes the key row and
+that is the only moment both the generator and the new account are in hand. `invite.CountsFromRows` is the
+pure half, and it is where the one real trap lives: the database answers with **one row per kind that has
+events**, so a kind that never happened is ABSENT, not zero, and a reader that assigns rows onto a struct
+leaves "never scanned" indistinguishable from "a kind this version does not know". Every kind starts at
+zero and an unknown kind is ignored -- the same rule the trust rollup applies. `User.invite_stats`
+(owner-only, `InviteStats { scans signups activations }`) is a DERIVED read surface again, and it is
+reachable through `me`, which is the only place a member's own standing is served.
+
+**Evidence.** 4 pure tests (`internal/service/invite/journal_test.go`: every kind starts at zero, an
+unknown kind is ignored rather than invented, the three kinds land in their OWN fields -- the assertion
+that catches a copy-paste between switch arms -- and the stored kind STRINGS are pinned, because they are
+data that every future reader of the table reads). 3 wire tests against real Postgres
+(`internal/api/invite_stats_integration_test.go`): the counters move ONE AT A TIME (a signup moves
+signups and leaves activations and scans alone; an activation leaves the signup count where it was --
+one invitation, two facts about it), the counters are the owner's own (with the owner's own read counted
+FIRST, so the refusal is about the directive and not about a member with nothing to show), and **the
+finding's own verification: the counters SURVIVE the deletion of the key they count** -- a `uses = 1` key
+is spent, its row is gone, and the member's counters still report the signup and the activation it
+produced, with both event rows carrying a NULL `invite_key_id`. Mutations
+(`scripts/mutate-invite-counters.py`): **5 probes, 5 killed** -- the mapping losing an arm, the arms
+swapped, each write site removed, and the resolver handing two counters out in the wrong fields. (The
+first aim at the mapping probe was a BUILD BREAK rather than a kill, and the notes are right that a
+mutation that does not compile is not a verdict: the re-aim swaps arms instead of dropping a variable.)
+
+**NOT BUILT, and named here rather than left to be discovered:** the **landing page** (`GET
+/invite/<code>`: unauthenticated, records the scan, and says what the instance is without ever revealing
+whether the key is valid or unused, so it cannot be used to probe for a live key -- and an expired or
+spent key gets the same page MINUS the scan row, which is what "a scan of an expired key is not counted"
+means) and the **QR** (the dependency decision is measured and recorded:
+`github.com/skip2/go-qrcode` v0.0.0-20200617195104-da1b6568686e, added and verified to have ZERO
+transitive dependencies, used for the MATRIX only -- the SVG is rendered here from its bitmap, keeping
+the output a text document with no image pipeline; this host has `zbarimg` AND `rsvg-convert` AND
+`qrencode`, so the verification the plan asks for -- "decodes back with an independent decoder" -- can be
+run end to end on the rendered SVG, which is why the encoder line is drawn there and not at the
+dependency). Until the landing page exists, `scans` is a counter that reads 0 because nothing writes it,
+and the field says so by being zero rather than by being absent.
+
+
 ### Slice 11d — seed cohorts, and a campaign's fast-track that applies only to its members
 
 **The rule.** A cohort is a named set of members (`seed_cohorts`, `seed_cohort_members`); a campaign

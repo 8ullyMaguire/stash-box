@@ -19,6 +19,7 @@ import (
 	"github.com/stashapp/stash-box/internal/models"
 	"github.com/stashapp/stash-box/internal/queries"
 	"github.com/stashapp/stash-box/internal/service/errutil"
+	"github.com/stashapp/stash-box/internal/service/invite"
 	"github.com/stashapp/stash-box/internal/service/loadutil"
 	"github.com/stashapp/stash-box/internal/service/trust"
 	"github.com/stashapp/stash-box/pkg/utils"
@@ -228,7 +229,8 @@ func (s *User) NewUser(ctx context.Context, emailAddr string, inviteKey *uuid.UU
 			return err
 		}
 
-		if err := validateInviteKey(ctx, tx, inviteKey); err != nil {
+		key, err := validateInviteKey(ctx, tx, inviteKey)
+		if err != nil {
 			return err
 		}
 
@@ -236,6 +238,20 @@ func (s *User) NewUser(ctx context.Context, emailAddr string, inviteKey *uuid.UU
 		activationToken, err := generateActivationKey(ctx, tx, emailAddr, inviteKey)
 		if err != nil {
 			return err
+		}
+
+		// A SIGNUP IS A ROW (plan phase 11 slice 11c). It has to be recorded HERE, in the same
+		// transaction that creates the activation token, because the token it describes is deleted
+		// when that token is activated -- the only surviving witness of "this key produced a
+		// signup" is a row written for the purpose, and one written outside this transaction could
+		// outlive a signup that failed.
+		//
+		// `userID` is nil: a signup is an ADDRESS, not an account, and inventing an account to hang
+		// it on would be counting a person who does not exist yet.
+		if key != nil {
+			if err := invite.RecordEvent(ctx, tx, key.ID, key.GeneratedBy, invite.EventSignup, nil); err != nil {
+				return err
+			}
 		}
 
 		// if activation is not required, return the activation key to the frontend
@@ -467,7 +483,7 @@ func (s *User) ActivateNewUser(ctx context.Context, input models.ActivateNewUser
 		var invitedBy *uuid.UUID
 		switch {
 		case data.InviteKey != nil:
-			invite, err := tx.FindInviteKey(ctx, *data.InviteKey)
+			inviteKeyRow, err := tx.FindInviteKey(ctx, *data.InviteKey)
 			switch {
 			case errors.Is(err, pgx.ErrNoRows):
 				// A key that no longer exists. Without require_invite this activation
@@ -480,7 +496,7 @@ func (s *User) ActivateNewUser(ctx context.Context, input models.ActivateNewUser
 			case err != nil:
 				return err
 			default:
-				invitedBy = &invite.GeneratedBy
+				invitedBy = &inviteKeyRow.GeneratedBy
 			}
 		case config.GetRequireInvite():
 			return errors.New("cannot find invite key")
@@ -510,6 +526,20 @@ func (s *User) ActivateNewUser(ctx context.Context, input models.ActivateNewUser
 		// delete the activation
 		if err := tx.DeleteUserToken(ctx, token.ID); err != nil {
 			return err
+		}
+
+		// AN ACTIVATION IS A ROW, and it is the one kind that is a PERSON (plan phase 11 slice 11c).
+		// Recorded before the key is consumed below, because consuming the last use DELETES the key
+		// row: this is the only moment both the key's generator and the new account are in hand.
+		//
+		// A key that no longer resolves records nothing, which is the same tolerance the inviter
+		// lookup above applies: the activation of a member who carried a key that was rescinded in
+		// the meantime is not this function's business to refuse, and it is not a key's activation
+		// either -- there is no key to attribute it to.
+		if data.InviteKey != nil && invitedBy != nil {
+			if err := invite.RecordEvent(ctx, tx, *data.InviteKey, *invitedBy, invite.EventActivation, &user.ID); err != nil {
+				return err
+			}
 		}
 
 		// CONSUMING A PRESENTED KEY IS A FACT ABOUT THE KEY, and it belongs on the same side of the
