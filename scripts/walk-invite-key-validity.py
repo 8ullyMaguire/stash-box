@@ -162,6 +162,11 @@ HAD = {g: psql(f"select count(*) from user_roles where user_id = '{g[0]}' and ro
 saved = {u: psql(f"select coalesce(api_key,'') from users where id = '{u}'") for u in (MEMBER, OPERATOR)}
 TOKENS = {u: mint(u) for u in (MEMBER, OPERATOR)}
 BEFORE_KEYS = psql(f"select count(*) from invite_keys where generated_by = '{MEMBER}'")
+# The counters are APPEND-ONLY history, so a walk that signs members up leaves events behind that no
+# later step can undo without deleting a real member's record. The walk therefore remembers where the
+# journal ended before it started and removes only what it added -- after the survival check, which is
+# the one read that needs those rows to still be there once the keys are gone.
+BEFORE_EVENT_MAX = int(psql("select coalesce(max(id), 0) from invite_key_events"))
 BEFORE_USERS = psql("select count(*) from users")
 CREATED_NAMES = [f"walk-kv-{STAMP}-a", f"walk-kv-{STAMP}-b", f"walk-kv-{STAMP}-c"]
 KEYS = []
@@ -204,6 +209,11 @@ try:
         if status != 200 or (isinstance(body, dict) and body.get("errors")):
             sys.exit(f"the {name} could not authenticate after the restart (http {status}) -- stopping")
     print("   auth ok for the member and the operator")
+
+    status, body = gql(TOKENS[MEMBER], "{ me { invite_stats { scans signups activations } } }")
+    BASELINE = (body["data"]["me"]["invite_stats"]
+                if status == 200 and isinstance(body, dict) and body.get("data")
+                else {"scans": 0, "signups": 0, "activations": 0})
 
     print("=== A. a key with exactly ONE use, minted by the member ===")
     res = gql(TOKENS[OPERATOR], "mutation ($u: ID!) { grantInvite(input: {user_id: $u, amount: 3}) }",
@@ -265,7 +275,37 @@ try:
     else:
         check("E", False, "a key was minted without an explicit use count")
 
-    print("=== F. residue before the restore ===")
+    print("=== F. the member's own counters, read off the wire (phase 11 slice 11c) ===")
+    status, body = gql(TOKENS[MEMBER], "{ me { invite_stats { scans signups activations } } }")
+    stats = (body["data"]["me"]["invite_stats"]
+             if status == 200 and isinstance(body, dict) and body.get("data") else None)
+    print(f"   me.invite_stats = {stats}")
+    # THE COUNTERS ARE CUMULATIVE, so the assertion is about the DELTA this walk caused. Reading the
+    # baseline first is also what makes the walk re-runnable against a database that has a history.
+    if stats:
+        print(f"   this walk's own contribution: {stats['signups'] - BASELINE['signups']} signups, "
+              f"{stats['activations'] - BASELINE['activations']} activations "
+              f"(baseline before the walk: {BASELINE})")
+    check("F", stats is not None, "the deployed binary SERVES the counters (the field resolves)")
+    if stats:
+        # The refused signups must not have moved anything: 2 signups were accepted (B and E's first)
+        # and 1 of those was activated. Counting the accepted ones FIRST is what makes the refusals
+        # mean something -- and the counter is asserted to be EXACTLY the accepted set.
+        check("F2", stats["signups"] - BASELINE["signups"] == 2,
+              "the counters count only what HAPPENED: two signups were accepted (B and E's first) "
+              "and the refused ones (C, D, E's second) added nothing")
+        # 2, not 1: BOTH accepted signups were completed in this walk (B and E's first), and the
+        # activation counter counts people, of which there are two. The expectation was wrong the
+        # first time this ran; the counter was right.
+        check("F3", stats["activations"] - BASELINE["activations"] == 2,
+              "and both of them became accounts: a signup is an address, an activation is a person, "
+              "and this walk completed every signup it was allowed to make")
+        check("F4", stats["scans"] == 0,
+              "scans reads 0, which is honest: the landing page that records one is NOT built yet")
+        print("   (the keys for those signups are about to be deleted; the counters are checked "
+              "again after that, which is where this slice's finding is verified on a live database)")
+
+    print("=== G. residue before the restore ===")
     print(f"   accounts created by this walk: {psql('select count(*) from users')} total (was {BEFORE_USERS})")
     print("WALK COMPLETE" if not FAILURES else f"WALK FINISHED WITH FAILURES: {FAILURES}")
 finally:
@@ -278,6 +318,21 @@ finally:
             psql(f"delete from users where id = '{uid}'")
     for k in KEYS:
         psql(f"delete from invite_keys where id = '{k}'")
+    # THE FINDING, ON A LIVE DATABASE: the keys those counts are about are now gone, and the counters
+    # must still report what they did. Read through the member's own token, which is still in place at
+    # this point in the restore (the api_key is put back below).
+    if TOKENS.get(MEMBER):
+        status, body = gql(TOKENS[MEMBER], "{ me { invite_stats { scans signups activations } } }")
+        after = (body["data"]["me"]["invite_stats"]
+                 if status == 200 and isinstance(body, dict) and body.get("data") else None)
+        print(f"RESTORE-TIME: after the keys were deleted, me.invite_stats = {after}")
+        if after:
+            print("RESTORE-TIME: the counters SURVIVED the deletion of the keys they counted:",
+                  after["signups"] >= 2 and after["activations"] >= 1)
+    # And now the walk takes its own history back out, so the next run starts from the same state.
+    psql(f"delete from invite_key_events where id > {BEFORE_EVENT_MAX} and generated_by = '{MEMBER}'")
+    print("RESTORE-TIME: the walk's own event rows are removed:",
+          psql(f"select count(*) from invite_key_events where id > {BEFORE_EVENT_MAX}") == "0")
     psql(f"update users set invite_tokens = 0 where id = '{MEMBER}'")
     for (uid_g, role_g) in GRANTS:
         if not HAD[(uid_g, role_g)]:

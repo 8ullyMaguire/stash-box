@@ -144,6 +144,10 @@ HAD = {g: psql(f"select count(*) from user_roles where user_id = '{g[0]}' and ro
 saved = {u: psql(f"select coalesce(api_key,'') from users where id = '{u}'") for u in (MEMBER, OPERATOR)}
 TOKENS = {u: mint(u) for u in (MEMBER, OPERATOR)}   # minted ONCE: iat makes each mint a new key
 BEFORE_KEYS = psql(f"select count(*) from invite_keys where generated_by = '{MEMBER}'")
+# The counters added by slice 11c are append-only history, and THIS WALK SIGNS SOMEBODY UP too, so it
+# records events like a real invitation would. It remembers where the journal ended and removes only
+# what it added, the same way it puts the api_keys back.
+BEFORE_EVENT_MAX = int(psql("select coalesce(max(id), 0) from invite_key_events"))
 BEFORE_MEMBER_COUNT = psql("select count(*) from users")
 KEY = None
 INVITEE = None
@@ -283,6 +287,9 @@ finally:
     for (uid_g, role_g) in GRANTS:
         if not HAD[(uid_g, role_g)]:
             psql(f"delete from user_roles where user_id = '{uid_g}' and role = '{role_g}'")
+    psql(f"delete from invite_key_events where id > {BEFORE_EVENT_MAX} and generated_by = '{MEMBER}'")
+    print("RESTORE: the walk's own event rows are removed:",
+          psql(f"select count(*) from invite_key_events where id > {BEFORE_EVENT_MAX}") == "0")
     for u, old in saved.items():
         psql(f"update users set api_key = '{old}' where id = '{u}'")
     restored = all(psql(f"select coalesce(api_key,'') from users where id = '{u}'") == old
