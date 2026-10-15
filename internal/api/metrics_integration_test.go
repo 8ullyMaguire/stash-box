@@ -321,14 +321,32 @@ func TestTheCatalogueFiguresCountScenesAndFingerprintsSeparately(t *testing.T) {
 		fingerprintID, sceneID, owner)
 	require.NoError(t, err)
 
+	// A SECOND scene, with no fingerprint at all. This is the row that makes the two catalogue figures
+	// separable: with one scene and one fingerprint the two counts are 1 and 1, and a figure that counted the
+	// catalogue would satisfy every assertion written for the fingerprint figure -- which is exactly how this
+	// test's first two versions let the mutation survive.
+	bareSceneID := uuid.Must(uuid.NewV4())
+	_, err = dbtest.DB().Exec(t.Context(),
+		`INSERT INTO scenes (id, title, details, code, date, created_at, updated_at)
+		 VALUES ($1, $2, 'A description of the record.', $3, DATE '2026-10-16', now(), now())`,
+		bareSceneID, "metrics fixture bare "+bareSceneID.String()[:8], "MTRB-"+bareSceneID.String()[:8])
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = dbtest.DB().Exec(context.Background(), `DELETE FROM scenes WHERE id = $1`, bareSceneID)
+	})
+
 	after, err := asAdmin(t).client.instanceMetrics()
 	require.NoError(t, err)
 	nowFigures := after.figures(t)
 
 	delta := func(key string) int64 { return nowFigures[key].Value - wasFigures[key].Value }
 
-	assert.Equal(t, int64(1), delta("scenes_total"), "a scene was created and the catalogue total did not move")
-	assert.Equal(t, int64(1), delta("scenes_created_window"), "a scene created just now is not inside the window")
+	assert.Equal(t, int64(2), delta("scenes_total"),
+		"two scenes were created and the catalogue total did not move by two")
+	assert.Equal(t, int64(2), delta("scenes_created_window"),
+		"two scenes created just now are not inside the window")
+	// The fingerprint figure moves by ONE while the catalogue moved by two: the two counts differ by measure,
+	// which is the only way a test can tell a figure that counts fingerprints from one that counts scenes.
 	assert.Equal(t, int64(1), delta("fingerprints_total"),
 		"a fingerprint was recorded and the fingerprint figure did not move by one -- a figure that counts the "+
 			"catalogue instead of the fingerprints is a figure that will read as large and mean nothing")
