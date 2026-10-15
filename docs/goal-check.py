@@ -683,7 +683,7 @@ def c7_build_clean():
     if dirty:
         add("C7 build clean", "FAIL", "; ".join(dirty))
     else:
-        add("C7 build clean", "PASS", "build, vet and gofmt all clean")
+        add("C7 build clean", "PASS", "build, vet, gofmt and the content-plane refusal all clean")
 
 
 def update_baseline():
