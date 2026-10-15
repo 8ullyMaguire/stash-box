@@ -2938,6 +2938,21 @@ a detailed design for an unstarted slice is written from imagination.
   a job model for the conversions, and — before any code — a decision record for the external toolchain
   with its fallback, per the repo's habit (see `docs/decisions/`). Constraint: a derived variant is derived
   from a stored object, never fetched from a third party.
+
+  **MEASURED 2026-10-15, before the slice was written, because it changes the slice.** `internal/image.Resize`
+  runs `vips_thumbnail_buffer` at the shipped defaults (JPEG q75, quality from `image_jpeg_quality`), and
+  **govips' thumbnail UPSCALES to reach the maximum**: over twelve real cover images fetched from this
+  catalogue's own sources (720x405 to 1920x1080), the "1280" rung cost 68.1 KB on average against a 65.4 KB
+  original -- MORE than the original it was derived from on nine of the twelve, because an 854x480 cover is
+  being enlarged to 1280. A ladder built from `Resize` as it stands therefore stores INFLATIONS as if they were
+  renditions. The ladder must express "never larger than the source" (libvips' thumbnail `size` option, which
+  govips does not currently expose through this call) or the plan's own ladder is the wrong shape.
+
+  **The rungs this instance would actually store, measured through its own resizer** (mean over those twelve):
+  original 65.4 KB, at max 720 30.6 KB, at max 320 9.3 KB -- so `original + 320` is 74.8 KB per record and
+  `original + 720 + 320` is 105.4 KB. Scale those against a catalogue of 1,085,032 records with an address and
+  the ladder is not a rounding error: 77.9 GB and 109.5 GB respectively, plus 477 MB of rows at the ~461 bytes
+  per row this database spends on a comparable keyed row.
 - **10d — the players.** The player UI, in `frontend/src`, calling the serve path. Constraint: the player
   is a renderer for what this instance hosts; no third-party embed, no proxy, and the frontend's share of
   the gate is that the player component does not exist unless the switch is on.
