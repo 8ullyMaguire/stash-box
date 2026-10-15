@@ -64,6 +64,13 @@ func CheckInterval(failures, claimants int) time.Duration {
 //
 // `limit` is a parameter rather than the constant so a test can prove the bound is honoured.
 func (s *Service) Sweep(ctx context.Context, now time.Time, limit int, checker Checker) (int, error) {
+	// Refused before the query rather than after it: a sweep that read the due list and then
+	// refused would report a database read as the cost of a posture it was always going to
+	// refuse. See policy.go.
+	if err := RequireFetching(); err != nil {
+		return 0, err
+	}
+
 	candidates, err := s.queries.FindContentSourcesDueForCheck(ctx, int32(limit))
 	if err != nil {
 		return 0, fmt.Errorf("reading the sources due for a check: %w", err)

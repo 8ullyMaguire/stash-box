@@ -85,6 +85,22 @@ type config struct {
 	// every tick makes third-party HTTP requests, so the cost is proportional to how many sources
 	// this instance tracks.
 	ContentSweepInterval string `mapstructure:"content_sweep_interval"`
+	// ContentFetchSources lets this instance make outbound HTTP requests to third-party content
+	// sources: the ingest pipeline's page fetch, the health sweep's HEAD request and Wayback
+	// "Save Page Now" submissions.
+	//
+	// OFF BY DEFAULT, and that is a legal posture and not a cautious default. An instance that
+	// fetches third-party pages is a scraper, and an instance that then serves what it fetched is
+	// a host; this programme builds a catalogue of references -- claims about works and the
+	// addresses of pages -- so the behaviour that could make it the second thing is turned on
+	// deliberately, by an operator who knows what it means. When it is off, the cron jobs that
+	// would make those requests are not registered at all (internal/cron) and the service entry
+	// points refuse by name (internal/service/content/policy.go), so "this instance makes no
+	// outbound request" is a property and not a promise.
+	//
+	// See docs/spec/feature-content-aggregator.md's respec section (2026-10-15) for what it does
+	// NOT cover, so nobody assumes it covers more than it does.
+	ContentFetchSources bool `mapstructure:"content_fetch_sources"`
 	// How often subscribed saved searches are run and their owners notified. One query per
 	// subscribed search per tick, so the cost is proportional to how many exist.
 	SavedSearchNotifyInterval string `mapstructure:"saved_search_notify_interval"`
@@ -206,17 +222,21 @@ const (
 
 var defaultUserRoles = []string{"READ", "VOTE", "EDIT"}
 var C = &config{
-	RequireInvite:             true,
-	RequireActivation:         false,
-	ActivationExpiry:          2 * 60 * 60,
-	EmailCooldown:             5 * 60,
-	EmailPort:                 25,
-	ImageBackend:              string(FileBackend),
-	PHashDistance:             0,
-	VoteApplicationThreshold:  3,
-	VotePromotionThreshold:    10,
-	VoteCronInterval:          "5m",
-	ContentSweepInterval:      "1h",
+	RequireInvite:            true,
+	RequireActivation:        false,
+	ActivationExpiry:         2 * 60 * 60,
+	EmailCooldown:            5 * 60,
+	EmailPort:                25,
+	ImageBackend:             string(FileBackend),
+	PHashDistance:            0,
+	VoteApplicationThreshold: 3,
+	VotePromotionThreshold:   10,
+	VoteCronInterval:         "5m",
+	ContentSweepInterval:     "1h",
+	// Off, and this is the one default in this file that is a legal posture rather than a
+	// cost/behaviour trade-off: it is what decides whether the instance makes outbound requests
+	// to third-party content sources at all. See the field's comment.
+	ContentFetchSources:       false,
 	SavedSearchNotifyInterval: "15m",
 	// No embedding model produces vectors on this instance, so the default store holds
 	// nothing and the re-ranker provably does nothing -- rather than a half-wired store
@@ -615,6 +635,17 @@ func GetVoteCronInterval() string {
 // plan phase 9 slice 9b).
 func GetContentSweepInterval() string {
 	return C.ContentSweepInterval
+}
+
+// GetContentFetchSources reports whether this instance may make outbound HTTP requests to
+// third-party content sources (the 2026-10-15 respec). False unless an operator has said
+// otherwise, and false in every shipped config file.
+//
+// ASK THIS THROUGH internal/service/content's RequireFetching RATHER THAN HERE: the switch and the
+// error a caller returns belong together, and a caller that reads the bool directly has to invent
+// its own message for the refusal.
+func GetContentFetchSources() bool {
+	return C.ContentFetchSources
 }
 
 // GetSavedSearchNotifyInterval returns the interval between saved-search notification runs,

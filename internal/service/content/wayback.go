@@ -92,6 +92,12 @@ func (w Wayback) Archive(ctx context.Context, target string) (string, error) {
 // The pair of columns is written by the ONE statement that writes them, so a half-archive cannot happen
 // even by mistake: the database refuses it.
 func (s *Service) ArchiveSources(ctx context.Context, limit int, archiver Archiver) ([]ArchiveAttempt, error) {
+	// Submitting a URL to a third party is an outbound request, so it is behind the content-plane
+	// switch even though what it sends is an address and not a page. See policy.go.
+	if err := RequireFetching(); err != nil {
+		return nil, err
+	}
+
 	candidates, err := s.queries.FindSourcesToArchive(ctx, int32(limit))
 	if err != nil {
 		return nil, fmt.Errorf("reading the sources to archive: %w", err)

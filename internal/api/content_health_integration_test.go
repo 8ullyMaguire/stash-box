@@ -42,6 +42,7 @@ func (c *recordingChecker) Check(_ context.Context, url string) error {
 // that `last_ok` SURVIVES a failure (the only evidence a resurrection queue has to work from, and the
 // reason the write statement uses COALESCE), and that a success resets the counter.
 func TestCheckSourceMovesTheStatusAtTheDocumentedThresholds(t *testing.T) {
+	fetchSourcesForTest(t)
 	db := dbtest.DB()
 	svc := content.NewService(queries.New(db), nil)
 	ctx := context.Background()
@@ -127,6 +128,7 @@ func TestCheckSourceMovesTheStatusAtTheDocumentedThresholds(t *testing.T) {
 // "were any sources checked" test and hammer a site it was told to leave alone, so the assertion is
 // the SET of urls checked, not the count alone.
 func TestSweepChecksTheDueSourcesAndOnlyThose(t *testing.T) {
+	fetchSourcesForTest(t)
 	db := dbtest.DB()
 	svc := content.NewService(queries.New(db), nil)
 	ctx := context.Background()
@@ -179,6 +181,7 @@ func TestSweepChecksTheDueSourcesAndOnlyThose(t *testing.T) {
 // The bound is honoured, and the bound is what keeps one tick from holding the process while making
 // third-party requests. Asserted by asking for fewer candidates than are due.
 func TestSweepHonoursItsBatchLimit(t *testing.T) {
+	fetchSourcesForTest(t)
 	db := dbtest.DB()
 	svc := content.NewService(queries.New(db), nil)
 	ctx := context.Background()
@@ -208,6 +211,7 @@ func TestSweepHonoursItsBatchLimit(t *testing.T) {
 // exists for, and it is asserted on its own because the previous test reaches it only through the
 // ordering: with nothing else due, a single recent source must be looked at and left alone.
 func TestSweepLeavesARecentlyCheckedSourceAlone(t *testing.T) {
+	fetchSourcesForTest(t)
 	db := dbtest.DB()
 	svc := content.NewService(queries.New(db), nil)
 	ctx := context.Background()
@@ -236,6 +240,7 @@ func TestSweepLeavesARecentlyCheckedSourceAlone(t *testing.T) {
 // The resurrection queue (slice 9c): its own cadence, its own candidate list, and the one piece of
 // evidence that the resurrection itself destroys.
 func TestSweepResurrectionsBringsBackADeadSourceThatAnswers(t *testing.T) {
+	fetchSourcesForTest(t)
 	db := dbtest.DB()
 	svc := content.NewService(queries.New(db), nil)
 	ctx := context.Background()
@@ -273,6 +278,7 @@ func TestSweepResurrectionsBringsBackADeadSourceThatAnswers(t *testing.T) {
 }
 
 func TestSweepResurrectionsLeavesARecentlyDeadSourceAlone(t *testing.T) {
+	fetchSourcesForTest(t)
 	db := dbtest.DB()
 	svc := content.NewService(queries.New(db), nil)
 	ctx := context.Background()
@@ -302,6 +308,7 @@ func TestSweepResurrectionsLeavesARecentlyDeadSourceAlone(t *testing.T) {
 // date it was last alive. The alternative -- resetting anything on a failed retry -- would slowly
 // erase the record that this link ever worked.
 func TestSweepResurrectionsKeepsAFailingSourceDead(t *testing.T) {
+	fetchSourcesForTest(t)
 	db := dbtest.DB()
 	svc := content.NewService(queries.New(db), nil)
 	ctx := context.Background()

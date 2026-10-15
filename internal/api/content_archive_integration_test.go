@@ -59,6 +59,7 @@ func archivedPair(t *testing.T, id uuid.UUID) (*string, *time.Time) {
 }
 
 func TestArchiveSourcesPreservesAGoneSourceAndRecordsBothColumns(t *testing.T) {
+	fetchSourcesForTest(t)
 	svc := content.NewService(queries.New(dbtest.DB()), nil)
 
 	url := "https://archive-test.invalid/" + uuid.Must(uuid.NewV4()).String()
@@ -87,6 +88,7 @@ func TestArchiveSourcesPreservesAGoneSourceAndRecordsBothColumns(t *testing.T) {
 // An archive is made once. A source that already has one is not submitted again -- the Internet
 // Archive is somebody else's service and resubmitting the same URL forever is a way to be uninvited.
 func TestArchiveSourcesDoesNotResubmitAnArchivedSource(t *testing.T) {
+	fetchSourcesForTest(t)
 	svc := content.NewService(queries.New(dbtest.DB()), nil)
 
 	url := "https://archive-test.invalid/" + uuid.Must(uuid.NewV4()).String()
@@ -107,6 +109,7 @@ func TestArchiveSourcesDoesNotResubmitAnArchivedSource(t *testing.T) {
 // has decided not to serve to a third party for permanent storage would be passing it around -- the
 // same reasoning that stops a mirror (slice 9d).
 func TestArchiveSourcesLeavesTakedownsAlone(t *testing.T) {
+	fetchSourcesForTest(t)
 	svc := content.NewService(queries.New(dbtest.DB()), nil)
 
 	url := "https://archive-test.invalid/" + uuid.Must(uuid.NewV4()).String()
@@ -125,6 +128,7 @@ func TestArchiveSourcesLeavesTakedownsAlone(t *testing.T) {
 // A refusal is a result about ONE url. The batch continues and reports it, because one host's
 // availability says nothing about the next one's.
 func TestArchiveSourcesReportsARefusalAndCarriesOn(t *testing.T) {
+	fetchSourcesForTest(t)
 	svc := content.NewService(queries.New(dbtest.DB()), nil)
 
 	first := "https://archive-test.invalid/" + uuid.Must(uuid.NewV4()).String()

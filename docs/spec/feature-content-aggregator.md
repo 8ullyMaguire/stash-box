@@ -25,6 +25,80 @@ so.
 
 ---
 
+## Respec 2026-10-15 — this programme builds a metadata engine, not a content plane
+
+Owner instruction 2026-10-15: *"disable/remove functionality like content aggregation and discussion
+board that can give trouble unless there's a way to build them to avoid many dmca's, keep identification
+board only."* The accompanying verdict is adopted as the reasoning, not just the instruction: aggregation
+aimed at the right problem by the wrong means. "Find the scene" is what a reader wants, and a metadata
+database nobody visits cannot deliver it — but a site that embeds, proxies, transcodes or hosts third-party
+content is the exact category that is DMCA'd out of existence, and one auto-scraped link to material that
+must never be indexed ends the project outright. §7.19 of the draft refused the content layer for the same
+reason, and this respec puts that refusal back.
+
+**What is REFUSED, and struck from the programme:**
+
+| Refused | Was | Why |
+|---|---|---|
+| Hosting, transcoding, the variant ladder, the five players, PWA offline caching, CDN/edge | phase 10 (media plane) | It is what makes an instance a HOST rather than a catalogue: immediate, existential legal exposure, a different product, and 100x the operations. None of it was ever built — `grep -rn "iframe\|<video\|transcod\|ffmpeg\|m3u8\|hls" internal/ graphql/` is empty. The one table that could be mistaken for a start on it, `content_item_media` (migration 117), holds only ADDRESSES: an editor records a work's renditions through `contentItemEdit` (a URL, a kind — `original`, `preview`, `stream`, `download`, `archive` — and dimensions) and the completeness score already reads the presence of those rows as evidence. No code serves, proxies or transcodes what it names, so it is a references table like `content_sources` and it STAYS: deleting it would silently change what "incomplete" means for a content item, which is a curation rule and not this respec's business. |
+| A general discussion board / forum | slice 8f | A moderation surface for spam, harassment and piracy links that scales with traffic, competing with Reddit and Discord for posts before this instance has the traffic to sustain either. Deferred indefinitely rather than built "because it is cheap". |
+
+**What is KEPT, and re-framed as REFERENCES rather than content.** Recording where a work came from,
+checking that the link still resolves, and reading a page's *metadata* to propose an edit (phases 1, 2, 3
+and 9) is a catalogue of pointers. That is the whole legal difference: the instance holds claims about
+works and the addresses of pages, and never a copy of a work. `content_sources` records a URL and its
+health; `ingest_queue` fetches a page to read a title and a performer list and proposes an edit, which a
+human still has to approve; `content_items` is metadata about non-video kinds, and a rendition URL an editor
+recorded is an address in the same sense `content_sources`' is. Nothing here holds bytes, and nothing here serves
+a work to a reader.
+
+**Every outbound request to a content source is gated OFF by default**, by one switch
+(`content_fetch_sources`, `internal/config`), because "which behaviours make this instance a scraper" is a
+legal posture and not a tuning knob — an operator turns it on deliberately, in writing, knowing what it
+means:
+
+- `internal/service/ingest/extract/http.go` — the page fetch the ingest pipeline performs;
+- `internal/service/content/health.go` — the health sweep's HEAD request to a source URL;
+- `internal/service/content/wayback.go` — Wayback "Save Page Now" submissions.
+
+The switch is enforced at BOTH ends: the cron jobs are not registered at all when it is off (so no tick
+can run, and the absence is logged once at startup naming the switch), the service entry points refuse
+with a named error, and `submitContentUrl` refuses, so nothing is queued for a drain that will never run.
+What it does NOT cover, named so nobody assumes it does: `internal/storage/favicon.go` (upstream's
+site-icon fetch, member-triggered, one icon for a metadata page), `internal/webhook` (this instance calling
+a URL an operator configured), `internal/service/federation/client.go` (peers the operator peered with) and
+`internal/sdbimport` (the directory importer). Those are pre-existing upstream or mesh behaviours, and the
+respec's claim is about **content sources**, which is what made the programme legally interesting.
+
+**Frame indexing: the hash, never the frame.** The draft's frame-level visual search is kept ONLY in the
+form that needs no content access: an opted-in Stash desktop client contributes perceptual hashes of its
+own keyframes, and the box clusters those hashes for duplicate detection and "is this the same scene from
+another source". No server-side video processing, no frame storage, no frame serving — the frames never
+leave the member's machine, which is also why it lands with the fingerprint service rather than with a
+media plane. **Read this as a decided direction and not a built feature: it is not built, and it is not a
+phase of this programme.** The broad version (CLIP-style visual similarity) stays refused: §7.25.7 is
+right that there is no ML stack here, and the text search is not exhausted.
+
+**The comments surface is NOT the board that was struck**, and the distinction is recorded so that neither a
+reader nor a future contributor reads "the discussion board is removed" as "commenting on an edit is
+removed": `EditComment` is anchored to an edit (or, through the fork's typed layer, to an entity), its
+kinds are a closed vocabulary whose output is an EDIT, and it is hidden and updated through the edit
+system's own moderation path. What the owner struck is a standalone board with its own public threads —
+a surface that needs humans for spam, harassment and piracy links, at a rate that scales with traffic.
+
+**The identification board is untouched, and it is what remains.** It is text, fingerprints and
+attribution — a member says "this is the scene you asked about" and the answer opens an edit. Nothing in
+this respec removes a single surface of it, and the local identification models the media-plane section
+used to carry (face matcher, image taggers) were already moved to
+`docs/spec/feature-04-identification-federation.md` §8, where they stay, under that feature's own rule
+that a model's output is a suggestion and never a link.
+
+**Consequence for the predicate:** phase 10 is removed from the plan rather than left "not started", so
+`goal-check.py`'s clause C8 counts the phases this programme actually intends to finish. A phase kept as a
+tombstone and counted is a goal nobody can complete.
+
+---
+
 ## 0. Priority — aggregation and discovery lead, and nothing else outranks them
 
 Owner instruction, 2026-10-14, after reading the first cut of this programme:
@@ -141,26 +215,26 @@ behaviour. "New" = nothing to extend. Phase numbers are §Phases in
 | §7.1–7.2 | ingestion from 8 source classes, pipeline | `sdbimport` only | 2 |
 | §7.3 | link health daemon, statuses, resurrection queue | none | 1, 9 |
 | §7.4 | performer archive/snapshots | performer profiles + `profile_snapshots`? no | 9 |
-| §7.5 | self-hosting, transcoding, tiered storage, CDN | `image` local/S3; no media | 10 |
+| §7.5 | self-hosting, transcoding, tiered storage, CDN | **refused by the respec** — the instance is a catalogue, not a host. `image` local/S3 stays: it is upstream's metadata-asset store | — |
 | §8.1–8.4 | 8 discovery modes, search language, trending/freshness | search + trending exist (migration 60) | 7 |
 | §8.5 | content DNA vector, similarity + explanations | elo + `performer_similar` | 7 |
 | §8.6 | taste profile, affinity table, For You | taste fingerprints via elo votes | 7 |
 | §8.7–8.8 | social discovery, serendipity engine | none | 7 |
 | §8.9 | "where I left off" | none | 7 |
 | §9.1 | typed comments that write metadata | `edit_comments` exist (on edits) | 8 |
-| §9.2 | forums | none, deliberately | 8 |
+| §9.2 | forums | **deferred by the respec** — a moderation surface that scales with traffic, competing with Reddit and Discord for posts | — |
 | §9.3 | playlists, fork, auto-update | `list` (107) | 8 (extend) |
 | §10 | T0–T3 tiers, warnings vs gates, onboarding wizard | denylist + access rules | 5 |
 | §11 | invite allocation, referrals, QR, seed cohorts | `InviteKey` only | 11 |
 | §12.1–12.5 | metadata federation, ontology sync, hash network, specialised instances | mesh §7.17/§7.18 is **ahead**; hash network new | 12 |
 | §12.6 | ActivityPub | none (rejected in the crosswalk) | 12 |
-| §13.1–13.5 | 5 players/viewers | collages only | 10 |
-| §14 | facial recognition, community ID, profile claiming | identification board; no face matching | 10 |
+| §13.1–13.5 | 5 players/viewers | **refused by the respec** — no player, no embed, no proxy. Reading *metadata* is a different surface and it is in: a comic's chapter list and page count are `content_item_chapters` (phase 3) | — |
+| §14 | facial recognition, community ID, profile claiming | identification board (untouched); local models live in `feature-04-identification-federation.md` §8, where a model's output is a suggestion | 4 (feature 04) |
 | §15.1–15.3 | REST+GraphQL API, integrations, exports | GraphQL, webhooks; no REST/RSS/exports | 13 |
 | §16 | anti-doomscroll design + transparency report | none | 16 |
 | §17 | CSAM/DMCA/age/consent policy, appeals, elected mods | **nothing** — see §5 | 14 |
 | §18 | premium, creator subs, ads, data licensing | none (MIT) | 15 |
-| §19 | service split, ES/Meili, vector store, NATS, MinIO, CDN | single Go binary, PG + pg_search | 7, 10 |
+| §19 | service split, ES/Meili, vector store, NATS, MinIO, CDN | single Go binary, PG + pg_search. MinIO and the CDN were the media plane's; the vector store is phase 7's | 7 |
 | §20 | UI: 5 key pages, mobile PWA, WCAG 2.1 AA | React SPA, 25 page dirs | 16 |
 | §21 | risk register | partial | 16 |
 | §22 | 6-phase roadmap | — | this plan |
@@ -176,7 +250,7 @@ not discover it as a surprise.
 
 | Reversal | Supersedes | Cost, stated plainly |
 |---|---|---|
-| **Content is hosted, proxied and transcoded** (media plane) | §7.19 "the P2P content layer — REJECTED" | Re-opens the legal surface the metadata/media split exists to avoid, and §7.18 gains real obligations. Phase 14's policy text must land **before** Phase 10's first byte is stored. |
+| **Content is hosted, proxied and transcoded** (media plane) — **REVERSED AGAIN, 2026-10-15: NOT BUILT** | §7.19 "the P2P content layer — REJECTED", which was right | The reversal was a mistake and the owner's own verdict is the argument: it re-opens the legal surface the metadata/media split exists to avoid, makes every scraped link an existential risk, and turns a metadata engine into a tube site. Phase 10 is struck from the plan, **the rendition table `content_item_media` STAYS** (a row is a URL an editor recorded, and the completeness score reads it — see the plan's respec section for how an earlier draft of this very sentence was wrong), and the cost of the reversal-now-reversed is that the draft's §13 and §7.5 parity items are answered "no" rather than "later". What it buys: an instance that holds claims and addresses, and never a copy of a work. |
 | **Money changes hands** (premium, creator subs, ads, data licensing) | MIT licence + §7.13 operator autonomy | The fork is MIT; a fork-level monetisation feature is not a licence change but it is a governance one. Modelled as per-operator config with the code open, and no feature is gated behind it (§18.2's "always free" list is adopted verbatim). |
 | **Sub-scores and reputation become visible** | `user.graphql`'s `@isUserOwner` "a user's standing is not other users' business" | The owner's draft makes them public (§5.2, §20.2). Phase 6 must decide per-field: level public, raw vote weights private. Leaving it undecided is what makes the two specs disagree. |
 | **Taste profiles are federated, not local-first** | §8.6 "storage: local_only" default | Mesh peering (§7.17.3) ranks peers *by* taste similarity, which needs the fingerprint server-side. Opt-in, with the local-only mode kept for members who decline. |
@@ -199,13 +273,16 @@ every clause passes. The programme is complete when:
 3. `docs/plan-verify.py` passes for every plan document, including this one's.
 4. Every phase has an integration test suite and a `scripts/verify-*.sh` database
    proof where the phase adds constraints.
-5. Each new dependency (yt-dlp, a face model, a vector store, ffmpeg) has a
-   record of the decision and a fallback, per the project's own habit of writing
-   down what it deliberately did not install.
+5. Each new dependency the programme still wants (a vector store; the identification
+   feature's local models) has a record of the decision and a fallback, per the project's own
+   habit of writing down what it deliberately did not install. **ffmpeg and yt-dlp are no
+   longer expected**: they were the media plane's, and the media plane is refused (respec,
+   2026-10-15).
 
 ## 6. Non-goals
 
-None of NexusXXX's functionality is dropped. What is explicitly *not* in this
-spec: rewriting `scene` into a `content_item`, breaking the Stash desktop app's
+Functionality IS dropped, by owner decision: **the content plane** (hosting, transcoding, the
+players, the PWA, any embed or proxy of a third party's content) and **a general discussion board**,
+for the reasons the respec section gives. What is explicitly *not* in this spec: rewriting `scene` into a `content_item`, breaking the Stash desktop app's
 GraphQL contract, and any phase beginning before its predecessors are green. The
 phase order is a dependency order, not a preference order.

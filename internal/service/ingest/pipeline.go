@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/stashapp/stash-box/internal/queries"
+	"github.com/stashapp/stash-box/internal/service/content"
 	"github.com/stashapp/stash-box/internal/service/ingest/extract"
 	"github.com/stashapp/stash-box/pkg/logger"
 )
@@ -76,6 +77,15 @@ func NewService(q *queries.Queries, extractor extract.Extractor) *Service {
 // target is the scene a reader submitted the URL FROM (a scene page's "add a source" form),
 // or nil for a bare URL submission. See migration 110 for why the row carries it.
 func (s *Service) Submit(ctx context.Context, rawURL string, target, submittedBy *uuid.UUID) (Submission, error) {
+	// The content-plane switch, asked FIRST -- before the URL is even normalised. The order
+	// matters and it is the same order the sweep uses: "this instance does not fetch" is a
+	// property of the server rather than a complaint about the URL, so a malformed URL submitted
+	// to a non-fetching instance is refused as a posture and not as a bad input. See
+	// internal/service/content/policy.go (respec, 2026-10-15).
+	if err := content.RequireFetching(); err != nil {
+		return Submission{}, err
+	}
+
 	normalized, err := NormalizeURL(rawURL)
 	if err != nil {
 		return Submission{}, fmt.Errorf("%w: %v", ErrInvalidURL, err)
@@ -136,6 +146,22 @@ func (s *Service) Drain(ctx context.Context, max int) (int, error) {
 }
 
 func (s *Service) process(ctx context.Context, job queries.IngestQueue) error {
+	// The content-plane switch, and the reason it is HERE rather than only in Submit: a row can
+	// exist from a time when fetching was on, or from a direct insert, and the function that
+	// fetches is the one that must refuse. Submit only stops new work arriving.
+	//
+	// THE REFUSAL IS RECORDED AND NOT RETURNED, which is this pipeline's own rule -- the queue row
+	// is the record of what happened. Returning it instead would leave the claimed row in
+	// 'running' forever and make Drain log "could not record the outcome", which would be a lie:
+	// the recording is what failed to happen, not the writing. Recorded as a TRANSIENT failure, so
+	// the row goes back to 'pending' with a backoff rather than being burned: the URL is fine and
+	// the operator's posture may change, and FailIngestJob's transient arm is exactly the shape for
+	// "the attempt did not succeed and will be made again" (its own comment: a host that timed out
+	// is not a host that refused -- here, an instance that does not fetch is not a URL that is gone).
+	if err := content.RequireFetching(); err != nil {
+		return s.recordExtractFailure(ctx, job, err)
+	}
+
 	// ---- The URL-level questions, asked BEFORE the network is touched ----------------
 	//
 	// The order is a policy decision and not a convenience, and implementing the takedown

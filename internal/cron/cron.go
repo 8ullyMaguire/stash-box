@@ -2,6 +2,7 @@ package cron
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/robfig/cron/v3"
@@ -285,6 +286,63 @@ func (c Cron) sweepContentSources() {
 	}
 }
 
+// scheduledJob is one job this instance runs on a schedule, NAMED so that "which jobs run here" is a
+// value a test can read rather than something only the scheduler knows.
+type scheduledJob struct {
+	Name string
+	Spec string
+	Run  func()
+}
+
+// contentPlaneJobs returns the jobs that make outbound HTTP requests to third-party content sources:
+// the ingest queue's drain and the health sweep. EMPTY when content_fetch_sources is off, which is
+// the default and the whole point of the 2026-10-15 respec
+// (docs/spec/feature-content-aggregator.md's respec section).
+//
+// EMPTY RATHER THAN A PER-TICK CHECK, and the difference is the design: a job that is not registered
+// cannot be called by anything -- not this file, not a future tick, not a refactor that loses the
+// `if` -- whereas a job that runs and returns immediately is one edit away from making requests
+// again. The absence is stated once, in Init, so an operator reading the log knows why the queue is
+// not moving.
+//
+// This is a SECOND enforcement of the rule the services enforce (internal/service/content's
+// RequireFetching), and the duplication is deliberate: the cron layer is where a request would come
+// from with nobody watching, and the services are where one would come from a caller this file has
+// never heard of. The condition is the same function, so the two cannot disagree.
+//
+// These are the only jobs in this file that touch a third party as a matter of posture. The vote
+// interval still does not control them: an operator who sets vote_cron_interval to "" to stop edit
+// processing does not stop anything here, and no longer means "stop fetching" either.
+//
+// The drain is bounded per tick, because a tick that drained an unbounded backlog would hold this
+// process's single cron slot for as long as the backlog took -- and every other job in this file
+// would wait behind it while fetching third-party pages.
+func contentPlaneJobs(c Cron) []scheduledJob {
+	if !config.GetContentFetchSources() {
+		return nil
+	}
+
+	return []scheduledJob{
+		{Name: "ingest-queue", Spec: "@every 1m", Run: c.processIngestQueue},
+		{Name: "content-sweep", Spec: "@every " + config.GetContentSweepInterval(), Run: c.sweepContentSources},
+	}
+}
+
+// register adds jobs to c and returns the names it registered, in order.
+//
+// Returning the names is what lets a test assert WHICH jobs an instance runs in either switch state
+// without reaching into the scheduler for a function it cannot name or compare.
+func register(c *cron.Cron, jobs []scheduledJob) ([]string, error) {
+	registered := make([]string, 0, len(jobs))
+	for _, job := range jobs {
+		if _, err := c.AddFunc(job.Spec, job.Run); err != nil {
+			return registered, fmt.Errorf("registering the %s job: %w", job.Name, err)
+		}
+		registered = append(registered, job.Name)
+	}
+	return registered, nil
+}
+
 func Init(fac service.Factory) {
 	c := cron.New()
 	cronJobs := Cron{fac}
@@ -341,16 +399,16 @@ func Init(fac service.Factory) {
 		}
 	}
 
-	// The aggregation intake queue's drain (docs/spec/feature-ingestion.md, plan phase 2).
-	//
-	// Bounded per tick, because a tick that drained an unbounded backlog would hold this
-	// process's single cron slot for as long as the backlog took -- and every other job in
-	// this file would wait behind it while fetching third-party pages.
-	//
-	// Errors are logged and swallowed, like every other job here: a failed drain is one
-	// minute of no progress, and the rows stay 'pending' (or back off) for the next tick.
-	_, err = c.AddFunc("@every 1m", cronJobs.processIngestQueue)
-	if err != nil {
+	// The content plane's two outbound jobs (docs/spec/feature-content-aggregator.md's respec
+	// section, 2026-10-15). They are registered ONLY when content_fetch_sources is on, and the
+	// scheduler is told why they are missing when it is off -- an operator whose queue is not
+	// moving should not have to read the source to find out that this is the reason.
+	contentJobs := contentPlaneJobs(cronJobs)
+	if len(contentJobs) == 0 {
+		logger.Infof("content_fetch_sources is off: this instance makes no outbound requests to content sources, " +
+			"so the ingest drain and the health sweep are NOT registered (see docs/spec/feature-content-aggregator.md)")
+	}
+	if _, err := register(c, contentJobs); err != nil {
 		panic(err.Error())
 	}
 
@@ -359,14 +417,6 @@ func Init(fac service.Factory) {
 	// got a new answer" is not a latency-sensitive event -- an hour-old match is still news. The
 	// interval is a knob because the cost is proportional to how many searches are subscribed.
 	_, err = c.AddFunc("@every "+config.GetSavedSearchNotifyInterval(), cronJobs.notifySavedSearches)
-	if err != nil {
-		panic(err.Error())
-	}
-
-	// The health sweep. Registered unconditionally, like the ingest drain, and for the reason the
-	// comment below the vote block gives: an operator who sets vote_cron_interval to "" to stop edit
-	// processing must not silently stop the sweep as well.
-	_, err = c.AddFunc("@every "+config.GetContentSweepInterval(), cronJobs.sweepContentSources)
 	if err != nil {
 		panic(err.Error())
 	}

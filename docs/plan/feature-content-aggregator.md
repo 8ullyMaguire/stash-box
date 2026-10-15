@@ -118,7 +118,129 @@ The two hard constraints survive this reordering intact:
 
 ---
 
+## Scope respec — 2026-10-15: a metadata engine, not a content plane
+
+Owner instruction 2026-10-15: *"disable/remove functionality like content aggregation and discussion
+board that can give trouble unless there's a way to build them to avoid many dmca's, keep identification
+board only."* The spec's respec section carries the reasoning and the parity-table consequences; this is
+what it does to THIS plan.
+
+**STRUCK: phase 10 (the media plane) is removed from the programme.** Hosting, transcoding, the variant
+ladder, the players, PWA offline caching and the CDN are what make an instance a HOST, and that is the
+category of site that is DMCA'd out of existence. **The identification half of the old phase 10 is not
+struck** — the face matcher and the image taggers were already specified in
+`docs/spec/feature-04-identification-federation.md` §8 with their build steps in that feature's plan, and
+they stay there, under that feature's rule that a model's output is a suggestion.
+
+**STRUCK: slice 8f (forums) is removed from phase 8.** A general discussion board is a moderation surface
+for spam, harassment and piracy links that scales with traffic, and it competes with Reddit and Discord
+for posts before this instance has the traffic to compete with either.
+
+**GATED: every outbound request to a content source is OFF by default.** One switch,
+`content_fetch_sources` in `internal/config` (default `false`), because "which behaviours make this
+instance a scraper" is a legal posture rather than a tuning knob. It covers exactly three call sites —
+the ingest page fetch (`internal/service/ingest/extract/http.go`), the health sweep's HEAD
+(`internal/service/content/health.go`) and Wayback submissions (`internal/service/content/wayback.go`) —
+and it is enforced at BOTH ends:
+
+- **The cron jobs are not registered at all when it is off**, so no tick can run, and startup logs once,
+  naming the switch, that they are absent. A per-tick check would leave the job registered and the
+  decision to one `if` that a later edit can drop; an unregistered job cannot run.
+- **The service entry points and `submitContentUrl` refuse with a named error**, so nothing is queued for
+  a drain that will never run and a member who pastes a URL is told why rather than watching a spinner.
+
+What the switch does NOT cover is named in the spec's respec section (`favicon`, `webhook`, the federation
+client, `sdbimport`) so nobody assumes it covers more than it does. **`content_item_media` STAYS, and the first draft of this section was WRONG about it** -- which is
+recorded here rather than quietly deleted, because the correction is the more useful artefact. The draft called
+it an unreferenced storage-plane table and dropped it in a migration; the integration suite refused the claim by
+name (`relation "content_item_media" does not exist`, in `TestCountIncompleteAgreesWithThePerEntityScore`). It is
+referenced twice over: the completeness score reads it (`internal/queries/sql/completion.sql`, as a 30-point
+"this item has no renditions" term) and an editor WRITES it through `contentItemEdit` /
+`CreateContentItemMedia`. That makes it a references table and not a media plane -- a row is a URL, a kind and
+dimensions, never bytes -- so it belongs with `scenes.origin`, `content_sources` and `content_items`, and deleting
+it would silently change what "incomplete" means for a content item, a curation rule this respec has no business
+changing. The lesson is the same one the plan's own verification rules keep producing: a claim that a thing is
+unreferenced is a MEASUREMENT, and a grep that was never run is not one.
+
+**A decided direction, not built: the frame HASH, never the frame.** Frame-level visual search survives
+only as an opted-in Stash client contributing perceptual hashes of its own keyframes, clustered by the
+fingerprint service for duplicate detection. No server-side video, no frame storage, no frame serving.
+CLIP-style visual similarity stays refused (§7.25.7's reasoning holds and the text search is not
+exhausted). It has no phase number here on purpose: it belongs with the fingerprint/identification work,
+and a decided direction with a phase number is a promise nobody made.
+
+**WHAT THE GUARD IS VERIFIED BY.** A switch is worth nothing as a comment, so this is the evidence, and the
+one number that matters is the survivors: **12 mutations, 12 killed, 0 survived**, every file restored and
+hash-verified after each.
+
+*Pure tests, 11 functions.* `internal/config/content_plane_test.go` (2): the switch is off in the SHIPPED
+default (the package-level `C` literal, which is what an instance runs with when no config file names the
+key) and the accessor reads its own field. `internal/service/content/policy_test.go` (4, one of them four
+subtests): off unless an operator turns it on; the refusal NAMES the key, because the reader who can act
+on it is the operator; EVERY entry point that can fetch refuses while it is off, driven with a POISONED
+checker and archiver that fail the test if they are consulted — "no request was made" is asserted and not
+inferred — and the refusal is ONE error value, matched with `assert.Same` rather than by its text. That
+table's service is a zero value on purpose: nil queries means a call that got past the guard panics here
+instead of quietly reading a database. `internal/cron/content_plane_test.go` (3): with the switch off the
+job list is EMPTY and the scheduler's entries are empty, because nothing registered is nothing that can
+run; with it on the names are exactly `ingest-queue` and `content-sweep` and the entry count matches
+(the one-sided version of this test would happily disable the sweep for everybody); an unparseable
+`content_sweep_interval` fails loudly, names the failing job, and reports the jobs registered before it;
+and the drain's cadence is `@every 1m`.
+
+*Wire tests, 2, in `internal/api/content_plane_integration_test.go`.* Refusal at the wire: the mutation
+returns an error naming the key and ZERO rows are queued — and then the SAME call with the switch on
+queues, which is the control, because a refusal test on its own passes on a broken harness. The other
+half is the one `Submit` cannot cover: a row queued while fetching was ON, drained while it is OFF — the
+extractor is never consulted, the row is RECORDED as a transient failure with the key in `last_error`, and
+`attempts` is 1. That last test is also why the refusal is recorded rather than returned: returning it
+would leave the claimed row in `running` and make `Drain` log "could not record the outcome", a lie about
+which half failed.
+
+*The ledger.* Switch ignored by the cron job list → `TestTheContentPlaneJobsAreAbsentUnlessFetchingIsOn`.
+`register` swallowing the `AddFunc` error → `TestTheSweepJobCarriesTheConfiguredInterval`. The shipped
+default flipped to on → `TestContentFetchingIsOffInTheShippedDefault`. The accessor reading the negation
+of its field, `RequireFetching` never refusing, and the guard removed from `Sweep`, from `CheckSource`,
+from `SweepResurrections` and from `ArchiveSources` separately → each reddened its own named test (the
+first two reddened their neighbours as well, which is what a shared rule looks like when it breaks).
+`Submit` no longer refusing → the wire refusal test, and the queue row reappears. The drain's guard
+removed → the poisoned extractor is consulted. The refusal RETURNED instead of recorded → the same test,
+on its `Drain` error. Every one of the four guards needed its own mutation to show it was doing anything;
+one mutation across the package would have proved only that the package fails as a whole.
+
+*The suites.* Unit: 47 packages, 0 failures. Integration, serial (`-p 1`), against a real Postgres: 50
+packages, 0 failures, and the `internal/api` package is `ok` with 762 test functions, 0 failures and 0
+skips. `gofmt -l internal/` clean and `go vet` clean with and without the `integration` tag.
+`docs/goal-check.py` C8 now reads **8 of 16 phases not done** (8, 11, 12, 13, 14, 15, 16, 17): phase 10
+is out of the count because it is out of the plan.
+
+*And one claim this work got WRONG, which the integration suite caught by name.* The first version of this
+section dropped `content_item_media` in a migration, on the strength of a grep for the table name that had
+never actually been run. The suite failed with `relation "content_item_media" does not exist` in
+`TestCountIncompleteAgreesWithThePerEntityScore`, because the completeness score reads it and
+`contentItemEdit` writes it. The table stays, the documents were corrected rather than the code quietly
+reverted, and the lesson is the plan's own: **a claim that a thing is unreferenced is a measurement.**
+
+**How this plan's phases are affected, in one table:**
+
+| Phase | Effect |
+|---|---|
+| 1, 2, 3 | Built and kept. Re-framed as REFERENCES: a source row is a URL and its health, and the ingest pipeline reads a page's metadata to propose an edit. Both outbound call sites are behind the switch. |
+| 5 | Kept. It gates what a reader may see of the metadata, which is now the only thing there is. |
+| 6, 7, 8 (8a-8e), 9 | Kept. 9 gains the gate on the health sweep and Wayback; 9's mirror resolution returns a LINK and never content, which is unchanged. |
+| 8f | **Removed** (forums). |
+| 10 | **Removed** (media plane). The identification models it pointed at live on in `feature-04`. |
+| 11, 12, 13, 15, 16, 17 | Unaffected. |
+| 14 | Kept, and its position CHANGES: it was "the precondition for storing anything", and nothing is stored now, so it is no longer a gate on phase 10. CSAM/DMCA/age/consent policy text and the appeals path are still wanted — the instance still holds links and claims, and a takedown still has to be enforceable — but it is no longer the phase that decides whether the programme may proceed at all. |
+
+---
+
 ## Phase 1 — the source layer (the aggregator's first brick) — **DONE**
+
+**GATED (2026-10-15 respec):** the source layer records a URL and its health and never content. Its one
+outbound call — the sweep's HEAD request — is behind `content_fetch_sources`, off by default, and the job
+is not even registered when the switch is off (see the respec section above).
+
 
 **Goal:** a scene can be a record of content that exists at a URL and nobody here
 owns, with the URL's health tracked. NexusXXX §3.2 `sources[]` + §7.3's status
@@ -175,6 +297,12 @@ scene query with that status; a duplicate URL for the same entity is rejected; a
 `dmca` source is not served to a `READ`-only caller.
 
 ## Phase 2 — ingestion pipeline — **DONE**
+
+**GATED (2026-10-15 respec):** the pipeline reads a page's METADATA to propose an edit and stores no bytes.
+Its page fetch is behind `content_fetch_sources`, off by default; the drain job is not registered when the
+switch is off, and `submitContentUrl` refuses with a named error rather than queueing work that will never
+run (`internal/api/resolver_mutation_content.go`).
+
 
 **Goal:** submit a URL and get a content record — NexusXXX §7.2's pipeline, §7.1's
 eight source classes, §3.3's dedup, §3.4's versioning.
@@ -263,7 +391,9 @@ completion, elo, lists, expected_totals, denylist) works unchanged.
 `content_items (id, kind varchar(20) not null check (kind in
 ('image','gallery','animation','text','audio','comic')), title, details,
 release_date, created_at, updated_at)` plus `content_item_chapters` for text/comic
-progress and `content_item_media` for variant URLs (Phase 10 fills it).
+progress and `content_item_media` for variant URLs — the last of which the respec keeps
+and phase 10 (REMOVED) was to fill; it is written today by `contentItemEdit` as a list of
+addresses, never bytes.
 
 **Verified, and corrected after doing it:** adding an `EntityType` member touches the
 completion vocabulary (four places, three of them SQL), the read surface, and every
@@ -1861,8 +1991,10 @@ part of the commit message.
 `timestamp`, `correction`, `request`, `review`) with **structured fields**, routed
 into an **edit** rather than writing metadata directly — §7.25.3's "a vote is
 evidence, never authority" is the rule that survives contact with the identification
-board. Forums (searchable, governance-gated), playlist extensions (fork, auto-update
-from a saved search, collaborative) on the existing `list` tables.
+board. Playlist extensions (fork, auto-update from a saved search, collaborative) on the
+existing `list` tables. **A general forum is NOT in this phase: it was slice 8f and it is removed
+from the programme by the 2026-10-15 respec** — a moderation surface that scales with traffic,
+competing with Reddit and Discord before this instance has the traffic to compete with either.
 
 **Verification:** a confirmed `performer_id` comment creates an edit, and applying
 that edit links the performer — the test asserts the *edit* exists, because the
@@ -2159,11 +2291,18 @@ collaboration; removing a collaborator leaves their entries; and the trail names
 write and both collaborator acts. At the wire: the mutations and the enum's new spellings, asserted by
 name.
 
-### Slice 8f — forums (NOT BUILT)
+### Slice 8f — forums (REMOVED FROM THIS PROGRAMME, 2026-10-15)
 
-Searchable, governance-gated. The largest remaining item in this phase by a distance: threads, posts,
-search over both, and a moderation surface. It should be its own phase-sized effort rather than a
-slice, and it is recorded here so that "phase 8 is finished" cannot be claimed while it is missing.
+**Struck by the owner's 2026-10-15 verdict, and recorded here so the removal is a decision rather than
+an omission.** It was the largest remaining item in this phase by a distance — threads, posts,
+search over both, and a moderation surface — and the verdict is that the moderation is the part
+that costs: metadata edits are moderated by the voting system this repo already has, while posts
+need humans for spam, harassment and piracy links, at a rate that scales with traffic.
+
+**If it is ever built, the constraint to start from is the same one the respec applies to lists:** the
+answer to "who may post where" must be a named, bounded set and not "anyone who can see it", or a
+single popular thread becomes an unmoderated public wall. That is not a design, it is the thing a
+design would have to beat.
 
 ### Slice 8b — confirming an identification routes into an edit (BUILT)
 
@@ -2250,6 +2389,13 @@ visible and refusable, where a comment recorded as confirmed with no edit behind
 nobody will look at again.
 
 ## Phase 9 — preservation at scale
+
+**GATED (2026-10-15 respec):** both of this phase's outbound behaviours — the health sweep and Wayback
+submission — are behind `content_fetch_sources`, off by default, with the jobs unregistered when the switch
+is off. **Mirror resolution is unchanged and is not gated**: `Scene.mirror` returns a `ContentSource`, which
+is a link and never content, and the phase's own rule that a takedown is not sent to a third party for
+permanent storage still holds.
+
 
 **Goal:** NexusXXX §7.3–§7.4 on top of Phase 1's status column: the health daemon
 (frequency by popularity × reliability), status transitions with the documented
@@ -2615,7 +2761,7 @@ re-applied by the harness), a failed fetch recorded anyway, and an unknown perfo
 dataloader like `Scene.sources` has. The slice's criterion is a round trip with its capture time, and
 the service does that; nothing reads snapshots over the API yet.
 
-## Phase 10 — media plane
+## Removed from this programme: the media plane (was phase 10)
 
 **Placed elsewhere (2026-10-14):** the local models this phase wants — a face matcher
 (StashFace ONNX / MegaFace) and image taggers (WD14 / pixai) — are specified as
@@ -2678,7 +2824,7 @@ fires on a named event; the export round-trips into Hydrus-shaped JSON; rate lim
 are enforced per the §15.1 table and a limit breach returns 429 with the same body
 shape as every other error.
 
-## Phase 14 — moderation and legal (policy text before Phase 10)
+## Phase 14 — moderation and legal (policy text; no longer a gate on a media plane)
 
 **Goal:** NexusXXX §17 — CSAM hash matching against NCMEC/IWF lists, DMCA with
 counter-notice and a registered agent, performer age verification as a precondition

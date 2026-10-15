@@ -153,6 +153,12 @@ func (c HTTPChecker) Check(ctx context.Context, url string) error {
 // The clock is an argument rather than time.Now() so that a test can age a source into `dead` without
 // waiting a week.
 func (s *Service) CheckSource(ctx context.Context, id uuid.UUID, now time.Time, checker Checker) (models.ContentSource, error) {
+	// The innermost guard, and the one that matters most: this is the function that calls the
+	// checker, so every path that reaches a third-party URL reaches it here. See policy.go.
+	if err := RequireFetching(); err != nil {
+		return models.ContentSource{}, err
+	}
+
 	source, err := s.queries.FindContentSourceByID(ctx, id)
 	if err != nil {
 		return models.ContentSource{}, fmt.Errorf("reading the source to check: %w", err)

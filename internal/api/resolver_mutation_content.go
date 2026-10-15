@@ -22,6 +22,12 @@ import (
 // before this function runs, so there is no string to validate here. That is the right
 // place for the check -- a bad id is a malformed REQUEST, and a GraphQL type error says so
 // without this resolver having to invent a message for it.
+//
+// WHEN THIS INSTANCE DOES NOT FETCH CONTENT SOURCES the refusal arrives as a GraphQL ERROR and not
+// as the resolved "invalid" value below, and the precedence is deliberate: an unusable URL is
+// something the caller can fix in the form, while "this instance does not fetch" is the server's
+// posture and no edit to the field would change it. A caller that showed it beside the URL field
+// would be blaming the input for a decision the operator made (respec, 2026-10-15).
 func (r *mutationResolver) SubmitContentURL(ctx context.Context, url string, sceneID *uuid.UUID) (*models.IngestSubmission, error) {
 	user := auth.GetCurrentUser(ctx)
 

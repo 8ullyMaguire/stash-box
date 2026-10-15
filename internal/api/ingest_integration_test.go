@@ -247,6 +247,7 @@ func seedFingerprint(t *testing.T, sceneID uuid.UUID, hash int64, algorithm stri
 // ---------------------------------------------------------------------------------
 
 func TestSubmitContentUrlAndDrainCreatesAnAggregateScene(t *testing.T) {
+	fetchSourcesForTest(t)
 	r := asEdit(t)
 	raw := "https://pipe.invalid/watch/one?utm_source=newsletter&fbclid=abc#t=30"
 	cleanupIngestFixtures(t, raw)
@@ -302,6 +303,7 @@ func TestSubmitContentUrlAndDrainCreatesAnAggregateScene(t *testing.T) {
 }
 
 func TestSubmitContentUrlTwiceIsADuplicateAndQueuesOneRow(t *testing.T) {
+	fetchSourcesForTest(t)
 	r := asEdit(t)
 	raw := "https://dup.invalid/a"
 	cleanupIngestFixtures(t, raw)
@@ -325,6 +327,7 @@ func TestSubmitContentUrlTwiceIsADuplicateAndQueuesOneRow(t *testing.T) {
 }
 
 func TestSubmitContentUrlRefusesAURLItCannotIngest(t *testing.T) {
+	fetchSourcesForTest(t)
 	r := asEdit(t)
 
 	for _, raw := range []string{
@@ -344,6 +347,7 @@ func TestSubmitContentUrlRefusesAURLItCannotIngest(t *testing.T) {
 }
 
 func TestSubmitContentUrlRequiresEdit(t *testing.T) {
+	fetchSourcesForTest(t)
 	for _, tc := range []struct {
 		name string
 		r    *testRunner
@@ -371,6 +375,7 @@ func TestSubmitContentUrlRequiresEdit(t *testing.T) {
 // a source" form, and it asserts two things a service test could not: that the instruction
 // survives the API, and that the pipeline does not overrule it.
 func TestANamedTargetBeatsThePipelinesOwnInference(t *testing.T) {
+	fetchSourcesForTest(t)
 	r := asEdit(t)
 	raw := "https://target.invalid/one"
 	cleanupIngestFixtures(t, raw)
@@ -415,6 +420,7 @@ func TestANamedTargetBeatsThePipelinesOwnInference(t *testing.T) {
 }
 
 func TestAMatchingFingerprintMergesIntoTheExistingScene(t *testing.T) {
+	fetchSourcesForTest(t)
 	r := asEdit(t)
 	raw := "https://merge.invalid/one"
 	cleanupIngestFixtures(t, raw)
@@ -462,6 +468,7 @@ func TestAMatchingFingerprintMergesIntoTheExistingScene(t *testing.T) {
 }
 
 func TestAURLAlreadyClaimedIsAttachedWithoutAFetch(t *testing.T) {
+	fetchSourcesForTest(t)
 	r := asEdit(t)
 	raw := "https://claimed.invalid/one"
 	cleanupIngestFixtures(t, raw)
@@ -491,6 +498,7 @@ func TestAURLAlreadyClaimedIsAttachedWithoutAFetch(t *testing.T) {
 }
 
 func TestAURLTakenDownIsRefusedRatherThanReAttached(t *testing.T) {
+	fetchSourcesForTest(t)
 	r := asEdit(t)
 	raw := "https://dmca.invalid/one"
 	cleanupIngestFixtures(t, raw)
@@ -540,6 +548,7 @@ func TestAURLTakenDownIsRefusedRatherThanReAttached(t *testing.T) {
 // ---------------------------------------------------------------------------------
 
 func TestAFetchFailureIsRecordedWithTheRightRetryPolicy(t *testing.T) {
+	fetchSourcesForTest(t)
 	tests := []struct {
 		name      string
 		extract   error
@@ -611,6 +620,7 @@ func TestAFetchFailureIsRecordedWithTheRightRetryPolicy(t *testing.T) {
 // against a table of Metadata could be passing while the extractor it ships never parses
 // anything at all.
 func TestTheRealExtractorIngestsARealPage(t *testing.T) {
+	fetchSourcesForTest(t)
 	r := asEdit(t)
 
 	page := `<!doctype html>
@@ -668,6 +678,7 @@ func TestTheRealExtractorIngestsARealPage(t *testing.T) {
 // unit test, but through the queue and into a status a person can read, which is where the
 // consequence lives.
 func TestTheRealExtractorReportsA404AsGoneAndAForbiddenAsUnsupported(t *testing.T) {
+	fetchSourcesForTest(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		// HasPrefix, not equality: the subtests below append an index to the path so that
 		// each run gets its own queue key, and an exact match here made every arm answer

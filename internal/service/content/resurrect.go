@@ -42,6 +42,12 @@ func ResurrectionInterval(claimants int) time.Duration {
 // It returns what it resurrected, because a resurrection is news: something this instance had recorded
 // as dead is serving again, and "which one, and how long was it gone" is the whole content of that.
 func (s *Service) SweepResurrections(ctx context.Context, now time.Time, limit int, checker Checker) ([]Resurrection, error) {
+	// A resurrection attempt is an HTTP request to a URL this instance recorded as dead, so it is
+	// behind the same switch as the sweep. See policy.go.
+	if err := RequireFetching(); err != nil {
+		return nil, err
+	}
+
 	candidates, err := s.queries.FindContentSourcesDueForResurrection(ctx, int32(limit))
 	if err != nil {
 		return nil, fmt.Errorf("reading the sources due for a resurrection attempt: %w", err)
