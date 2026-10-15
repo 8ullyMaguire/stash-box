@@ -4079,6 +4079,25 @@ outcome `granted`; `mod_audit` holds `SOURCE_APPEAL,SOURCE_APPEAL_DECISION` agai
 decision is refused by name; and the cleanup is BY NAME in foreign-key order with the residue read back as
 its own verdict (`accounts=0 blocks=0 appeals=0`, plus the operator's `api_key` restored byte-identically).
 
+**WHAT THE FIRST WALK RUN FOUND, because it is the pass's own best evidence that the walk was worth
+building.** Eight verdicts passed and one failed — `D1 the appeal is in the queue, pending` — with the
+response printed as `{'contentAppeals': [{'id': '-…', 'outcome': ''}]}`: a pending appeal serialised its
+outcome as an EMPTY STRING rather than null, in the deployed process. The cause was measured, not guessed:
+`models.ContentSourceAppeal` carried plain `Outcome string` / `DecisionNote string` / `DecidedAt time.Time`
+and three resolver methods reconstructed the nulls — but gqlgen only generates a resolver for a field whose
+model type does NOT already match the schema, so `ContentSourceAppealResolver` (the generated interface)
+never listed those three, the plain fields bound straight through, and the methods were DEAD CODE that Go
+does not complain about. Every test in this repository was green through it, because the tests read those
+fields through non-pointer structs of their own: `assert.Empty` passes for `null` and for `""` alike — the
+same absence-assertion-without-counting defect this programme has now recorded three times in other shapes.
+The fix moved the nulls into the TYPE (`*string`, `*time.Time`, copied in `AppealToModel`), deleted the three
+dead methods, and made the assertions distinguish: `appeal_integration_test.go` now reads the appeal's raw
+JSON (`rawAppeal`, `null` before the decision and the values after it — a PAIR, so the null cannot pass
+because the field is always null) and `appeal_test.go` asserts `Nil` where it used to assert `Empty`. A ninth
+probe in `scripts/mutate-appeal.py` re-creates the exact defect and must redden that read. **The walk paid for
+itself in its first run, and what it caught was not a missing feature but a wire contract the whole suite had
+been asserting around.**
+
 **What slice 2 deliberately does NOT do:** it does not render the transparency report (phase 16 renders the
 `mod_audit` rows), it does not add a second appeal per person per block (one is the policy), it does not
 notify anybody (no mail transport is configured on this instance, and a policy that promises a notification

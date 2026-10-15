@@ -204,9 +204,12 @@ func TestAPendingAppealReadsAsPending(t *testing.T) {
 	assert.Equal(t, filedBy.String(), uuid.UUID(appeal.FiledByID).String())
 	assert.Equal(t, blockedBy.String(), uuid.UUID(appeal.BlockedByID).String())
 	assert.Equal(t, filedAt, appeal.FiledAt)
-	assert.Empty(t, appeal.Outcome, "pending: no outcome, which the resolver reports as null")
-	assert.Empty(t, appeal.DecisionNote)
-	assert.True(t, appeal.DecidedAt.IsZero(), "and no decision time")
+	// NIL, not empty: the wire's null is a first-class claim about a pending appeal, and `assert.Empty`
+	// passes for an empty string too -- which is what the deployed instance actually sent before the model
+	// carried pointers (found by the live walk, not by this test, which is why it now distinguishes).
+	assert.Nil(t, appeal.Outcome, "pending: no outcome at all, which serialises as null")
+	assert.Nil(t, appeal.DecisionNote)
+	assert.Nil(t, appeal.DecidedAt, "and no decision time -- not the zero time, which a client would render")
 }
 
 // A decided appeal carries all four decision values, which is what the table's CHECK constraints guarantee
@@ -217,21 +220,25 @@ func TestADecidedAppealReadsAsDecided(t *testing.T) {
 	decidedAt := time.Now().UTC().Truncate(time.Microsecond)
 	note := "the notice named the wrong uploader"
 
+	outcome := AppealGranted
 	appeal := AppealToModel(queries.ContentSourceBlockAppeal{
 		ID:           id,
 		Kind:         "host",
 		Value:        "example.invalid",
 		Statement:    "please review",
 		DecidedByID:  uuid.NullUUID{UUID: decidedBy, Valid: true},
-		Outcome:      &[]string{"granted"}[0],
+		Outcome:      &outcome,
 		DecisionNote: &note,
 		DecidedAt:    pgtype.Timestamptz{Time: decidedAt, Valid: true},
 	})
 
-	assert.Equal(t, "granted", appeal.Outcome)
-	assert.Equal(t, note, appeal.DecisionNote)
+	require.NotNil(t, appeal.Outcome)
+	assert.Equal(t, AppealGranted, *appeal.Outcome)
+	require.NotNil(t, appeal.DecisionNote)
+	assert.Equal(t, note, *appeal.DecisionNote)
 	assert.Equal(t, decidedBy.String(), uuid.UUID(appeal.DecidedByID).String())
-	assert.Equal(t, decidedAt, appeal.DecidedAt)
+	require.NotNil(t, appeal.DecidedAt)
+	assert.Equal(t, decidedAt, *appeal.DecidedAt)
 	assert.Equal(t, modelsIDNilString(), uuid.UUID(appeal.BlockID).String(),
 		"a released block leaves no reference, and that nil is the model's honest statement about it")
 }

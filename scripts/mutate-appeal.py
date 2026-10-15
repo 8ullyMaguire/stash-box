@@ -22,6 +22,7 @@ POLICY = ROOT / "internal/api/routes_policy.go"
 
 UNIT = ["go", "test", "-count=1", "-run", "TheDeciderIsNeitherTheOperatorWhoBlockedNorTheMemberWhoFiled", "./internal/service/content/"]
 WIRE_IDENTITY = ["go", "test", "-tags", "integration", "-count=1", "-p", "1", "-run", "TestAnAppealIsDecidedBySomebodyWhoNeitherBlockedNorFiledIt", "./internal/api/"]
+WIRE_OUTLIVES = ["go", "test", "-tags", "integration", "-count=1", "-p", "1", "-run", "TestAGrantedAppealReleasesTheBlockAndTheAppealOutlivesIt", "./internal/api/"]
 WIRE_FILING = ["go", "test", "-tags", "integration", "-count=1", "-p", "1", "-run", "TestAnAppealNeedsALiveBlockAStatementAndOnePerMember", "./internal/api/"]
 WIRE_SURVIVES = ["go", "test", "-tags", "integration", "-count=1", "-p", "1", "-run", "TestAGrantedAppealReleasesTheBlockAndTheAppealOutlivesIt", "./internal/api/"]
 WIRE_DENIED = ["go", "test", "-tags", "integration", "-count=1", "-p", "1", "-run", "TestADeniedAppealLeavesTheBlockInForceAndTheDecisionRecorded", "./internal/api/"]
@@ -71,6 +72,14 @@ MUTATIONS = [
         old='"block_id" UUID REFERENCES "content_source_block" ("id") ON DELETE SET NULL,',
         new='"block_id" UUID REFERENCES "content_source_block" ("id") ON DELETE CASCADE,',
         cmd=WIRE_SURVIVES, expect_red="the wire test's survival read (the appeal would be gone)",
+    ),
+    dict(
+        name="a pending appeal reports an empty outcome instead of null (the defect the live walk found)",
+        path=APPEAL,
+        old="\tif row.Outcome != nil {\n\t\toutcome := *row.Outcome\n\t\tappeal.Outcome = &outcome\n\t}",
+        new="\t_ = row.Outcome\n\tempty := \"\"\n\tappeal.Outcome = &empty",
+        cmd=WIRE_OUTLIVES,
+        expect_red="the wire test's raw-JSON null read (the exact bytes the deployed instance sent)",
     ),
     dict(
         name="the policy stops promising the acknowledgement window",

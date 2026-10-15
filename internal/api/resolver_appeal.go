@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"errors"
-	"time"
 
 	"github.com/gofrs/uuid"
 
@@ -133,36 +132,15 @@ func (r *contentSourceAppealResolver) DecidedBy(ctx context.Context, obj *models
 	return appealUser(ctx, obj.DecidedByID)
 }
 
-// Outcome returns nil while the appeal is pending, because "" is not an outcome.
+// NO RESOLVERS FOR outcome, decision_note OR decided_at, and that is the fix rather than an omission.
 //
-// The model carries a plain string (the vocabulary is a CHECK constraint, not a Go enum), so the null has
-// to be reconstructed here: an undecided appeal has no outcome, and reporting an empty string would make
-// a client's `if (outcome)` test true for an appeal nobody has answered.
-func (r *contentSourceAppealResolver) Outcome(ctx context.Context, obj *models.ContentSourceAppeal) (*string, error) {
-	if obj.Outcome == "" {
-		return nil, nil
-	}
-	outcome := obj.Outcome
-	return &outcome, nil
-}
-
-// DecisionNote is the moderator's reasoning, null when they wrote none.
-func (r *contentSourceAppealResolver) DecisionNote(ctx context.Context, obj *models.ContentSourceAppeal) (*string, error) {
-	if obj.DecisionNote == "" {
-		return nil, nil
-	}
-	note := obj.DecisionNote
-	return &note, nil
-}
-
-// DecidedAt is when it was answered, null while pending -- for the same reason Outcome is.
-func (r *contentSourceAppealResolver) DecidedAt(ctx context.Context, obj *models.ContentSourceAppeal) (*time.Time, error) {
-	if obj.DecidedAt.IsZero() {
-		return nil, nil
-	}
-	decidedAt := obj.DecidedAt
-	return &decidedAt, nil
-}
+// The first version of this file had one method per nullable decision field, reconstructing each null from
+// the model's zero value. They were NEVER CALLED: gqlgen generates a resolver only for a field whose model
+// type does not already match the schema, so a plain `string` bound straight through and the three methods
+// were dead code -- which Go does not complain about, and which every test here passed, because the tests
+// read those fields through non-pointer structs of their own. The live walk found it in one verdict: a
+// pending appeal came back with `"outcome": ""`. The nulls now live in `models.ContentSourceAppeal` as
+// pointers, so there is no method to forget to call.
 
 // appealUser loads a user reference by id, or nil when there is none.
 //

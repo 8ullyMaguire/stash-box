@@ -166,9 +166,15 @@ def create_account(suffix):
     uid = psql(f"select id from users where name = '{name}'")
     if not uid:
         sys.exit(f"could not create {name}")
-    psql(f"update users set api_key = '{mint(uid)}' where id = '{uid}'")
+    # MINTED ONCE, and the SAME string is stored and presented. The server compares the presented key with
+    # the stored one, and `mint` stamps `iat`/`exp` from the clock -- so calling it twice returns two
+    # different tokens and the account's own key is refused. Measured: the first run of this walk reported
+    # every authenticated mutation as a failure with an EMPTY body, which is what a mismatched key looks
+    # like from a client.
+    key = mint(uid)
+    psql(f"update users set api_key = '{key}' where id = '{uid}'")
     psql(f"insert into user_roles (user_id, role) values ('{uid}', 'ADMIN')")
-    return uid, name, mint(uid)
+    return uid, name, key
 
 
 OPERATOR = psql(f"select id from users where name = '{OPERATOR_NAME}'")

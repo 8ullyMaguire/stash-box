@@ -30,15 +30,20 @@ import (
 // a line of code that never ran. Every decider below is an admin on purpose, so the only thing that can
 // refuse them is the rule under test.
 
+// POINTERS FOR EVERY DECISION FIELD, and the reason is the defect this suite MISSED once: with plain
+// strings, `assert.Empty` passes both for `null` and for `""`, so a deployed instance that serialised a
+// pending appeal's outcome as an empty string passed every test here. The live walk caught it. Pointers
+// make the two distinguishable, which is what the assertions below now rely on.
 type appealResult struct {
-	ID           string `json:"id"`
-	BlockID      string `json:"block_id"`
-	Kind         string `json:"kind"`
-	Value        string `json:"value"`
-	Statement    string `json:"statement"`
-	Outcome      string `json:"outcome"`
-	DecisionNote string `json:"decision_note"`
-	Released     bool   `json:"released"`
+	ID           string  `json:"id"`
+	BlockID      string  `json:"block_id"`
+	Kind         string  `json:"kind"`
+	Value        string  `json:"value"`
+	Statement    string  `json:"statement"`
+	Outcome      *string `json:"outcome"`
+	DecisionNote *string `json:"decision_note"`
+	DecidedAt    *string `json:"decided_at"`
+	Released     bool    `json:"released"`
 	FiledBy      *struct {
 		ID string `json:"id"`
 	} `json:"filed_by"`
@@ -50,7 +55,7 @@ type appealResult struct {
 	} `json:"decided_by"`
 }
 
-const appealFields = `id block_id kind value statement outcome decision_note released
+const appealFields = `id block_id kind value statement outcome decision_note decided_at released
 	filed_by { id } blocked_by { id } decided_by { id }`
 
 func fileContentAppeal(t *testing.T, r *testRunner, kind, value, statement string) (appealResult, error) {
@@ -116,6 +121,47 @@ func appealByID(t *testing.T, r *testRunner, id string) appealResult {
 	return found[0]
 }
 
+// rawAppeal reads an appeal from the moderator's queue WITHOUT a typed struct, so the assertions can be
+// about the BYTES a client receives. That distinction is the whole reason this helper exists: `null` and `""`
+// are the same thing to `assert.Empty` and different things to every client on the wire, and the deployed
+// instance was sending the empty string for every pending appeal while this suite was green.
+func rawAppeal(t *testing.T, r *testRunner, id string) map[string]any {
+	t.Helper()
+	var resp struct {
+		ContentAppeals []map[string]any `json:"contentAppeals"`
+	}
+	require.NoError(t, r.client.Post(`
+		query { contentAppeals(pending_only: false) { id block_id outcome decision_note decided_at } }
+	`, &resp))
+
+	found := []map[string]any{}
+	for _, appeal := range resp.ContentAppeals {
+		if appeal["id"] == id {
+			found = append(found, appeal)
+		}
+	}
+	require.Len(t, found, 1, "the appeal must be readable from the moderator's own surface")
+	return found[0]
+}
+
+// rawString reads a scalar out of a raw response map, dereferencing the pointer gqlgen's own client decodes
+// scalars into. Written after the first version of this assertion compared a `string` with a `*string` and
+// failed on a decision that HAD been recorded correctly -- a failure that names the code while describing the
+// decoder.
+func rawString(t *testing.T, value any) string {
+	t.Helper()
+	switch typed := value.(type) {
+	case string:
+		return typed
+	case *string:
+		require.NotNil(t, typed)
+		return *typed
+	default:
+		t.Fatalf("expected a string or *string in the raw response, got %T", value)
+		return ""
+	}
+}
+
 // createAdminUser makes another operator, which is what makes the identity rule testable at all: the rule
 // is a comparison between two DIFFERENT people, and the shared fixture has one admin.
 func createAdminUser(t *testing.T, name string) *models.User {
@@ -178,8 +224,22 @@ func TestAnAppealIsDecidedBySomebodyWhoNeitherBlockedNorFiledIt(t *testing.T) {
 	require.NotNil(t, appeal.BlockedBy, "who recorded the block is carried on the appeal, not read back later")
 	assert.Equal(t, userDB.admin.ID.String(), appeal.BlockedBy.ID,
 		"and it is the operator who recorded it -- the value the different-moderator rule compares against")
-	assert.Empty(t, appeal.Outcome, "a filed appeal is pending, and a pending appeal has no outcome")
+	assert.Nil(t, appeal.Outcome,
+		"a filed appeal is pending and reports NO outcome -- null, not an empty string, which a client's "+
+			"`if (outcome)` test would read as a decision. This assertion is the one the live walk had to teach: "+
+			"the deployed instance sent `\"outcome\": \"\"` for every pending appeal while this suite was green")
+	assert.Nil(t, appeal.DecidedAt, "and no decision time -- not the zero time, which renders as year 1")
 	assert.Nil(t, appeal.DecidedBy)
+
+	// THE WIRE, NOT THE STRUCT, and read as a PAIR on either side of the decision below. A pending appeal's
+	// decision fields must be JSON null: the field has to be PRESENT (a client checking for the key finds it)
+	// and its value has to be null rather than `""`, which reads as a decision to `if (outcome)`.
+	pendingRaw := rawAppeal(t, blocker, appeal.ID)
+	require.Contains(t, pendingRaw, "outcome", "the key is present, so a null is about absence of a decision")
+	assert.NotNil(t, pendingRaw["block_id"], "and the block it contests is named, because that block is live")
+	assert.Nil(t, pendingRaw["outcome"], `a pending appeal's outcome is null on the wire, not ""`)
+	assert.Nil(t, pendingRaw["decision_note"])
+	assert.Nil(t, pendingRaw["decided_at"])
 
 	// ARM 1: the operator who recorded the block.
 	_, err = decideContentAppeal(t, blocker, appeal.ID, "denied", "")
@@ -199,7 +259,7 @@ func TestAnAppealIsDecidedBySomebodyWhoNeitherBlockedNorFiledIt(t *testing.T) {
 	for _, candidate := range pending {
 		if candidate.ID == appeal.ID {
 			stillPending++
-			assert.Empty(t, candidate.Outcome)
+			assert.Nil(t, candidate.Outcome, "and it is still in the queue claiming no outcome")
 		}
 	}
 	require.Equal(t, 1, stillPending, "a refused decision must leave the appeal in the queue")
@@ -209,11 +269,20 @@ func TestAnAppealIsDecidedBySomebodyWhoNeitherBlockedNorFiledIt(t *testing.T) {
 	granted, err := decideContentAppeal(t, third, appeal.ID, "granted", "the notice named the wrong uploader")
 	require.NoError(t, err)
 	require.NotNil(t, granted.Outcome)
-	assert.Equal(t, "granted", granted.Outcome)
+	assert.Equal(t, "granted", *granted.Outcome)
 	require.NotNil(t, granted.DecidedBy)
 	assert.NotEqual(t, userDB.admin.ID.String(), granted.DecidedBy.ID)
 	assert.NotEqual(t, filerUser.ID.String(), granted.DecidedBy.ID)
-	assert.Equal(t, "the notice named the wrong uploader", granted.DecisionNote)
+	require.NotNil(t, granted.DecisionNote)
+	assert.Equal(t, "the notice named the wrong uploader", *granted.DecisionNote)
+	require.NotNil(t, granted.DecidedAt, "a decided appeal reports WHEN it was decided")
+
+	// The same reader, after the decision: the nulls above became the values, which is what makes the pair an
+	// assertion about THIS appeal rather than about a field that is always null.
+	decidedRaw := rawAppeal(t, third, appeal.ID)
+	assert.Equal(t, "granted", rawString(t, decidedRaw["outcome"]))
+	assert.Equal(t, "the notice named the wrong uploader", rawString(t, decidedRaw["decision_note"]))
+	assert.NotNil(t, decidedRaw["decided_at"], "and a decision time, which was null before the decision")
 	assert.True(t, granted.Released, "a granted appeal releases the block")
 
 	// AND ONLY ONCE. The first outcome is the outcome.
@@ -255,11 +324,17 @@ func TestAGrantedAppealReleasesTheBlockAndTheAppealOutlivesIt(t *testing.T) {
 	assert.NotEqual(t, block.Block.ID, again.Block.ID, "a new block, not the released one coming back")
 
 	// The appeal survived the block it named, and now reads as history.
+	// The reference is null ON THE WIRE too, not just in the row: the same raw reader as above, so a client
+	// that checks `if (block_id)` is told the block is no longer in force rather than shown a zero uuid.
+	releasedRaw := rawAppeal(t, moderator, appeal.ID)
+	assert.Nil(t, releasedRaw["block_id"], "a released block leaves the appeal's reference null on the wire")
+
 	survived := appealByID(t, moderator, appeal.ID)
 	assert.Empty(t, survived.BlockID, "the reference goes null when the block is deleted (ON DELETE SET NULL)")
 	assert.Equal(t, "url", survived.Kind, "and the appeal keeps the key: it still says what it was about")
 	assert.Equal(t, appeal.Value, survived.Value)
-	assert.Equal(t, "granted", survived.Outcome)
+	require.NotNil(t, survived.Outcome)
+	assert.Equal(t, "granted", *survived.Outcome)
 	require.NotNil(t, survived.BlockedBy,
 		"the blocker survives the block, which is what makes the rule enforceable on a pending appeal")
 	assert.Equal(t, userDB.admin.ID.String(), survived.BlockedBy.ID)
@@ -314,9 +389,10 @@ func TestADeniedAppealLeavesTheBlockInForceAndTheDecisionRecorded(t *testing.T) 
 	denied, err := decideContentAppeal(t, moderator, appeal.ID, "denied", note)
 	require.NoError(t, err)
 	require.NotNil(t, denied.Outcome)
-	assert.Equal(t, "denied", denied.Outcome)
+	assert.Equal(t, "denied", *denied.Outcome)
 	assert.False(t, denied.Released, "a denial releases nothing")
-	assert.Equal(t, note, denied.DecisionNote)
+	require.NotNil(t, denied.DecisionNote)
+	assert.Equal(t, note, *denied.DecisionNote)
 	assert.NotEmpty(t, denied.BlockID, "the block is still there, and the appeal still names it")
 
 	// The refusal is STILL IN FORCE, asserted where it counts: re-taking-down the same URL finds the

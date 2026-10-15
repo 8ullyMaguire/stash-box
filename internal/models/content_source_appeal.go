@@ -37,10 +37,19 @@ type ContentSourceAppeal struct {
 	// "decided with no outcome" and "granted by nobody" unrepresentable, so a half-decided appeal cannot be
 	// read from this struct either. Outcome is a string for the same reason Kind is (the vocabulary lives in
 	// the CHECK constraint until it needs to be a published enum).
-	DecidedByID  ID        `json:"decided_by_id"`
-	Outcome      string    `json:"outcome"`
-	DecisionNote string    `json:"decision_note"`
-	DecidedAt    time.Time `json:"decided_at"`
+	//
+	// POINTERS, AND NOT FOR STYLE. A pending appeal has no decision, and this struct is what the API
+	// serialises -- so the zero value of each field IS the answer a client reads. A plain string would make a
+	// pending appeal report `"outcome": ""`, which is a decision to any `if (outcome)` test, and a plain time
+	// would report a decision date in year 1. The first version of this file used plain values and three
+	// resolver methods to reconstruct the nulls; THE LIVE WALK SHOWED THE METHODS WERE NEVER CALLED (gqlgen
+	// only generates a resolver for a field whose model type does not already match the schema, and an
+	// ungenerated method is dead code Go does not complain about), so the nulls live in the type now, where
+	// nothing can skip them.
+	DecidedByID  ID         `json:"decided_by_id"`
+	Outcome      *string    `json:"outcome"`
+	DecisionNote *string    `json:"decision_note"`
+	DecidedAt    *time.Time `json:"decided_at"`
 
 	// Released reports whether a granted appeal actually removed a live block, which is a different fact
 	// from the outcome: a grant against a block somebody had already released changes nothing, and saying

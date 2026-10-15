@@ -345,14 +345,20 @@ func AppealToModel(row queries.ContentSourceBlockAppeal) models.ContentSourceApp
 	if row.DecidedByID.Valid {
 		appeal.DecidedByID = models.ID(row.DecidedByID.UUID)
 	}
+	// The three decision fields are copied as POINTERS, so a pending appeal serialises as null rather than
+	// as an empty string and a year-1 timestamp. A copy rather than the row's own pointer, because the row
+	// belongs to a scan buffer the caller may reuse.
 	if row.Outcome != nil {
-		appeal.Outcome = *row.Outcome
+		outcome := *row.Outcome
+		appeal.Outcome = &outcome
 	}
 	if row.DecisionNote != nil {
-		appeal.DecisionNote = *row.DecisionNote
+		note := *row.DecisionNote
+		appeal.DecisionNote = &note
 	}
 	if row.DecidedAt.Valid {
-		appeal.DecidedAt = row.DecidedAt.Time
+		decidedAt := row.DecidedAt.Time
+		appeal.DecidedAt = &decidedAt
 	}
 	return appeal
 }

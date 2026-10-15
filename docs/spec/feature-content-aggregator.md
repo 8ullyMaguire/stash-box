@@ -646,7 +646,11 @@ service's, by identity. `contentAppeals(pending_only, limit, offset)` is ADMIN a
 queue, because an appeal nobody can list is an appeal nobody answers. Every decision-derived field
 (`block_id`, `outcome`, `decision_note`, `decided_at`, `decided_by`) is NULLABLE and null until the moment it
 exists: a pending appeal that reported an empty-string outcome would read as a decision to any client's
-`if (outcome)` test. `kind` and `outcome` are STRINGS rather than enums, like `ContentSourceBlock.kind` and
+`if (outcome)` test. **The nulls live in the MODEL's types (`*string`, `*time.Time`), not in resolver
+methods** — the first implementation did the latter and the deployed instance sent `"outcome": ""`, because
+gqlgen only generates a resolver for a field whose model type does not already match the schema, so a method
+added beside an over-wide field is dead code the compiler cannot see. A wire contract that a client reads has
+to be in the type that carries it, and only a live read of the bytes shows which of the two a client gets. `kind` and `outcome` are STRINGS rather than enums, like `ContentSourceBlock.kind` and
 for its recorded reason — the closed vocabulary is a CHECK constraint today, and publishing a GraphQL enum
 before it settles makes every later addition a breaking schema change.
 
