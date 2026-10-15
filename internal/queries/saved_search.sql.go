@@ -12,10 +12,28 @@ import (
 	"github.com/gofrs/uuid"
 )
 
+const clearSavedSearchFeedToken = `-- name: ClearSavedSearchFeedToken :execrows
+UPDATE saved_searches SET feed_token_hash = NULL, updated_at = now()
+WHERE id = $1 AND user_id = $2
+`
+
+type ClearSavedSearchFeedTokenParams struct {
+	ID     uuid.UUID `db:"id" json:"id"`
+	UserID uuid.UUID `db:"user_id" json:"user_id"`
+}
+
+func (q *Queries) ClearSavedSearchFeedToken(ctx context.Context, arg ClearSavedSearchFeedTokenParams) (int64, error) {
+	result, err := q.db.Exec(ctx, clearSavedSearchFeedToken, arg.ID, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const createSavedSearch = `-- name: CreateSavedSearch :one
 INSERT INTO saved_searches (user_id, name, query, notify)
 VALUES ($1, $2, $3, $4)
-RETURNING id, user_id, name, query, notify, last_notified_at, created_at, updated_at
+RETURNING id, user_id, name, query, notify, last_notified_at, created_at, updated_at, feed_token_hash
 `
 
 type CreateSavedSearchParams struct {
@@ -42,6 +60,7 @@ func (q *Queries) CreateSavedSearch(ctx context.Context, arg CreateSavedSearchPa
 		&i.LastNotifiedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.FeedTokenHash,
 	)
 	return i, err
 }
@@ -78,7 +97,7 @@ func (q *Queries) DeleteSavedSearchMatchNotifications(ctx context.Context, saved
 }
 
 const findNotifyingSavedSearches = `-- name: FindNotifyingSavedSearches :many
-SELECT id, user_id, name, query, notify, last_notified_at, created_at, updated_at FROM saved_searches WHERE notify ORDER BY updated_at, id
+SELECT id, user_id, name, query, notify, last_notified_at, created_at, updated_at, feed_token_hash FROM saved_searches WHERE notify ORDER BY updated_at, id
 `
 
 // The notification job's read. Ordered oldest-updated first so that a run which cannot finish
@@ -101,6 +120,7 @@ func (q *Queries) FindNotifyingSavedSearches(ctx context.Context) ([]SavedSearch
 			&i.LastNotifiedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.FeedTokenHash,
 		); err != nil {
 			return nil, err
 		}
@@ -112,8 +132,49 @@ func (q *Queries) FindNotifyingSavedSearches(ctx context.Context) ([]SavedSearch
 	return items, nil
 }
 
+const findSavedSearchByFeedToken = `-- name: FindSavedSearchByFeedToken :one
+SELECT saved_searches.id, saved_searches.user_id, saved_searches.name, saved_searches.query, saved_searches.notify, saved_searches.last_notified_at, saved_searches.created_at, saved_searches.updated_at, saved_searches.feed_token_hash, users.name AS owner_name
+FROM saved_searches
+JOIN users ON users.id = saved_searches.user_id
+WHERE saved_searches.feed_token_hash = $1
+`
+
+type FindSavedSearchByFeedTokenRow struct {
+	ID             uuid.UUID  `db:"id" json:"id"`
+	UserID         uuid.UUID  `db:"user_id" json:"user_id"`
+	Name           string     `db:"name" json:"name"`
+	Query          string     `db:"query" json:"query"`
+	Notify         bool       `db:"notify" json:"notify"`
+	LastNotifiedAt *time.Time `db:"last_notified_at" json:"last_notified_at"`
+	CreatedAt      time.Time  `db:"created_at" json:"created_at"`
+	UpdatedAt      time.Time  `db:"updated_at" json:"updated_at"`
+	FeedTokenHash  *string    `db:"feed_token_hash" json:"feed_token_hash"`
+	OwnerName      string     `db:"owner_name" json:"owner_name"`
+}
+
+// The feed's ONLY lookup, and it is the token's hash that identifies the search. A JOIN rather than a
+// second round trip: the request has to run the search AS ITS OWNER (the filter can depend on who is
+// asking), so the owner's id and name come back with the row that named them.
+func (q *Queries) FindSavedSearchByFeedToken(ctx context.Context, feedTokenHash *string) (FindSavedSearchByFeedTokenRow, error) {
+	row := q.db.QueryRow(ctx, findSavedSearchByFeedToken, feedTokenHash)
+	var i FindSavedSearchByFeedTokenRow
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Name,
+		&i.Query,
+		&i.Notify,
+		&i.LastNotifiedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.FeedTokenHash,
+		&i.OwnerName,
+	)
+	return i, err
+}
+
 const findSavedSearchByUserAndName = `-- name: FindSavedSearchByUserAndName :one
-SELECT id, user_id, name, query, notify, last_notified_at, created_at, updated_at FROM saved_searches WHERE user_id = $1 AND name = $2
+SELECT id, user_id, name, query, notify, last_notified_at, created_at, updated_at, feed_token_hash FROM saved_searches WHERE user_id = $1 AND name = $2
 `
 
 type FindSavedSearchByUserAndNameParams struct {
@@ -133,12 +194,13 @@ func (q *Queries) FindSavedSearchByUserAndName(ctx context.Context, arg FindSave
 		&i.LastNotifiedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.FeedTokenHash,
 	)
 	return i, err
 }
 
 const findSavedSearchForUser = `-- name: FindSavedSearchForUser :one
-SELECT id, user_id, name, query, notify, last_notified_at, created_at, updated_at FROM saved_searches WHERE id = $1 AND user_id = $2
+SELECT id, user_id, name, query, notify, last_notified_at, created_at, updated_at, feed_token_hash FROM saved_searches WHERE id = $1 AND user_id = $2
 `
 
 type FindSavedSearchForUserParams struct {
@@ -158,13 +220,14 @@ func (q *Queries) FindSavedSearchForUser(ctx context.Context, arg FindSavedSearc
 		&i.LastNotifiedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.FeedTokenHash,
 	)
 	return i, err
 }
 
 const findSavedSearchesByUser = `-- name: FindSavedSearchesByUser :many
 
-SELECT id, user_id, name, query, notify, last_notified_at, created_at, updated_at FROM saved_searches WHERE user_id = $1 ORDER BY updated_at DESC
+SELECT id, user_id, name, query, notify, last_notified_at, created_at, updated_at, feed_token_hash FROM saved_searches WHERE user_id = $1 ORDER BY updated_at DESC
 `
 
 // Saved searches. Every read that a user can reach is scoped by user_id in the WHERE clause:
@@ -188,6 +251,7 @@ func (q *Queries) FindSavedSearchesByUser(ctx context.Context, userID uuid.UUID)
 			&i.LastNotifiedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.FeedTokenHash,
 		); err != nil {
 			return nil, err
 		}
@@ -218,6 +282,29 @@ func (q *Queries) SavedSearchNow(ctx context.Context) (time.Time, error) {
 	return column_1, err
 }
 
+const setSavedSearchFeedToken = `-- name: SetSavedSearchFeedToken :execrows
+
+UPDATE saved_searches SET feed_token_hash = $1, updated_at = now()
+WHERE id = $2 AND user_id = $3
+`
+
+type SetSavedSearchFeedTokenParams struct {
+	FeedTokenHash *string   `db:"feed_token_hash" json:"feed_token_hash"`
+	ID            uuid.UUID `db:"id" json:"id"`
+	UserID        uuid.UUID `db:"user_id" json:"user_id"`
+}
+
+// The feed token (plan slice 13b). Only the SHA-256 is ever written, and the WHERE clauses carry
+// user_id for the same reason every other write here does: a token is minted for one member's search,
+// and a statement that could touch somebody else's row is a statement one caller away from doing it.
+func (q *Queries) SetSavedSearchFeedToken(ctx context.Context, arg SetSavedSearchFeedTokenParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setSavedSearchFeedToken, arg.FeedTokenHash, arg.ID, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const setSavedSearchNotifiedAt = `-- name: SetSavedSearchNotifiedAt :exec
 UPDATE saved_searches SET last_notified_at = $1 WHERE id = $2
 `
@@ -236,7 +323,7 @@ const updateSavedSearch = `-- name: UpdateSavedSearch :one
 UPDATE saved_searches
 SET name = $1, query = $2, notify = $3, updated_at = now()
 WHERE id = $4 AND user_id = $5
-RETURNING id, user_id, name, query, notify, last_notified_at, created_at, updated_at
+RETURNING id, user_id, name, query, notify, last_notified_at, created_at, updated_at, feed_token_hash
 `
 
 type UpdateSavedSearchParams struct {
@@ -265,6 +352,7 @@ func (q *Queries) UpdateSavedSearch(ctx context.Context, arg UpdateSavedSearchPa
 		&i.LastNotifiedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.FeedTokenHash,
 	)
 	return i, err
 }

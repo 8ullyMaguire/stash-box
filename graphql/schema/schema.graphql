@@ -380,6 +380,17 @@ type Mutation {
   different things by it.
   """
   createSavedSearch(input: SavedSearchInput!): SavedSearch! @hasRole(role: READ)
+
+  """
+  Give one of your saved searches a feed URL, returned ONCE (plan slice 13b). Only its hash is
+  stored, so this is the only moment the address exists in the clear -- if it is lost, enable it
+  again to rotate: the previous URL stops working and a new one is returned. Disabling is
+  `disableSavedSearchFeed`.
+  """
+  enableSavedSearchFeed(id: ID!): String! @hasRole(role: READ)
+
+  "Stop serving this search as a feed. The URL that named it stops resolving, and is idempotent."
+  disableSavedSearchFeed(id: ID!): Boolean! @hasRole(role: READ)
   """Change a saved search's name, text or subscription. The id must be yours."""
   updateSavedSearch(input: SavedSearchUpdateInput!): SavedSearch! @hasRole(role: READ)
   """

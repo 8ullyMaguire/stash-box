@@ -3594,12 +3594,100 @@ and the walk says that rather than inventing a fixture. That skip is also the fi
 itself: its first version queried `scene_fingerprints.hash`, a column that does not exist, and printed "the
 scene has no fingerprints" -- a false statement about the instance dressed as a skip.
 
-### Slices 13b–13d — specified, not started, detail written when each starts
+### Slice 13b — a feed per saved search: a bearer in the URL, 404 rather than empty
 
-- **13b — RSS for a saved search.** A feed per saved search, validating against a feed parser. Constraint:
-  the feed carries what the search already returns and nothing a reader could not see signed in -- a feed
-  URL is a BEARER of access, so a saved search's visibility decides whether its feed exists at all, and a
-  private search's feed is 404 rather than empty.
+**The rule.** A saved search is a standing question, and a standing question is what a feed reader is for.
+So `GET /feeds/saved-search/<token>` renders that search's current matches as RSS 2.0. **The feed carries
+what the search already returns and nothing a reader could not see signed in**, and the two constraints that
+decide correctness are about the URL itself, because a feed URL is not an endpoint a client calls -- it is a
+**BEARER of access** pasted into a program the instance does not control.
+
+**The token is per search, and it is stored HASHED.** A feed reader sends no headers, so the credential has
+to be in the URL, and a URL lives in a reader's config file, in a proxy's log, and in the `Referer` of every
+link a reader clicks out of it. Three consequences, each a decision:
+
+| decision | why |
+|---|---|
+| a token PER SAVED SEARCH, not the member's API key | the blast radius of a leaked feed URL is one search, not the account. `users.api_key` is a header credential with full role authority; putting it in a URL would hand a password to a log file. |
+| only the SHA-256 is stored (`saved_searches.feed_token_hash`) | a database dump does not hand out feeds, and "we cannot show it again" becomes a FACT rather than a policy the schema contradicts. The URL is returned ONCE, by the mutation that mints it. |
+| enabling again ROTATES | a member who pasted their feed into a chat has one move that ends the exposure, and it is the same move as starting: enable. Disabling clears the hash, and the URL is dead. |
+
+**404 for every miss, never 401 or 403.** An unknown token, a token whose search was deleted, and a request
+naming nothing at all get the SAME 404, because 401 would confirm that the search exists and 403 would
+confirm it belongs to somebody else -- and an instance whose whole posture is one private catalogue should
+not answer questions about which searches exist to a stranger with a scanner. A VALID token whose search
+matches nothing today is a valid feed with zero items: that is a fact about the catalogue, not about the
+token, and a reader that got a 404 for it would drop the feed as broken.
+
+**The results are the OWNER'S OWN VIEW, computed on the owner's behalf.** The handler runs the stored text
+through the same `Scene.Query` path a live query takes, with the search's owner placed in the context
+(`auth.ContextUser`) exactly as `internal/service/savedsearch`'s notification job does. Without that, the
+filter would be evaluated for nobody -- and the query path reads the current user (`favorites:` means the
+OWNER's favourites, and the tier ceilings are keyed on the reader), so a feed is precisely the place where
+"which user" silently decides what comes back. A feed that showed more than the owner sees signed in would be
+a leak with a share button; one that showed less would be a feed that disagrees with the page it mirrors.
+
+**Headers, because the URL is the credential**: `application/rss+xml`, `X-Robots-Tag: noindex, nofollow` (a
+bearer on an indexed page is a public bearer), `Cache-Control: private, max-age=300` (a SHARED cache holding
+a bearer URL is a leak; the reader's own cache is the point of a feed), and -- the one that is easy to forget
+-- `Referrer-Policy: no-referrer`, since a reader clicking an item would otherwise send the token to the site
+it links to.
+
+**Item shape.** One `<item>` per match: `<guid isPermaLink="false">` is the SCENE ID (stable when a title
+changes), `<link>` is `<base>/scenes/<id>` (the frontend's own route), `<pubDate>` from `created_at`, and a
+`<description>` of the metadata the search page browses on -- studio, performers, date, duration. No
+enclosure, no media URL, no thumbnail: `scripts/check-no-content-plane.py` is right about this too, and a
+feed that embedded a frame would be the content plane with a polling schedule. The channel carries the
+search's NAME, its query TEXT (so a reader sees the question and not just an answer), and, when the run
+found nothing, the DIAGNOSTICS -- `internal/service/scene/query_language.go`'s reasons -- because an empty
+feed that will not say why is indistinguishable from a broken one.
+
+**Verification:** the document parses with `feedparser` on the deployed host (a real feed parser, not a
+regex); a token that was never minted is 404; a valid token with no matches is 200 with zero items and the
+reason in the channel; the owner's own search returns the scenes the owner sees; disabling makes the URL
+dead; enabling again makes the OLD URL dead and a new one live; and the three headers are present on the
+feed response and absent from the app's.
+
+**BUILT 2026-10-15.** Migration **140** (`saved_searches.feed_token_hash`, nullable, with a partial unique
+index -- the column's presence IS the switch, so no boolean can disagree with it) and
+`internal/service/savedsearch/feed.go` (mint, hash, rotate, clear, resolve-by-hash),
+`internal/feed/rss.go` (the document, pure: escaping and dates are the parts a reader is unforgiving about
+and the parts that need no database), `internal/api/routes_feed.go` (the handler, mounted in `routes_root.go`
+BEFORE the SPA catch-all), and the GraphQL surface `SavedSearch.feed_enabled` +
+`enableSavedSearchFeed`/`disableSavedSearchFeed` (the URL is returned by the mutation that mints it and by
+nothing else). **The base-URL rule is now ONE function** (`internal/api/baseurl.go`, configured `host_url`
+first and otherwise the address the request arrived at): the invitation link and the QR that encodes it were
+two callers, this is the third, and a third copy is how the link a member copies and the QR they show stop
+agreeing.
+**TWO FINDINGS, both from measuring rather than reasoning.** (1) **This instance's scenes carry no
+relations at all**: `scene_tags`, `scene_performers` and `scene.studio_id` are empty behind 1,104,375 scene
+rows, so a query-language term naming a tag, a performer or a studio matches NOTHING here. The walk's first
+version searched for a real tag and exited saying exactly that -- rather than reporting a green feed built
+from an empty result -- and now takes its fixture from a real TITLE (`text:<word>`, verified to return
+records before it is used) and prints the measured counts beside it. (2) **A mutation survived and it was
+the TEST's fault, not the code's**: removing the "no matches right now" message reddened nothing, because the
+only empty-feed test used an UNRESOLVABLE term, which takes the diagnostics branch instead. There are two
+kinds of empty and a reader sees them differently, so the test now covers both -- a term that cannot be
+applied (the channel carries the reason) and a term that resolves and matches nothing today (the channel
+says so plainly).
+EVIDENCE: **18 tests** -- 6 in `internal/feed` (a hostile title with `&`, `<script>` and quotes surviving as
+TEXT with the document still parsing; the RFC 822 date trap named, since `time.RFC1123` writes the word
+"UTC" where a numeric zone is required and an unreadable date loses a whole feed; an empty document still
+well-formed; the guid distinct from the link and declared non-permalink; order preserved), 4 pure in
+`internal/api` (a record with no title, no date or a zero duration not producing a row of separators), and
+**8 integration** (every miss is the same 404 -- status AND body; the stored value is the SHA-256 and the
+token is nowhere in the table; the feed's items ARE what `Scene().Query` returns for the same text as the
+owner; both kinds of empty; the three headers; rotation and disable; minting refused for somebody else's
+search). MUTATIONS: `scripts/mutate-saved-search-feed.py`, **9 probes, 9 KILLED** after two were fixed (one
+did not COMPILE -- a compile error is not a verdict, and the battery now says so rather than counting it --
+and one exposed the vacuous coverage above). THE LIVE WALK (`scripts/walk-13b-live.py`, **15 verdicts
+green**): the URL minted once and 43 characters of base64url; `savedSearches` carrying a boolean and no
+address while the row holds 64 hex characters that are not the token; `feedparser` reading the document as
+`rss20`; **the feed's guids equal `queryScenes`' ids for the same text, in order**; a token that was never
+minted answering 404 rather than the SPA's HTML (which is also what proves the mount sits before the
+catch-all); the three headers on the live response; disabling killing the URL and enabling again rotating it
+with the old one staying dead; and a cleanup that DELETES BY NAME and verifies the restore of the account's
+own api key.
 - **13c — the Hydrus-shaped export.** Round-trips back in. Constraint: an export is a rendering of records
   this instance holds, so it is the same read rule as the GraphQL surface, per-record, with takedown
   (`content_sources.status='dmca'`) and blocklist rows absent from it rather than annotated.

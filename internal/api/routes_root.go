@@ -40,6 +40,14 @@ func (rr rootRoutes) Routes(fac service.Factory) chi.Router {
 		fac: fac,
 	}.Routes())
 
+	// A saved search as a feed (phase 13 slice 13b). Registered BEFORE the SPA catch-all for the same
+	// reason the invitation page is: the application answers every other path, and a feed request that
+	// reached it would be handed HTML with a 200 -- a reader would report a parse failure rather than a
+	// missing feed.
+	r.Mount("/feeds/saved-search", feedRoutes{
+		fac: fac,
+	}.Routes())
+
 	// Serve static assets
 	r.HandleFunc("/assets/*", rr.assets)
 	r.HandleFunc("/favicon.ico", rr.assets)

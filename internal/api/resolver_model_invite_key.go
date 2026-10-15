@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 
-	"github.com/stashapp/stash-box/internal/config"
 	"github.com/stashapp/stash-box/internal/models"
 	"github.com/stashapp/stash-box/internal/qr"
 	"github.com/stashapp/stash-box/internal/service/invite"
@@ -22,27 +21,12 @@ import (
 // owner-directive; the field resolvers below cannot tell whom the object was fetched for.)
 type inviteKeyResolver struct{ *Resolver }
 
-// shareBaseURL is where a shared link points: the configured `host_url` when the operator has set
-// one, and otherwise the address this request arrived at.
-//
-// THE PRECEDENCE IS THE POINT, AND THE FALLBACK IS A MEASURED DECISION rather than a convenience. A
-// deployment with no `host_url` is the DEFAULT deployment, and on one of those the first version of
-// this resolver produced a link of the form "/invite/<code>" -- which ends with the right path, reads
-// correctly in a printout, and cannot be handed to anybody. Measured on the deployed instance.
-//
-// The reason to prefer the configured value is unchanged: a member who shares a link from a staging
-// hostname should not hand somebody a link that only works on staging. But the default has to produce
-// a USABLE link, and the request's own address is the only other one this process knows -- nginx
-// forwards `Host` and `X-Forwarded-Proto`, so on a proxied instance it is the address the member is
-// actually using, which is the address their invitee needs.
+// shareBaseURL is where a shared link points. The rule and its reasoning live in baseURL
+// (internal/api/baseurl.go), shared with the feed URLs in slice 13b: one function, because the link a
+// member copies and the link a QR encodes are the same string, and two implementations of "where does
+// this instance say it lives" is how they stop agreeing.
 func (r *inviteKeyResolver) shareBaseURL(ctx context.Context) string {
-	if configured := config.GetHostURL(); configured != "" {
-		return configured
-	}
-	if fromRequest, ok := ctx.Value(BaseURLCtxKey).(string); ok {
-		return fromRequest
-	}
-	return ""
+	return baseURL(ctx)
 }
 
 // Link is the address the key is shared as.

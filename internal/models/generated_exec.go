@@ -722,8 +722,10 @@ type ComplexityRoot struct {
 		DeleteEdit                        func(childComplexity int, input DeleteEditInput) int
 		DeleteSavedSearch                 func(childComplexity int, id uuid.UUID) int
 		DestroyDraft                      func(childComplexity int, id uuid.UUID) int
+		DisableSavedSearchFeed            func(childComplexity int, id uuid.UUID) int
 		EditComment                       func(childComplexity int, input EditCommentInput) int
 		EditVote                          func(childComplexity int, input EditVoteInput) int
+		EnableSavedSearchFeed             func(childComplexity int, id uuid.UUID) int
 		FavoritePerformer                 func(childComplexity int, id uuid.UUID, favorite bool) int
 		FavoriteStudio                    func(childComplexity int, id uuid.UUID, favorite bool) int
 		FederationPeerCreate              func(childComplexity int, input FederationPeerCreateInput) int
@@ -1181,6 +1183,7 @@ type ComplexityRoot struct {
 
 	SavedSearch struct {
 		Created      func(childComplexity int) int
+		FeedEnabled  func(childComplexity int) int
 		ID           func(childComplexity int) int
 		LastNotified func(childComplexity int) int
 		Name         func(childComplexity int) int
@@ -1812,6 +1815,8 @@ type MutationResolver interface {
 	FavoritePerformer(ctx context.Context, id uuid.UUID, favorite bool) (bool, error)
 	FavoriteStudio(ctx context.Context, id uuid.UUID, favorite bool) (bool, error)
 	CreateSavedSearch(ctx context.Context, input SavedSearchInput) (*SavedSearch, error)
+	EnableSavedSearchFeed(ctx context.Context, id uuid.UUID) (string, error)
+	DisableSavedSearchFeed(ctx context.Context, id uuid.UUID) (bool, error)
 	UpdateSavedSearch(ctx context.Context, input SavedSearchUpdateInput) (*SavedSearch, error)
 	DeleteSavedSearch(ctx context.Context, id uuid.UUID) (bool, error)
 	MarkNotificationsRead(ctx context.Context, notification *MarkNotificationReadInput) (bool, error)
@@ -4754,6 +4759,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.DestroyDraft(childComplexity, args["id"].(uuid.UUID)), true
+	case "Mutation.disableSavedSearchFeed":
+		if e.ComplexityRoot.Mutation.DisableSavedSearchFeed == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_disableSavedSearchFeed_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.DisableSavedSearchFeed(childComplexity, args["id"].(uuid.UUID)), true
 	case "Mutation.editComment":
 		if e.ComplexityRoot.Mutation.EditComment == nil {
 			break
@@ -4776,6 +4792,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.EditVote(childComplexity, args["input"].(EditVoteInput)), true
+	case "Mutation.enableSavedSearchFeed":
+		if e.ComplexityRoot.Mutation.EnableSavedSearchFeed == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_enableSavedSearchFeed_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.EnableSavedSearchFeed(childComplexity, args["id"].(uuid.UUID)), true
 	case "Mutation.favoritePerformer":
 		if e.ComplexityRoot.Mutation.FavoritePerformer == nil {
 			break
@@ -7921,6 +7948,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.SavedSearch.Created(childComplexity), true
+	case "SavedSearch.feed_enabled":
+		if e.ComplexityRoot.SavedSearch.FeedEnabled == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SavedSearch.FeedEnabled(childComplexity), true
 	case "SavedSearch.id":
 		if e.ComplexityRoot.SavedSearch.ID == nil {
 			break
@@ -14240,8 +14273,19 @@ type SavedSearch {
   notify: Boolean!
   created: Time!
   updated: Time!
-  """When the notification job last looked. Null means it has never run for this search."""
+  "When the notification job last looked. Null means it has never run for this search."
   last_notified: Time
+
+  """
+  Whether this search can be read as a feed (plan slice 13b).
+
+  The URL IS NOT HERE, and that is the design rather than an omission: only the token's hash is
+  stored, so the address is shown ONCE -- by ` + "`" + `enableSavedSearchFeed` + "`" + ` -- and this field is what a
+  settings screen needs to say "this search has a feed" or "it does not". Enabling again ROTATES the
+  token, which is the only remedy a member needs after pasting a feed somewhere, and disabling makes
+  the old URL resolve to nothing.
+  """
+  feed_enabled: Boolean!
 
   """
   Runs the stored query. The same path ` + "`" + `queryScenes` + "`" + ` takes, so a saved search cannot answer
@@ -16797,6 +16841,17 @@ type Mutation {
   different things by it.
   """
   createSavedSearch(input: SavedSearchInput!): SavedSearch! @hasRole(role: READ)
+
+  """
+  Give one of your saved searches a feed URL, returned ONCE (plan slice 13b). Only its hash is
+  stored, so this is the only moment the address exists in the clear -- if it is lost, enable it
+  again to rotate: the previous URL stops working and a new one is returned. Disabling is
+  ` + "`" + `disableSavedSearchFeed` + "`" + `.
+  """
+  enableSavedSearchFeed(id: ID!): String! @hasRole(role: READ)
+
+  "Stop serving this search as a feed. The URL that named it stops resolving, and is idempotent."
+  disableSavedSearchFeed(id: ID!): Boolean! @hasRole(role: READ)
   """Change a saved search's name, text or subscription. The id must be yours."""
   updateSavedSearch(input: SavedSearchUpdateInput!): SavedSearch! @hasRole(role: READ)
   """
@@ -18332,6 +18387,8 @@ func (ec *executionContext) childFields_SavedSearch(ctx context.Context, field g
 		return ec.fieldContext_SavedSearch_updated(ctx, field)
 	case "last_notified":
 		return ec.fieldContext_SavedSearch_last_notified(ctx, field)
+	case "feed_enabled":
+		return ec.fieldContext_SavedSearch_feed_enabled(ctx, field)
 	case "results":
 		return ec.fieldContext_SavedSearch_results(ctx, field)
 	}
@@ -19514,6 +19571,20 @@ func (ec *executionContext) field_Mutation_destroyDraft_args(ctx context.Context
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_disableSavedSearchFeed_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (uuid.UUID, error) {
+			return ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_editComment_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -19539,6 +19610,20 @@ func (ec *executionContext) field_Mutation_editVote_args(ctx context.Context, ra
 		return nil, err
 	}
 	args["input"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_enableSavedSearchFeed_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (uuid.UUID, error) {
+			return ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
 	return args, nil
 }
 
@@ -36475,6 +36560,130 @@ func (ec *executionContext) fieldContext_Mutation_createSavedSearch(ctx context.
 	return fc, nil
 }
 
+func (ec *executionContext) _Mutation_enableSavedSearchFeed(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_enableSavedSearchFeed(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().EnableSavedSearchFeed(ctx, fc.Args["id"].(uuid.UUID))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal string
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal string
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_enableSavedSearchFeed(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_enableSavedSearchFeed_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_disableSavedSearchFeed(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_disableSavedSearchFeed(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().DisableSavedSearchFeed(ctx, fc.Args["id"].(uuid.UUID))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal bool
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal bool
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_disableSavedSearchFeed(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_disableSavedSearchFeed_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Mutation_updateSavedSearch(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -49791,6 +50000,29 @@ func (ec *executionContext) _SavedSearch_last_notified(ctx context.Context, fiel
 }
 func (ec *executionContext) fieldContext_SavedSearch_last_notified(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("SavedSearch", field, false, false, errors.New("field of type Time does not have child fields"))
+}
+
+func (ec *executionContext) _SavedSearch_feed_enabled(ctx context.Context, field graphql.CollectedField, obj *SavedSearch) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SavedSearch_feed_enabled(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.FeedEnabled, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SavedSearch_feed_enabled(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SavedSearch", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
 func (ec *executionContext) _SavedSearch_results(ctx context.Context, field graphql.CollectedField, obj *SavedSearch) (ret graphql.Marshaler) {
@@ -73943,6 +74175,20 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "enableSavedSearchFeed":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_enableSavedSearchFeed(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "disableSavedSearchFeed":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_disableSavedSearchFeed(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "updateSavedSearch":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_updateSavedSearch(ctx, field)
@@ -80223,6 +80469,11 @@ func (ec *executionContext) _SavedSearch(ctx context.Context, sel ast.SelectionS
 		case "last_notified":
 			out.Values[i] = ec._SavedSearch_last_notified(ctx, field, obj)
 			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "feed_enabled":
+			out.Values[i] = ec._SavedSearch_feed_enabled(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "results":

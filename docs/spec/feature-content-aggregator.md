@@ -442,6 +442,55 @@ a link shared from a staging hostname must not send somebody to staging, but a d
 still produce a link somebody can be handed, and `host_url` alone produced a bare path; the QR is SVG
 geometry rendered server-side (`InviteKey.qr_svg`), verified by decoding back with an independent decoder.
 
+## 8. Interoperability: the read surfaces (phase 13)
+
+**The programme's interop is READ-ONLY, and both halves of it are decided by one question: what does the
+surface add?** Nothing, in both cases -- and that is the design, because a catalogue of references whose
+whole posture is one private graph is only as safe as its widest read path.
+
+**13a, the MCP server (`cmd/stash-box-mcp` + `internal/mcp`), is a SEPARATE PROCESS on stdio.** Every tool
+maps to a query that already exists and already carries `@hasRole(role: READ)`, so the slice adds no read path
+and no authority; the binary is launched by the client and talks to the instance's own GraphQL API with the
+operator's key, so the instance's authorization is the only authorization and there is nothing new listening.
+The published JSON schema is DERIVED from the validator's argument list -- a hand-written schema beside a
+hand-written checker is two descriptions of one rule, and its failure is a tool that advertises an argument it
+ignores, which answers a different question than the caller asked with nothing saying so. A GraphQL refusal is
+returned as a tool ERROR carrying the instance's own words, while `data.findScene: null` stays a successful
+absence: "no such scene" and "you are not authorized" are different answers and `isError` is what tells a
+client which it got. **A finding worth the slice: `FingerprintHash` is HEXADECIMAL read in base 16**, so a
+decimal rendering of the same number names a different fingerprint and comes back empty -- which reads exactly
+like "this instance has never seen this file". The repo paid an afternoon for that once; the tool refuses a
+non-hexadecimal hash naming base 16, and says the same in the description of the tool AND of the argument,
+because a tool a model calls has its description READ.
+
+**13b, a feed per saved search (`GET /feeds/saved-search/<token>`), is a bearer in a URL, and the token is
+designed for the place it has to live.** A feed reader sends no headers, so the credential is in the address
+-- which ends up in the reader's config file, in a proxy's log and in the `Referer` of every link clicked out
+of the feed. So: ONE token per saved search rather than the member's `api_key` (a leaked URL must cost one
+search, not an account); ONLY THE SHA-256 IS STORED (`saved_searches.feed_token_hash`, migration 140), which
+makes "that URL is shown once" a fact about the schema rather than a policy it contradicts; and enabling again
+ROTATES, so a member who pasted their feed somewhere has one remedy and it is the gesture they already know.
+**Every miss is the same 404** -- a token never minted, a token whose feed was disabled, a token whose search
+was deleted and a path that is not a token at all are one answer, body included, because 401 would confirm a
+search exists and 403 that it belongs to somebody else, and a private instance must not be a scanner for which
+searches exist. A valid token whose search matches nothing is a valid feed with zero items: that is a fact
+about the catalogue, not about the token, and a reader handed a 404 for it would drop the feed as broken. The
+records are the OWNER'S OWN VIEW -- the handler runs the stored text through the same query path a live query
+takes with the search's owner placed in the context, because that path reads the current user (`favorites:`
+means the OWNER's favourites; the rating ceilings are keyed on the reader), so a feed that ran as nobody would
+not merely be imprecise, it would fail. The response carries `X-Robots-Tag: noindex` (a bearer on an indexed
+page is a public bearer), `Cache-Control: private` (a shared cache would hand one member's search to the next
+caller) and `Referrer-Policy: no-referrer` (a reader clicking an item would otherwise send the token along with
+it). Items carry the record's id as a **non-permalink guid** -- a title changes and a host can move, and a
+reader keying on either would show the same record twice -- a link to the record, a `pubDate` in RFC 822 with a
+NUMERIC zone (`time.RFC1123` writes the word "UTC"; Go behaviour, unreadable date, whole feed gone), and a
+plain-text description of who is in it, who made it, when it came out and how long it is. No enclosure, no
+frame, no media URL: a feed that carried one would be the content plane with a polling schedule.
+
+**NOT built, and named rather than implied:** 13c's Hydrus-shaped export and 13d's rate limits are specified
+in the plan and not started, and there is still no REST surface, no user-facing export and no consuming of
+external MCP servers (that is a provider, per `feature-04-identification-federation.md` §8).
+
 **Counters are row counts, and the rows must OUTLIVE what they count.** A scan is a row, a signup is a row
 for the key, an activation is a row that was consumed; a member sees all three because "someone looked",
 "someone gave an address" and "someone joined" are three different facts, and only the last is a person.

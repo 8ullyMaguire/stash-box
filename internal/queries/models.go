@@ -725,6 +725,8 @@ type SavedSearch struct {
 	LastNotifiedAt *time.Time `db:"last_notified_at" json:"last_notified_at"`
 	CreatedAt      time.Time  `db:"created_at" json:"created_at"`
 	UpdatedAt      time.Time  `db:"updated_at" json:"updated_at"`
+	// SHA-256 (hex) of the token in this search's feed URL, or NULL for no feed. Only the hash is stored: a dump of this table does not hand out feeds, and the URL is shown once when it is minted (plan slice 13b).
+	FeedTokenHash *string `db:"feed_token_hash" json:"feed_token_hash"`
 }
 
 type Scene struct {

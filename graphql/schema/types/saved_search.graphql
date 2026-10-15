@@ -21,8 +21,19 @@ type SavedSearch {
   notify: Boolean!
   created: Time!
   updated: Time!
-  """When the notification job last looked. Null means it has never run for this search."""
+  "When the notification job last looked. Null means it has never run for this search."
   last_notified: Time
+
+  """
+  Whether this search can be read as a feed (plan slice 13b).
+
+  The URL IS NOT HERE, and that is the design rather than an omission: only the token's hash is
+  stored, so the address is shown ONCE -- by `enableSavedSearchFeed` -- and this field is what a
+  settings screen needs to say "this search has a feed" or "it does not". Enabling again ROTATES the
+  token, which is the only remedy a member needs after pasting a feed somewhere, and disabling makes
+  the old URL resolve to nothing.
+  """
+  feed_enabled: Boolean!
 
   """
   Runs the stored query. The same path `queryScenes` takes, so a saved search cannot answer

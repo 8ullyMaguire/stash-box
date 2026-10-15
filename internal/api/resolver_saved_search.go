@@ -7,6 +7,7 @@ import (
 
 	"github.com/stashapp/stash-box/internal/auth"
 	"github.com/stashapp/stash-box/internal/models"
+	"github.com/stashapp/stash-box/internal/service/savedsearch"
 )
 
 // Saved searches are personal data, so every one of these is scoped to the caller: the SERVICE
@@ -37,6 +38,29 @@ func (r *mutationResolver) UpdateSavedSearch(ctx context.Context, input models.S
 func (r *mutationResolver) DeleteSavedSearch(ctx context.Context, id uuid.UUID) (bool, error) {
 	currentUser := auth.GetCurrentUser(ctx)
 	return r.services.SavedSearch().Delete(ctx, currentUser.ID, id)
+}
+
+// EnableSavedSearchFeed hands back the ONE address a member's feed reader can use, and it is the last
+// time anybody sees it (slice 13b): only the token's hash is stored, so it cannot be re-derived. Losing
+// it is not a support case -- enabling again rotates the token, the old URL stops resolving, and a new
+// one comes back. Rotating is also the remedy after pasting a feed somewhere public, which is why the
+// two gestures being the same one is a design decision rather than a shortcut.
+//
+// The URL is built here rather than in the service because it is a property of THIS deployment: the same
+// configured-or-request-derived base the invitation links use, so a feed and an invite copied from the
+// same instance point at the same host.
+func (r *mutationResolver) EnableSavedSearchFeed(ctx context.Context, id uuid.UUID) (string, error) {
+	currentUser := auth.GetCurrentUser(ctx)
+	token, err := r.services.SavedSearch().EnableFeed(ctx, currentUser.ID, id)
+	if err != nil {
+		return "", err
+	}
+	return savedsearch.FeedURL(baseURL(ctx), token), nil
+}
+
+func (r *mutationResolver) DisableSavedSearchFeed(ctx context.Context, id uuid.UUID) (bool, error) {
+	currentUser := auth.GetCurrentUser(ctx)
+	return r.services.SavedSearch().DisableFeed(ctx, currentUser.ID, id)
 }
 
 // savedSearchResolver resolves what is computed rather than stored.

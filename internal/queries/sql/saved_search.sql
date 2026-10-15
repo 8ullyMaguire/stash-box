@@ -44,6 +44,27 @@ UPDATE saved_searches SET last_notified_at = @last_notified_at WHERE id = @id;
 -- name: SavedSearchNow :one
 SELECT now()::timestamp;
 
+-- The feed token (plan slice 13b). Only the SHA-256 is ever written, and the WHERE clauses carry
+-- user_id for the same reason every other write here does: a token is minted for one member's search,
+-- and a statement that could touch somebody else's row is a statement one caller away from doing it.
+
+-- name: SetSavedSearchFeedToken :execrows
+UPDATE saved_searches SET feed_token_hash = @feed_token_hash, updated_at = now()
+WHERE id = @id AND user_id = @user_id;
+
+-- name: ClearSavedSearchFeedToken :execrows
+UPDATE saved_searches SET feed_token_hash = NULL, updated_at = now()
+WHERE id = @id AND user_id = @user_id;
+
+-- The feed's ONLY lookup, and it is the token's hash that identifies the search. A JOIN rather than a
+-- second round trip: the request has to run the search AS ITS OWNER (the filter can depend on who is
+-- asking), so the owner's id and name come back with the row that named them.
+-- name: FindSavedSearchByFeedToken :one
+SELECT saved_searches.*, users.name AS owner_name
+FROM saved_searches
+JOIN users ON users.id = saved_searches.user_id
+WHERE saved_searches.feed_token_hash = @feed_token_hash;
+
 -- Notifications a saved search produced, found by the payload they carry. Deleting them with
 -- the search is not cosmetic: the notification list renders every unread row it returns, and a
 -- row naming a search that no longer exists has nothing to render.

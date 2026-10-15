@@ -800,6 +800,10 @@ func SavedSearchToModel(dbSavedSearch queries.SavedSearch) models.SavedSearch {
 		Created:      dbSavedSearch.CreatedAt,
 		Updated:      dbSavedSearch.UpdatedAt,
 		LastNotified: dbSavedSearch.LastNotifiedAt,
+
+		// The presence of the HASH is the whole answer to "does this search have a feed": there is no
+		// separate boolean to disagree with it, and the token itself is not stored (slice 13b).
+		FeedEnabled: dbSavedSearch.FeedTokenHash != nil,
 	}
 }
 

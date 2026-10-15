@@ -140,6 +140,7 @@ type Querier interface {
 	// author (issue #941 is the single-voter case; this guards the multi-voter
 	// one).
 	ClearDownvoteEditNotifications(ctx context.Context, id uuid.UUID) error
+	ClearSavedSearchFeedToken(ctx context.Context, arg ClearSavedSearchFeedTokenParams) (int64, error)
 	ClearScenePerformerAlias(ctx context.Context, arg ClearScenePerformerAliasParams) error
 	// Records that an identification comment was confirmed, and by which edit.
 	//
@@ -1163,6 +1164,10 @@ type Querier interface {
 	// Used by the upsert path to decide create-vs-update, and by the service to turn a
 	// duplicate submission into an update rather than a constraint error.
 	FindReviewByAuthorAndEntity(ctx context.Context, arg FindReviewByAuthorAndEntityParams) (Review, error)
+	// The feed's ONLY lookup, and it is the token's hash that identifies the search. A JOIN rather than a
+	// second round trip: the request has to run the search AS ITS OWNER (the filter can depend on who is
+	// asking), so the owner's id and name come back with the row that named them.
+	FindSavedSearchByFeedToken(ctx context.Context, feedTokenHash *string) (FindSavedSearchByFeedTokenRow, error)
 	FindSavedSearchByUserAndName(ctx context.Context, arg FindSavedSearchByUserAndNameParams) (SavedSearch, error)
 	FindSavedSearchForUser(ctx context.Context, arg FindSavedSearchForUserParams) (SavedSearch, error)
 	// Saved searches. Every read that a user can reach is scoped by user_id in the WHERE clause:
@@ -2615,6 +2620,10 @@ type Querier interface {
 	// granting and withdrawing it are different calls and neither can be an
 	// accidental side effect of the other.
 	SetReviewVerified(ctx context.Context, arg SetReviewVerifiedParams) (Review, error)
+	// The feed token (plan slice 13b). Only the SHA-256 is ever written, and the WHERE clauses carry
+	// user_id for the same reason every other write here does: a token is minted for one member's search,
+	// and a statement that could touch somebody else's row is a statement one caller away from doing it.
+	SetSavedSearchFeedToken(ctx context.Context, arg SetSavedSearchFeedTokenParams) (int64, error)
 	SetSavedSearchNotifiedAt(ctx context.Context, arg SetSavedSearchNotifiedAtParams) error
 	SetScenePerformerAlias(ctx context.Context, arg SetScenePerformerAliasParams) error
 	// Move a category under a parent, or promote it to top level with a NULL parent.

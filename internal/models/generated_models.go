@@ -2023,6 +2023,14 @@ type SavedSearch struct {
 	Updated time.Time `json:"updated"`
 	// When the notification job last looked. Null means it has never run for this search.
 	LastNotified *time.Time `json:"last_notified,omitempty"`
+	// Whether this search can be read as a feed (plan slice 13b).
+	//
+	// The URL IS NOT HERE, and that is the design rather than an omission: only the token's hash is
+	// stored, so the address is shown ONCE -- by `enableSavedSearchFeed` -- and this field is what a
+	// settings screen needs to say "this search has a feed" or "it does not". Enabling again ROTATES the
+	// token, which is the only remedy a member needs after pasting a feed somewhere, and disabling makes
+	// the old URL resolve to nothing.
+	FeedEnabled bool `json:"feed_enabled"`
 	// Runs the stored query. The same path `queryScenes` takes, so a saved search cannot answer
 	// differently from the statement it stores.
 	Results *SceneQuery `json:"results"`
