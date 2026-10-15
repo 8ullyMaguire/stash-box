@@ -185,12 +185,24 @@ try:
             "no note was routed into the tag list, which is where a file gets a tag per sentence")
 
     print("== E. an empty list is a list ==")
-    # This instance has no tag relations, so the tag list is where emptiness is visible.
-    if tags_n == 0:
-        verdict("E1", metadata.get("tags") == [],
-                "a record with no tags emits an empty list rather than null")
+    # A record this instance holds NOTHING about beyond its own row: no code, no date, no studio, no address.
+    # (The first version of this check read the target record's tag list and expected it empty "because the
+    # instance has no tag relations" -- and it is not empty: the code and the date ARE tags in this mapping,
+    # measured above as ['code:STAP-038', 'date:2024-11-28']. The check was asserting against a list that
+    # correctly had two entries, which is what a walk written from an assumption rather than a measurement
+    # does.)
+    BARE = psql("select s.id from scenes s where s.code is null and s.date is null and s.studio_id is null "
+                "and not exists (select 1 from scene_urls u where u.scene_id = s.id) limit 1")
+    if BARE:
+        bare_answer = graphql("query($ids: [ID!]!) { exportScenes(ids: $ids) { json record_count } }",
+                              {"ids": [BARE]})
+        bare_payload = (bare_answer.get("data") or {}).get("exportScenes") or {}
+        bare_metadata = (json.loads(bare_payload.get("json") or "{}").get(BARE) or {}).get("metadata", {})
+        verdict("E1", bare_payload.get("record_count") == 1
+                and bare_metadata.get("tags") == [] and bare_metadata.get("urls") == [],
+                f"a record the instance holds nothing about still emits LISTS: {bare_metadata}")
     else:
-        report("E1", f"not judged: this instance has {tags_n} tag relations, so a record's tag list is not empty")
+        report("E1", "not judged: no record on this instance is without a code, a date, a studio and an address")
 
     print("== F. an id that names nothing is omitted, and only in the envelope ==")
     NOWHERE = "00000000-0000-4000-8000-000000000000"
@@ -232,8 +244,11 @@ try:
                              "so the walk must be extended to submit the address and read the queue row")
 
 finally:
-    restored = psql(f"update users set api_key = '{SAVED_KEY}' where id = '{OPERATOR}'; "
-                    f"select api_key from users where id = '{OPERATOR}'")
+    # Two statements, two calls: `psql -tAc` with a compound string returns BOTH outputs, so the first version
+    # of this restore compared 'UPDATE 1\n<key>' against the key and reported a failure that had not
+    # happened. The restore is verified, and the verification has to be able to tell.
+    psql(f"update users set api_key = '{SAVED_KEY}' where id = '{OPERATOR}'")
+    restored = psql(f"select api_key from users where id = '{OPERATOR}'")
     if restored != SAVED_KEY:
         print(f"!! the account's key was NOT restored: {restored!r} != {SAVED_KEY!r}")
         FAILURES.append("cleanup")
