@@ -34,6 +34,12 @@ func (rr rootRoutes) Routes(fac service.Factory) chi.Router {
 		templates: fac.CropTemplates(),
 	}.Routes())
 
+	// A key's landing page (phase 11 slice 11c). Registered BEFORE the SPA catch-all below, which
+	// serves the application for every other path and would otherwise swallow the invitation.
+	r.Mount("/invite", inviteRoutes{
+		fac: fac,
+	}.Routes())
+
 	// Serve static assets
 	r.HandleFunc("/assets/*", rr.assets)
 	r.HandleFunc("/favicon.ico", rr.assets)

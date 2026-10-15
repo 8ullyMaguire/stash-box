@@ -106,6 +106,9 @@ func (r *Resolver) Vouch() models.VouchResolver {
 func (r *Resolver) User() models.UserResolver {
 	return &userResolver{r}
 }
+func (r *Resolver) InviteKey() models.InviteKeyResolver {
+	return &inviteKeyResolver{r}
+}
 func (r *Resolver) Query() models.QueryResolver {
 	return &queryResolver{r}
 }

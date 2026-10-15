@@ -327,7 +327,7 @@ behaviour. "New" = nothing to extend. Phase numbers are §Phases in
 | §9.2 | forums | **deferred by the respec** — a moderation surface that scales with traffic, competing with Reddit and Discord for posts | — |
 | §9.3 | playlists, fork, auto-update | `list` (107) | 8 (extend) |
 | §10 | T0–T3 tiers, warnings vs gates, onboarding wizard | denylist + access rules | 5 |
-| §11 | invite allocation, referrals, QR, seed cohorts | `InviteKey` + the level-derived allowance (11a), the referral payment (11b), the durable event journal and the three counters (11c: `invite_key_events` + `User.invite_stats`; the landing page and the QR remain) | 11 |
+| §11 | invite allocation, referrals, QR, seed cohorts | `InviteKey` + the level-derived allowance (11a), the referral payment (11b), the durable event journal, the three counters, the landing page and the QR (11c: `invite_key_events` + `User.invite_stats` + `GET /invite/<code>` + `InviteKey.link`/`qr_svg`) | 11 |
 | §12.1–12.5 | metadata federation, ontology sync, hash network, specialised instances | mesh §7.17/§7.18 is **ahead**; hash network new | 12 |
 | §12.6 | ActivityPub | none (rejected in the crosswalk) | 12 |
 | §13.1–13.5 | 5 players/viewers | **refused by the respec** — no player, no embed, no proxy. Reading *metadata* is a different surface and it is in: a comic's chapter list and page count are `content_item_chapters` (phase 3) | — |
@@ -431,6 +431,13 @@ activation token and an activation in the one that creates the account, in both 
 consumed — consuming the last use deletes the key, so that is the only moment both the referrer and the
 account are in hand. A kind with no events reads **0**, which is why the mapping starts every kind at zero
 and ignores a kind it does not know.
+
+**Built 2026-10-15: the landing page is `GET /invite/<code>`** — unauthenticated, records a visit and
+records nobody (a count, a kind and a time: no address, no agent, no cookie, no account), serves the SAME
+document and headers for a live, expired, spent or invented code (only the echo of what the visitor typed
+differs), and counts no visit to a key nobody could have used. The link it shares, the link the QR encodes
+and the path the router serves are one string built from `host_url` (`invite.LinkURL`); the QR is SVG
+geometry rendered server-side (`InviteKey.qr_svg`), verified by decoding back with an independent decoder.
 
 **Counters are row counts, and the rows must OUTLIVE what they count.** A scan is a row, a signup is a row
 for the key, an activation is a row that was consumed; a member sees all three because "someone looked",

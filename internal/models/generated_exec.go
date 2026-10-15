@@ -42,6 +42,7 @@ type ResolverRoot interface {
 	IdentificationQuery() IdentificationQueryResolver
 	Image() ImageResolver
 	ImageType() ImageTypeResolver
+	InviteKey() InviteKeyResolver
 	LeaderboardEntry() LeaderboardEntryResolver
 	List() ListResolver
 	ModAudit() ModAuditResolver
@@ -623,6 +624,8 @@ type ComplexityRoot struct {
 	InviteKey struct {
 		Expires func(childComplexity int) int
 		ID      func(childComplexity int) int
+		Link    func(childComplexity int) int
+		QRSVG   func(childComplexity int) int
 		Uses    func(childComplexity int) int
 	}
 
@@ -1674,6 +1677,10 @@ type ImageResolver interface {
 }
 type ImageTypeResolver interface {
 	CropTemplate(ctx context.Context, obj *ImageType) (*CropTemplate, error)
+}
+type InviteKeyResolver interface {
+	Link(ctx context.Context, obj *InviteKey) (string, error)
+	QRSVG(ctx context.Context, obj *InviteKey) (string, error)
 }
 type LeaderboardEntryResolver interface {
 	User(ctx context.Context, obj *LeaderboardEntry) (*User, error)
@@ -4157,6 +4164,18 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.InviteKey.ID(childComplexity), true
+	case "InviteKey.link":
+		if e.ComplexityRoot.InviteKey.Link == nil {
+			break
+		}
+
+		return e.ComplexityRoot.InviteKey.Link(childComplexity), true
+	case "InviteKey.qr_svg":
+		if e.ComplexityRoot.InviteKey.QRSVG == nil {
+			break
+		}
+
+		return e.ComplexityRoot.InviteKey.QRSVG(childComplexity), true
 	case "InviteKey.uses":
 		if e.ComplexityRoot.InviteKey.Uses == nil {
 			break
@@ -15571,6 +15590,20 @@ type InviteKey {
   id: ID!
   uses: Int
   expires: Time
+  """
+  The link this key is shared as (§11, phase 11 slice 11c). The same string the QR encodes and the
+  same one the router serves: a link that disagreed with its own QR code would be a QR code that
+  sends somebody somewhere else.
+  """
+  link: String!
+  """
+  The link, rendered as a QR code, as an SVG document.
+
+  A text document and not an image, deliberately: it needs no image pipeline, it can be inlined into
+  a page, and it is the member's own key (this field is only ever reached through ` + "`" + `invite_codes` + "`" + `,
+  which is owner-only) so nobody else's invitation is drawn here.
+  """
+  qr_svg: String!
 }
 
 type User {
@@ -17362,6 +17395,10 @@ func (ec *executionContext) childFields_InviteKey(ctx context.Context, field gra
 		return ec.fieldContext_InviteKey_uses(ctx, field)
 	case "expires":
 		return ec.fieldContext_InviteKey_expires(ctx, field)
+	case "link":
+		return ec.fieldContext_InviteKey_link(ctx, field)
+	case "qr_svg":
+		return ec.fieldContext_InviteKey_qr_svg(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type InviteKey", field.Name)
 }
@@ -29985,6 +30022,52 @@ func (ec *executionContext) _InviteKey_expires(ctx context.Context, field graphq
 }
 func (ec *executionContext) fieldContext_InviteKey_expires(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("InviteKey", field, false, false, errors.New("field of type Time does not have child fields"))
+}
+
+func (ec *executionContext) _InviteKey_link(ctx context.Context, field graphql.CollectedField, obj *InviteKey) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_InviteKey_link(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.InviteKey().Link(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_InviteKey_link(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("InviteKey", field, true, true, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _InviteKey_qr_svg(ctx context.Context, field graphql.CollectedField, obj *InviteKey) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_InviteKey_qr_svg(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.InviteKey().QRSVG(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_InviteKey_qr_svg(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("InviteKey", field, true, true, errors.New("field of type String does not have child fields"))
 }
 
 func (ec *executionContext) _InviteStats_scans(ctx context.Context, field graphql.CollectedField, obj *InviteStats) (ret graphql.Marshaler) {
@@ -70808,18 +70891,94 @@ func (ec *executionContext) _InviteKey(ctx context.Context, sel ast.SelectionSet
 		case "id":
 			out.Values[i] = ec._InviteKey_id(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "uses":
 			out.Values[i] = ec._InviteKey_uses(ctx, field, obj)
 			if out.Values[i] == graphql.RequiredNull {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "expires":
 			out.Values[i] = ec._InviteKey_expires(ctx, field, obj)
 			if out.Values[i] == graphql.RequiredNull {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
+		case "link":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._InviteKey_link(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "qr_svg":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._InviteKey_qr_svg(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}

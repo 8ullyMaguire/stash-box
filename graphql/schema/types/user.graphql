@@ -21,6 +21,20 @@ type InviteKey {
   id: ID!
   uses: Int
   expires: Time
+  """
+  The link this key is shared as (§11, phase 11 slice 11c). The same string the QR encodes and the
+  same one the router serves: a link that disagreed with its own QR code would be a QR code that
+  sends somebody somewhere else.
+  """
+  link: String!
+  """
+  The link, rendered as a QR code, as an SVG document.
+
+  A text document and not an image, deliberately: it needs no image pipeline, it can be inlined into
+  a page, and it is the member's own key (this field is only ever reached through `invite_codes`,
+  which is owner-only) so nobody else's invitation is drawn here.
+  """
+  qr_svg: String!
 }
 
 type User {

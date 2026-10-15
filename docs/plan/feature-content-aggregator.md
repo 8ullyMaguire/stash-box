@@ -3334,7 +3334,35 @@ swapped, each write site removed, and the resolver handing two counters out in t
 first aim at the mapping probe was a BUILD BREAK rather than a kill, and the notes are right that a
 mutation that does not compile is not a verdict: the re-aim swaps arms instead of dropping a variable.)
 
-**NOT BUILT, and named here rather than left to be discovered:** the **landing page** (`GET
+**BUILT 2026-10-15, the landing page and the QR (11c is complete).** `GET /invite/<code>` is mounted in
+`rootRoutes` BEFORE the SPA catch-all (a route registered after it is never reached -- measured by the
+first version of the test, which mounted the sub-router at the wrong path and 404ed on a working route),
+served unauthenticated because a link that needs an account is not shareable. It records the visit and
+then forgets it: a database error costs the member one uncounted scan and must NOT cost the invitee the
+invitation, so the page is served either way and the error is logged. THE PAGE CANNOT BE ASKED WHETHER A
+KEY IS GOOD: a live key, an expired key, a spent key and a code that was never a key get the same
+document, the same status and the same headers, and the only difference is the echo of what the visitor
+typed (which they already have, it is in their address bar). The document is a self-contained HTML
+constant with inline CSS -- no assets, so it renders before the application and works when the
+application cannot -- and it carries `X-Robots-Tag: noindex` and the existing `Referrer-Policy`, because
+a key in a search index is a key that is no longer private.
+
+**The rule the page spends is the SAME rule the signup path spends** (`invite.Unusable`, one function,
+two callers): expiry and exhaustion are the key's own facts, equally true on an instance that requires
+invites and on one that does not, and a rule asked twice is a rule answered differently eventually --
+which is 11b's own lesson, one layer down. The landing page asks it to decide whether a visit COUNTS; the
+signup path asks it to decide whether a signup is REFUSED.
+
+**The QR** (`internal/qr`, `InviteKey.link` + `InviteKey.qr_svg`): the link is built from the configured
+`host_url` and not from the request, because the code is rendered for a member to hand to somebody ELSE --
+a code rendered against whatever host happened to serve the request works for the person who asked and for
+nobody they showed it to. `link` and `qr_svg` come from ONE function (`invite.LinkURL`) for the reason the
+field exists: a QR that sends somebody somewhere other than the link printed beside it is worse than no QR,
+and two call sites building a URL is how that happens. The SVG is geometry in module units with a viewBox
+and one `<rect>` per RUN of dark modules, so it inlines into a page and stays a text document.
+
+**SUPERSEDED NOTE (the paragraph below was written before the two pieces were built and is kept for the
+record of what was decided when):** the **landing page** (`GET
 /invite/<code>`: unauthenticated, records the scan, and says what the instance is without ever revealing
 whether the key is valid or unused, so it cannot be used to probe for a live key -- and an expired or
 spent key gets the same page MINUS the scan row, which is what "a scan of an expired key is not counted"

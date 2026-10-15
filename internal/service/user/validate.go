@@ -13,6 +13,7 @@ import (
 	"github.com/stashapp/stash-box/internal/config"
 	"github.com/stashapp/stash-box/internal/models"
 	"github.com/stashapp/stash-box/internal/queries"
+	"github.com/stashapp/stash-box/internal/service/invite"
 	"github.com/stashapp/stash-box/pkg/utils"
 )
 
@@ -251,11 +252,10 @@ func validateInviteKey(ctx context.Context, tx *queries.Queries, inviteKey *uuid
 		return nil, err
 	}
 
-	// ensure invite key is not expired
-	if key.ExpireTime != nil && key.ExpireTime.Before(time.Now()) {
-		return nil, errors.New("invite key expired")
-	}
-
+	// THE KEY'S OWN FACTS ARE ASKED IN ONE PLACE (`invite.Unusable`), because the landing page asks the
+	// same question -- may this key be used? -- to decide whether a scan counts, and the same rule
+	// answered twice is the same rule answered differently eventually.
+	//
 	// A USE IS CONSUMED AT ACTIVATION, so a key with uses left may already have all of them
 	// committed by signups that have not activated yet. The pending tokens are what "already
 	// promised" looks like, and a key with one use and one pending activation has none left.
@@ -263,8 +263,8 @@ func validateInviteKey(ctx context.Context, tx *queries.Queries, inviteKey *uuid
 	if err != nil {
 		return nil, err
 	}
-	if key.Uses != nil && len(tokens) >= int(*key.Uses) {
-		return nil, errors.New("invite key used")
+	if err := invite.Unusable(&key, len(tokens), time.Now()); err != nil {
+		return nil, err
 	}
 
 	return &key, nil
