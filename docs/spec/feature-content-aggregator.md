@@ -327,7 +327,7 @@ behaviour. "New" = nothing to extend. Phase numbers are §Phases in
 | §9.2 | forums | **deferred by the respec** — a moderation surface that scales with traffic, competing with Reddit and Discord for posts | — |
 | §9.3 | playlists, fork, auto-update | `list` (107) | 8 (extend) |
 | §10 | T0–T3 tiers, warnings vs gates, onboarding wizard | denylist + access rules | 5 |
-| §11 | invite allocation, referrals, QR, seed cohorts | `InviteKey` + the level-derived allowance (11a) | 11 |
+| §11 | invite allocation, referrals, QR, seed cohorts | `InviteKey` + the level-derived allowance (11a) + the referral payment (11b) | 11 |
 | §12.1–12.5 | metadata federation, ontology sync, hash network, specialised instances | mesh §7.17/§7.18 is **ahead**; hash network new | 12 |
 | §12.6 | ActivityPub | none (rejected in the crosswalk) | 12 |
 | §13.1–13.5 | 5 players/viewers | **refused by the respec** — no player, no embed, no proxy. Reading *metadata* is a different surface and it is in: a comic's chapter list and page count are `content_item_chapters` (phase 3) | — |

@@ -271,6 +271,28 @@ func (q *Queries) FindUserWithRoles(ctx context.Context, id uuid.UUID) (FindUser
 	return i, err
 }
 
+const getUserInvitedBy = `-- name: GetUserInvitedBy :one
+SELECT invited_by FROM users WHERE id = $1
+`
+
+// Who invited this member, for the referral payment (plan phase 11 slice 11b).
+//
+// ONE COLUMN, deliberately: the payment needs exactly this fact, and reading a whole user row
+// to get it would make the referral depend on the shape of a row that belongs to another
+// service -- the coupling that makes a column rename break a package meant to know nothing
+// about it.
+//
+// NULL is the normal answer (an account an operator created has no inviter) and it is a
+// DIFFERENT answer from "invited by a named member", so it is read as a nullable uuid rather
+// than coalesced away. The column is ON DELETE SET NULL, so a deleted referrer is an absent
+// one: there is nobody left to pay, which is the truth rather than an error.
+func (q *Queries) GetUserInvitedBy(ctx context.Context, id uuid.UUID) (uuid.NullUUID, error) {
+	row := q.db.QueryRow(ctx, getUserInvitedBy, id)
+	var invited_by uuid.NullUUID
+	err := row.Scan(&invited_by)
+	return invited_by, err
+}
+
 const getUserNotificationSubscriptions = `-- name: GetUserNotificationSubscriptions :many
 SELECT type FROM user_notifications WHERE user_id = $1
 `

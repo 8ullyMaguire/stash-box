@@ -25,6 +25,15 @@ const (
 	KindQuestCompleted KindEnum = "quest_completed"
 	// KindReplicaHosted is a replica kept alive for mesh preservation.
 	KindReplicaHosted KindEnum = "replica_hosted"
+	// KindInviteActivated is one of this member's invitees reaching Registered:
+	// the referral payment's own event (plan phase 11 slice 11b).
+	//
+	// COUNTED, unlike KindBountyBonus, and the difference is the balance of the
+	// two questions: "how many people did this member bring in" is a fact about a
+	// member that nothing else answers, so it earns count x weight like every
+	// other contribution -- whereas a bounty is a magnitude attached to a quest
+	// that is already counted, so a count for it would double-credit the quest.
+	KindInviteActivated KindEnum = "invite_activated"
 	// KindBountyBonus is the EXTRA points an authored quest's bounty is worth,
 	// on top of the quest's own value.
 	//
@@ -52,6 +61,7 @@ var AllKinds = []KindEnum{
 	KindIdentificationSolved,
 	KindQuestCompleted,
 	KindReplicaHosted,
+	KindInviteActivated,
 	// KindBountyBonus is DELIBERATELY absent from AllKinds, and from
 	// PointsPerKind.
 	//
@@ -84,6 +94,16 @@ var PointsPerKind = map[KindEnum]int{
 	KindIdentificationSolved: 15,
 	KindQuestCompleted:       20,
 	KindReplicaHosted:        25,
+	// A referral is worth a finished curation quest, and that comparison is the
+	// argument for the number rather than the number itself: both are work whose
+	// result outlives the session that did it, and an invitee who reaches
+	// Registered has by definition made an applied contribution of their own.
+	//
+	// It is deliberately BELOW the 50 points that reach Contributor, so no single
+	// referral makes a Contributor out of a member who has contributed nothing --
+	// the referral is worth something only once it has already produced a real
+	// member, and it cannot substitute for being one.
+	KindInviteActivated: 20,
 }
 
 // LevelEnum is a trust tier (SPEC §6).
@@ -193,6 +213,8 @@ type Totals struct {
 	IdentificationSolves int
 	QuestsCompleted      int
 	ReplicasHosted       int
+	// InvitesActivated is how many of this member's invitees reached Registered.
+	InvitesActivated int
 	// BonusPoints is points earned from events that are not contributions of a
 	// countable kind -- currently a quest's bounty. Summed, not counted, because
 	// "a bounty is worth this much" is a total and not a tally.
@@ -212,6 +234,7 @@ func (t Totals) Points() int {
 		t.IdentificationSolves*PointsPerKind[KindIdentificationSolved] +
 		t.QuestsCompleted*PointsPerKind[KindQuestCompleted] +
 		t.ReplicasHosted*PointsPerKind[KindReplicaHosted] +
+		t.InvitesActivated*PointsPerKind[KindInviteActivated] +
 		// Added last and ADDITIVELY. A bounty is extra value for a quest already
 		// counted, so the quest's own weight is earned once by the count and the
 		// bounty is added on top. Folding the bounty into a multiplier here would

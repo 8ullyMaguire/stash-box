@@ -126,6 +126,7 @@ func (r *mutationResolver) SetContentViewingOptIn(ctx context.Context, enabled b
 		RejectedEdits:        totals.RejectedEdits,
 		IdentificationSolves: totals.IdentificationSolves,
 		QuestsCompleted:      totals.QuestsCompleted,
+		InvitesActivated:     totals.InvitesActivated,
 		ReplicasHosted:       totals.ReplicasHosted,
 		ContentViewingOptIn:  enabled,
 		CanViewContent:       canView,

@@ -2723,13 +2723,19 @@ type UserQueryInput struct {
 // independently of level, so a user can express the preference before they are
 // eligible. Both conditions must hold for access -- see SPEC section 6.
 type UserTrust struct {
-	Level                int  `json:"level"`
-	ApprovedEdits        int  `json:"approved_edits"`
-	RejectedEdits        int  `json:"rejected_edits"`
-	IdentificationSolves int  `json:"identification_solves"`
-	QuestsCompleted      int  `json:"quests_completed"`
-	ReplicasHosted       int  `json:"replicas_hosted"`
-	ContentViewingOptIn  bool `json:"content_viewing_opt_in"`
+	Level                int `json:"level"`
+	ApprovedEdits        int `json:"approved_edits"`
+	RejectedEdits        int `json:"rejected_edits"`
+	IdentificationSolves int `json:"identification_solves"`
+	QuestsCompleted      int `json:"quests_completed"`
+	ReplicasHosted       int `json:"replicas_hosted"`
+	// How many members this member invited who reached Registered.
+	//
+	// A count of PEOPLE, unlike the invite allowance on User, which is a count of
+	// slots: this is what the member's own referrals have produced, and it is what
+	// the referral payment is derived from (one payment per invitee, ever).
+	InvitesActivated    int  `json:"invites_activated"`
+	ContentViewingOptIn bool `json:"content_viewing_opt_in"`
 	// Whether this user may currently view content: level 4 or above AND opted in.
 	//
 	// Derived at read time rather than stored, because eligibility changes when a

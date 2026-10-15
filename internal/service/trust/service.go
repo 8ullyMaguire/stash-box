@@ -33,6 +33,17 @@ import (
 // that a threshold rebuild would then never see.
 var ErrUnknownKind = errors.New("unknown trust event kind")
 
+// ReferralFunc pays whoever invited a member, once that member reaches
+// Registered-or-above (plan phase 11 slice 11b).
+//
+// A FUNCTION rather than a field holding the referral service, because the
+// dependency runs one way only: the invite package needs trust.LevelEnum for the
+// invite allowance, so a trust that imported invite would be a cycle. The factory
+// closes the loop with a closure that resolves the referral lazily; and a nil
+// function means "this instance pays no referrals", which is what every existing
+// test constructs and what a deployment with the feature off gets.
+type ReferralFunc func(ctx context.Context, inviteeID uuid.UUID, level LevelEnum) error
+
 // Trust manages trust levels and the events that produce them.
 type Trust struct {
 	queries *queries.Queries
@@ -40,6 +51,8 @@ type Trust struct {
 	// now is injectable so tests can hold elapsed time still. The default is
 	// time.Now.
 	now func() time.Time
+	// referral is optional: nil means no referral payment is made at all.
+	referral ReferralFunc
 }
 
 // NewTrust creates a new trust service.
@@ -62,6 +75,13 @@ func (s *Trust) WithClock(now func() time.Time) *Trust {
 // WithTxn executes a function within a transaction.
 func (s *Trust) WithTxn(fn func(*queries.Queries) error) error {
 	return s.withTxn(fn)
+}
+
+// WithReferral attaches the referral payment, which is asked after every event
+// this service records through RecordEvent.
+func (s *Trust) WithReferral(fn ReferralFunc) *Trust {
+	s.referral = fn
+	return s
 }
 
 // ContentDenylist returns the per-entity content denylist as a rule.
@@ -134,6 +154,27 @@ func knownKind(k KindEnum) bool {
 // An unrecognised kind IS an error, but only after the event has been recorded,
 // so the audit trail keeps a kind this version does not understand.
 func (s *Trust) RecordEvent(ctx context.Context, event Event) (*queries.UserTrust, error) {
+	return s.record(ctx, event, true)
+}
+
+// RecordEventWithoutChain records an event that must NOT itself trigger a referral
+// payment (plan phase 11 slice 11b).
+//
+// This is where the referral chain's ONE-LEVEL DEPTH is enforced, and it is enforced
+// here rather than in the invite package because this is the only layer that can see
+// it: the payment is itself a trust event, so a payment that went through
+// RecordEvent would raise the referrer's level, and the referrer's own referrer would
+// be paid for it -- and a chain of accounts would pay every ancestor. The depth limit
+// is a property of the recorder, not of the payment.
+//
+// Everything else is identical: the delta check, the unknown-kind branch, the rollup
+// write and the policy. The kind it carries is an ordinary counted kind, so the
+// rollup and its rebuild read it like any other.
+func (s *Trust) RecordEventWithoutChain(ctx context.Context, event Event) (*queries.UserTrust, error) {
+	return s.record(ctx, event, false)
+}
+
+func (s *Trust) record(ctx context.Context, event Event, chain bool) (*queries.UserTrust, error) {
 	if event.Delta == 0 {
 		// A zero delta would insert a row that moves no counter, and would still
 		// occupy the dedup slot -- so a later real event for the same entity
@@ -152,10 +193,10 @@ func (s *Trust) RecordEvent(ctx context.Context, event Event) (*queries.UserTrus
 		return nil, ErrUnknownKind
 	}
 
-	return s.withRecordTx(ctx, event)
+	return s.withRecordTx(ctx, event, chain)
 }
 
-func (s *Trust) withRecordTx(ctx context.Context, event Event) (*queries.UserTrust, error) {
+func (s *Trust) withRecordTx(ctx context.Context, event Event, chain bool) (*queries.UserTrust, error) {
 	var out *queries.UserTrust
 	err := s.withTxn(func(tx *queries.Queries) error {
 		// ON CONFLICT DO NOTHING makes a duplicate report no rows, which
@@ -209,7 +250,45 @@ func (s *Trust) withRecordTx(ctx context.Context, event Event) (*queries.UserTru
 	}
 
 	updated, _, err := s.applyPolicy(ctx, out)
-	return updated, err
+	if err != nil {
+		return nil, err
+	}
+	if chain && s.referral != nil {
+		if err := s.payReferral(ctx, updated); err != nil {
+			return nil, err
+		}
+	}
+	return updated, nil
+}
+
+// payReferral asks the instance's referral payment whether this event completed an
+// invite.
+//
+// IT RUNS AFTER THE LEVEL IS WRITTEN and on the STORED level, which is the number the
+// instance shows the member, policy included: a member whose level the decay policy is
+// still holding down is not paid yet, and is paid at their next event once the window
+// closes. Reading the totals-derived level instead would pay a member whose level the
+// policy has taken away, which is a payment for standing they do not have.
+//
+// ONCE PER EVENT, not once per transition, and that is cheaper than it looks: the
+// payment's own dedup key -- the invitee, in the event log -- makes every call after
+// the first a no-op, so there is no transition state to keep and nothing to get wrong
+// when the level oscillates, which it does every time decay moves it.
+//
+// The LEVEL CHECK here is an optimisation, not the rule: it saves a database read on
+// every event by every member who has not reached Registered, and the rule itself
+// (eligibility, a named referrer, and the self-invite refusal) lives in the invite
+// package's DecideReferral, where it is table-tested without a database.
+//
+// An error from the payment is RETURNED rather than swallowed. The member's own event
+// is already committed, so a failure means "their contribution stands and the referrer
+// was not paid" -- a fact an operator needs to see, and the opposite of the silent
+// failure this repository keeps finding.
+func (s *Trust) payReferral(ctx context.Context, rollup *queries.UserTrust) error {
+	if rollup == nil || LevelEnum(rollup.Level) < LevelRegistered {
+		return nil
+	}
+	return s.referral(ctx, rollup.UserID, LevelEnum(rollup.Level))
 }
 
 // toRecordParams converts an Event into the generated query parameters.
@@ -345,6 +424,7 @@ func totalsOf(rollup *queries.UserTrust) Totals {
 		IdentificationSolves: rollup.IdentificationSolves,
 		QuestsCompleted:      rollup.QuestsCompleted,
 		ReplicasHosted:       rollup.ReplicasHosted,
+		InvitesActivated:     rollup.InvitesActivated,
 		BonusPoints:          rollup.BonusPoints,
 	}
 }
@@ -466,6 +546,7 @@ func (s *Trust) TotalsFor(ctx context.Context, userID uuid.UUID) (Totals, error)
 		IdentificationSolves: rollup.IdentificationSolves,
 		QuestsCompleted:      rollup.QuestsCompleted,
 		ReplicasHosted:       rollup.ReplicasHosted,
+		InvitesActivated:     rollup.InvitesActivated,
 		// Carried across, and it has to be: a quest's bounty is in this field
 		// and in no other, so a Totals that dropped it would report a curator
 		// with the right counts and the wrong score, and the two would disagree

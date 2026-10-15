@@ -3085,7 +3085,92 @@ cheapest way to farm this.
 **Verification:** an invitee at 0 points pays nothing; the same invitee after one applied edit (10 points →
 Registered) pays exactly once; a second contribution pays nothing more; a level that decays below
 Registered and climbs back pays nothing; a self-invited account pays nothing; a grand-invitee's activation
-pays the grandparent nothing (one level of depth, asserted by identity).
+pays the grandparent nothing (one level of depth, asserted by identity); and a SECOND invitee by the same
+referrer is a second payment, which is the assertion that tells a key keyed to the invitee from one keyed
+to the referrer.
+
+**BUILT 2026-10-15. What it turned out to be.** `invite_activated` joins `AllKinds`, `PointsPerKind` (20 --
+the weight of a finished quest, and below the 50 that reaches Contributor), the rollup column
+(`user_trust.invites_activated`, migration 137) and both of that column's writers, so the payment is
+count × weight and the count is a fact a member can read. The payment is `invite.Referral`: a PURE
+`DecideReferral(level, invitee, invitedBy) Outcome` with four named answers (not-yet-eligible, no referrer,
+SELF-INVITED, credited), and a `Settle` that reads one column through `GetUserInvitedBy` and records the
+event for the referrer. It is reached through `Trust.WithReferral`, a FUNCTION rather than a field, because
+the invite package already needs `trust.LevelEnum` for the allowance and a field would be an import cycle;
+the factory closes the loop with a closure that resolves the referral at call time.
+
+**The depth rule lives in the recorder, not in the payment.** `RecordEventWithoutChain` is the same write
+path with the referral hook disabled, and the payment goes through it. That is what makes the chain one
+level deep: the payment is itself a trust event, so a payment recorded through `RecordEvent` would raise
+the referrer's level, and THEIR referrer would be paid for it -- a chain of accounts paying every ancestor.
+No layer above the recorder can express that, which is why the flag is there and not in the invite package.
+
+**AND THE FINDING THAT WOULD HAVE MADE ALL OF IT INERT.** `users.invited_by` was written ONLY when
+`require_invite` was on, while `InviteKeyUsed` consumes the key's use at activation on EVERY instance -- so
+on the default configuration a signup that carried a key spent the key and recorded nobody, and the
+referral payment built on that column would have been a feature that pays nothing, on every instance that
+does not require invites, with no error and nothing to notice it by. This instance does not require
+invites, and neither does the deployed one. `ActivateNewUser` now records the inviter **whenever a key was
+used**: `require_invite` decides whether a key is MANDATORY, which is a policy about admission, while "who
+invited whom" is a fact about the key. The refusal it keeps is the one it had ("requires an invite and none
+was given"), and a key that no longer resolves stays a no-op without `require_invite` (which is what it did
+before) and stays `ErrInvalidInviteKey` with it.
+
+**The trigger runs after the level is written and ONCE PER EVENT**, on the STORED level rather than the
+totals-derived one -- the number the instance shows the member, policy included -- so a member the decay
+policy is holding down is paid at their next event once the window closes, and never paid for standing the
+policy has taken away. There is no transition state to track because the event's dedup key is the invitee:
+the level can oscillate through decay and the payment happens once, by construction rather than by
+bookkeeping. A failure from the payment is RETURNED rather than swallowed: the member's own contribution is
+already committed, so what a failure means is "their event stands and the referrer was not paid", which is
+exactly the kind of fact this repository refuses to lose quietly.
+
+**Evidence.** 10 pure tests (`internal/service/invite/referral_test.go`: the decision table with one
+fixture per answer and the ORDER of the checks pinned, the outcome naming, the weight as a RULE expressed
+through the curve rather than as a literal, the kind's membership in both sets, and `Totals.Points`).
+7 wire tests against real Postgres (`internal/api/referral_integration_test.go`), whose fixture signs the
+invitee up through the REAL path -- a key, then activation -- because that is the only path that writes
+`invited_by`, and one of them turns `require_invite` OFF to reach the configuration that was broken
+(asserting the flag's state first, so it cannot pass for the other reason). Every count is read from the
+referrer's own rollup and the payment is asserted BY IDENTITY (which invitee the event names), not only by
+count. The chain fixture puts the grandparent ABOVE the threshold, or the depth mutant would be masked by
+the payment's own level check and the test would pass for a reason that has nothing to do with depth.
+
+**The mutation battery** (`scripts/mutate-referral.py`, one rule per probe, each asserting the anchor
+matched exactly once and that the file was restored): 10 probes, 9 killed, and the survivor is the most
+useful result of the pass. M5 (the eligibility rule made unreachable) reddened the PURE table and left the
+wire tests green, because eligibility is expressed TWICE -- once as the referral's rule and once as the
+trust service's cheap early return, which saves a database read on every event by every member below
+Registered. **A rule that is implemented twice cannot be killed by removing one implementation**, which is
+the mutation notes' own rule; M5b cuts BOTH sites and then the wire test reddens as it should. The other
+nine: the fix itself reverted to `require_invite`-only (M1, which is the failing test this slice's finding
+turned green), the hook left unattached in the factory (M2), the payment recorded through `RecordEvent`
+so the grandparent is paid (M3), the event keyed to the referrer so a member is paid for their first
+invitee only (M4), the self-invite guard dropped (M6), the weight zeroed (M7), the count dropped from
+`Points()` (M8), the rollup's CASE arm made not to match the kind (M9), and the published field hardcoded
+(M10).
+
+**AND ONE MUTATION FOUND A HOLE IN A FIXTURE, which is the whole reason to run them.** With the
+eligibility rule removed at both sites, the wire test still passed: "an invitee at 0 points pays nothing"
+was being asserted on an account that had recorded NO EVENTS, and the payment is only ever asked for inside
+an event's write path -- so the assertion was true for a reason that had nothing to do with eligibility.
+The fixture now records a REJECTED edit first (one point, which moves the invitee's total and leaves them
+at Public, asserted), and the same probe kills it. A check that cannot fail for the right reason is worse
+than no check: it reports the rule as covered.
+
+**The live walk** (`scripts/walk-11b-live.py`, on the deployed binary, `stash-box version: v0.10.4-11b`):
+every verdict green and the restore verified. It reads the instance's OWN config and reports
+`require_invite` as absent -- the finding's premise measured rather than assumed -- then has the operator
+grant one token, a member mint one key, and a NEW account sign up with that key through the PUBLIC path
+(`newUser` then `activateNewUser`). That account's own `me` comes back naming its inviter
+(`invited_by { id name }`), which is the finding: **on the default configuration the link is recorded and
+readable, where before this slice it was dropped on the floor.** And the inviter's own trust object
+resolves with `invites_activated: 0`, so the field the deployed binary serves is fed by the rollup and
+starts at zero rather than being absent. What the walk CANNOT show is the payment itself, and it says so:
+a payment needs the invitee at Registered, which takes 10 points of APPLIED contribution, the only live
+path to which is a real edit through the voting system -- no mutation records a trust event, and this
+instance has no credential a script can use as a moderator (measured in 11a: the one ADMIN cannot
+authenticate through an API key at all). The payment and its depth are covered by the wire tests.
 
 ### Slice 11c — the QR and the three counters
 

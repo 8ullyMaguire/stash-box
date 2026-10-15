@@ -1,0 +1,19 @@
+-- The referral count: how many people this member brought in who then became real members
+-- (plan phase 11 slice 11b).
+--
+-- user_trust is a denormalised rollup of trust_events, and this column is the rollup's share
+-- of the `invite_activated` kind -- the count of invitees who reached Registered. The event
+-- log stays the source of truth and `RecomputeUserTrustTotals` rebuilds this column from it,
+-- so a rollup that drifts is repaired by the same path every other counter uses.
+--
+-- WHY THIS KIND IS COUNTED while `bounty_bonus` deliberately is not: "how many people did
+-- this member bring in" is a real fact about a member and is answerable from nothing else,
+-- whereas a bounty is a magnitude attached to a quest that is already counted. The payment
+-- is therefore count x weight, exactly like every other contribution, and the number a
+-- member sees on their profile is the same number the level is derived from.
+--
+-- DEFAULT 0 rather than nullable, and there is no backfill statement: the version of this
+-- feature that could have recorded such an event did not exist before this migration, so
+-- every existing row's honest value is zero. Postgres applies a constant default to
+-- existing rows as metadata (11+), so no row is rewritten.
+ALTER TABLE "user_trust" ADD COLUMN "invites_activated" integer NOT NULL DEFAULT 0;

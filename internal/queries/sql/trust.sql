@@ -44,7 +44,7 @@ RETURNING *;
 -- Rejected edits are already the sign-flipped term (-delta), which is the one
 -- place the sign convention differs: 'edit_rejected' moves rejected_edits, and a
 -- REVERSAL of a rejection moves it back.
-INSERT INTO user_trust (user_id, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, bonus_points, updated_at)
+INSERT INTO user_trust (user_id, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, invites_activated, bonus_points, updated_at)
 VALUES (
     $1,
     CASE WHEN sqlc.arg(event_kind)::TEXT = 'edit_approved' THEN sqlc.arg(event_delta)::INTEGER ELSE 0 END,
@@ -52,6 +52,10 @@ VALUES (
     CASE WHEN sqlc.arg(event_kind)::TEXT = 'identification_solved' THEN sqlc.arg(event_delta)::INTEGER ELSE 0 END,
     CASE WHEN sqlc.arg(event_kind)::TEXT = 'quest_completed' THEN sqlc.arg(event_delta)::INTEGER ELSE 0 END,
     CASE WHEN sqlc.arg(event_kind)::TEXT = 'replica_hosted' THEN sqlc.arg(event_delta)::INTEGER ELSE 0 END,
+    -- invite_activated is a COUNTED kind (plan phase 11 slice 11b): the referral payment is
+    -- count x weight like every other contribution, and the count is a real fact about the
+    -- member, unlike the bounty below.
+    CASE WHEN sqlc.arg(event_kind)::TEXT = 'invite_activated' THEN sqlc.arg(event_delta)::INTEGER ELSE 0 END,
     -- A points-ONLY kind: bounty_bonus moves bonus_points and no count at all.
     -- That is the whole reason it is a separate kind -- folding it into
     -- quests_completed would credit 500 completed quests for one bounty.
@@ -64,6 +68,7 @@ ON CONFLICT (user_id) DO UPDATE SET
     identification_solves = user_trust.identification_solves + EXCLUDED.identification_solves,
     quests_completed = user_trust.quests_completed + EXCLUDED.quests_completed,
     replicas_hosted = user_trust.replicas_hosted + EXCLUDED.replicas_hosted,
+    invites_activated = user_trust.invites_activated + EXCLUDED.invites_activated,
     bonus_points = user_trust.bonus_points + EXCLUDED.bonus_points,
     updated_at = NOW()
 RETURNING *;
@@ -75,7 +80,7 @@ RETURNING *;
 -- rollup ever drifts -- a threshold change, a bug in ApplyTrustEvent, a manual
 -- database edit -- the truth is still replayable. Coalescing SUMs the signed
 -- deltas per kind in one pass rather than replaying row by row.
-INSERT INTO user_trust (user_id, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, bonus_points, updated_at)
+INSERT INTO user_trust (user_id, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, invites_activated, bonus_points, updated_at)
 SELECT
     $1,
     COALESCE(SUM(CASE WHEN kind = 'edit_approved' THEN delta ELSE 0 END), 0),
@@ -83,6 +88,7 @@ SELECT
     COALESCE(SUM(CASE WHEN kind = 'identification_solved' THEN delta ELSE 0 END), 0),
     COALESCE(SUM(CASE WHEN kind = 'quest_completed' THEN delta ELSE 0 END), 0),
     COALESCE(SUM(CASE WHEN kind = 'replica_hosted' THEN delta ELSE 0 END), 0),
+    COALESCE(SUM(CASE WHEN kind = 'invite_activated' THEN delta ELSE 0 END), 0),
     COALESCE(SUM(CASE WHEN kind = 'bounty_bonus' THEN delta ELSE 0 END), 0),
     NOW()
 FROM trust_events
@@ -98,6 +104,7 @@ ON CONFLICT (user_id) DO UPDATE SET
     identification_solves = EXCLUDED.identification_solves,
     quests_completed = EXCLUDED.quests_completed,
     replicas_hosted = EXCLUDED.replicas_hosted,
+    invites_activated = EXCLUDED.invites_activated,
     bonus_points = EXCLUDED.bonus_points,
     updated_at = NOW()
 RETURNING *;

@@ -1769,6 +1769,18 @@ type Querier interface {
 	GetUserImageTypeGroupPreferences(ctx context.Context, userID uuid.UUID) ([]string, error)
 	// User preferences
 	GetUserImageTypePreferences(ctx context.Context, userID uuid.UUID) ([]string, error)
+	// Who invited this member, for the referral payment (plan phase 11 slice 11b).
+	//
+	// ONE COLUMN, deliberately: the payment needs exactly this fact, and reading a whole user row
+	// to get it would make the referral depend on the shape of a row that belongs to another
+	// service -- the coupling that makes a column rename break a package meant to know nothing
+	// about it.
+	//
+	// NULL is the normal answer (an account an operator created has no inviter) and it is a
+	// DIFFERENT answer from "invited by a named member", so it is read as a nullable uuid rather
+	// than coalesced away. The column is ON DELETE SET NULL, so a deleted referrer is an absent
+	// one: there is nobody left to pay, which is the truth rather than an error.
+	GetUserInvitedBy(ctx context.Context, id uuid.UUID) (uuid.NullUUID, error)
 	GetUserNotificationSubscriptions(ctx context.Context, userID uuid.UUID) ([]NotificationType, error)
 	GetUserRoles(ctx context.Context, userID uuid.UUID) ([]string, error)
 	GetUserRolesByUserIDs(ctx context.Context, dollar_1 []uuid.UUID) ([]UserRole, error)

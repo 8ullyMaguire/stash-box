@@ -448,21 +448,42 @@ func (s *User) ActivateNewUser(ctx context.Context, input models.ActivateNewUser
 			return err
 		}
 
+		// WHO INVITED THIS MEMBER IS RECORDED WHENEVER A KEY WAS USED, whether or not this
+		// instance REQUIRES invites (plan phase 11 slice 11b).
+		//
+		// It used to be recorded only when require_invite was on, and that made half a fact
+		// out of one key: `InviteKeyUsed` consumes the key's use at activation on EVERY
+		// instance (see below), while the inviter was written only on an instance that
+		// demanded a key. So a signup that carried a key on the default configuration spent
+		// the key and recorded nobody, and the referral payment built on this column would
+		// have been a feature that pays nothing, on every instance that does not require
+		// invites -- with no error and nothing to notice it by.
+		//
+		// The key is the evidence either way: it names its generator, and the signup that
+		// carried it is the strongest statement of "this member came in through that
+		// member". require_invite decides whether a key is MANDATORY, which is a policy
+		// about admission; who invited whom is a fact about the key, and it is now recorded
+		// in both configurations.
 		var invitedBy *uuid.UUID
-		if config.GetRequireInvite() {
-			if data.InviteKey == nil {
-				return errors.New("cannot find invite key")
-			}
-
+		switch {
+		case data.InviteKey != nil:
 			invite, err := tx.FindInviteKey(ctx, *data.InviteKey)
-			if err != nil {
-				if errors.Is(err, pgx.ErrNoRows) {
+			switch {
+			case errors.Is(err, pgx.ErrNoRows):
+				// A key that no longer exists. Without require_invite this activation
+				// proceeds with no inviter (which is what it did before this change);
+				// with it, a key that cannot be resolved is exactly the invalid-key
+				// refusal the signup is supposed to get.
+				if config.GetRequireInvite() {
 					return ErrInvalidInviteKey
 				}
+			case err != nil:
 				return err
+			default:
+				invitedBy = &invite.GeneratedBy
 			}
-
-			invitedBy = &invite.GeneratedBy
+		case config.GetRequireInvite():
+			return errors.New("cannot find invite key")
 		}
 
 		createInput := models.UserCreateInput{

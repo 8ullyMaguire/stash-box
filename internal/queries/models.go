@@ -1089,6 +1089,7 @@ type UserTrust struct {
 	DemotedAt              pgtype.Timestamptz `db:"demoted_at" json:"demoted_at"`
 	DemotedFromLevel       *int               `db:"demoted_from_level" json:"demoted_from_level"`
 	LeaderboardListed      bool               `db:"leaderboard_listed" json:"leaderboard_listed"`
+	InvitesActivated       int                `db:"invites_activated" json:"invites_activated"`
 }
 
 type WebhookDelivery struct {

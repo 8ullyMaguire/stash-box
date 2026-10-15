@@ -288,7 +288,7 @@ func (f *Factory) Studio() *studio.Studio {
 
 // User returns a UserService instance
 func (f *Factory) User() *user.User {
-	return user.NewUser(queries.New(f.db), f.withTxn, f.emailMgr, trust.NewTrust(queries.New(f.db), f.withTxn))
+	return user.NewUser(queries.New(f.db), f.withTxn, f.emailMgr, f.trustSvc())
 }
 
 // UserToken returns a UserTokenService instance
@@ -332,7 +332,7 @@ func (f *Factory) Ingest() *ingest.Service {
 
 // Edit returns an EditService instance
 func (f *Factory) Edit() *edit.Edit {
-	return edit.NewEdit(queries.New(f.db), f.withTxn, trust.NewTrust(queries.New(f.db), f.withTxn))
+	return edit.NewEdit(queries.New(f.db), f.withTxn, f.trustSvc())
 }
 
 // Image returns an ImageService instance
@@ -424,7 +424,28 @@ func (f *Factory) Badges(ctx context.Context, userID uuid.UUID) ([]badge.Badge, 
 }
 
 func (f *Factory) Trust() *trust.Trust {
-	return trust.NewTrust(queries.New(f.db), f.withTxn)
+	return f.trustSvc()
+}
+
+// trustSvc builds the trust service WITH the referral payment attached.
+//
+// Every caller gets the same wiring, and that is the point of it existing: a trust
+// service built without the hook records every contribution exactly as before and
+// silently never pays a referral -- a feature that is off with nothing saying so. This
+// replaced three call sites that each built their own, so the feature would have been
+// live only on whichever path somebody remembered to change.
+//
+// THE CLOSURE BREAKS A CONSTRUCTION CYCLE. The referral needs the trust service to record
+// the payment, and the trust service needs the referral to know when to ask, so neither
+// can be built after the other. The closure resolves invite.NewReferral at CALL time --
+// long after svc is finished -- and svc is the same value the hook is attached to, so the
+// payment is recorded through it. It cannot pay a second time either: the recording goes
+// through RecordEventWithoutChain, which is where the one-level depth rule lives.
+func (f *Factory) trustSvc() *trust.Trust {
+	svc := trust.NewTrust(queries.New(f.db), f.withTxn)
+	return svc.WithReferral(func(ctx context.Context, inviteeID uuid.UUID, level trust.LevelEnum) error {
+		return invite.NewReferral(queries.New(f.db), svc).Pay(ctx, inviteeID, level)
+	})
 }
 
 // ModAudit returns a ModAuditService instance

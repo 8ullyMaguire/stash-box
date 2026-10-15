@@ -27,7 +27,7 @@ func (q *Queries) AcceptContentTerms(ctx context.Context, userID uuid.UUID) erro
 }
 
 const applyTrustEvent = `-- name: ApplyTrustEvent :one
-INSERT INTO user_trust (user_id, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, bonus_points, updated_at)
+INSERT INTO user_trust (user_id, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, invites_activated, bonus_points, updated_at)
 VALUES (
     $1,
     CASE WHEN $2::TEXT = 'edit_approved' THEN $3::INTEGER ELSE 0 END,
@@ -35,6 +35,10 @@ VALUES (
     CASE WHEN $2::TEXT = 'identification_solved' THEN $3::INTEGER ELSE 0 END,
     CASE WHEN $2::TEXT = 'quest_completed' THEN $3::INTEGER ELSE 0 END,
     CASE WHEN $2::TEXT = 'replica_hosted' THEN $3::INTEGER ELSE 0 END,
+    -- invite_activated is a COUNTED kind (plan phase 11 slice 11b): the referral payment is
+    -- count x weight like every other contribution, and the count is a real fact about the
+    -- member, unlike the bounty below.
+    CASE WHEN $2::TEXT = 'invite_activated' THEN $3::INTEGER ELSE 0 END,
     -- A points-ONLY kind: bounty_bonus moves bonus_points and no count at all.
     -- That is the whole reason it is a separate kind -- folding it into
     -- quests_completed would credit 500 completed quests for one bounty.
@@ -47,9 +51,10 @@ ON CONFLICT (user_id) DO UPDATE SET
     identification_solves = user_trust.identification_solves + EXCLUDED.identification_solves,
     quests_completed = user_trust.quests_completed + EXCLUDED.quests_completed,
     replicas_hosted = user_trust.replicas_hosted + EXCLUDED.replicas_hosted,
+    invites_activated = user_trust.invites_activated + EXCLUDED.invites_activated,
     bonus_points = user_trust.bonus_points + EXCLUDED.bonus_points,
     updated_at = NOW()
-RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at, short_since, demoted_at, demoted_from_level, leaderboard_listed
+RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at, short_since, demoted_at, demoted_from_level, leaderboard_listed, invites_activated
 `
 
 type ApplyTrustEventParams struct {
@@ -99,6 +104,7 @@ func (q *Queries) ApplyTrustEvent(ctx context.Context, arg ApplyTrustEventParams
 		&i.DemotedAt,
 		&i.DemotedFromLevel,
 		&i.LeaderboardListed,
+		&i.InvitesActivated,
 	)
 	return i, err
 }
@@ -164,7 +170,7 @@ func (q *Queries) DeniedSceneIDs(ctx context.Context, sceneIds []uuid.UUID) ([]u
 }
 
 const getAllUserTrust = `-- name: GetAllUserTrust :many
-SELECT user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at, short_since, demoted_at, demoted_from_level, leaderboard_listed FROM user_trust
+SELECT user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at, short_since, demoted_at, demoted_from_level, leaderboard_listed, invites_activated FROM user_trust
 `
 
 // Every rollup row. Used when a threshold changes and every level must be
@@ -197,6 +203,7 @@ func (q *Queries) GetAllUserTrust(ctx context.Context) ([]UserTrust, error) {
 			&i.DemotedAt,
 			&i.DemotedFromLevel,
 			&i.LeaderboardListed,
+			&i.InvitesActivated,
 		); err != nil {
 			return nil, err
 		}
@@ -210,7 +217,7 @@ func (q *Queries) GetAllUserTrust(ctx context.Context) ([]UserTrust, error) {
 
 const getUserTrust = `-- name: GetUserTrust :one
 
-SELECT user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at, short_since, demoted_at, demoted_from_level, leaderboard_listed FROM user_trust WHERE user_id = $1
+SELECT user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at, short_since, demoted_at, demoted_from_level, leaderboard_listed, invites_activated FROM user_trust WHERE user_id = $1
 `
 
 // Trust level queries (SPEC §6, migration 76).
@@ -241,12 +248,13 @@ func (q *Queries) GetUserTrust(ctx context.Context, userID uuid.UUID) (UserTrust
 		&i.DemotedAt,
 		&i.DemotedFromLevel,
 		&i.LeaderboardListed,
+		&i.InvitesActivated,
 	)
 	return i, err
 }
 
 const getUserTrustByUserIDs = `-- name: GetUserTrustByUserIDs :many
-SELECT user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at, short_since, demoted_at, demoted_from_level, leaderboard_listed FROM user_trust WHERE user_id = ANY($1::UUID[])
+SELECT user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at, short_since, demoted_at, demoted_from_level, leaderboard_listed, invites_activated FROM user_trust WHERE user_id = ANY($1::UUID[])
 `
 
 func (q *Queries) GetUserTrustByUserIDs(ctx context.Context, dollar_1 []uuid.UUID) ([]UserTrust, error) {
@@ -277,6 +285,7 @@ func (q *Queries) GetUserTrustByUserIDs(ctx context.Context, dollar_1 []uuid.UUI
 			&i.DemotedAt,
 			&i.DemotedFromLevel,
 			&i.LeaderboardListed,
+			&i.InvitesActivated,
 		); err != nil {
 			return nil, err
 		}
@@ -362,7 +371,7 @@ func (q *Queries) ListLeaderboard(ctx context.Context, arg ListLeaderboardParams
 }
 
 const listUserTrustDecayPending = `-- name: ListUserTrustDecayPending :many
-SELECT user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at, short_since, demoted_at, demoted_from_level, leaderboard_listed FROM user_trust
+SELECT user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at, short_since, demoted_at, demoted_from_level, leaderboard_listed, invites_activated FROM user_trust
 WHERE short_since IS NOT NULL OR demoted_at IS NOT NULL
 ORDER BY user_id
 `
@@ -406,6 +415,7 @@ func (q *Queries) ListUserTrustDecayPending(ctx context.Context) ([]UserTrust, e
 			&i.DemotedAt,
 			&i.DemotedFromLevel,
 			&i.LeaderboardListed,
+			&i.InvitesActivated,
 		); err != nil {
 			return nil, err
 		}
@@ -454,7 +464,7 @@ func (q *Queries) ListUserTrustEvents(ctx context.Context, userID uuid.UUID) ([]
 }
 
 const recomputeUserTrustTotals = `-- name: RecomputeUserTrustTotals :one
-INSERT INTO user_trust (user_id, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, bonus_points, updated_at)
+INSERT INTO user_trust (user_id, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, invites_activated, bonus_points, updated_at)
 SELECT
     $1,
     COALESCE(SUM(CASE WHEN kind = 'edit_approved' THEN delta ELSE 0 END), 0),
@@ -462,6 +472,7 @@ SELECT
     COALESCE(SUM(CASE WHEN kind = 'identification_solved' THEN delta ELSE 0 END), 0),
     COALESCE(SUM(CASE WHEN kind = 'quest_completed' THEN delta ELSE 0 END), 0),
     COALESCE(SUM(CASE WHEN kind = 'replica_hosted' THEN delta ELSE 0 END), 0),
+    COALESCE(SUM(CASE WHEN kind = 'invite_activated' THEN delta ELSE 0 END), 0),
     COALESCE(SUM(CASE WHEN kind = 'bounty_bonus' THEN delta ELSE 0 END), 0),
     NOW()
 FROM trust_events
@@ -472,9 +483,10 @@ ON CONFLICT (user_id) DO UPDATE SET
     identification_solves = EXCLUDED.identification_solves,
     quests_completed = EXCLUDED.quests_completed,
     replicas_hosted = EXCLUDED.replicas_hosted,
+    invites_activated = EXCLUDED.invites_activated,
     bonus_points = EXCLUDED.bonus_points,
     updated_at = NOW()
-RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at, short_since, demoted_at, demoted_from_level, leaderboard_listed
+RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at, short_since, demoted_at, demoted_from_level, leaderboard_listed, invites_activated
 `
 
 // Rebuilds the totals from the event log.
@@ -510,6 +522,7 @@ func (q *Queries) RecomputeUserTrustTotals(ctx context.Context, userID uuid.UUID
 		&i.DemotedAt,
 		&i.DemotedFromLevel,
 		&i.LeaderboardListed,
+		&i.InvitesActivated,
 	)
 	return i, err
 }
@@ -640,7 +653,7 @@ const setContentViewingOptIn = `-- name: SetContentViewingOptIn :one
 UPDATE user_trust
 SET content_viewing_opt_in = $2, updated_at = NOW()
 WHERE user_id = $1
-RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at, short_since, demoted_at, demoted_from_level, leaderboard_listed
+RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at, short_since, demoted_at, demoted_from_level, leaderboard_listed, invites_activated
 `
 
 type SetContentViewingOptInParams struct {
@@ -677,6 +690,7 @@ func (q *Queries) SetContentViewingOptIn(ctx context.Context, arg SetContentView
 		&i.DemotedAt,
 		&i.DemotedFromLevel,
 		&i.LeaderboardListed,
+		&i.InvitesActivated,
 	)
 	return i, err
 }
@@ -685,7 +699,7 @@ const setLeaderboardListed = `-- name: SetLeaderboardListed :one
 UPDATE user_trust
 SET leaderboard_listed = $2, updated_at = now()
 WHERE user_id = $1
-RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at, short_since, demoted_at, demoted_from_level, leaderboard_listed
+RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at, short_since, demoted_at, demoted_from_level, leaderboard_listed, invites_activated
 `
 
 type SetLeaderboardListedParams struct {
@@ -725,6 +739,7 @@ func (q *Queries) SetLeaderboardListed(ctx context.Context, arg SetLeaderboardLi
 		&i.DemotedAt,
 		&i.DemotedFromLevel,
 		&i.LeaderboardListed,
+		&i.InvitesActivated,
 	)
 	return i, err
 }
@@ -769,7 +784,7 @@ SET level = $2,
     demoted_from_level = $5,
     updated_at = NOW()
 WHERE user_id = $1
-RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at, short_since, demoted_at, demoted_from_level, leaderboard_listed
+RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at, short_since, demoted_at, demoted_from_level, leaderboard_listed, invites_activated
 `
 
 type SetUserTrustStateParams struct {
@@ -819,6 +834,7 @@ func (q *Queries) SetUserTrustState(ctx context.Context, arg SetUserTrustStatePa
 		&i.DemotedAt,
 		&i.DemotedFromLevel,
 		&i.LeaderboardListed,
+		&i.InvitesActivated,
 	)
 	return i, err
 }
@@ -833,7 +849,7 @@ SET "visible_tiers" = $1,
     END,
     "updated_at" = NOW()
 WHERE "user_id" = $2
-RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at, short_since, demoted_at, demoted_from_level, leaderboard_listed
+RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at, short_since, demoted_at, demoted_from_level, leaderboard_listed, invites_activated
 `
 
 type SetVisibleTiersParams struct {
@@ -870,6 +886,7 @@ func (q *Queries) SetVisibleTiers(ctx context.Context, arg SetVisibleTiersParams
 		&i.DemotedAt,
 		&i.DemotedFromLevel,
 		&i.LeaderboardListed,
+		&i.InvitesActivated,
 	)
 	return i, err
 }
@@ -879,7 +896,7 @@ INSERT INTO user_trust (user_id, leaderboard_listed, updated_at)
 VALUES ($1, $2, now())
 ON CONFLICT (user_id) DO UPDATE
 SET leaderboard_listed = EXCLUDED.leaderboard_listed, updated_at = now()
-RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at, short_since, demoted_at, demoted_from_level, leaderboard_listed
+RETURNING user_id, level, approved_edits, rejected_edits, identification_solves, quests_completed, replicas_hosted, content_viewing_opt_in, updated_at, bonus_points, is_vanguard, visible_tiers, t3_consented_at, content_terms_accepted_at, short_since, demoted_at, demoted_from_level, leaderboard_listed, invites_activated
 `
 
 type UpsertLeaderboardListedParams struct {
@@ -912,6 +929,7 @@ func (q *Queries) UpsertLeaderboardListed(ctx context.Context, arg UpsertLeaderb
 		&i.DemotedAt,
 		&i.DemotedFromLevel,
 		&i.LeaderboardListed,
+		&i.InvitesActivated,
 	)
 	return i, err
 }

@@ -211,6 +211,7 @@ func (r *Resolver) userTrustModel(ctx context.Context, userID uuid.UUID) (*model
 		RejectedEdits:        rollup.RejectedEdits,
 		IdentificationSolves: rollup.IdentificationSolves,
 		QuestsCompleted:      rollup.QuestsCompleted,
+		InvitesActivated:     rollup.InvitesActivated,
 		ReplicasHosted:       rollup.ReplicasHosted,
 		ContentViewingOptIn:  optIn,
 		LeaderboardListed:    listed,

@@ -1540,6 +1540,7 @@ type ComplexityRoot struct {
 		CanViewContent       func(childComplexity int) int
 		ContentViewingOptIn  func(childComplexity int) int
 		IdentificationSolves func(childComplexity int) int
+		InvitesActivated     func(childComplexity int) int
 		LeaderboardListed    func(childComplexity int) int
 		Level                func(childComplexity int) int
 		QuestsCompleted      func(childComplexity int) int
@@ -9420,6 +9421,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.UserTrust.IdentificationSolves(childComplexity), true
+	case "UserTrust.invites_activated":
+		if e.ComplexityRoot.UserTrust.InvitesActivated == nil {
+			break
+		}
+
+		return e.ComplexityRoot.UserTrust.InvitesActivated(childComplexity), true
 	case "UserTrust.leaderboard_listed":
 		if e.ComplexityRoot.UserTrust.LeaderboardListed == nil {
 			break
@@ -15655,6 +15662,16 @@ type UserTrust {
   identification_solves: Int!
   quests_completed: Int!
   replicas_hosted: Int!
+
+  """
+  How many members this member invited who reached Registered.
+
+  A count of PEOPLE, unlike the invite allowance on User, which is a count of
+  slots: this is what the member's own referrals have produced, and it is what
+  the referral payment is derived from (one payment per invitee, ever).
+  """
+  invites_activated: Int!
+
   content_viewing_opt_in: Boolean!
 
   """
@@ -18398,6 +18415,8 @@ func (ec *executionContext) childFields_UserTrust(ctx context.Context, field gra
 		return ec.fieldContext_UserTrust_quests_completed(ctx, field)
 	case "replicas_hosted":
 		return ec.fieldContext_UserTrust_replicas_hosted(ctx, field)
+	case "invites_activated":
+		return ec.fieldContext_UserTrust_invites_activated(ctx, field)
 	case "content_viewing_opt_in":
 		return ec.fieldContext_UserTrust_content_viewing_opt_in(ctx, field)
 	case "can_view_content":
@@ -55635,6 +55654,29 @@ func (ec *executionContext) fieldContext_UserTrust_replicas_hosted(_ context.Con
 	return graphql.NewScalarFieldContext("UserTrust", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
+func (ec *executionContext) _UserTrust_invites_activated(ctx context.Context, field graphql.CollectedField, obj *UserTrust) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_UserTrust_invites_activated(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.InvitesActivated, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_UserTrust_invites_activated(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("UserTrust", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
 func (ec *executionContext) _UserTrust_content_viewing_opt_in(ctx context.Context, field graphql.CollectedField, obj *UserTrust) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -83656,6 +83698,11 @@ func (ec *executionContext) _UserTrust(ctx context.Context, sel ast.SelectionSet
 			}
 		case "replicas_hosted":
 			out.Values[i] = ec._UserTrust_replicas_hosted(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "invites_activated":
+			out.Values[i] = ec._UserTrust_invites_activated(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}

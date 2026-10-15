@@ -44,6 +44,20 @@ UPDATE users
 SET password_hash = $2, updated_at = NOW()
 WHERE id = $1;
 
+-- name: GetUserInvitedBy :one
+-- Who invited this member, for the referral payment (plan phase 11 slice 11b).
+--
+-- ONE COLUMN, deliberately: the payment needs exactly this fact, and reading a whole user row
+-- to get it would make the referral depend on the shape of a row that belongs to another
+-- service -- the coupling that makes a column rename break a package meant to know nothing
+-- about it.
+--
+-- NULL is the normal answer (an account an operator created has no inviter) and it is a
+-- DIFFERENT answer from "invited by a named member", so it is read as a nullable uuid rather
+-- than coalesced away. The column is ON DELETE SET NULL, so a deleted referrer is an absent
+-- one: there is nobody left to pay, which is the truth rather than an error.
+SELECT invited_by FROM users WHERE id = $1;
+
 -- name: UpdateUserInviteTokenCount :exec
 UPDATE users
 SET invite_tokens = $2

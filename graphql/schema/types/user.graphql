@@ -145,6 +145,16 @@ type UserTrust {
   identification_solves: Int!
   quests_completed: Int!
   replicas_hosted: Int!
+
+  """
+  How many members this member invited who reached Registered.
+
+  A count of PEOPLE, unlike the invite allowance on User, which is a count of
+  slots: this is what the member's own referrals have produced, and it is what
+  the referral payment is derived from (one payment per invitee, ever).
+  """
+  invites_activated: Int!
+
   content_viewing_opt_in: Boolean!
 
   """
