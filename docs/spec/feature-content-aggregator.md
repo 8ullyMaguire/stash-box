@@ -332,7 +332,7 @@ behaviour. "New" = nothing to extend. Phase numbers are §Phases in
 | §12.6 | ActivityPub | none (rejected in the crosswalk) | 12 |
 | §13.1–13.5 | 5 players/viewers | **refused by the respec** — no player, no embed, no proxy. Reading *metadata* is a different surface and it is in: a comic's chapter list and page count are `content_item_chapters` (phase 3) | — |
 | §14 | facial recognition, community ID, profile claiming | identification board (untouched); local models live in `feature-04-identification-federation.md` §8, where a model's output is a suggestion | 4 (feature 04) |
-| §15.1–15.3 | REST+GraphQL API, integrations, exports | GraphQL, webhooks; no REST/RSS/exports | 13 |
+| §15.1–15.3 | REST+GraphQL API, integrations, exports | GraphQL, webhooks (13a: the read-only MCP server, `cmd/stash-box-mcp` + `internal/mcp`, four tools over the existing READ queries); no REST/RSS/exports yet (13b–13d) | 13 |
 | §16 | anti-doomscroll design + transparency report | none | 16 |
 | §17 | CSAM/DMCA/age/consent policy, appeals, elected mods | **nothing** — see §5 | 14 |
 | §18 | premium, creator subs, ads, data licensing | none (MIT) | 15 |

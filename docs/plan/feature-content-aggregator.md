@@ -3507,7 +3507,115 @@ fires on a named event; the export round-trips into Hydrus-shaped JSON; rate lim
 are enforced per the §15.1 table and a limit breach returns 429 with the same body
 shape as every other error.
 
-## Phase 14 — moderation and legal (policy text; no longer a gate on a media plane)
+### Slice 13a — the MCP server: read-only, out of process, over surfaces that exist
+
+**The rule.** Expose this instance to an MCP client as a **read-only** server. The placement note above
+says why it is the cheapest interop in the programme, and the cheapest part is the one to protect: every
+tool maps to a query that ALREADY EXISTS and already carries `@hasRole(role: READ)`, so the slice adds no
+new read path and no new authority.
+
+**Out of process, as a separate binary on stdio** (`cmd/stash-box-mcp`), and that is a decision rather than
+a convenience. An endpoint inside the instance would be a second serving surface on a server whose posture
+is currently one public GraphQL endpoint plus the SPA -- it would need routing, its own auth story, and it
+would meet `scripts/check-no-content-plane.py`'s scanner from the wrong side. A stdio binary launched by the
+client talks to the instance's OWN GraphQL API with the operator's API key: the instance's existing
+authorization is the only authorization, the tools cannot exceed it, and there is nothing new listening.
+
+**The tools, each a translation and no more** (`internal/mcp/tools.go`):
+
+| tool | the query it translates to |
+|---|---|
+| `search_scenes` | `searchScenes(term, per_page, page)` |
+| `search_performers` | `searchPerformers(term, per_page, page)` |
+| `get_scene` | `findScene(id)` — the record, with its fingerprints, URLs and studio/performer references |
+| `find_scenes_by_fingerprint` | `findScenesBySceneFingerprints(fingerprints)` — the identification half, returning the SCENES the hashes match and so the addresses already recorded |
+
+**Constraint that decides correctness:** a tool's arguments are VALIDATED against the JSON schema it
+publishes, and an unknown argument is an error rather than being ignored — a client that sends `perpage`
+instead of `per_page` must be told, because silently dropping it answers a different question than the one
+asked. And a GraphQL error is returned as a tool ERROR (`isError: true`) carrying the instance's own
+message, never as a successful empty result: "no such scene" and "you are not authorized" are different
+answers and a client cannot tell them apart from `null`.
+
+**Verification:**
+
+```bash
+go build ./cmd/stash-box-mcp                          # exit 0
+go test ./internal/mcp/                               # ok -- no database, no network: the GraphQL side is an httptest stub
+printf '{"jsonrpc":"2.0","id":1,"method":"initialize"}\n{"jsonrpc":"2.0","id":2,"method":"tools/list"}\n' \
+  | ./stash-box-mcp --url http://127.0.0.1:9998/graphql --api-key "$KEY"   # serverInfo, then four tools
+```
+
+and on a live instance, `scripts/walk-13a-live.py` calls `tools/list` and two tools over stdio against the
+deployed binary.
+
+**NOT in this slice, named:** no write tool (the phase's own rule is that a model's output is a suggestion
+and the edit system is the only path that writes a tag), no resource or prompt primitives, no HTTP/SSE
+transport, and no consuming of EXTERNAL MCP servers -- that is a provider in
+`docs/spec/feature-04-identification-federation.md` §8's sense, not this slice.
+
+**BUILT 2026-10-15.** `cmd/stash-box-mcp` (flags `--url`, `--api-key`/`$STASH_BOX_API_KEY`, `--version`; the
+version rides in `serverInfo` so an operator can tell which build a client is talking to) and
+`internal/mcp` (`protocol.go` the JSON-RPC framing, `server.go` the transport and the four methods,
+`tools.go` the tools, `graphql.go` the one HTTP client). THE SCHEMA AND THE VALIDATOR ARE ONE LIST: the
+JSON schema a tool PUBLISHES is derived from the same `argSpec` slice its validator walks, because a
+hand-written schema next to a hand-written checker is two descriptions of one rule, and the failure it
+produces is a tool that advertises an argument it ignores -- which answers a different question than the
+caller asked, with nothing saying so. `additionalProperties: false` is published and enforced, and an
+unknown argument is a TOOL error whose message names it and lists what is accepted (`perpage` for
+`per_page` is the typo a client actually makes). A GraphQL refusal is a tool error carrying the INSTANCE'S
+words, never a successful empty result: `data.findScene: null` (this instance holds no such scene) and
+`not authorized` are different answers and a client can only tell them apart through `isError`.
+**A FINDING WORTH THE SLICE, and it is a silent one: `FingerprintHash` IS A HEX STRING READ IN BASE 16.**
+A decimal rendering of the same number names a DIFFERENT fingerprint and comes back empty -- which reads
+exactly like "this instance has never seen this file". The repo paid an afternoon for it once (the comment
+in `internal/api/content_tier_integration_test.go` records it), and an MCP client driven by a model is the
+likeliest party to pay it again, so the tool REFUSES a non-hexadecimal hash naming base 16, and says the
+same thing in the published description of the tool AND of the argument -- a tool a model calls has its
+description read, which makes the description part of the contract. EVIDENCE: **17 unit tests**
+(`internal/mcp/server_test.go`), no database and no network (the GraphQL side is an `httptest` stub that
+RECORDS what was asked, which is what makes "the instance was never asked" testable): the handshake naming
+its own revision rather than echoing the client's; a notification answered with nothing while its neighbour
+is answered; one malformed line answered with -32700 AND the session continuing; the schema/validator
+agreement walked in both directions; the term and the modern `release_date` field actually sent; the API key
+present in the `ApiKey` header; one inner fingerprint list for one file; hex required with a hexadecimal
+control in the same test; and the three failure kinds apart (refusal, absence, HTTP 401).
+MUTATIONS: `scripts/mutate-mcp.py`, **8 probes, 8 KILLED** (unknown argument ignored; a tool publishing an
+argument it does not validate; a notification answered; a bad line ending the session; a refusal turned into
+an empty success; the fingerprints flattened to several files; a non-hex hash passed through; the API key
+dropped). THE LIVE WALK (`scripts/walk-13a-live.py`, deployed binary `stash-box-mcp 0.10.4-13a`, **9 verdicts
+green**): the handshake and the four tools; two messages in and two responses out with the second belonging
+to the request; the `perpage` typo refused by name; a search term taken FROM THE DATABASE (`FNS-261`) coming
+back with its scene; that scene read by id; an id that names nothing returning `null` with NO error; and with
+no key at all the instance's own `not authorized`. **F1 SKIPPED WITH ITS PREMISE MEASURED**: the deployed
+instance holds **0 fingerprints in total** (`select count(*) from fingerprints`), so there is nothing to
+identify by -- the identification tool and its translation are covered by the unit tests against the stub,
+and the walk says that rather than inventing a fixture. That skip is also the fix of a defect in the walk
+itself: its first version queried `scene_fingerprints.hash`, a column that does not exist, and printed "the
+scene has no fingerprints" -- a false statement about the instance dressed as a skip.
+
+### Slices 13b–13d — specified, not started, detail written when each starts
+
+- **13b — RSS for a saved search.** A feed per saved search, validating against a feed parser. Constraint:
+  the feed carries what the search already returns and nothing a reader could not see signed in -- a feed
+  URL is a BEARER of access, so a saved search's visibility decides whether its feed exists at all, and a
+  private search's feed is 404 rather than empty.
+- **13c — the Hydrus-shaped export.** Round-trips back in. Constraint: an export is a rendering of records
+  this instance holds, so it is the same read rule as the GraphQL surface, per-record, with takedown
+  (`content_sources.status='dmca'`) and blocklist rows absent from it rather than annotated.
+- **13d — rate limits and the error shape.** Per §15.1, with a breach returning 429 and the SAME body shape
+  as every other error (this repo answers GraphQL errors as `{"errors":[{"message":...}]}`, so a 429 that
+  returns HTML or a bare string is the defect to test for). Constraint: the limit is enforced on the
+  instance's public surface, and an API key is the unit that is limited -- per-IP would punish a shared
+  address and per-account would punish one member's two clients.
+
+## Phase 14 — moderation and legal (policy text, and it DOES gate phase 10's first stored byte)
+
+*Corrected 2026-10-15:* this heading said "no longer a gate on a media plane", written when the first
+respec struck phase 10. The owner's second instruction restored phase 10 (and its switch), and the two
+hard constraints at the top of this plan plus the scope table's phase-14 row both say the ordering is
+back: 14's policy text precedes 10's first stored byte. This phase's slice 1 says the rest of it is
+moot for a programme that does not host -- which is exactly why the TEXT is what 10 has to wait for.
 
 **Goal:** NexusXXX §17 — CSAM hash matching against NCMEC/IWF lists, DMCA with
 counter-notice and a registered agent, performer age verification as a precondition
