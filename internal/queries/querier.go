@@ -488,6 +488,19 @@ type Querier interface {
 	// file is what it reads through, and nothing outside the federation package
 	// should import these -- a peer list is an operator surface, not a public one.
 	CreateFederationPeer(ctx context.Context, arg CreateFederationPeerParams) (FederationPeer, error)
+	// SPEC §7.24.1 verified-unknown markers (migration 96).
+	//
+	// The storage was built and nothing read or wrote it: completion could not
+	// suppress a gap, and no surface could assert one. These are the queries the two
+	// halves need -- the write the edit path performs, and the read the completion
+	// score performs.
+	// One assertion per (entity, field), so a re-assertion REPLACES rather than
+	// stacking: the unique index in 96 refuses a second row, and two rows would make
+	// the suppression count double-count and let completion exceed what it should.
+	//
+	// asserted_at is passed in rather than defaulted, because the caller is the edge
+	// that knows whether this is an approval or an immediate application.
+	CreateFieldVerificationState(ctx context.Context, arg CreateFieldVerificationStateParams) (FieldVerificationState, error)
 	// Fingerprint queries (normalized schema)
 	CreateFingerprint(ctx context.Context, arg CreateFingerprintParams) (Fingerprint, error)
 	// Foreign identification evidence — a peer's answer to one of our queries.
@@ -1700,6 +1713,16 @@ type Querier interface {
 	// a peer by the instance id it declares, so an unknown instance is rejected
 	// rather than silently recorded against nobody.
 	GetFederationPeerByInstanceId(ctx context.Context, instanceID string) (FederationPeer, error)
+	// The reason registry, which is what the dropdown is built from and what the
+	// service validates an incoming code against. Ordered so the list does not move
+	// between requests: a dropdown whose options reorder is a dropdown that takes a
+	// mis-click.
+	GetFieldVerificationReasons(ctx context.Context) ([]FieldVerificationReason, error)
+	// Every assertion about one entity, for the edit form and the entity page.
+	// Joined to the registry so the caller reads the reason's MEANING (does it
+	// suppress, may it self-affirm) without a second query and without the service
+	// hard-coding which codes do what.
+	GetFieldVerificationStates(ctx context.Context, arg GetFieldVerificationStatesParams) ([]GetFieldVerificationStatesRow, error)
 	GetFingerprint(ctx context.Context, arg GetFingerprintParams) (Fingerprint, error)
 	// SPEC §7.24.5: the unmatched-fingerprint demand board.
 	//
@@ -1866,6 +1889,14 @@ type Querier interface {
 	GetStudiosByPerformer(ctx context.Context, performerID uuid.UUID) ([]GetStudiosByPerformerRow, error)
 	// Get studios where performer has scenes, filtered to a studio network (the studio, its parent, and children)
 	GetStudiosByPerformerAndNetwork(ctx context.Context, arg GetStudiosByPerformerAndNetworkParams) ([]GetStudiosByPerformerAndNetworkRow, error)
+	// The (entity, field) pairs whose reason SUPPRESSES the completion gap, for one
+	// entity. `not_yet_looked` is not one of them and that is the whole point: it
+	// records a curator's belief and leaves the gap actionable.
+	//
+	// Returns field names only. The completion score asks "is this gap answered",
+	// which is a set-membership question about names -- a reason that does not
+	// suppress must be indistinguishable here from no assertion at all.
+	GetSuppressingFieldVerificationStates(ctx context.Context, arg GetSuppressingFieldVerificationStatesParams) ([]string, error)
 	GetTagAliases(ctx context.Context, tagID uuid.UUID) ([]string, error)
 	GetTagCategoriesByIds(ctx context.Context, dollar_1 []uuid.UUID) ([]TagCategory, error)
 	GetTasteVector(ctx context.Context, userID uuid.UUID) (TasteVector, error)

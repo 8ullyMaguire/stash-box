@@ -2,7 +2,8 @@
 
 **Spec:** `docs/SPEC.md` §7.24 · **Intake review:** `docs/track/INTAKE-2026-10-01-curation-completeness.md`
 **Written:** 2026-10-01 · **Amended:** 2026-10-05
-Status: **in progress** — §7.24.1's schema, write path and gates are built (see the table below; this line
+Status: **in progress** — §7.24.1's SCHEMA and one RULE are built, and its write path is not; see
+"the inert rule" below before believing any earlier claim about this section. (See the table below; this line
 said "service and gates outstanding" until 2026-10-16, which its own table had already contradicted), and
 `internal/service/lint` is built as of the same day, the four frontend surfaces are built, and the
 §7.24.11 `cmd/backup` exception is built (2026-10-16).
@@ -18,7 +19,7 @@ said "service and gates outstanding" until 2026-10-16, which its own table had a
 |---|---|---|
 | `96_field_verification_state` | **built** | applies cleanly after 01–95; 11 schema checks observed against a real database |
 | `102_field_verification_cascade` | **built** | 2026-10-04; fixes a real defect in 96 — see below |
-| §7.24.1 write path through `internal/service/edit` | **built** | `b5b242d1`; 7/7 mutations killed |
+| §7.24.1 write path through `internal/service/edit` | **RULE built, PATH NOT** — see the correction below | `b5b242d1` built `assertionEarnsTrust` and 7/7 of its mutations died, and that work is sound. But it is a RULE, not a path: `assertionEarnsTrust` is referenced only by `verified_unknown_xp_test.go`, no GraphQL input carries `verified_unknown`, nothing writes `field_verification_states`, and nothing reads it. Measured 2026-10-16 by name, not inferred. |
 | §7.24.2 `97_expected_totals` | **built** | `0e8b54e0`; 9 schema behaviours observed against a real database |
 | §7.24.4 `98_lint_quest_definitions` | **built** | `15689da1`; 12 schema behaviours observed |
 | §7.24.6 `99_fingerprint_corroboration` | **built** | `003d93b6`; 6 logic behaviours + a measured decision to add no index |
@@ -315,6 +316,55 @@ which is why the shipped defect survived. The fix is in the theme, where the
 `.text-muted` precedent already lives, and the gate now audits both lint pages in
 both palettes: 16/16 key-page audits pass.
 
+## The inert rule: what §7.24.1 actually has (measured 2026-10-16)
+
+A feature whose tests pass and which no code path reaches. Every claim below is a grep over the
+tree, run by name, and the claim it contradicts is quoted too so the next reader can see which
+one was wrong.
+
+WHAT EXISTS, and it is not nothing:
+
+- Migration 96 (`field_verification_states` + `field_verification_reasons`) and 102 (the
+  cascade), complete, with the reason registry carrying `suppresses_gap` and
+  `allows_self_affirming`.
+- `models/model_edit.go:338` — `VerifiedUnknowns []VerifiedUnknownInput` with the jsonb tag
+  `verified_unknowns`, on the edit data, with a doc comment citing §7.24.1.
+- `internal/service/edit/verified_unknown_xp.go` — `selfAffirming`, `editCarriesVerifiedUnknown`
+  and `assertionEarnsTrust`, thoroughly reasoned: the file explains why the decision belongs at
+  the funnel rather than at any one of the three call sites that reach it. Commit `b5b242d1`,
+  7/7 mutations killed.
+- `internal/queries/sql/field_verification.sql` — the four queries the two halves need
+  (insert-or-replace on conflict, the per-entity list joined to the registry, the
+  suppressing-fields-only read the score needs, and the registry itself for the dropdown).
+
+WHAT DOES NOT, measured one link at a time:
+
+- **No GraphQL input carries the field.** `grep -rn 'verified_unknown' graphql/` is empty. Run
+  with the snake_case AND camelCase spellings: the jsonb key is `verified_unknowns`, so a
+  camelCase-only sweep can miss a real field — the class of error that produced a wrong row here.
+- **Nothing writes the table.** `field_verification_states` appears in exactly four places:
+  migrations 96 and 102, the generated models, and the migration integration test.
+- **Nothing reads it.** `internal/service/completion` never mentions verification;
+  `internal/service/completeness/service.go` does not either. Note that `completeness`'s
+  `Unverifiable()` is about a CONTENT SOURCE being dead or DMCA'd — the opposite meaning of the
+  word from §7.24.1's "this field is unanswerable", which is why the two must not be conflated.
+- **The rule has no production caller.** `assertionEarnsTrust` appears in its own definition and
+  in `verified_unknown_xp_test.go`, and nowhere else in the tree.
+
+THE REMAINING WORK, in dependency order, one link each:
+
+1. A GraphQL input field on the scene edit details input, so a client can send an assertion.
+2. Materialisation at apply — write assertions into `field_verification_states` where the scene
+   edit's fingerprints are written (`SceneEditProcessor.addFingerprintsFromEdit` is the template:
+   extra data on an edit, written when the edit is applied).
+3. The funnel: call `assertionEarnsTrust` from `recordTrustEvent`, the single point every applied
+   edit passes through.
+4. Suppression in the completion score (gate 2), reading
+   `GetSuppressingFieldVerificationStates` — where `not_yet_looked` deliberately does NOT appear.
+5. The frontend control with the reason dropdown (gate 1's surface).
+6. Gates 2 and 3 as tests plus mutations, with the XP battery re-aimed at the CALL SITE: 7/7
+   mutants dying against a function nobody calls is the arithmetic this section exists to correct.
+
 ## Why this order
 
 Not by the paste's "impact ÷ effort" ranking. By dependency: every item below
@@ -382,7 +432,7 @@ identifier rather than by reading the plan's own table:**
 | --- | --- |
 | Lint quest board (`pages/curation/LintQuestBoard.tsx`) + the definitions registry (`LintQuestDefinitions.tsx`) | built |
 | A record's own findings (`components/recordFindings/`) | built |
-| Verification control on the edit form (§7.24.1) | **not built** — no `verificationReason`/`notPubliclyKnowable` field exists on the write path's input, in the frontend or in the schema |
+| Verification control on the edit form (§7.24.1) | **partly built, and the built part is inert** — the storage (96 + 102) is complete, `models/model_edit.go` declares `VerifiedUnknowns []VerifiedUnknownInput` on the EDIT DATA, and `internal/service/edit/verified_unknown_xp.go` implements the no-XP rule with 7/7 mutations killed. What is missing is every link between them: no GraphQL input carries the field, so no client can send one; nothing materialises an assertion into `field_verification_states` at apply, so the table stays empty; nothing reads it, so completion suppresses no gap; and `assertionEarnsTrust` has no production caller at all. `internal/service/completion` never mentions verification, and `completeness`'s `Unverifiable()` is about a CONTENT SOURCE being dead or DMCA'd — the opposite meaning of the word, which is why this row is spelled out rather than summarised. |
 | Completion panel with the §7.24.8 delta preview (§7.24.8) | **not built** — `components/CompletionBar.tsx` shows the score; nothing shows the marginal-gain ranking or a before/after delta |
 | Bounty authoring surface (§7.24.3) | **not built** — `bounty_points` is read (the registry displays it); nothing writes an authored bounty price |
 | Fingerprint demand board (§7.24.5) | **built** — `fingerprintDemand` (query `GetFingerprintDemand`, service `internal/service/fingerprint/demand.go`, resolver `internal/api/resolver_query_fingerprint_demand.go`), the `/curation/fingerprint-demand` page, and a card on the curation dashboard. Aggregate by `(algorithm, hash)` over `scene_fingerprints`, `count(DISTINCT user_id)` as a LOWER BOUND, floor enforced in the query. See the SPEC correction: 89 does not provide the board to seed, and nothing in this schema records a miss. |
