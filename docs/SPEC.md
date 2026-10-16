@@ -1297,6 +1297,26 @@ redirect tables (7.24.1's sibling — see the audit row below).
 The same SQL doubles as a **validation pass over imports**, which is the more
 valuable half of this item and is recorded in the plan phase.
 
+**The pass is asked two ways, and they are one rule.** `lintquests -entity <type>
+-ids <uuids>` runs it over a batch as an import is validated, and
+`lintFindingsFor(entityType, entityId)` runs it for one record, which is what lets
+a record's own page say what is wrong with it. The per-record answer differs from
+the batch in exactly two ways, both because of who reads it: it carries **every
+record in the findings that name the id asked about** — a duplicate whose other
+half cannot be seen is not actionable, and the merge it leads to needs both ids —
+while still carrying nothing from any other finding; and detectors that ran and
+found nothing are omitted, because which detectors run is the board's question and
+three zero-count reports on a record read as a page of results that say nothing.
+An entity type no detector implements is **refused**, never answered with an empty
+list: "this build cannot check that" and "that record is clean" must not look the
+same. The surface is VOTE, like the board.
+
+**What a finding offers is a route into the consensus flow, never a merge of its
+own.** The panel points at `internal/service/edit` — the ordinary merge, with its
+ordinary votes — and at the record's edit form for the findings whose fix is an
+edit rather than a merge. No lint surface applies, dismisses, or resolves
+anything.
+
 #### 7.24.5 Unmatched-fingerprint demand board, and the holder lower bound
 
 Adopted. `18_fingerprint_user` gives `scene_fingerprints.user_id` `NOT NULL` with

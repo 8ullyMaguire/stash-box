@@ -5,6 +5,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import CompletionBar from "src/components/CompletionBar";
 import CheckboxSelect from "src/components/checkboxSelect";
 import { EditList, SceneList, URLList } from "src/components/list";
+import RecordFindings from "src/components/recordFindings";
 import {
   CriterionModifier,
   type FullPerformerQuery,
@@ -90,6 +91,10 @@ const PerformerComponent: FC<Props> = ({ performer }) => {
         entityId={performer.id}
       />
       <PerformerInfo performer={performer} />
+      {/* What the data checks say about THIS record (SPEC §7.24.4). Renders nothing at all when the
+          record is clean, and nothing for a reader who cannot vote -- the panel is a finding, not a
+          fixture of the page. */}
+      <RecordFindings entityType="performer" entityId={performer.id} />
       <hr className="my-2" />
       <Tabs
         activeKey={activeTab}

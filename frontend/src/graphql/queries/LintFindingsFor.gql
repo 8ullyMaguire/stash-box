@@ -1,0 +1,24 @@
+# What ONE record is flagged for (SPEC §7.24.4, plan phase 3a).
+#
+# The same validation pass `lintquests -entity` runs over a freshly imported batch,
+# asked about a single id -- so the rule a curator reads on a record and the rule an
+# import is validated against cannot drift apart.
+#
+# Detectors that ran and found nothing are NOT in the answer: which detectors run is
+# the board's question, and three zero-count reports on a record would render as a
+# page of results that all say nothing.
+query LintFindingsFor($entityType: String!, $entityId: ID!) {
+  lintFindingsFor(entityType: $entityType, entityId: $entityId) {
+    slug
+    description
+    entityType
+    bountyPoints
+    count
+    limitNotice
+    candidates {
+      entityId
+      entityName
+      detail
+    }
+  }
+}

@@ -55,6 +55,15 @@ import (
 // type the rest of the product does not know about.
 type EntityType = completion.EntityType
 
+// The two types this build has detectors for, re-exported for the same reason the alias above is: a
+// caller that spells the type itself is a caller that can spell one nothing implements, and an entity
+// type nothing implements matches no detector -- which answers an empty list, and an empty list reads
+// as "clean" rather than as "not asked".
+const (
+	EntityPerformer = completion.EntityPerformer
+	EntityScene     = completion.EntityScene
+)
+
 const (
 	// DefaultLimit is how many candidates a board shows per detector unless the caller says otherwise.
 	// Small on purpose: a lint board is a work queue, and "5 things to fix" is a task while "4,812" is

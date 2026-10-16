@@ -9,27 +9,13 @@
 
 import type { APIRequestContext } from "@playwright/test";
 import { expect, test } from "../support/fixtures";
-import { adminApi, createSite, gql, uniq } from "../support/helpers/seed";
-
-// A performer created WITH a URL, which is the finding's whole subject: two
-// records claiming one address. `createPerformer` in the shared helpers takes a
-// name only, so this is the same mutation with the urls argument added rather
-// than a second way to create performers.
-async function createPerformerWithUrl(
-  api: APIRequestContext,
-  name: string,
-  url: string,
-  siteId: string,
-): Promise<{ id: string; name: string }> {
-  const data = await gql<{ performerCreate: { id: string; name: string } }>(
-    api,
-    `mutation($input: PerformerCreateInput!) {
-       performerCreate(input: $input) { id name }
-     }`,
-    { input: { name, gender: "FEMALE", urls: [{ url, site_id: siteId }] } },
-  );
-  return data.performerCreate;
-}
+import {
+  adminApi,
+  createPerformer,
+  createSite,
+  gql,
+  uniq,
+} from "../support/helpers/seed";
 
 test("the lint board shows the duplicate-URL detector, links its findings to records, and offers no way to apply them", async ({
   adminPage,
@@ -39,18 +25,14 @@ test("the lint board shows the duplicate-URL detector, links its findings to rec
 
   // Unique per run: the e2e database accumulates every previous run's fixtures.
   const sharedUrl = `https://lint-e2e.test/${uniq("url")}`;
-  const first = await createPerformerWithUrl(
-    api,
-    uniq("Lint Board One"),
-    sharedUrl,
-    site.id,
-  );
-  const second = await createPerformerWithUrl(
-    api,
-    uniq("Lint Board Two"),
-    sharedUrl,
-    site.id,
-  );
+  const first = await createPerformer(api, {
+    name: uniq("Lint Board One"),
+    urls: [{ url: sharedUrl, site_id: site.id }],
+  });
+  const second = await createPerformer(api, {
+    name: uniq("Lint Board Two"),
+    urls: [{ url: sharedUrl, site_id: site.id }],
+  });
 
   // THE PAIR IS ASSERTED OVER THE API, NOT THE PAGE, and the limit is why. The
   // board is a work list that stops at 25 findings per detector by default and

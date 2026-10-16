@@ -28,7 +28,9 @@ said "service and gates outstanding" until 2026-10-16, which its own table had a
 | `internal/service/completion` | **extended, pre-existing** | `score.go` already existed (§7.7); `delta.go` adds §7.24.8 on top |
 | `internal/service/lint` | **built** | `internal/service/lint/service.go` + `internal/queries/sql/lint.sql` (six named detectors) + `cmd/lintquests`; 12 unit tests, 8 integration tests against a real database, 7/7 mutations killed. See below for the detector set and its two deviations. |
 | frontend: the lint board (`/curation/lint`) | **built** | `frontend/src/pages/curation/LintBoard.tsx` + `LintQuestBoard.tsx` + the `LintQuestBoard` query and hook; 7 vitest tests on the page's design constraints, 2 Playwright journeys (the board with a real finding; the VOTE gate), 5 Go integration tests on the resolver. |
-| frontend: the detector registry (`/curation/lint/definitions`) | **built** | `LintDefinitions.tsx` + `LintQuestDefinitions.tsx`, the `lintQuestDefinitions` query (ADMIN) and an admin nav entry; 7 vitest tests on the three states (running / stranded / retired), 1 Playwright journey (an admin reads it, a curator is refused by NAME rather than by a fault), WCAG 2.1 AA clean in both palettes. `scripts/walk-3a-lint-registry-live.py` walks the state the page exists for: 8/8 verdicts with a planted stranded row -- the registry answers WHILE the board is refused, retiring the row recovers the board, and the retired row stays listed. The other two surfaces are still not started. |
+| frontend: the detector registry (`/curation/lint/definitions`) | **built** | `LintDefinitions.tsx` + `LintQuestDefinitions.tsx`, the `lintQuestDefinitions` query (ADMIN) and an admin nav entry; 7 vitest tests on the three states (running / stranded / retired), 1 Playwright journey (an admin reads it, a curator is refused by NAME rather than by a fault), WCAG 2.1 AA clean in both palettes. `scripts/walk-3a-lint-registry-live.py` walks the state the page exists for: 8/8 verdicts with a planted stranded row -- the registry answers WHILE the board is refused, retiring the row recovers the board, and the retired row stays listed. |
+| §7.24.4 the per-record arm: `lintFindingsFor(entityType, entityId)` | **built** | The same validation pass asked about ONE id -- the surface this plan listed as "the import-validation view", which turned out to be the same query as the record page's panel rather than a second view with no data behind it (an import batch is not a row anywhere in this schema; a record is, so the pass gets a second caller instead of a second rule). 5 Go integration tests: the whole finding and nothing else, an alias claiming this record's name, the refusal of a type no detector implements, the VOTE gate, and an empty answer for a clean record. 6/6 mutations killed -- the type refusal, the zero-count filter, the VOTE directive, each half of the whole-finding SQL, and the filter removed entirely. |
+| frontend: the record findings panel + the candidate action | **built** | `frontend/src/components/recordFindings/` mounted on the performer page, and `?source=<id>` on the merge page. 11 vitest tests (the merge link carries BOTH ids; a finding whose fix is an edit offers no merge, with a second record present so the allow-list is distinguishable from the shape of the answer; a lone finding offers no merge; no record-changing control; truncated answers say so; a clean record says nothing, beside a flagged control; a fault is NAMED; a reader is not served it), 2 Playwright journeys (a flagged record's panel naming the other half and its action landing on a merge form carrying both records; a clean record and a reader beside a flagged control), WCAG 2.1 AA clean on the performer page in both palettes. 4/4 mutations killed on the panel's own rules, plus the merge-page prefill walked live. |
 | §7.24.11 exception: `cmd/backup` | not started | — |
 
 ### `internal/service/lint` — what was built, and where it departs from §7.24.4's list
@@ -269,6 +271,30 @@ found by a different instrument, and none of them by looking at the new code:
 | **The empty board said the archive was clean.** With no detectors at all, `total === 0` is true, so the page said "no findings right now -- every detector below ran", which is the opposite of the truth and exactly what the service's own registry validation exists to prevent. | the vitest case that renders an EMPTY list | the component had two states where the domain has three (clean, findings, no-registry). Restoring a three-way branch is not something a reviewer sees; rendering an empty array is. |
 | **The e2e `createSite` helper could not work.** `SiteCreateInput.highlighted` is `Boolean!`, the helper never sent it, and GraphQL refused the variable ("must be defined"). | the first e2e run of the new spec | every test that used the helper would have failed for a reason that names a fixture rather than a feature. The UI was never broken -- its form defaults `highlighted` to true and sends it. |
 
+### What walking the record panel found, which building it did not
+
+Three defects, every one of them in code that had already shipped:
+
+| found by | defect | fix |
+| --- | --- | --- |
+| the CLI's own standard | `lintquests -entity studio -ids <uuid>` printed `validated 1 studio id(s)` and exited 0. The type went straight to `ValidateEntities`, which groups ids by type and skips any detector whose type has none, so an import could be reported clean without ever being looked at -- and the same pass already refuses an unreadable id for exactly that reason. | `parseRefs` validates the type against the two the service has detectors for; the service re-exports those constants so a caller cannot spell one nothing implements. 3 unit tests. |
+| the record page's first live walk | the per-record answer carried only the record it was asked about, so a duplicate arrived with a partner the panel could not name: an action that would have led to a merge page knowing nothing about the finding. | the answer carries **every record in the findings that name the asked id**, and nothing from any other finding. Asserted in both directions -- the pair present, an unrelated pair absent -- because each direction alone is passable by a broken query. |
+| the end-to-end journey | the merge page's source field stayed empty while the page's state carried the source: `PerformerSelect` seeds its own state from its `performers` prop **once, at mount**, so a value handed to it after mount is invisible. Continue was armed and the merge would have submitted the prefilled source, with the field on screen still reading "Search for performers to merge...". | the field is not rendered until the prefill has resolved, and it is mounted WITH the source. |
+
+Two further things the sweep reported and this unit did **not** cause, kept here
+rather than quietly fixed, because the measurement is the point: stashing this
+unit's frontend changes, rebuilding from `HEAD` and re-running the light-palette
+sweep reproduces both, byte for byte.
+
+| route | violation | note |
+| --- | --- | --- |
+| `/edits` | `color-contrast x19`: `.btn-outline-danger` `#db3737` on the card-footer background `#b7b9ba` = **2.31:1** | an edit comment's delete button, in the light palette. A theme-level decision on a shared control, not this unit's; open. |
+| `/audits` | `button-name x5`: an icon-only `.btn-link.btn-sm` in the first column of the audit table has no accessible name | open, same reason. |
+
+The same run's two other a11y failures were load, not defects: the
+tab-reachability journeys wait 15s for `main` to be visible on a database this
+heavy, and with `--workers=1` they pass while exactly these two route sweeps fail.
+
 ### Two Bootstrap colours that a themed app cannot use
 
 The registry's axe audit (added to the key-page gate with the page) failed the
@@ -358,6 +384,13 @@ the tree.
   column exists in this view and the API response must not carry one** — the
   temptation to add it later is the risk.
 - **Lint quest board** and **review-queue aging view** (§7.24.10).
+- **A record's own findings** (`src/components/recordFindings/`), mounted on the
+  performer page: the same validation pass asked about one id, silent when the
+  record is clean, absent for a reader who cannot vote, and naming a refusal
+  rather than reporting a quiet record when the pass has stopped running. Every
+  action on it is a link into a flow that already exists -- the merge form,
+  preloaded with both halves of the finding, or the record's edit form -- and the
+  panel itself can change nothing.
 
 ---
 

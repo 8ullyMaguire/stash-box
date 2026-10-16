@@ -135,7 +135,15 @@ export async function createStudio(
 
 export async function createPerformer(
   api: APIRequestContext,
-  opts: { name?: string } = {},
+  opts: {
+    name?: string;
+    /**
+     * Optional urls, because a URL is what some findings are ABOUT: two records claiming one address
+     * is the duplicate-URL detector's whole subject. Passed through the same mutation as everything
+     * else here rather than added as a second way to create a performer.
+     */
+    urls?: { url: string; site_id: string }[];
+  } = {},
 ): Promise<{ id: string; name: string }> {
   const data = await gql<{ performerCreate: { id: string; name: string } }>(
     api,
@@ -146,6 +154,7 @@ export async function createPerformer(
       input: {
         name: opts.name ?? uniq("performer"),
         gender: "FEMALE",
+        ...(opts.urls ? { urls: opts.urls } : {}),
       },
     },
   );

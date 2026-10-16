@@ -1,6 +1,6 @@
-import { type FC, useMemo, useState } from "react";
+import { type FC, useEffect, useMemo, useState } from "react";
 import { Button, Col, Form, Row } from "react-bootstrap";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Help, LoadingIndicator } from "src/components/fragments";
 import PerformerCard from "src/components/performerCard";
 import PerformerSelect from "src/components/performerSelect";
@@ -12,7 +12,10 @@ import {
   type SearchPerformersQuery,
   usePerformerEdit,
 } from "src/graphql";
-import { PerformerFragmentDoc } from "src/graphql/types";
+import {
+  PerformerFragmentDoc,
+  SearchPerformerFragmentDoc,
+} from "src/graphql/types";
 import { useEntities } from "src/hooks";
 import { editHref } from "src/utils";
 import PerformerForm from "./performerForm";
@@ -39,6 +42,46 @@ const PerformerMerge: FC<Props> = ({ performer }) => {
   const [mergeActive, setMergeActive] = useState(false);
   const [mergeSources, setMergeSources] = useState<SearchPerformer[]>([]);
   const [aliasUpdating, setAliasUpdating] = useState(true);
+
+  // ?source=<id> is how a lint finding's action arrives here (SPEC §7.24.4): the record a curator was
+  // looking at, which is a source of this merge rather than its target -- the target is the record
+  // this page is about.
+  //
+  // It is HYDRATED BEFORE THE FORM OPENS and then becomes the actual selection. Both halves matter: the
+  // select renders the objects it is given, so a bare id would draw a nameless card; and the merge
+  // submits `mergeSources`, so a source only drawn in the select would disappear when Continue is
+  // pressed -- the reader would have confirmed a merge of nothing.
+  const [searchParams] = useSearchParams();
+  const prefilledSourceId = searchParams.get("source") ?? "";
+  const prefilledIds = useMemo(
+    () => (prefilledSourceId ? [{ id: prefilledSourceId }] : []),
+    [prefilledSourceId],
+  );
+  // Hydrated with the SEARCH fragment the select itself renders, not the edit fragment: the two differ
+  // by fields the select needs (scene_count among them) and a source hydrated the wrong way draws a card
+  // the type system has already said is not what a search result is.
+  const { sources: prefilledSources, ready: prefillReady } =
+    useEntities<SearchPerformer>(
+      prefilledIds,
+      "findPerformer",
+      SearchPerformerFragmentDoc,
+      { enabled: prefilledIds.length > 0 },
+    );
+
+  useEffect(() => {
+    if (prefilledSources.length > 0 && mergeSources.length === 0) {
+      setMergeSources(prefilledSources);
+    }
+  }, [prefilledSources, mergeSources.length]);
+
+  // THE SELECT SEEDS ITS OWN STATE FROM ITS `performers` PROP, ONCE, AT MOUNT. Handing it the
+  // prefilled source after it has mounted is invisible: the page's state would carry the source (the
+  // merge would submit it, Continue would be armed) while the field on screen still read "Search for
+  // performers to merge..." -- measured, in exactly that state, before this gate existed. So the field
+  // is not rendered until the prefill has resolved, and it is mounted WITH the source.
+  const awaitingPrefill = prefilledIds.length > 0 && !prefillReady;
+  const initialMergeSources =
+    mergeSources.length > 0 ? mergeSources : prefilledSources;
 
   const {
     sources: loadedSources,
@@ -105,7 +148,11 @@ const PerformerMerge: FC<Props> = ({ performer }) => {
       <hr />
       <div className="row">
         <div className="col-6">
-          {!mergeActive && (
+          {!mergeActive && awaitingPrefill && (
+            // A moment, not a state the reader has to understand: the source is being fetched by id.
+            <LoadingIndicator />
+          )}
+          {!mergeActive && !awaitingPrefill && (
             <>
               <label
                 htmlFor="performer-merge-source-select"
@@ -114,7 +161,7 @@ const PerformerMerge: FC<Props> = ({ performer }) => {
                 Merge sources
               </label>
               <PerformerSelect
-                performers={[]}
+                performers={initialMergeSources}
                 onChange={(performers) => setMergeSources(performers)}
                 message="Search for performers to merge..."
                 excludePerformers={[

@@ -1,0 +1,40 @@
+.RecordFindings {
+  .RecordFindings-heading {
+    display: block;
+    font-weight: 600;
+  }
+
+  .RecordFindings-sub {
+    display: block;
+    margin-top: 0.25rem;
+  }
+
+  .RecordFindings-detail {
+    font-weight: 600;
+  }
+
+  .RecordFindings-candidates {
+    margin: 0.5rem 0 0.5rem 0;
+    padding-left: 1.25rem;
+  }
+
+  .RecordFindings-name {
+    font-weight: 600;
+  }
+
+  .RecordFindings-note {
+    display: block;
+    opacity: 0.85;
+  }
+
+  .RecordFindings-actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+
+  .RecordFindings-truncated {
+    margin-top: 0.5rem;
+    opacity: 0.85;
+  }
+}

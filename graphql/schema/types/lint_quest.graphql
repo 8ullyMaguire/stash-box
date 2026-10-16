@@ -151,4 +151,30 @@ extend type Query {
   curator's.
   """
   lintQuestDefinitions: [LintQuestDefinition!]! @hasRole(role: ADMIN)
+
+  """
+  What ONE record is flagged for, right now.
+
+  Role VOTE, like the board and for the same reason: a finding about an unmerged
+  duplicate or a mis-entered identity is something only somebody who can vote on
+  the fix has any use for.
+
+  This is §7.24.4's validation pass asked about a single id -- the same SQL path
+  `lintquests -entity` runs over a freshly imported batch. An import is validated
+  while it is fresh because nobody comes back to it, and a record that has been in
+  the archive for a year is exactly as likely to be a duplicate; sharing the pass
+  is what keeps the two from drifting apart into two rules.
+
+  It answers about the id it is GIVEN and about nothing else: a record with no
+  findings returns an empty list rather than somebody else's findings pushed past
+  a limit, and an entity type this build cannot check is refused rather than
+  answered with "clean".
+
+  Detectors that RAN and found nothing are omitted, unlike the batch the CLI
+  prints. Which detectors run is the board's question -- it lists every enabled
+  detector and names the ones that found nothing -- while three zero-count reports
+  on a record render as a page of results that all say nothing.
+  """
+  lintFindingsFor(entityType: String!, entityId: ID!): [LintQuestReport!]!
+    @hasRole(role: VOTE)
 }

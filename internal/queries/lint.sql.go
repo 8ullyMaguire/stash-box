@@ -79,7 +79,15 @@ SELECT pu.performer_id AS entity_id,
                  JOIN performers op ON op.id = o.performer_id AND NOT op.deleted
                 WHERE lower(o.url) = lower(pu.url)
                   AND o.performer_id <> pu.performer_id)
-   AND ($2::uuid[] IS NULL OR pu.performer_id = ANY($2::uuid[]))
+   -- A per-record answer returns the whole FINDING, not just the record it was asked about: with ids
+   -- given, every record in a group one of those ids belongs to is in scope. A duplicate whose other
+   -- half you cannot see is not actionable -- the merge it leads to needs both ids -- and it still
+   -- answers about nothing else, because only groups that involve a given id are in scope at all.
+   AND ($2::uuid[] IS NULL
+        OR EXISTS (SELECT 1
+                     FROM performer_urls q
+                    WHERE q.performer_id = ANY($2::uuid[])
+                      AND lower(q.url) = lower(pu.url)))
  ORDER BY lower(pu.url), pu.performer_id
  LIMIT $1
 `
@@ -140,7 +148,15 @@ SELECT su.scene_id AS entity_id,
                  JOIN scenes os ON os.id = o.scene_id AND NOT os.deleted
                 WHERE lower(o.url) = lower(su.url)
                   AND o.scene_id <> su.scene_id)
-   AND ($2::uuid[] IS NULL OR su.scene_id = ANY($2::uuid[]))
+   -- A per-record answer returns the whole FINDING, not just the record it was asked about: with ids
+   -- given, every record in a group one of those ids belongs to is in scope. A duplicate whose other
+   -- half you cannot see is not actionable -- the merge it leads to needs both ids -- and it still
+   -- answers about nothing else, because only groups that involve a given id are in scope at all.
+   AND ($2::uuid[] IS NULL
+        OR EXISTS (SELECT 1
+                     FROM scene_urls q
+                    WHERE q.scene_id = ANY($2::uuid[])
+                      AND lower(q.url) = lower(su.url)))
  ORDER BY lower(su.url), su.scene_id
  LIMIT $1
 `
@@ -363,7 +379,15 @@ SELECT c.performer_id AS entity_id,
   JOIN performers p ON p.id = c.performer_id AND NOT p.deleted
   JOIN other o ON lower(o.claim) = lower(c.claim) AND o.performer_id <> c.performer_id
   JOIN performers op ON op.id = o.performer_id AND NOT op.deleted
- WHERE ($2::uuid[] IS NULL OR c.performer_id = ANY($2::uuid[]))
+ -- A per-record answer covers BOTH sides of the contested claim: the alias holder is the row that gets
+ -- reported (see above), and the performer whose name or alias is being claimed is the case a record
+ -- page must not stay silent about -- "nothing is wrong with this record" is wrong when somebody else's
+ -- alias asserts this person's identity. The reported rows are still the alias side, so the candidate a
+ -- curator sees is always the alias holder: the record to correct, and the other half of the merge.
+ WHERE ($2::uuid[] IS NULL
+        OR c.performer_id = ANY($2::uuid[])
+        OR lower(c.claim) IN (SELECT lower(o2.claim) FROM other o2
+                               WHERE o2.performer_id = ANY($2::uuid[])))
  ORDER BY lower(c.claim), c.performer_id
  LIMIT $1
 `

@@ -126,6 +126,15 @@ func parseRefs(entityType, ids string) ([]lint.EntityRef, error) {
 	if ids == "" {
 		return nil, fmt.Errorf("-ids is required with -entity")
 	}
+	// The TYPE is checked for the same reason the ids are: a type no detector implements matches no
+	// detector, so the pass would answer "nothing found" about an import it never looked at. This was
+	// reachable -- `-entity studio -ids <uuid>` printed "validated 1 studio id(s)" and exited 0.
+	switch entityType {
+	case string(lint.EntityPerformer), string(lint.EntityScene):
+	default:
+		return nil, fmt.Errorf("-entity must be %s or %s, not %q",
+			lint.EntityPerformer, lint.EntityScene, entityType)
+	}
 	var refs []lint.EntityRef
 	for _, raw := range strings.Split(ids, ",") {
 		raw = strings.TrimSpace(raw)

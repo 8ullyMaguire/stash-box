@@ -30,6 +30,7 @@ import {
   ImageTypeGroupsDocument,
   type ImageTypeGroupsQueryVariables,
   InstanceMetricsDocument,
+  LintFindingsForDocument,
   LintQuestBoardDocument,
   LintQuestDefinitionsDocument,
   ListDocument,
@@ -513,6 +514,27 @@ export const useLintQuestBoard = (limit?: number) =>
 // admins -- a link shown to everybody and then refused is the shape this avoids.
 export const useLintQuestDefinitions = () =>
   useQuery(LintQuestDefinitionsDocument);
+
+// What one record is flagged for (§7.24.4's validation pass, asked about a single id).
+//
+// `skip` IS REQUIRED, and for two different reasons at once -- which is why it is a
+// parameter rather than something the hook works out for itself. The query is gated VOTE at
+// the schema, so a reader who cannot vote must not send it: on a busy record page that is a
+// refused request on every view, and the refusal is not the user's to see. And the ids have
+// to be there before the request is: a page that renders a loader for a record it has not
+// loaded yet asks about nothing.
+//
+// Skipping stops the REQUEST, not the render. The caller guards the JSX too, or the panel
+// renders an empty card that reads as "this record is clean" for a user who was never asked.
+export const useLintFindingsFor = (
+  entityType: string,
+  entityId: string,
+  skip = false,
+) =>
+  useQuery(LintFindingsForDocument, {
+    variables: { entityType, entityId },
+    skip: skip || !entityType || !entityId,
+  });
 
 export const useEloMatchup = (entityType: EloEntityType, skip = false) =>
   useQuery(EloMatchupDocument, {

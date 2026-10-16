@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/gofrs/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -266,4 +267,150 @@ func TestLintQuestBoardSaysWhenADetectorFilledItsLimit(t *testing.T) {
 	require.Len(t, report.Candidates, 1, "the limit is the limit")
 	require.NotNil(t, report.LimitNotice, "a truncated board must not look like a complete one")
 	assert.Contains(t, *report.LimitNotice, "1", "the notice says how many it stopped at")
+}
+
+// lintFindingsFor is the per-record arm: the same validation pass, asked about one id.
+func (c *graphqlClient) lintFindingsFor(entityType string, id uuid.UUID) ([]lintReportOutput, error) {
+	q := fmt.Sprintf(`query LintFindingsFor {
+		lintFindingsFor(entityType: %q, entityId: %q) {
+			slug
+			description
+			entityType
+			bountyPoints
+			count
+			limitNotice
+			candidates { entityId entityName detail }
+		}
+	}`, entityType, id.String())
+
+	var resp struct {
+		LintFindingsFor []lintReportOutput `json:"lintFindingsFor"`
+	}
+	if err := c.Post(q, &resp); err != nil {
+		return nil, err
+	}
+	return resp.LintFindingsFor, nil
+}
+
+// A record's findings must be ABOUT THAT RECORD, and about the WHOLE of the finding that names it: a
+// duplicate whose other half cannot be seen is not actionable, so a per-record answer carries every
+// record in the groups that involve the id it was asked about -- and nothing from any other group.
+//
+// Both halves are asserted, because each one alone is passable by a broken query: returning every
+// candidate in the table would satisfy "the pair is there", and narrowing to the asked id alone would
+// satisfy "nothing else leaked".
+func TestLintFindingsForAnswersWithTheWholeFindingAndNothingElse(t *testing.T) {
+	seedLintRegistry(t)
+	runner := asAdmin(t)
+
+	suffix := lintSuffix()
+	shared := "https://lint-findings.test/" + suffix
+	elsewhere := "https://lint-findings.test/other-" + suffix
+	site := lintSite(t)
+
+	flagged := lintPerformer(t, "Lint Findings Flagged "+suffix, nil)
+	partner := lintPerformer(t, "Lint Findings Partner "+suffix, nil)
+	lintPerformerURL(t, flagged, site, shared)
+	lintPerformerURL(t, partner, site, shared)
+
+	// A second duplicate pair, created by the same test, sharing a different URL: it is the control for
+	// "and nothing else". Its ids must not appear in the first pair's answer.
+	unrelatedA := lintPerformer(t, "Lint Findings Unrelated A "+suffix, nil)
+	unrelatedB := lintPerformer(t, "Lint Findings Unrelated B "+suffix, nil)
+	lintPerformerURL(t, unrelatedA, site, elsewhere)
+	lintPerformerURL(t, unrelatedB, site, elsewhere)
+
+	clean := lintPerformer(t, "Lint Findings Clean "+suffix, nil)
+
+	reports, err := runner.client.lintFindingsFor("performer", flagged)
+	require.NoError(t, err)
+
+	report := findReport(t, reports, "duplicate_performer_url")
+	assert.Equal(t, len(report.Candidates), report.Count, "count is the length of this response")
+	require.Len(t, report.Candidates, 2, "a duplicate URL finding is about both records")
+
+	byID := map[string]string{}
+	for _, c := range report.Candidates {
+		byID[c.EntityId] = c.EntityName
+		assert.Contains(t, c.Detail, shared, "the detail names the URL they share")
+	}
+	assert.Equal(t, "Lint Findings Flagged "+suffix, byID[flagged.String()],
+		"the record that was asked about is in its own answer")
+	assert.Equal(t, "Lint Findings Partner "+suffix, byID[partner.String()],
+		"and so is the other half, which is what the merge action needs")
+
+	// AND NOTHING ELSE. The unrelated pair shares a different URL and is nowhere in this answer.
+	for _, other := range []uuid.UUID{unrelatedA, unrelatedB} {
+		_, present := byID[other.String()]
+		assert.False(t, present, "a per-record answer carries no other group's records")
+	}
+
+	// The miss: the same answer asked about the partner names the same two records.
+	partnerReports, err := runner.client.lintFindingsFor("performer", partner)
+	require.NoError(t, err)
+	partnerReport := findReport(t, partnerReports, "duplicate_performer_url")
+	assert.Equal(t, report.Count, partnerReport.Count,
+		"both halves of a duplicate see the same finding")
+
+	// The empty case, asked about a record created in the same test: an empty answer is a statement
+	// about this record rather than about an empty database.
+	cleanReports, err := runner.client.lintFindingsFor("performer", clean)
+	require.NoError(t, err, "a clean record is answered about, not refused")
+	assert.Empty(t, cleanReports, "a record with no findings gets no reports at all")
+}
+
+// THE CASE A RECORD PAGE MUST NOT STAY SILENT ABOUT: somebody else's alias asserting this person's
+// identity. The detector reports the ALIAS side (the board's rule -- the alias is the thing to
+// correct), so the row a curator gets is the alias holder's, and the alias holder is exactly the
+// record the merge has to name. Asked about the performer whose NAME is claimed, the answer must
+// arrive anyway, carrying the claimer.
+func TestLintFindingsForSeesAnAliasClaimingThisRecordsName(t *testing.T) {
+	seedLintRegistry(t)
+	runner := asAdmin(t)
+
+	suffix := lintSuffix()
+	claimed := lintPerformer(t, "Lint Claimed "+suffix, nil)
+	claimer := lintPerformer(t, "Lint Claimer "+suffix, nil)
+	lintAlias(t, claimer, "Lint Claimed "+suffix)
+
+	reports, err := runner.client.lintFindingsFor("performer", claimed)
+	require.NoError(t, err, "the record whose name is claimed is answered about")
+
+	report := findReport(t, reports, "performer_alias_collision")
+	require.Len(t, report.Candidates, 1, "the reported row is the alias holder")
+	assert.Equal(t, claimer.String(), report.Candidates[0].EntityId,
+		"the candidate is the performer whose alias claims this name")
+	assert.Contains(t, report.Candidates[0].Detail, "Lint Claimed "+suffix,
+		"and the detail names the contested claim")
+}
+
+// An entity type no detector implements matches no detector, which answers an empty list -- and an
+// empty list reads as "this record is clean" rather than as "this build cannot check it". The
+// supported arm is asserted in the same test, because a resolver that refused EVERYTHING would
+// otherwise pass this.
+func TestLintFindingsForRefusesAnEntityTypeItCannotCheck(t *testing.T) {
+	seedLintRegistry(t)
+	runner := asAdmin(t)
+
+	id := lintPerformer(t, "Lint Findings Type "+lintSuffix(), nil)
+
+	_, err := runner.client.lintFindingsFor("studio", id)
+	require.Error(t, err, "a studio is not something this build can check")
+	assert.Contains(t, err.Error(), "studio", "the refusal names the type it was given")
+	assert.Contains(t, err.Error(), "performers and scenes", "and names what it can check")
+
+	// The control: the same id, asked about as the type it is, is answered rather than refused.
+	_, err = runner.client.lintFindingsFor("performer", id)
+	require.NoError(t, err, "the supported type must not be refused")
+}
+
+// Same gate as the board, asserted at the API rather than trusted from the annotation.
+func TestLintFindingsForIsRefusedWithoutVoteRole(t *testing.T) {
+	seedLintRegistry(t)
+
+	id := lintPerformer(t, "Lint Findings Gate "+lintSuffix(), nil)
+
+	_, err := asRead(t).client.lintFindingsFor("performer", id)
+	require.Error(t, err, "a read-only viewer must not be served a record's findings")
+	assert.Contains(t, err.Error(), "not authorized")
 }

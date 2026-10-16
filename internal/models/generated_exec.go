@@ -1123,6 +1123,7 @@ type ComplexityRoot struct {
 		ImageTypeGroups                func(childComplexity int, target *ImageTypeScopeEnum, includeDisabled *bool) int
 		InstanceMetrics                func(childComplexity int) int
 		Leaderboard                    func(childComplexity int, input *LeaderboardInput) int
+		LintFindingsFor                func(childComplexity int, entityType string, entityID uuid.UUID) int
 		LintQuestBoard                 func(childComplexity int, limit *int) int
 		LintQuestDefinitions           func(childComplexity int) int
 		List                           func(childComplexity int, id uuid.UUID) int
@@ -2124,6 +2125,7 @@ type QueryResolver interface {
 	Leaderboard(ctx context.Context, input *LeaderboardInput) ([]LeaderboardEntry, error)
 	LintQuestBoard(ctx context.Context, limit *int) ([]LintQuestReport, error)
 	LintQuestDefinitions(ctx context.Context) ([]LintQuestDefinition, error)
+	LintFindingsFor(ctx context.Context, entityType string, entityID uuid.UUID) ([]LintQuestReport, error)
 	List(ctx context.Context, id uuid.UUID) (*List, error)
 	PublishedLists(ctx context.Context, perPage *int, page *int) (*ListBrowseResult, error)
 	Lists(ctx context.Context, userID *uuid.UUID, perPage *int, page *int) ([]List, error)
@@ -7640,6 +7642,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.Leaderboard(childComplexity, args["input"].(*LeaderboardInput)), true
+	case "Query.lintFindingsFor":
+		if e.ComplexityRoot.Query.LintFindingsFor == nil {
+			break
+		}
+
+		args, err := ec.field_Query_lintFindingsFor_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.LintFindingsFor(childComplexity, args["entityType"].(string), args["entityId"].(uuid.UUID)), true
 	case "Query.lintQuestBoard":
 		if e.ComplexityRoot.Query.LintQuestBoard == nil {
 			break
@@ -13694,6 +13707,32 @@ extend type Query {
   curator's.
   """
   lintQuestDefinitions: [LintQuestDefinition!]! @hasRole(role: ADMIN)
+
+  """
+  What ONE record is flagged for, right now.
+
+  Role VOTE, like the board and for the same reason: a finding about an unmerged
+  duplicate or a mis-entered identity is something only somebody who can vote on
+  the fix has any use for.
+
+  This is §7.24.4's validation pass asked about a single id -- the same SQL path
+  ` + "`" + `lintquests -entity` + "`" + ` runs over a freshly imported batch. An import is validated
+  while it is fresh because nobody comes back to it, and a record that has been in
+  the archive for a year is exactly as likely to be a duplicate; sharing the pass
+  is what keeps the two from drifting apart into two rules.
+
+  It answers about the id it is GIVEN and about nothing else: a record with no
+  findings returns an empty list rather than somebody else's findings pushed past
+  a limit, and an entity type this build cannot check is refused rather than
+  answered with "clean".
+
+  Detectors that RAN and found nothing are omitted, unlike the batch the CLI
+  prints. Which detectors run is the board's question -- it lists every enabled
+  detector and names the ones that found nothing -- while three zero-count reports
+  on a record render as a page of results that all say nothing.
+  """
+  lintFindingsFor(entityType: String!, entityId: ID!): [LintQuestReport!]!
+    @hasRole(role: VOTE)
 }
 `, BuiltIn: false},
 	{Name: "../../graphql/schema/types/list.graphql", Input: `# Shareable user lists over GraphQL (SPEC §28, growth item 28).
@@ -23003,6 +23042,28 @@ func (ec *executionContext) field_Query_leaderboard_args(ctx context.Context, ra
 		return nil, err
 	}
 	args["input"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_lintFindingsFor_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "entityType",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNString2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["entityType"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "entityId",
+		func(ctx context.Context, v any) (uuid.UUID, error) {
+			return ec.unmarshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["entityId"] = arg1
 	return args, nil
 }
 
@@ -50751,6 +50812,68 @@ func (ec *executionContext) fieldContext_Query_lintQuestDefinitions(_ context.Co
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return ec.childFields_LintQuestDefinition(ctx, field)
 		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_lintFindingsFor(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_lintFindingsFor(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().LintFindingsFor(ctx, fc.Args["entityType"].(string), fc.Args["entityId"].(uuid.UUID))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "VOTE")
+				if err != nil {
+					var zeroVal []LintQuestReport
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal []LintQuestReport
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v []LintQuestReport) graphql.Marshaler {
+			return ec.marshalNLintQuestReport2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐLintQuestReportᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_lintFindingsFor(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_LintQuestReport(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_lintFindingsFor_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
 	}
 	return fc, nil
 }
@@ -82630,6 +82753,28 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 					}
 				}()
 				res = ec._Query_lintQuestDefinitions(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "lintFindingsFor":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_lintFindingsFor(ctx, field)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}

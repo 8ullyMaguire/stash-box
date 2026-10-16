@@ -2,6 +2,9 @@ package api
 
 import (
 	"context"
+	"fmt"
+
+	"github.com/gofrs/uuid"
 
 	"github.com/stashapp/stash-box/internal/models"
 	"github.com/stashapp/stash-box/internal/service/lint"
@@ -32,6 +35,51 @@ func (r *queryResolver) LintQuestBoard(ctx context.Context, limit *int) ([]model
 
 	out := make([]models.LintQuestReport, 0, len(reports))
 	for _, report := range reports {
+		out = append(out, lintReportModel(report))
+	}
+	return out, nil
+}
+
+// LintFindingsFor is §7.24.4's validation pass asked about ONE record, which is what makes a
+// record-scoped findings panel possible without a second rule to keep in step with the first.
+//
+// THE TYPE IS CHECKED BEFORE THE QUERY RUNS, and that is the whole reason this resolver is more than a
+// pass-through. `ValidateEntities` groups the ids by entity type and skips any detector whose type has
+// no ids, so passing "studio" through would match nothing and answer an empty list -- which a reader
+// cannot tell apart from a clean record, and the service's own comment names that exact confusion
+// ("would match nothing and read as "clean" rather than as "not asked""). An unsupported type is a
+// refusal here, and the refusal names the type.
+func (r *queryResolver) LintFindingsFor(ctx context.Context, entityType string, entityId uuid.UUID) ([]models.LintQuestReport, error) {
+	switch entityType {
+	case string(lint.EntityPerformer), string(lint.EntityScene):
+		// The two the service's detectors cover. Anything else is refused below rather than
+		// answered with an empty list.
+	default:
+		return nil, fmt.Errorf("lintFindingsFor: this build checks performers and scenes, not %q", entityType)
+	}
+
+	reports, err := r.services.Lint().ValidateEntities(ctx, []lint.EntityRef{
+		{EntityType: entityType, EntityID: entityId},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// THE PASS ANSWERS WITH A REPORT PER DETECTOR, INCLUDING THE EMPTY ONES, AND THIS ARM DOES NOT.
+	// That is the one place the record-scoped answer deliberately differs from the batch it shares its
+	// SQL with, and the reason is who reads it: the import pass prints "validated 3 ids, nothing found"
+	// and the count of detectors that ran is part of its answer, while a panel on a record that came
+	// back with three zero-count reports renders as a page of results that all say nothing. Which
+	// detectors run is the BOARD's question -- it lists every enabled detector and says when one found
+	// nothing -- so asking it there does not lose the answer.
+	//
+	// A non-nil slice because the field is a non-null list: a nil slice marshals as JSON null, which a
+	// strict client reads as a missing field rather than as "this record is clean".
+	out := make([]models.LintQuestReport, 0, len(reports))
+	for _, report := range reports {
+		if report.Count == 0 {
+			continue
+		}
 		out = append(out, lintReportModel(report))
 	}
 	return out, nil
