@@ -90,8 +90,12 @@ const PerformersComponent: FC = () => {
         defaultValue={params.query}
         className="w-auto"
       />
+      <label htmlFor="performer-gender-input" className="visually-hidden">
+        Filter by gender
+      </label>
       <Select
         id="performer-gender"
+        inputId="performer-gender-input"
         options={genderOptions}
         defaultValue={genderOptions.find((o) => o.value === gender)}
         placeholder="Gender"
@@ -102,6 +106,7 @@ const PerformersComponent: FC = () => {
       />
       <InputGroup className="performer-sort ms-2 me-3">
         <Form.Select
+          aria-label="Sort performers by"
           onChange={(e) =>
             setParams("sort", e.currentTarget.value.toLowerCase())
           }
@@ -115,6 +120,11 @@ const PerformersComponent: FC = () => {
         </Form.Select>
         <Button
           variant="secondary"
+          aria-label={
+            direction === SortDirectionEnum.ASC
+              ? "Sort direction: ascending. Switch to descending"
+              : "Sort direction: descending. Switch to ascending"
+          }
           onClick={() =>
             setParams(
               "direction",

@@ -172,7 +172,7 @@ $panels-width: 16rem;
   }
 
   &-summary {
-    color: $text-color;
+    color: var(--sb-text);
     display: flex;
     flex-wrap: wrap;
     font-size: 0.85rem;
@@ -261,8 +261,8 @@ $panels-width: 16rem;
     }
 
     &-none.ImageLabels-option-selected .form-label {
-      background-color: $secondary;
-      color: $text-color;
+      background-color: var(--sb-surface);
+      color: var(--sb-text);
       font-style: normal;
     }
 
@@ -271,7 +271,7 @@ $panels-width: 16rem;
       opacity: 0.45;
 
       &:hover {
-        border-color: $secondary;
+        border-color: var(--sb-border);
       }
     }
   }

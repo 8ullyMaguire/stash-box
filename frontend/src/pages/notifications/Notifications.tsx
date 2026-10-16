@@ -89,9 +89,13 @@ const Notifications: FC = () => {
         listCount={data?.queryNotifications.count}
         filters={
           <>
-            <Form.Group className="mx-2 mb-3 d-flex flex-column">
+            <Form.Group
+              controlId="notification-type"
+              className="mx-2 mb-3 d-flex flex-column"
+            >
               <Form.Label>Notification Type</Form.Label>
               <Form.Select
+                id="notification-type"
                 onChange={(e) =>
                   setParams("notification", e.currentTarget.value)
                 }

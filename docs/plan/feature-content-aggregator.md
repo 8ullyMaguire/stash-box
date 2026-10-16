@@ -4369,7 +4369,8 @@ compiles `.text-muted` to a static `color: $text-muted`, so both palettes shippe
 reads `--sb-text-muted`. (3) **The link token is asserted against BOTH backgrounds, in both palettes.** The dark
 palette's `#48aff0` measures 5.96:1 on the page background and **4.41:1 on a card surface** -- it fails the
 moment a link lands on a card, and no test of the page background can see that. The token is `#6cc4f2` in dark
-(5.5:1 on a surface, 7.43:1 on the page) and `#106ba3` in light (5.39:1 / 5.75:1 on white), and
+(5.5:1 on a surface, 7.43:1 on the page) and `#0f628f` in light (slice 6 re-measured this: `#106ba3` cleared
+white at 5.75:1 and failed the alert panel at 4.12:1), and
 `theme.test.ts` now asserts both pairs. The browser gate found the same trap from the other end: the outline
 button's text was `#137cbd` at 2.36:1 on a dark card.
 
@@ -4389,6 +4390,66 @@ audited. Those are the phase's remaining items.
 **Verification:** `cd frontend && npx vitest run src/__tests__/theme.test.ts` -- 11 tests, including the two new
 link-contrast assertions, and the suite that already asserts the JS tokens and the SCSS `:root` block are equal.
 Then the gate: `cd e2e && npx playwright test tests/a11y.spec.ts`.
+
+### Phase 16, slice 6 — the sweep, the non-text contrast, and the surfaces that do not follow the palette — **BUILT 2026-10-16**
+
+The phase's three remaining items, taken together because they are one question asked three ways: *what has this
+palette never been measured against?* Slice 5 closed with the honest list -- the light palette has not been
+rendered across the 33 stylesheets, 1.4.11 has no rule, `forced-colors` is not audited -- and this slice answers
+the first two and leaves the third, which is a decision and not an oversight.
+
+**Files.** `e2e/tests/a11y.spec.ts` (the sweep of twenty routes in both palettes, and the hand-computed 1.4.11
+check; 25 tests become 29), `frontend/src/styles/theme.scss` (the fixed-dark-surface rules, `.btn-outline-*`,
+`.alert-secondary`, the underlined in-text link, `--sb-textfield-bg` at its two remaining call sites, and the
+`--sb-link` / `--sb-text-muted` values), `frontend/src/theme.ts` + `frontend/src/__tests__/theme.test.ts` (the
+same two tokens, plus the assertion against the grey surface), and the components the sweep named:
+`hooks/useEditFilter.tsx` (five labels that pointed at nothing, the bot select, the direction toggle),
+`pages/performers/Performers.tsx` + `pages/performers/components/scenePairings.tsx` (the same three controls),
+`pages/users/Users.tsx` (a button inside a link, eleven times), `pages/notifications/Notifications.tsx`,
+`components/dragList/styles.scss`.
+
+**The decisions.** (1) **The sweep is the instrument the key pages could not be.** Six hand-picked pages cannot
+name the pages nobody picked, and the stylesheets are shared. Twenty routes, both palettes, the same rule set,
+and a count assertion first: `expect(audited).toBe(SWEEP_ROUTES.length)`. First run: five dirty routes in dark,
+three in light, none of them among the six already audited. (2) **A token is only correct where the surface
+under it is token-driven.** This is the slice's lesson and it cost two regressions to learn: `.navbar-dark` is a
+fixed `$secondary` bar in both palettes, so its links and the palette-switcher buttons need a fixed near-white --
+tokenising them gave `#182026` on `#394b59` (1.82:1) on fifteen elements of every route, in light mode only,
+which the key-page audits passed. `.alert-secondary` is the same trap mirrored: a fixed light panel holding a
+dark-mode link (1.39:1). (3) **A finding reports its measurement.** The sweep's failure message carries
+`fg on bg = ratio`; a `color-contrast` id alone is a finding somebody must reproduce by hand. (4) **1.4.11 is
+computed, not asserted by proxy.** axe has no rule for it in this tag set, which is exactly how a 2.36:1 border
+shipped: the gate now composites the ancestor backgrounds and compares the component's border colour against the
+result, and reports a component that does not render rather than skipping it quietly. (5) **A token is asserted
+against its worst surface.** `--sb-text-muted` passed on white and measured 4.39:1 on the drag-list grey -- 27
+nodes on one page -- so `theme.test.ts` now computes that grey (`rgba(24 32 38 / 8%)` over the page) and asserts
+against it. The light muted token moved `#5c7080` -> `#566877` and the link `#106ba3` -> `#0f628f`, both chosen
+against the worst surface rather than the prettiest one.
+
+**`forced-colors`, the phase's last item, is in this slice too -- as its own mode.** The first run reported
+`color-contrast x21 (.active)`, and the measurement says the number is the instrument's: under forced colors
+Chromium substitutes the system colours at paint time while `getComputedStyle` and axe keep reading the author's,
+and those elements render at 11:1 (`rgb(0, 0, 159)` on white, measured by the test). So the rule is disabled
+WITH that measurement in the comment -- not by turning a green flag on -- and the test asserts the mode is
+really on and the rendered colour really meets 4.5:1, because otherwise the switch could hide a page that never
+entered the mode. The author's half is anything that carries meaning with no text: the two palette-switcher
+buttons and the notification bell must still occupy a rendered box, which is the failure this mode produces and
+the one no rule set can see (a hidden control raises no violation, it just is not there).
+
+**What is NOT done here, named rather than implied.** The sweep covers the ROUTES the SPA serves, not all 33
+stylesheets by name -- a rule that no route exercises is still unmeasured, and the route list is the honest
+proxy rather than a proof. Nothing claims that a page is *usable* in forced-colors mode: the check is that it
+does not lose its structure or an icon-only affordance.
+
+**Verification:** `cd e2e && STASH_BOX_DATABASE=... npx playwright test tests/a11y.spec.ts` -- 30 tests: 12
+page-palette audits, 6 Tab walks, 6 arrow-key walks, the reduced-motion check, 2 route sweeps (20 routes each),
+2 non-text-contrast checks and the forced-colors check. The forced-colors half is proven able to fail the same
+way: `nav.navbar button { display: none }` under `@media (forced-colors: active)` reddens it naming BOTH palette
+switchers while axe stays green -- which is the whole reason the box measurement exists. Proof the new halves can fail, run on the committed tree: the muted token
+reverted to `#5c7080` reddens the light sweep with `#5c7080 on #ededee = 4.39` and the unit assertion for the
+grey surface; the navbar scope rule removed reddens **20 of 20** routes in light mode with
+`.btn-outline-secondary: #182026 on #394b59 = 1.82`. Both restored, 29/29 green. Plus
+`npx vitest run` (65 files, 780 tests) and `npx tsc --noEmit` (no new errors).
 
 ## Phase 17 — the predicate grows (threaded, not separate)
 

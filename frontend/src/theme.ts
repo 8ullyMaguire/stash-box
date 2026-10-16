@@ -47,9 +47,9 @@ export const themeTokens: Record<ResolvedTheme, Record<string, string>> = {
     "--sb-bg": "#f5f8fa",
     "--sb-surface": "#ffffff",
     "--sb-text": "#182026",
-    "--sb-text-muted": "#5c7080",
+    "--sb-text-muted": "#566877",
     "--sb-border": "#d3dde4",
-    "--sb-link": "#106ba3",
+    "--sb-link": "#0f628f",
   },
 };
 

@@ -875,13 +875,84 @@ TEXT on a surface must be asserted against both backgrounds it can sit on.** The
 `#48aff0`: 5.96:1 on the page background, and **4.41:1 on a card surface** -- passing where a reader usually
 sees it and failing the moment a link lands on a card. `theme.test.ts` now checks `--sb-link` against both, in
 both palettes, and the gate found the same trap independently from the other end (the outline button's text at
-2.36:1 on a dark card). The tokens are `#6cc4f2` in dark and `#106ba3` in light.
+2.36:1 on a dark card). The tokens are `#6cc4f2` in dark and `#0f628f` in light.
 
 **Order is part of the fix.** The rules that carry the link token have to come AFTER bootstrap's, because they
 are deliberately the same specificity and win only by being later; placed beside the tokens they lost and the
 gate kept measuring the compiled `#48aff0`. The file says so where they are.
 
-**What this slice does not claim.** The light palette has never been rendered across all 33 stylesheets --
-`theme.ts`'s own header says as much -- and this fixes what the gate can see, not the sweep. WCAG 1.4.11
-non-text contrast has no rule in this gate at all, so a border that fails it is not reported. `forced-colors`
-(Windows high contrast) is not audited. Those are the phase's remaining items.
+**A token is only correct where the surface under it is token-driven.** Substituting a token for a static
+colour is right where the surface follows the palette and wrong where it does not, and the same substitution can
+be both in one file. `.navbar-dark` is a FIXED dark bar (`$secondary`) in both palettes, so its links and its
+palette-switcher buttons need a fixed near-white: giving them `var(--sb-text)` produced `#182026` on `#394b59`
+-- **1.82:1, fifteen links and two buttons on every route** -- with the six key pages still green, because the
+dark palette was fine and light mode is the half nobody looks at. `nav-link` and `.navbar .btn-outline-*` are
+therefore deliberately NOT tokenised, and the file says why at both sites. The same reasoning from the other
+side: `.alert-secondary` was a fixed light `#d7dbde` panel, so in the dark palette it held a dark-mode link on
+a light panel (1.39:1); a surface that does not follow the palette cannot hold text that does.
+
+**What this slice does not claim.** The light palette has not been rendered across all 33 stylesheets; §16.6 is
+the sweep that measures the routes the application serves, and it is not the same claim. `forced-colors` is
+audited separately in §16.8, because it is a different rendering mode and not a third palette.
+
+## 16.6 The sweep: every route, both palettes (phase 16, slice 16f)
+
+The six key pages are audited with data in them (§16.3), which is the right instrument for "does THIS page
+work". It is the wrong instrument for "the stylesheets are shared": a token that is broken in light mode shows
+up on whichever page happens to render the rule, and six hand-picked pages cannot name the pages nobody
+picked. So the gate also walks **every route the SPA serves** -- twenty of them -- in both palettes and runs the
+same WCAG 2.1 AA rule set on each. The routes are counted before the result is trusted
+(`expect(audited).toBe(SWEEP_ROUTES.length)`), because "every route is clean" over zero routes is the vacuous
+form of the claim.
+
+It paid for itself on the first run: five routes were dirty in the dark palette and five in light, none of them
+among the six the phase had already audited, and every one of them a real defect:
+
+- `/performers` and `/edits` -- unlabelled filter selects and icon-only sort buttons (three react-selects, six
+  `<Form.Select>`s of which five had a visible label that pointed at nothing, and the direction toggles).
+- `/users` -- the edit control was a `<Button>` inside a `<Link>`, reported eleven times, once per row, as both
+  `button-name` and `link-name`. The same shape as the notification bell in §16.3, on a page the earlier gate
+  never visited.
+- `/image-types` -- 27 muted descriptions on the drag-list strip at 2.61:1.
+- `/lists` -- an in-text link distinguished by colour alone (`link-in-text-block`), and a
+  `.btn-outline-secondary` used as text: `$secondary` (`#394b59`) at **1.59:1** on the dark page background.
+  That last one is why `.btn-outline-secondary` now takes the text token -- and why the navbar's instance of
+  the same class takes the fixed near-white instead (see §16.5).
+- The first run of the sweep found two of these in the LIGHT palette only, which is the half of the claim
+  §16.5's closing paragraph had explicitly left unmeasured.
+
+The sweep's failure message carries the measured colours (`#5c7080 on #ededee = 4.39`), because a
+`color-contrast` finding without them is a finding somebody has to reproduce by hand before they can act.
+
+## 16.7 WCAG 1.4.11 non-text contrast, measured by hand (phase 16, slice 16f)
+
+axe has no rule for 1.4.11 in this rule set, and that is exactly how a 2.36:1 outline-button border shipped
+unnoticed: nobody computed it. So the gate computes it, for a named list of UI components (outline button, text
+input, select, active tab): walk up for the nearest ancestor with a non-transparent background, composite the
+rgba layers down to the page, and take the contrast ratio of the component's border colour against that
+surface. 3:1 is the requirement, and a component that does not render on the audited page is reported as NOT
+RENDERED rather than silently skipped -- the assertion also requires at least one to have been measured, or
+"no weak boundaries" would be true of an empty list.
+
+## 16.8 forced-colors: the mode where the palette is not the author's (phase 16, slice 16f)
+
+The phase's last item, and the one the palette work could not touch: `forced-colors` (Windows high contrast)
+ignores `color`, `background-color` and `border-color` and substitutes the reader's system colours, so a page
+that is clean in both palettes can still lose an affordance here. It is a different rendering mode, not a third
+palette, and it gets its own check.
+
+**Half of it is not the author's to fail, and the gate says so by measurement rather than by assumption.** The
+first run reported `color-contrast x21 (.active)`. That number was wrong: under forced colors Chromium
+substitutes the system colours at paint time while `getComputedStyle` and axe keep reading the author's, and the
+elements in question render at **11:1** -- `rgb(0, 0, 159)` on white, measured by the test itself. In this mode
+the colours in use are the reader's own, so the rule is disabled **with that measurement in the comment**, and
+the test then asserts the other direction: `matchMedia('(forced-colors: active)')` is true and the rendered
+link colour really does meet 4.5:1. Without that second assertion the rule switch could hide a page that never
+entered the mode at all.
+
+**The half that IS the author's**: anything that carries meaning with no text. The test measures a named set --
+the two palette-switcher buttons and the notification bell, all of which are a box with an icon in it -- and
+requires a rendered box of at least 8x8. A control whose box collapses is exactly what this mode produces and
+exactly what no rule set can see, because a hidden control raises no violation: it simply is not there.
+Proven, not asserted: adding `nav.navbar button { display: none }` under `@media (forced-colors: active)` fails
+the check naming both palette switchers while axe stays green.

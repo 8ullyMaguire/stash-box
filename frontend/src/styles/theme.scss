@@ -21,7 +21,7 @@ $theme-colors: (
 );
 $link-color: #48aff0;
 $link-hover-color: $link-color;
-$pre-color: $text-color;
+$pre-color: var(--sb-text);
 $popover-bg: $secondary;
 
 // Custom variables
@@ -144,9 +144,9 @@ $textfield-bg: rgba(16 22 26 / 30%);
   --sb-surface: #ffffff;
   // Blueprint's blue2. The dark palette's #48aff0 measures 2.27:1 here -- the tab links on five pages were
   // unreadable in light mode.
-  --sb-link: #106ba3;
+  --sb-link: #0f628f;
   --sb-text: #182026;
-  --sb-text-muted: #5c7080;
+  --sb-text-muted: #566877;
   --sb-border: #d3dde4;
   --sb-textfield-bg: rgba(24 32 38 / 8%);
 
@@ -191,7 +191,7 @@ body {
 .btn.active:not(.disabled),
 .btn.active.minimal:not(.disabled) {
   background-color: rgba(138 155 168 / 30%);
-  color: $text-color;
+  color: var(--sb-text);
 }
 
 .btn-link {
@@ -216,17 +216,17 @@ a.minimal,
 button.minimal {
   background: none;
   border: none;
-  color: $text-color;
+  color: var(--sb-text);
   transition: none;
 
   &:hover {
     background: rgba(138 155 168 / 15%);
-    color: $text-color;
+    color: var(--sb-text);
   }
 
   &:active {
     background: rgba(138 155 168 / 30%);
-    color: $text-color;
+    color: var(--sb-text);
   }
 }
 
@@ -258,7 +258,7 @@ hr {
 
   .nav-link {
     border: none;
-    color: $text-color;
+    color: var(--sb-text);
     padding: 8px;
 
     &.active {
@@ -278,6 +278,10 @@ hr {
   }
 }
 
+// NOT a token, deliberately. `navbar-dark` is a FIXED dark scheme: the bar is `$secondary` in both palettes,
+// so its text has to be a fixed near-white. A token substitution is only correct where the surface itself is
+// token-driven -- substituting here gave the bar the light palette's dark text (#182026 on #394b59, 1.82:1)
+// on fifteen links on EVERY page, which the route sweep found and the six key pages had not.
 .navbar-dark .navbar-nav .nav-link {
   color: $text-color;
 
@@ -298,7 +302,7 @@ hr {
 
 .form-control {
   &-plaintext {
-    color: $text-color;
+    color: var(--sb-text);
     margin: 0;
     padding: 0;
 
@@ -320,7 +324,7 @@ hr {
   max-width: inherit;
 
   &-body {
-    color: $text-color;
+    color: var(--sb-text);
     white-space: pre-wrap;
   }
 }
@@ -414,7 +418,7 @@ hr {
     0 0 0 0 rgba(19 124 189 / 0%),
     inset 0 0 0 1px rgba(16 22 26 / 30%),
     inset 0 1px 1px rgba(16 22 26 / 40%);
-  color: $text-color;
+  color: var(--sb-text);
 
   &:focus {
     border: 0;
@@ -424,7 +428,7 @@ hr {
       0 0 0 3px rgba(19 124 189 / 30%),
       inset 0 0 0 1px rgba(16 22 26 / 30%),
       inset 0 1px 1px rgba(16 22 26 / 40%);
-    color: $text-color;
+    color: var(--sb-text);
   }
 }
 
@@ -432,12 +436,12 @@ hr {
 .text-input,
 .text-input[readonly],
 .text-input:focus {
-  background-color: $textfield-bg;
+  background-color: var(--sb-textfield-bg);
 }
 
 .input-control,
 .input-control:focus {
-  background-color: $secondary;
+  background-color: var(--sb-surface);
 }
 /* stylelint-enable no-descending-specificity */
 
@@ -467,12 +471,47 @@ textarea.text-input {
 // 2.36:1 for the dark palette's outline button), which is why this block is at the foot of the file rather
 // than beside the tokens it reads.
 /* stylelint-disable no-descending-specificity */
+// NOT a bare `.nav-link`: the navbar's own links live on a dark bar in BOTH palettes and take their colour
+// from bootstrap's navbar rules. Applying the link token to them made every one of them fail in light mode
+// (#106ba3 on a dark bar, 15 nodes on every page) -- measured by the sweep, not by looking.
 a,
-.nav-link,
+.btn-link,
 .nav-tabs .nav-link.active,
 .nav-pills .nav-link.active,
 .btn-outline-primary {
   color: var(--sb-link);
+}
+
+// `.btn-outline-secondary` is `$secondary` (#394b59), which is a SURFACE colour used as text: 1.59:1 on the
+// dark page background (the "Browse public lists" button on /lists). But the SAME class is the palette
+// switcher inside the navbar, which is `$secondary` in both palettes -- so the token alone made the two
+// switcher buttons 1.82:1 in light mode, on EVERY route. Both halves are here and the surface decides:
+//   on the fixed dark bar -> fixed light text (same rule as the bar's links)
+//   on a token surface      -> the text token
+.btn-outline-secondary,
+.btn-outline-dark {
+  color: var(--sb-text);
+}
+
+.navbar .btn-outline-secondary,
+.navbar .btn-outline-dark {
+  color: $text-color;
+}
+
+// The bootstrap alert is a FIXED light surface (`#d7dbde`) with fixed dark text, so in the dark palette it held
+// a dark-mode link on a light panel -- 1.39:1, found by the sweep on /lists. A surface that does not follow the
+// palette cannot hold a link that does.
+.alert-secondary {
+  background-color: var(--sb-surface);
+  color: var(--sb-text);
+  border-color: var(--sb-border);
+}
+
+// WCAG 1.4.1: a link inside a block of text has to be distinguishable by something other than colour.
+// axe's `link-in-text-block` found the "Create one" link in the empty-lists alert at 2.44:1 against its text.
+.alert a,
+p a:not(.btn) {
+  text-decoration: underline;
 }
 
 .btn-outline-primary {

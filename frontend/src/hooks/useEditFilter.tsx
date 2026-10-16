@@ -127,10 +127,14 @@ const useEditFilter = ({
 
   const editFilter = (
     <Form className="d-flex fw-bold mx-0">
-      <Form.Group className="me-2 mb-3 d-flex flex-column">
+      <Form.Group
+        controlId="edit-filter-sort"
+        className="me-2 mb-3 d-flex flex-column"
+      >
         <Form.Label>Order</Form.Label>
         <InputGroup>
           <Form.Select
+            id="edit-filter-sort"
             onChange={(e) => setParams("sort", e.currentTarget.value)}
             defaultValue={selectedSort}
           >
@@ -142,6 +146,11 @@ const useEditFilter = ({
           </Form.Select>
           <Button
             variant="secondary"
+            aria-label={
+              selectedDirection === SortDirectionEnum.ASC
+                ? "Sort direction: ascending. Switch to descending"
+                : "Sort direction: descending. Switch to ascending"
+            }
             onClick={() =>
               setParams(
                 "direction",
@@ -161,9 +170,13 @@ const useEditFilter = ({
           </Button>
         </InputGroup>
       </Form.Group>
-      <Form.Group className="mx-2 mb-3 d-flex flex-column">
+      <Form.Group
+        controlId="edit-filter-type"
+        className="mx-2 mb-3 d-flex flex-column"
+      >
         <Form.Label>Type</Form.Label>
         <Form.Select
+          id="edit-filter-type"
           onChange={(e) => setParams("type", e.currentTarget.value)}
           value={selectedType}
           disabled={!!fixedType}
@@ -174,9 +187,13 @@ const useEditFilter = ({
           {enumToOptions(EditTargetTypes)}
         </Form.Select>
       </Form.Group>
-      <Form.Group className="mx-2 mb-3 d-flex flex-column">
+      <Form.Group
+        controlId="edit-filter-status"
+        className="mx-2 mb-3 d-flex flex-column"
+      >
         <Form.Label>Status</Form.Label>
         <Form.Select
+          id="edit-filter-status"
           onChange={(e) => setParams("status", e.currentTarget.value)}
           value={selectedStatus}
           disabled={!!fixedStatus}
@@ -187,9 +204,13 @@ const useEditFilter = ({
           {enumToOptions(EditStatusTypes)}
         </Form.Select>
       </Form.Group>
-      <Form.Group className="mx-2 mb-3 d-flex flex-column">
+      <Form.Group
+        controlId="edit-filter-operation"
+        className="mx-2 mb-3 d-flex flex-column"
+      >
         <Form.Label>Operation</Form.Label>
         <Form.Select
+          id="edit-filter-operation"
           onChange={(e) => setParams("operation", e.currentTarget.value)}
           value={selectedOperation}
           disabled={!!fixedOperation}
@@ -201,9 +222,13 @@ const useEditFilter = ({
         </Form.Select>
       </Form.Group>
       {showVotedFilter && (
-        <Form.Group className="mx-2 mb-3 d-flex flex-column">
+        <Form.Group
+          controlId="edit-filter-voted"
+          className="mx-2 mb-3 d-flex flex-column"
+        >
           <Form.Label>Voted</Form.Label>
           <Form.Select
+            id="edit-filter-voted"
             onChange={(e) => setParams("voted", e.currentTarget.value)}
             value={selectedVoted}
             disabled={!!fixedVoted}
@@ -232,6 +257,7 @@ const useEditFilter = ({
         <Form.Label>Bot Edits</Form.Label>
         <Select
           className="BotFilter"
+          inputId="bot"
           classNamePrefix="react-select"
           onChange={(option) => setParams("bot", option?.value ?? "")}
           isClearable={false}

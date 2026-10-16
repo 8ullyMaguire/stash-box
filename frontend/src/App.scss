@@ -36,29 +36,29 @@
 /* stylelint-disable selector-class-pattern */
 
 .react-select__control {
-  background-color: $secondary;
-  border-color: $secondary;
-  color: $text-color;
+  background-color: var(--sb-surface);
+  border-color: var(--sb-border);
+  color: var(--sb-text);
   cursor: pointer;
 
   .react-select__single-value,
   .react-select__input {
-    color: black;
+    color: var(--sb-text);
   }
 
   .react-select__multi-value {
-    background-color: $muted-gray;
-    color: $text-color;
+    background-color: var(--sb-text-muted);
+    color: var(--sb-text);
   }
 }
 
 div.react-select__menu {
-  background-color: $secondary;
-  color: $text-color;
+  background-color: var(--sb-surface);
+  color: var(--sb-text);
   z-index: 2;
 
   .react-select__option {
-    color: $text-color;
+    color: var(--sb-text);
   }
 
   .react-select__option--is-focused {

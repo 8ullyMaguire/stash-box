@@ -35,10 +35,14 @@ const UsersComponent: FC = () => {
   const users = data?.queryUsers.users.map((user) => (
     <tr key={user.id}>
       <td className="text-nowrap">
-        <Link to={createHref(ROUTE_USER_EDIT, user)}>
-          <Button variant="secondary" className="minimal">
-            <Icon icon={faUserEdit} />
-          </Button>
+        {/* One link, not a button inside a link: the same defect as the notification bell. axe reported it
+            ELEVEN times on this page -- once per row -- as `button-name` and `link-name`. */}
+        <Link
+          to={createHref(ROUTE_USER_EDIT, user)}
+          className="minimal btn btn-secondary"
+          aria-label={`Edit ${user.name}`}
+        >
+          <Icon icon={faUserEdit} />
         </Link>
         <Link to={createHref(ROUTE_USER, user)}>
           <Button variant="link">

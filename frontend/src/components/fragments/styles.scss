@@ -158,7 +158,7 @@
 
 .DeletedImage {
   align-items: center;
-  background-color: $secondary;
+  background-color: var(--sb-surface);
   border-radius: 4px;
   color: var(--bs-gray-400);
   display: flex;

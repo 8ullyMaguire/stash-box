@@ -65,7 +65,7 @@
     background-color: rgba(0 0 0 / 65%);
     border-radius: 4px;
     bottom: 0.5rem;
-    color: $text-color;
+    color: var(--sb-text);
     display: flex;
     gap: 0.4rem;
     padding: 0.15rem 0.6rem;
@@ -169,7 +169,7 @@ button.Image {
   }
 
   &-caption {
-    color: $text-color;
+    color: var(--sb-text);
     padding-top: 0.5rem;
   }
 
@@ -224,7 +224,7 @@ button.Image {
   &-thumb-dims {
     background-color: rgba(0 0 0 / 65%);
     border-radius: 3px;
-    color: $text-color;
+    color: var(--sb-text);
     font-size: 0.75rem;
     padding: 0.1rem 0.4rem;
     white-space: nowrap;

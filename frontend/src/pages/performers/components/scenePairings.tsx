@@ -105,6 +105,7 @@ export const ScenePairings: FC<Props> = ({ id }) => {
       />
       <InputGroup className="performer-sort ms-2 me-3">
         <Form.Select
+          aria-label="Sort performers by"
           onChange={(e) =>
             setParams("sort", e.currentTarget.value.toLowerCase())
           }
@@ -118,6 +119,11 @@ export const ScenePairings: FC<Props> = ({ id }) => {
         </Form.Select>
         <Button
           variant="secondary"
+          aria-label={
+            direction === SortDirectionEnum.DESC
+              ? "Sort direction: descending. Switch to ascending"
+              : "Sort direction: ascending. Switch to descending"
+          }
           onClick={() =>
             setParams(
               "direction",

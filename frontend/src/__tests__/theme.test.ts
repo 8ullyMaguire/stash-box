@@ -272,6 +272,26 @@ describe("token parity between theme.ts and theme.scss", () => {
         contrast(t["--sb-link"], t["--sb-surface"]),
         `${theme}: link text on a card surface must reach 4.5:1`,
       ).toBeGreaterThanOrEqual(4.5);
+      // And against the GREY surface, which is the one that broke this twice: the drag-list strip and a
+      // text input are `--sb-textfield-bg` over the page, and a muted description on that strip measured
+      // 4.39:1 -- under the threshold, on 27 nodes of one page, while the token passed on white. A token is
+      // only as good as the worst surface it can land on, so the worst one is named here.
+      const over = (fg: string, bg: string, alpha: number) => {
+        const mix = (a: number, b: number) => Math.round(a * alpha + b * (1 - alpha));
+        const parse = (h: string) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+        const [r1, g1, b1] = parse(fg);
+        const [r2, g2, b2] = parse(bg);
+        const hex = (v: number) => v.toString(16).padStart(2, "0");
+        return `#${hex(mix(r1, r2))}${hex(mix(g1, g2))}${hex(mix(b1, b2))}`;
+      };
+      const strip =
+        theme === "dark"
+          ? over("#10161a", t["--sb-bg"], 0.3)
+          : over("#182026", t["--sb-bg"], 0.08);
+      expect(
+        contrast(t["--sb-text-muted"], strip),
+        `${theme}: muted text on the grey textfield surface (${strip}) must reach 4.5:1`,
+      ).toBeGreaterThanOrEqual(4.5);
     }
   });
 });

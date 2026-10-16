@@ -5,7 +5,7 @@
 
   &-row {
     align-items: stretch;
-    background-color: $textfield-bg;
+    background-color: var(--sb-textfield-bg);
     border: 1px solid transparent;
     border-radius: 3px;
     display: flex;
@@ -20,7 +20,7 @@
   &-row > &-handle {
     align-items: center;
     border-radius: 3px 0 0 3px;
-    color: $muted-gray;
+    color: var(--sb-text-muted);
     cursor: grab;
     display: flex;
     flex-shrink: 0;
