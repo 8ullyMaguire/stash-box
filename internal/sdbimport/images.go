@@ -21,10 +21,14 @@ package sdbimport
 // image does not cost a request per image for the rest of the run. The failure this prevents is not
 // rate-limiting; it is being the client that gets a whole community's asset host to block a range of IPs.
 //
-// THREE: THE TYPE COMES FROM THE SOURCE, NOT FROM THE DIMENSIONS. The plan proposed inferring "thumbnail?" from
-// width and height. The source actually publishes its own `types` on each image (SHOT_PORTRAIT, CROP_FACE,
-// ...), and passing those through preserves a categorisation a human made, which a dimension heuristic would
-// silently overwrite. The heuristic is the fallback for an image the source leaves untyped, not the rule.
+// THREE: THE TYPE COMES FROM THE SOURCE WHEN THE SOURCE HAS ONE, AND THE DIMENSIONS DECIDE WHEN IT DOES NOT.
+// The plan proposed the dimension heuristic, and a measured run corrected the assumption behind it: the source
+// this tool is pointed at answers `Cannot query field "types" on type "Image"` -- its Image type has `url`,
+// `width` and `height` and nothing else, because the richer type belongs to THIS fork's schema and the source
+// runs the upstream one. So the heuristic is not the exception, it is what actually runs, and a source that does
+// publish types (this fork, or a future version of the upstream) still has them passed through rather than
+// overwritten. The lesson is not "the plan was wrong": it is that the field list of a query is a CONTRACT WITH A
+// REMOTE SCHEMA, and no unit test in this repository can hold the other end of it. Only a live walk can.
 
 import (
 	"bytes"
@@ -260,7 +264,8 @@ type ImagePlan struct {
 }
 
 // imageTypesFor maps the source's own type strings onto this instance's enum, and falls back to the dimension
-// heuristic only for an image the source left untyped.
+// heuristic for an image the source left untyped -- which, measured against the live source, is every image:
+// see the note at the top of this file.
 //
 // An UNKNOWN source type is dropped rather than guessed: `ValidateImageAssignment` on the destination's side
 // would refuse a type it does not define, and inventing one from a dimension is exactly the silent

@@ -83,7 +83,7 @@ query($page: Int!) {
       piercings { description location }
       aliases
       urls { url }
-      images { url width height types date }
+      images { url width height }
     }
   }
 }`
