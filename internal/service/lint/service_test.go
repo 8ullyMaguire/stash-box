@@ -115,6 +115,23 @@ func TestValidateRefusesAnEnabledSlugThisBuildDoesNotImplement(t *testing.T) {
 	assert.Contains(t, err.Error(), "duplicate_scene_url")
 }
 
+// THE BOARD ITSELF HAS TO REFUSE, and this test exists because the live walk found that it did not.
+// The startup check protects the instance; the board is reached by other callers (the CLI, and the
+// frontend when it lands), and a skipped row is invisible there -- the board simply comes back with one
+// fewer detector, which reads exactly like a detector that found nothing. Found by planting an enabled
+// unknown row in the deployed registry and watching `-validate` refuse while the board returned five
+// detectors instead of six.
+func TestTheBoardRefusesARegistryThisBuildDoesNotImplement(t *testing.T) {
+	f := &fakeQueries{defs: []queries.LintQuestDefinition{
+		{Slug: "duplicate_scene_url", Enabled: true},
+		{Slug: "a_detector_from_a_future_release", Enabled: true},
+	}}
+	reports, err := NewService(f).Board(context.Background(), 5)
+	require.Error(t, err, "a board must not render from a registry it cannot honour")
+	assert.ErrorIs(t, err, ErrUnknownDetector)
+	assert.Empty(t, reports, "and it must not return the detectors it DID manage to run, either")
+}
+
 func TestValidateAllowsADisabledSlugThisBuildDoesNotImplement(t *testing.T) {
 	f := &fakeQueries{defs: []queries.LintQuestDefinition{
 		{Slug: "a_detector_that_was_retired", Enabled: false},

@@ -296,10 +296,22 @@ type Report struct {
 
 // Board runs every ENABLED detector this build implements and returns one Report each.
 //
-// A registry row that is enabled but unimplemented is SKIPPED here rather than reported as an error,
-// because Validate is what refuses those (and the instance does not start without it). Doing both
-// would mean two places decide what a broken registry means.
+// THE REGISTRY IS CHECKED BEFORE THE BOARD RENDERS, and the live deployment is why. This function used
+// to skip an enabled row with no implementation, on the reasoning that Validate is what refuses those
+// and the instance does not start without it. Walking the real thing showed what that reasoning missed:
+// the startup check protects the INSTANCE, and the CLI is another caller. With a planted enabled row
+// whose slug this build does not implement, `-validate` refused with exit 1 and a message naming the
+// slug -- while the board ran happily and returned five detectors instead of six. That is exactly the
+// failure migration 98's comment describes: a row that is skipped reads like a detector that found
+// nothing.
+//
+// No second rule is introduced. Validate is still the only thing that decides what a broken registry
+// means; this simply calls it, so every caller inherits the contract instead of the ones that remember
+// to ask.
 func (s *Service) Board(ctx context.Context, limit int32) ([]Report, error) {
+	if err := s.Validate(ctx); err != nil {
+		return nil, err
+	}
 	defs, err := s.q.ListEnabledLintQuestDefinitions(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("reading enabled detectors: %w", err)

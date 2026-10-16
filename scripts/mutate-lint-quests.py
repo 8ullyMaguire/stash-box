@@ -35,6 +35,16 @@ INTEG_PKG = "./internal/api/"
 
 PROBES = [
     (
+        "M8 the board renders without checking the registry",
+        SERVICE,
+        "\tif err := s.Validate(ctx); err != nil {\n\t\treturn nil, err\n\t}\n\tdefs, err := s.q.ListEnabledLintQuestDefinitions(ctx)",
+        "\tdefs, err := s.q.ListEnabledLintQuestDefinitions(ctx)",
+        "TestTheBoardRefusesARegistryThisBuildDoesNotImplement",
+        None,
+        "a caller gets a board with one fewer detector on it and no way to tell -- the failure mode the "
+        "live walk found, where the board returned 5 detectors instead of 6",
+    ),
+    (
         "M1 Validate stops refusing an enabled row with no implementation",
         SERVICE,
         "\t\tif !known[def.Slug] {",

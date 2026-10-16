@@ -87,6 +87,25 @@ asks, not how expensive each answer is.
 1,104,375 scenes and an EMPTY `scene_performers`. The scene-side detectors' birthdate arm cannot fire until
 the import that brings scenes also brings who is in them.
 
+**The live walk found a defect the unit tests could not.** Planting an ENABLED registry row whose slug
+this build does not implement, in the deployed database, gave: `-validate` refusing with exit 1 and a message
+naming the slug — and the board running happily, returning five detectors instead of six. `Board` had been
+written to SKIP such a row, on the reasoning that `Validate` is what refuses them and the instance does not
+start without it. That reasoning covers the server and no other caller. `Board` now calls `Validate` first:
+one rule, inherited by every caller, and the mutation that removes the call is killed by
+`TestTheBoardRefusesARegistryThisBuildDoesNotImplement`. The walk is three steps and worth repeating after any
+migration that adds a detector:
+
+```
+# plant (is_builtin true + authored_by NULL: the table's check constraint requires an author on non-builtin rows)
+INSERT INTO lint_quest_definitions (slug, description, enabled, bounty_points, is_builtin, authored_by)
+VALUES ('not_a_detector_this_build_has', 'planted', true, 1, true, NULL) ON CONFLICT (slug) DO UPDATE SET enabled = true;
+lintquests -config <cfg> -validate   # must exit 1 and name the slug
+lintquests -config <cfg> -limit 1     # must ALSO exit 1 now -- this is the step that failed the first time
+UPDATE lint_quest_definitions SET enabled = false WHERE slug = 'not_a_detector_this_build_has';  # retired: must be fine
+DELETE FROM lint_quest_definitions WHERE slug = 'not_a_detector_this_build_has';
+```
+
 **The caller is `cmd/lintquests`** (board, single detector, `-ensure`, `-validate`, and `-entity`/`-ids` for
 the import pass). The four frontend surfaces are still outstanding; until they land this is what makes the
 detectors runnable against a real archive, and it is the instrument the verification used.
