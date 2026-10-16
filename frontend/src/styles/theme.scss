@@ -119,6 +119,12 @@ $textfield-bg: rgba(16 22 26 / 30%);
   --sb-link: #6cc4f2;
   --sb-text: #f5f8fa;
   --sb-text-muted: #bfccd6;
+  // Inline code (`<code>`). Bootstrap compiles one static `$code-color` -- #d63384,
+  // a magenta chosen against a white page -- and this app has a dark default: axe
+  // measured 2.37:1 on the detector registry's slug column, which is the first table
+  // whose cells ARE code. Asserted against both backgrounds in theme.test.ts, like
+  // every other token that is text.
+  --sb-code: #f0a6c8;
   --sb-border: #394b59;
   --sb-textfield-bg: #{$textfield-bg};
 
@@ -147,6 +153,10 @@ $textfield-bg: rgba(16 22 26 / 30%);
   --sb-link: #0f628f;
   --sb-text: #182026;
   --sb-text-muted: #566877;
+  // Bootstrap's #d63384 measures 4.3:1 on white -- under AA for body text, and this
+  // value is a deliberate darkening of it (6.9:1) rather than the same colour kept
+  // for familiarity.
+  --sb-code: #a3236b;
   --sb-border: #d3dde4;
   --sb-textfield-bg: rgba(24 32 38 / 8%);
 
@@ -521,4 +531,36 @@ p a:not(.btn) {
 
 .sr-only {
   @include visually-hidden;
+}
+
+// ---------------------------------------------------------------------------
+// Two colours Bootstrap hardcodes for a white page, corrected for a themed app.
+//
+// Both were found by the axe gate on the detector registry -- the first page whose
+// TABLE CELLS are `<code>` and whose badges are `bg-success` -- and both are the
+// same shape of defect the `.text-muted` fix above already names: a Bootstrap
+// static that cannot follow the theme. They are fixed here rather than on that page
+// because every page that renders a code span or a success badge had the same
+// problem and none of them is audited: `Team`/`Site` render `<code>`, the
+// identification pages and the curation streak card render `bg-success`.
+//
+// INLINE CODE. Bootstrap's `code { color: #d63384 }` is a fixed magenta: 2.37:1 on
+// the dark card surface, 4.3:1 on white. The token is defined in both palettes
+// above and asserted in theme.test.ts.
+code {
+  color: var(--sb-code);
+}
+
+// BADGE BACKGROUNDS. `.badge` paints its text white, and the `.bg-*` utilities hand
+// it the palette's mid-tone -- which is chosen for surfaces, not for white type on
+// top of them. White on `$success` (#0f9960) is 3.0:1 and white on `$warning`
+// (#d9822b) is 2.9:1, both under AA for the 14px type a badge uses. Shading each
+// variant by 30% keeps the hue and pushes every one of them past 4.5:1.
+//
+// Scoped to `.badge.bg-*` and not to `.bg-*`: the utility is also used for panel
+// backgrounds, where no white text is forced and darkening would be a restyle.
+@each $name, $color in $theme-colors {
+  .badge.bg-#{$name} {
+    background-color: shade-color($color, 30%) !important;
+  }
 }

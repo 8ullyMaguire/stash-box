@@ -11,6 +11,7 @@ import {
   ROUTE_ARCHIVE,
   ROUTE_AUDITS,
   ROUTE_CURATION,
+  ROUTE_CURATION_LINT_DEFINITIONS,
   ROUTE_DRAFTS,
   ROUTE_EDITS,
   ROUTE_ELO_LEADERBOARD,
@@ -145,6 +146,12 @@ const Main: FC<Props> = ({ children }) => {
                 rather than to everybody and then refused. */}
             <NavLink to={ROUTE_METRICS} className="nav-link">
               Metrics
+            </NavLink>
+            {/* The detector registry is ADMIN at the schema, like Metrics, so it is
+                shown here rather than inside the curation area -- the board is a
+                curator's work list and this is the table an operator edits. */}
+            <NavLink to={ROUTE_CURATION_LINT_DEFINITIONS} className="nav-link">
+              Detectors
             </NavLink>
           </>
         )}

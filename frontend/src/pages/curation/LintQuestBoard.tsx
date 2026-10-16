@@ -1,6 +1,10 @@
 import type { FC } from "react";
+import { Link } from "react-router-dom";
 import { ErrorMessage, LoadingIndicator } from "src/components/fragments";
+import { ROUTE_CURATION_LINT_DEFINITIONS } from "src/constants/route";
 import { useLintQuestBoard } from "src/graphql";
+import { useAuth } from "src/hooks";
+import { isAdmin } from "src/utils";
 import LintBoard from "./LintBoard";
 
 /**
@@ -25,6 +29,7 @@ import LintBoard from "./LintBoard";
  */
 const LintQuestBoard: FC = () => {
   const { data, loading, error } = useLintQuestBoard();
+  const { user } = useAuth();
 
   if (loading)
     return <LoadingIndicator message="Running the lint detectors..." />;
@@ -35,7 +40,23 @@ const LintQuestBoard: FC = () => {
       />
     );
 
-  return <LintBoard reports={data?.lintQuestBoard ?? []} />;
+  return (
+    <>
+      <LintBoard reports={data?.lintQuestBoard ?? []} />
+      {/* An ADMIN reading the board can step one page over to the registry, which is
+          the only place a detector that this build cannot run is visible at all --
+          the board is refused while such a row stands, and the refusal names the
+          slug without explaining where it comes from. Gated on the same predicate
+          the nav uses, because the query behind the link is ADMIN. */}
+      {isAdmin(user) && (
+        <p className="text-muted small mt-3 mb-0">
+          Running this archive? The{" "}
+          <Link to={ROUTE_CURATION_LINT_DEFINITIONS}>detector registry</Link>{" "}
+          lists every row, including the ones the board does not run.
+        </p>
+      )}
+    </>
+  );
 };
 
 export default LintQuestBoard;

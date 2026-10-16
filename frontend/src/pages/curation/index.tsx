@@ -3,6 +3,7 @@ import { Route, Routes } from "react-router-dom";
 import Title from "src/components/title";
 import CurationDashboard from "./CurationDashboard";
 import LintQuestBoard from "./LintQuestBoard";
+import LintQuestDefinitions from "./LintQuestDefinitions";
 import MatchupVote from "./MatchupVote";
 
 const CurationRoutes: FC = () => (
@@ -38,6 +39,21 @@ const CurationRoutes: FC = () => (
         <>
           <Title page="Data lint" />
           <LintQuestBoard />
+        </>
+      }
+    />
+    {/*
+      The registry sits UNDER the board's path rather than beside it, because it is
+      the same subject at a different audience: /curation/lint is the work, and this
+      is the table the work comes from. React Router ranks the longer static path
+      first, so the order of these two entries does not decide anything.
+    */}
+    <Route
+      path="/lint/definitions"
+      element={
+        <>
+          <Title page="Detector registry" />
+          <LintQuestDefinitions />
         </>
       }
     />

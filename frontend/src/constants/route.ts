@@ -4,6 +4,9 @@ export const ROUTE_CURATION_MATCHUP = "/curation/matchup";
 // `lintQuestBoard` is @hasRole(VOTE), which is exactly the gate the rest of this
 // tree carries, so nesting it cannot hide it from anybody the schema allows.
 export const ROUTE_CURATION_LINT = "/curation/lint";
+// The detector registry: the operator's table behind the board. ADMIN at the
+// schema, which is why its nav entry lives in the admin block rather than here.
+export const ROUTE_CURATION_LINT_DEFINITIONS = "/curation/lint/definitions";
 // The leaderboard is a TOP-LEVEL route, not /curation/leaderboard:
 // `eloLeaderboard` is @hasRole(READ) while `eloMatchup` is @hasRole(VOTE), so
 // hiding the leaderboard behind the VOTE-gated curation tree denied a

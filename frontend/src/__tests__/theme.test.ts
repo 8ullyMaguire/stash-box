@@ -260,6 +260,17 @@ describe("token parity between theme.ts and theme.scss", () => {
         contrast(t["--sb-text-muted"], t["--sb-bg"]),
         `${theme}: muted text on the page background must reach 3:1`,
       ).toBeGreaterThanOrEqual(3);
+      // Inline code is BODY TEXT (a slug, a regex, a hash), so it is held to 4.5:1
+      // rather than to the 3:1 a de-emphasised colour gets -- and against both
+      // backgrounds, because Bootstrap's fixed magenta failed on the card surface in
+      // the dark palette (2.37:1) while passing on the page background: the worst
+      // surface a token can land on is the one that decides.
+      for (const bg of ["--sb-bg", "--sb-surface"] as const) {
+        expect(
+          contrast(t["--sb-code"], t[bg]),
+          `${theme}: inline code on ${bg} must reach 4.5:1`,
+        ).toBeGreaterThanOrEqual(4.5);
+      }
       // The link token is checked against BOTH backgrounds, and that is the point of checking it here: the
       // dark palette's link measured 4.41:1 on a card surface while passing easily on the page background, so
       // a test that only looked at the page would have certified a colour that fails as soon as a link lands

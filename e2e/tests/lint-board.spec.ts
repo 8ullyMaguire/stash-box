@@ -131,3 +131,46 @@ test("the lint board is behind VOTE, so a read-only user is not served it", asyn
   await readPage.goto("/curation/lint");
   await expect(readPage.getByText("What needs attention")).toHaveCount(0);
 });
+
+test("the detector registry is the admin surface behind the board, and a curator is refused by name", async ({
+  adminPage,
+  votePage,
+}) => {
+  // The registry is the only place a detector this build CANNOT run is visible: the
+  // board is refused while such a row stands, so from the board alone the instance
+  // looks broken rather than misconfigured. That makes "does this page exist and does
+  // it list the rows" a claim about diagnosability, not decoration.
+  await adminPage.goto("/curation/lint/definitions");
+
+  // The builtin rows this build ships, BY SLUG -- the slug is the string a migration
+  // and a build have to agree on, so it is the one worth asserting.
+  for (const slug of [
+    "duplicate_performer_url",
+    "duplicate_scene_url",
+    "performer_alias_collision",
+    "low_resolution_performer_image",
+    "impossible_scene_date",
+  ]) {
+    await expect(adminPage.getByText(slug, { exact: true })).toBeVisible({
+      timeout: 15_000,
+    });
+  }
+
+  // The page reads its own state from two facts, so the running one is named.
+  await expect(adminPage.getByText("Running").first()).toBeVisible();
+  // And it says who DOES edit the table, since it offers no control of its own.
+  await expect(adminPage.getByText(/lintquests -ensure/)).toBeVisible();
+
+  // SUBJECT FIRST, then the gate. The curator CAN curate -- they hold VOTE and the
+  // route is inside the curation tree -- and the registry is ADMIN, so the refusal is
+  // the claim: named as a permission rather than reported as a fault.
+  await votePage.goto("/curation/lint");
+  await expect(votePage.getByText("What needs attention")).toBeVisible({
+    timeout: 15_000,
+  });
+  await votePage.goto("/curation/lint/definitions");
+  await expect(votePage.getByText(/needs the ADMIN role/)).toBeVisible({
+    timeout: 15_000,
+  });
+  await expect(votePage.getByText(/This is a fault rather than a permission/)).toHaveCount(0);
+});

@@ -1,0 +1,20 @@
+# The detector registry as it stands (SPEC §7.24.4, plan phase 3a).
+#
+# This is the operator's view, not the curator's, and the two are deliberately
+# different queries: `lintQuestBoard` runs the detectors and answers with findings,
+# while this reads the table -- including the rows the board does NOT run, which is
+# what makes "why is this instance not running the detector I switched on"
+# answerable without opening the database.
+#
+# `implemented` is computed from the compiled registry rather than read from the
+# row, because a row cannot know what this binary contains.
+query LintQuestDefinitions {
+  lintQuestDefinitions {
+    slug
+    description
+    enabled
+    bountyPoints
+    isBuiltin
+    implemented
+  }
+}

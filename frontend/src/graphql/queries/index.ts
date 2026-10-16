@@ -31,6 +31,7 @@ import {
   type ImageTypeGroupsQueryVariables,
   InstanceMetricsDocument,
   LintQuestBoardDocument,
+  LintQuestDefinitionsDocument,
   ListDocument,
   type ListQueryVariables,
   MeDocument,
@@ -502,6 +503,16 @@ export const useUserStreak = (skip = false) =>
 // the same gate.
 export const useLintQuestBoard = (limit?: number) =>
   useQuery(LintQuestBoardDocument, { variables: { limit } });
+
+// The detector registry (SPEC §7.24.4) -- the operator's view of the same table.
+//
+// No variables and no `skip`: the query takes nothing and answers with the whole
+// registry, which is a table an operator reads in one sitting rather than a list to
+// page through. Gated on ADMIN at the schema, so the route that mounts it is inside
+// the curation tree (ADMIN implies VOTE there) and the nav entry is shown only to
+// admins -- a link shown to everybody and then refused is the shape this avoids.
+export const useLintQuestDefinitions = () =>
+  useQuery(LintQuestDefinitionsDocument);
 
 export const useEloMatchup = (entityType: EloEntityType, skip = false) =>
   useQuery(EloMatchupDocument, {

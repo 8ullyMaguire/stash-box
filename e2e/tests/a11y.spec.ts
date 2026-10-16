@@ -75,6 +75,13 @@ const KEY_PAGES: Array<{ name: string; path: () => string }> = [
   { name: "tag", path: () => `/tags/${seeded.tag.id}` },
   { name: "performer", path: () => `/performers/${seeded.performer.id}` },
   { name: "instance metrics", path: () => "/metrics" },
+  // The lint surfaces are here because they are the two pages in the curation tree
+  // whose content is a TABLE: a data table is where a heading level, a `<th>` scope or
+  // a contrast value goes wrong without anybody noticing, and the registry is the one
+  // place a misconfigured instance is legible at all -- a page nobody can read would
+  // defeat that. The board audits as an ADMIN, who outranks VOTE.
+  { name: "lint board", path: () => "/curation/lint" },
+  { name: "detector registry", path: () => "/curation/lint/definitions" },
 ];
 
 /**
