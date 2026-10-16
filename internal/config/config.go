@@ -154,6 +154,41 @@ type config struct {
 	// A page load issues several requests in a moment, so a limit with no burst breaks ordinary use while
 	// barely slowing a loop.
 	RateLimitBurst int `mapstructure:"rate_limit_burst"`
+	// MonetizationEnabled lets this instance CHARGE for the UX features NexusXXX §18.1 lists -- the premium
+	// API tier today, and later creator subscriptions, contextual ads, data licensing and a commercial tier
+	// (plan phase 15, spec §18).
+	//
+	// OFF BY DEFAULT, AND OFF IS NOT "FREE FOR ALL": off means NO STREAM MAY BE ON, and a stream that is on
+	// while this is false is refused BY NAME rather than ignored -- a configuration that states two
+	// contradictory things is one whose operator will believe the wrong half. This fork is MIT, so what an
+	// instance charges for is its operator's decision; what the programme owes a reader is that the decision
+	// is published (GET /monetization) and that §18.2's always-free list cannot be shortened quietly, which
+	// is enforced in code (internal/service/monetization/alwaysfree.go) rather than promised on a page.
+	//
+	// READ IT THROUGH internal/service/monetization's RequireStream/Gate, never as a bare bool: the switch,
+	// the stream list and the refusals belong together, and every refusal names the key or the stream so an
+	// operator can act on the message alone.
+	MonetizationEnabled bool `mapstructure:"monetization_enabled"`
+	// MonetizationStreams are §18.1's revenue streams this operator has switched on, by name. A stream with
+	// no implementation on this tree is refused BY NAME (monetization.RequireStream) so that "monetization is
+	// enabled" cannot be a claim about code that does not exist: the premium subscription is implemented;
+	// creator_subs, ads, data_licensing and commercial_api_tier are named, and each refusal says what it
+	// would take to build.
+	MonetizationStreams []string `mapstructure:"monetization_streams"`
+	// MonetizationPremiumMembers are the member ids this operator has comped premium. Slice a's only grant
+	// mechanism, and deliberately a real one: a stored grant would have no writer until §18.3's reward pass
+	// exists (slice b), and a column nothing writes is indistinguishable from a bug. When slice b lands this
+	// key is REFUSED by name, so the file and the table cannot both claim to be the source of truth about
+	// who pays.
+	MonetizationPremiumMembers []string `mapstructure:"monetization_premium_members"`
+	// MonetizationPremiumRequestsPerMinute is the sustained API rate one PREMIUM credential may make, against
+	// RateLimitRequestsPerMinute for everybody else (§18.1, "higher API limits"). Refused at startup when the
+	// premium_subscription stream is on and this is not ABOVE the free limit: a "higher limit" that is not higher
+	// is a promise nothing honours.
+	MonetizationPremiumRequestsPerMinute int `mapstructure:"monetization_premium_requests_per_minute"`
+	// MonetizationPremiumBurst is the premium tier's burst, for the same reason RateLimitBurst exists, and
+	// validated the same way: a premium tier a page load can exhaust is not a benefit.
+	MonetizationPremiumBurst int `mapstructure:"monetization_premium_burst"`
 	// How often subscribed saved searches are run and their owners notified. One query per
 	// subscribed search per tick, so the cost is proportional to how many exist.
 	SavedSearchNotifyInterval string `mapstructure:"saved_search_notify_interval"`
@@ -306,7 +341,12 @@ var C = &config{
 	// capability, and generous because a limit a member can hit while browsing is a bug in the limit.
 	RateLimitRequestsPerMinute: 600,
 	RateLimitBurst:             120,
-	SavedSearchNotifyInterval:  "15m",
+	// The premium tier's limit (§18.1 "higher API limits", plan phase 15). Double the free rate and double
+	// its burst, because a premium tier that is 10% higher is not a benefit a member would notice -- and
+	// these numbers are only reachable when an operator has switched the stream on.
+	MonetizationPremiumRequestsPerMinute: 1200,
+	MonetizationPremiumBurst:             240,
+	SavedSearchNotifyInterval:            "15m",
 	// No embedding model produces vectors on this instance, so the default store holds
 	// nothing and the re-ranker provably does nothing -- rather than a half-wired store
 	// whose emptiness would be indistinguishable from a bug.
@@ -742,6 +782,39 @@ func GetRateLimit() ratelimit.Config {
 	return ratelimit.Config{
 		RequestsPerMinute: C.RateLimitRequestsPerMinute,
 		Burst:             C.RateLimitBurst,
+	}
+}
+
+// GetMonetizationEnabled reports whether this instance may CHARGE for §18.1's UX features (plan phase 15).
+// False unless an operator has said otherwise, and false in every shipped config file.
+//
+// ASK THIS THROUGH internal/service/monetization RATHER THAN HERE, for the same reason GetContentDelivery
+// points at mediaplane.RequireDelivery: the switch and the refusals belong together, and a caller that reads
+// the bool has to invent its own message for "this instance charges for nothing".
+func GetMonetizationEnabled() bool {
+	return C.MonetizationEnabled
+}
+
+// GetMonetizationStreams are the §18.1 streams this operator switched on, by name. Read through
+// monetization.RequireStream, which is what refuses an unknown name and a stream with no implementation.
+func GetMonetizationStreams() []string {
+	return C.MonetizationStreams
+}
+
+// GetMonetizationPremiumMembers are the member ids this operator has comped premium (slice a's grant
+// mechanism; slice b replaces it with recorded grants and refuses this key).
+func GetMonetizationPremiumMembers() []string {
+	return C.MonetizationPremiumMembers
+}
+
+// GetMonetizationPremiumRateLimit is the limit a PREMIUM credential gets, against GetRateLimit for everybody
+// else. It is a ratelimit.Config rather than two ints for the same reason GetRateLimit is: the limiter's
+// "zero means off" rule is one decision, and a caller that unpacked these into its own pair would be a second
+// place it is stated.
+func GetMonetizationPremiumRateLimit() ratelimit.Config {
+	return ratelimit.Config{
+		RequestsPerMinute: C.MonetizationPremiumRequestsPerMinute,
+		Burst:             C.MonetizationPremiumBurst,
 	}
 }
 

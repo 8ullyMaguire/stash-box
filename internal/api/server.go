@@ -38,6 +38,7 @@ import (
 	"github.com/stashapp/stash-box/internal/ratelimit"
 	"github.com/stashapp/stash-box/internal/service"
 	"github.com/stashapp/stash-box/internal/service/mediaplane"
+	"github.com/stashapp/stash-box/internal/service/monetization"
 	"github.com/stashapp/stash-box/internal/service/user"
 	"github.com/stashapp/stash-box/pkg/logger"
 )
@@ -202,7 +203,14 @@ func Start(fac service.Factory, ui embed.FS) {
 	// THE PUBLIC SURFACE, and the limit is mounted on it rather than on the router so that nothing else is
 	// counted: the SPA, the assets and the invitation landing page are not a caller spending an API budget,
 	// and a limit that covered them would be felt by a member loading a page.
-	limiter := ratelimit.New(config.GetRateLimit())
+	// TWO LIMITS, ONE COUNTING RULE (plan phase 15, spec §18). The premium configuration is reachable only
+	// through the predicate, which is monetization's answer to "does this credential belong to a comped
+	// member" -- so with monetization off, or the premium subscription stream off, NO credential is premium
+	// and this is the single-limit limiter it always was. The predicate reads the API key's own member id out
+	// of the signed key, so it costs no query per request, and a credential it cannot parse is a free caller
+	// rather than an error.
+	freeLimit, premiumLimit := monetization.Limits()
+	limiter := ratelimit.NewWithTiers(freeLimit, premiumLimit, monetization.CredentialIsPremium)
 	r.Handle("/graphql", ratelimit.Middleware(limiter, ratelimit.Credential)(dataloader.Middleware(fac)(gqlSrv)))
 
 	if !config.GetIsProduction() {
@@ -333,7 +341,12 @@ func printVersion() {
 // only runtime evidence of which posture the instance is in.
 func logPosture() {
 	logger.Infof("%s", mediaplane.PostureLine())
-	logger.Infof("%s", ratelimit.PostureLine(ratelimit.New(config.GetRateLimit())))
+	// The monetization line states the switch, the streams and the always-free list's enforcement in code; the
+	// rate-limit line follows it and states BOTH limits when an entitlement exists, so the two lines together
+	// answer "what does this instance charge for, and how fast may a paying caller go".
+	logger.Infof("%s", monetization.PostureLine())
+	logger.Infof("%s", ratelimit.PostureLine(ratelimit.NewWithTiers(
+		config.GetRateLimit(), config.GetMonetizationPremiumRateLimit(), monetization.CredentialIsPremium)))
 }
 
 func GetVersion() (string, string, string) {

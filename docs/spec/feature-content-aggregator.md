@@ -956,3 +956,101 @@ requires a rendered box of at least 8x8. A control whose box collapses is exactl
 exactly what no rule set can see, because a hidden control raises no violation: it simply is not there.
 Proven, not asserted: adding `nav.navbar button { display: none }` under `@media (forced-colors: active)` fails
 the check naming both palette switchers while axe stays green.
+
+## 18. Monetization: the switch, the always-free list, and the leak this instance refuses (phase 15)
+
+Plan phase 15 is NexusXXX §18 modelled as **operator configuration, open code**. This fork is MIT, so what an
+instance charges for is its operator's decision; what this programme owes a reader is that the decision is
+published, that the code is open, and that §18.2's list of what is always free cannot be shortened quietly.
+
+**The switch, and what off means.** `[monetization] enabled` (`monetization_enabled`) is `false` in every
+shipped config, and the streams an operator may name are `premium_subscription`, `creator_subs`, `ads`,
+`data_licensing` and `commercial_api_tier` (`monetization_streams`). A stream is not a feature: §18.1's
+"higher API limits" is the FEATURE `premium_api_tier`, and `premium_subscription` is the STREAM that sells it,
+which is why the two names differ -- a configuration that names a feature where a stream belongs is refused at
+startup with the list of streams. Off is not a synonym for "free for all" in the sense of "no rules": off means NO stream may be
+on, so a stream key that is true while the switch is false is REFUSED BY NAME at startup
+(`monetization_enabled is false, so the stream "ads" cannot be on`), and a key with a typo is refused with the
+list of streams this version knows. Every stream is read through `monetization.RequireStream(name)`, which is
+the only reader -- a config key that no process mentions is a key nobody can tell was ignored, which is the
+failure this repository has already shipped once (`aria-presets` wrote `commons.enabled = false` and no code
+read the key). The startup log states the posture in one line, both ways, naming the key.
+
+**A stream that has no implementation is not a stream that is on.** Of §18.1's five revenue streams only one has
+code on this tree: "higher API limits", and it is the one whose substrate already existed (the per-credential
+rate limiter of slice 13d). `creator_subs`, `ads`, `data_licensing` and `commercial_api_tier` are named, and
+enabling one is refused by name with the reason it cannot exist yet (`ads` needs the contextual renderer and the
+two-slot bound; `creator_subs` needs payments and phase 10's media plane; `data_licensing` needs the aggregate
+export; `commercial_api_tier` is the same mechanism as the premium tier and is not a second one). This is the
+difference between a specified switch and a switch that lies.
+
+**§18.2 is code, not prose, and the gate refuses to gate it.** The always-free list is seven `Capability` values
+in `internal/service/monetization/alwaysfree.go`, each carrying §18.2's own words, the surfaces that provide it
+on THIS instance (a route path, a GraphQL field, a suite name), and whether it is built. Two consequences:
+
+1. `AlwaysFree()` and `PremiumFeatures()` are asserted DISJOINT by a unit test, so a future edit cannot list the
+   same thing as free and as for sale.
+2. `monetization.Gate(capability)` returns `ErrAlwaysFree` for any name on that list, and the refusal names it:
+   *"search is always free (§18.2) and cannot be gated"*. A future caller who tries to put a core path behind a
+   paywall gets a refusal from the gate rather than a silently working paywall, which is the only form of this
+   rule that survives the next feature.
+
+**§18.2's items that do not exist yet are named as unbuilt, never claimed.** "Full data export" is on §18.2's
+list and this instance cannot do it (phase 13d is planned and not started). The published list therefore renders
+it as *not built*, with the phase that would build it, because the alternative -- a page that promises an export
+nobody can run -- is the shape `docs/goal-check.py` calls out by name: *"Never trust a count written in a
+document. Recompute it."* A capability is claimed free only when a surface this instance serves provides it, and
+the surfaces in the list are the ones the leak test calls.
+
+**The premium tier is a SECOND LIMIT, never a second access rule.** §18.1's "higher API limits" is realised as
+the free limit unchanged in both modes and a premium credential counted against a higher one
+(`monetization_premium_requests_per_minute`, default 1200 against the free 600, with its own burst). The unit is
+the credential, because that is what this limit counts: the API key for a script, and the connecting address for
+a browser session, exactly as slice 13d decided -- so a browser session is unaffected by a tier, and this is
+stated rather than discovered. The tier is read from the credential itself: an API key is a signed JWT carrying
+its member's id (`internal/service/user/apikey.go`), and ONE implementation of "who is this key" is reused
+(`user.GetUserIDFromAPIKey`) rather than a second parse. A credential that does not authenticate is a free
+caller, never an error: a rate limiter that fails closed on a bad key would turn a typo into a 429.
+
+**A tier change starts a fresh bucket.** Tokens are counted against a limit, and when the limit changes, the
+count in hand was an answer about a different question. Buckets are therefore keyed on (tier, credential): a
+member who becomes premium gets the premium bucket immediately, and a lapsed one gets the free bucket, rather
+than inheriting tokens minted against the other limit. The limiter still forgets on purpose -- a bucket is
+memory, not a row.
+
+**How a member comes to be premium, in slice a.** An operator's comp list
+(`monetization_premium_members`, a list of member ids) is the grant mechanism of the first slice, and the plan
+records why: §18.3's automated grants (TL4 permanent, top-10 monthly, seasonal winners) need the recorded grant
+they are audited by, which is slice b, and inventing a stored grant with no writer would be the "no writer, no
+reader" defect this programme has already found once. When slice b lands, the comp list is REFUSED BY NAME --
+so the configuration and the store cannot both claim to be the source of truth about who pays.
+
+**What is NOT built, named one by one rather than implied:** ads (§18.1's contextual-only renderer, the
+no-tracking rule and the two-slot bound), creator subscriptions (a payment path and the media plane),
+data licensing (an aggregate export with a licence registry), the commercial API tier (deliberately the same
+mechanism as the premium tier, so it is not built twice), §18.3's reward pass, and §18.2's own full export.
+
+**Published, not documented.** `GET /monetization` renders the posture for a reader and `/monetization/json`
+serves the same struct for anybody who wants to check it -- the shape slice 16a established, and for the same
+reason: a posture nobody can find is not a posture, and the two renderings come from one value so the page
+cannot disagree with itself. No `noindex`, public, static, mounted before the SPA catch-all.
+
+**Verification.** With the switch off: every §18.2 surface answers as it did (the leak test compares the two
+modes rather than inspecting one), the page says the instance charges for nothing, and the limiter's headers
+report the free limit for every credential. With it on and the premium tier stream enabled: the free limit is
+STILL the free limit for an ungranted credential, a granted credential's `X-RateLimit-Limit` is the higher one,
+and every §18.2 capability still answers.
+
+Three instruments, because each can fail where the others pass. `scripts/mutate-monetization.py` puts the rules
+back one at a time and requires the named test to redden — 14 probes, each naming its test, the tree restored
+green at the end, and the two probes whose FIRST version was not a verdict (an anchor that matched twice, a
+mutation that was a spelling of the original) recorded in the file rather than quietly dropped.
+`scripts/walk-15-live.py` runs the same binary TWICE against the same database — as it ships and with the
+premium tier sold to a member who already exists — because the switch is read once at startup and no single
+process can show both halves of the sentence; it reads the member's STORED API key rather than signing one
+(the server compares the presented key with the stored one) and writes nothing to the database. It is also
+what found the two things this section had wrong: the stream is `premium_subscription` while the FEATURE is
+`premium_api_tier`, and the page named `monetization_enabled` in one posture and not the other. And
+`docs/goal-check.py` clause **C9** asserts the posture statically, counting what it examines (seven
+capabilities in code, two schema directives, five shipped configurations) so that a scan which reads nothing
+cannot pass for a page that promises nothing.

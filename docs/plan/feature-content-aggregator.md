@@ -4115,6 +4115,217 @@ of aggregates, a commercial API tier.
 free list is still fully reachable and asserted one feature at a time — the risk is a
 paywall leaking onto a core path.
 
+### Phase 15, slice a — the switch, the always-free list, and the one stream that is real
+
+**The spec's §18 argues the decisions; this is the sequence, the files and the commands.**
+
+**Scope.** `[monetization]` in config + `internal/service/monetization` (the streams, §18.2's always-free list as
+code, the gate that refuses to gate it, the posture) + the premium tier in `internal/ratelimit` (a second limit,
+keyed per tier) + the wiring in `internal/api/server.go` + `GET /monetization` and `/monetization/json` +
+tests + `scripts/mutate-monetization.py`. No schema, no GraphQL mutation, no job: §18.3's recorded grants are
+slice b. A grant stored now would have no writer, and a column nothing writes is indistinguishable from a bug
+(`aria_goal` carried no writer for two milestones).
+
+**Why a comp list is the grant mechanism of slice a.** The operator's `monetization_premium_members` is a real
+writer (they edit the file), it needs no schema, and it is honest about being provisional. Slice b adds the
+recorded grant and REFUSES this key by name, so the file and the table can never both claim to be the source of
+truth about who pays.
+
+**Step 1 — the config keys** (`internal/config/config.go`, fields beside `ContentDelivery`; defaults beside
+`RateLimitRequestsPerMinute`; accessors beside `GetRateLimit`):
+
+```go
+	// MonetizationEnabled lets this instance CHARGE for §18.1's UX features (plan phase 15, spec §18).
+	// OFF BY DEFAULT, AND OFF IS NOT "FREE FOR ALL": off means NO STREAM MAY BE ON, and a stream that is on
+	// while this is false is refused by NAME at startup rather than ignored -- a configuration that says two
+	// contradictory things is one whose operator believes the wrong half. This fork is MIT; what an instance
+	// charges for is its operator's decision, the code is open, and §18.2's always-free list is enforced in
+	// code (internal/service/monetization/alwaysfree.go) rather than promised on a page.
+	MonetizationEnabled bool `mapstructure:"monetization_enabled"`
+	// MonetizationStreams are the §18.1 revenue streams this operator switched on, by name. A stream with no
+	// implementation on this tree is refused BY NAME (monetization.RequireStream) so that "monetization is
+	// enabled" cannot be a claim about code that does not exist: the premium subscription is implemented;
+	// creator_subs, ads, data_licensing and commercial_api_tier are named and their refusals say what each
+	// would take.
+	MonetizationStreams []string `mapstructure:"monetization_streams"`
+	// MonetizationPremiumMembers are the member ids this operator has comped premium -- slice a's only grant
+	// mechanism, replaced in slice b by recorded grants (users.premium_until/premium_source).
+	MonetizationPremiumMembers []string `mapstructure:"monetization_premium_members"`
+	// MonetizationPremiumRequestsPerMinute is the sustained API rate a PREMIUM credential gets, against
+	// RateLimitRequestsPerMinute for everybody else (§18.1, "higher API limits"). Refused at startup when the
+	// premium_subscription stream is on and this is not ABOVE the free limit: a "higher limit" that is not higher
+	// is a promise nothing honours.
+	MonetizationPremiumRequestsPerMinute int `mapstructure:"monetization_premium_requests_per_minute"`
+	// MonetizationPremiumBurst is the premium tier's burst, for the same reason RateLimitBurst exists.
+	MonetizationPremiumBurst int `mapstructure:"monetization_premium_burst"`
+```
+
+Defaults: `MonetizationPremiumRequestsPerMinute: 1200`, `MonetizationPremiumBurst: 240`. Accessors:
+`GetMonetizationEnabled()`, `GetMonetizationStreams()`, `GetMonetizationPremiumMembers()`,
+`GetMonetizationPremiumRateLimit() ratelimit.Config` (symmetric with `GetRateLimit()`).
+
+**Step 2 — `internal/service/monetization/monetization.go`**: a closed stream set, the switch's one reader, and
+the gate:
+
+```go
+const (
+	// The STREAMS are what an operator switches on (`monetization_streams`), and the FEATURES are what §18.1
+	// describes and what `Gate` answers about. They are not the same names, and the difference is worth stating
+	// because it cost a live walk: the feature on this tree is `premium_api_tier` (alwaysfree.go) and the
+	// stream that sells it is `premium_subscription`. A configuration that names the feature where a stream
+	// belongs is refused at startup with the list of streams, which is the behaviour that caught it.
+	StreamPremiumSubscription = "premium_subscription"
+	StreamCreatorSubs         = "creator_subs"
+	StreamAds                 = "ads"
+	StreamDataLicensing       = "data_licensing"
+	StreamCommercialAPITier   = "commercial_api_tier"
+)
+
+var ErrMonetizationDisabled = errors.New("this instance charges for nothing (monetization_enabled is off)")
+
+// ErrStreamNotImplemented carries the work the stream would need, so the operator who switched it on learns
+// what is missing rather than reading a zero.
+// ErrUnknownStream prints KnownStreams(), so a typo is a named error.
+// ErrStreamOff says this tree COULD sell the stream and THIS OPERATOR is not: "implemented" and "switched on"
+//   are two different facts, and the first version of RequireStream conflated them -- it answered nil for
+//   anything implemented, so a comped member was granted the premium API limit on an instance whose only
+//   configured stream was `ads`. The entitlement test for "a comped member is free while the premium stream is
+//   off" is what failed, and the mutation battery keeps that defect as probe M3.
+// ErrAlwaysFree is §18.2 as a rule: "search is always free (§18.2) and cannot be gated".
+```
+
+API: `KnownStreams() []string`, `Implemented(name) bool`, `StreamOn(name) bool`, `Enabled() bool`,
+`RequireStream(name) error` (the single reader of the stream list, and it answers THREE questions in order: is
+this name in the closed set — `ErrUnknownStream` listing them; could this tree sell it — `ErrStreamNotImplemented`
+naming the work; is THIS OPERATOR selling it — `ErrStreamOff` naming the key), `Validate() error` (the startup
+refusal), `PostureLine() string`, `Posture() Posture`, `Limits() (ratelimit.Config, ratelimit.Config)` (the free
+limit and the premium one, and the premium one is DISABLED unless the stream is on — see step 4), and
+`Gate(feature string) error` — which consults `alwaysFreeByName` FIRST and returns `ErrAlwaysFree` for anything
+on that list, so a future paywall on a core path fails here rather than in production.
+
+**Step 3 — `internal/service/monetization/alwaysfree.go`**, the seven §18.2 items with the surfaces that
+provide them on THIS instance. The refs are the fields and routes the leak test calls, so a deletion is a
+failing test rather than a stale sentence:
+
+| name | §18.2 words | surfaces here | built |
+|---|---|---|---|
+| `search` | full search, browsing, all discovery | `searchScenes`, `searchPerformers`, `queryScenes` (GraphQL, READ) | yes |
+| `content` | all content (premium never gates content) | `findScene`, `findScenes` (GraphQL, READ) | yes |
+| `tagging` | tagging and community participation | `sceneEdit`, `submitSceneDraft` (GraphQL, EDIT) | yes |
+| `collections` | basic collections and favourites | `lists`, `listCreate` (GraphQL, READ) | yes |
+| `api_access` | API access (rate-limited) | `/graphql`, `/feeds/saved-search/<token>` | yes |
+| `data_export` | full data export | `exportScenes` (GraphQL, READ; phase 13c — what it exports is this instance's scene records, and an export of a member's own account rows is not built) | yes |
+| `federation` | federation participation | `federation_peers` (GraphQL, ADMIN — this instance's mesh is operator-configured, so there is no member-facing federation surface for a paywall to take; §12.3–§12.6 are phase 12) | yes |
+
+The list is data, so the page renders it, the leak test walks it, and the unit test asserts it is disjoint from
+`PremiumFeatures()` (the §18.1 UX features: `premium_api_tier` built, and it is the FEATURE whose STREAM is
+`premium_subscription`; `ad_free`, `advanced_search`,
+`synced_history`, `custom_themes`, `support_badge`, `creator_subs`, `data_licensing` named with their state).
+
+**Step 4 — the premium tier in `internal/ratelimit`.** The limiter gains a second limit without gaining a
+second counting rule: buckets are keyed on (tier, credential), a tier change therefore starts a fresh bucket
+(the old tokens were an answer about a different limit), and `AllowNow` keeps its signature so the existing
+tests and the feed routes are untouched:
+
+```go
+// NewWithTiers builds a limiter with a second, higher limit for credentials an entitlement claims. The free
+// limit keeps its meaning: nothing about a tier can raise what an ungranted credential gets.
+func NewWithTiers(free, premium Config, premiumCredential func(key string) bool) *Limiter
+
+// AllowNowIn counts key against the named tier ("" is the free one)...
+func (l *Limiter) AllowNowIn(key, tier string) Decision
+```
+
+`Middleware(limiter, credential, tier func(*http.Request) string)` — `tier` may be nil, and the rate headers
+are set on EVERY request, not only on a refusal: a client that only learns its limit when it is refused will be
+refused again. `PostureLine` states BOTH limits when there are two, because an operator's question is "which
+posture is this instance in" — which is why `monetization.Limits()` hands the limiter a DISABLED premium
+configuration unless the premium stream is on: the configured numbers exist in the file whether or not the
+operator is selling anything, and a limiter given them would state a tier no caller can reach.
+
+**Step 5 — the entitlement, from the credential itself.** `internal/service/monetization/entitlement.go`:
+`CredentialIsPremium(credential string) bool`, returning
+`CredentialTier(credential string) string` (`ratelimit.TierPremium` or `ratelimit.TierFree`, spelled in the
+limiter's own constants so the two cannot drift). It strips the header prefix, asks
+`user.GetUserIDFromAPIKey` (the ONE implementation of "who is this key") and returns premium when the member
+id is in the comp set — AFTER `Gate(FeaturePremiumAPITier)`, which is the same rule the page states: on an
+instance that charges for nothing, or whose premium stream is off, NOBODY is premium, whatever the comp list
+says. A credential that does not authenticate is a FREE caller, never an error: a limiter that fails closed on
+a bad key turns a typo into a 429. Reusing the API-key parser is deliberate — a second JWT parse here would be a
+second answer to "is this key valid".
+
+**Step 6 — the published posture.** `internal/api/routes_monetization.go`, mounted before the SPA catch-all
+beside `/policy` and `/transparency`: `/` renders the posture, `/json` serves the same struct indented. The page
+states, in this order: whether the instance charges for anything (naming `monetization_enabled`), which streams
+are on and which are named-but-unbuilt, the §18.2 list with each surface and each "not built" note, the two
+limits, and the NOT-built list. `logPosture()` gains the monetization line, and `Validate()` is called where
+the server starts so a contradictory config is a refusal rather than a log line.
+
+**Step 7 — the tests, as built.** Unit (`internal/service/monetization/monetization_test.go`): the shipped
+default is off; a stream on with the switch off is refused naming the key; an unknown stream prints the known
+list; an unimplemented stream names what it would take; a stream this tree implements but THIS OPERATOR does not
+sell is refused with `ErrStreamOff`; `Gate` refuses every name on the always-free list; the two lists are
+disjoint; every always-free item names at least one surface; the premium limit must be higher in EITHER half
+when the stream is on (so an equal burst is refused); the comp list is the grant — a member the operator did not
+comp is free, with a real signed key rather than a garbage one; and `Limits` hands the limiter no premium
+configuration unless the stream is on.
+
+Ratelimit (`internal/ratelimit/tiers_test.go`): a premium credential counts against the premium limit and an
+ungranted one against the free limit; the free limit is the same number whether or not a tier exists (turning a
+tier on may not lower what everybody else gets); a tier change starts a fresh bucket IN BOTH DIRECTIONS; the
+sweep measures each bucket against ITS OWN limit, with the control that a bucket which IS full again is swept,
+so the assertion cannot pass because the sweep does nothing at all; a premium bucket refills at the premium rate
+(the case spends nine of ten tokens and waits ten seconds against six per minute — without that shape the burst
+cap makes a wrong rate indistinguishable, which is how the mutation battery's M14 survived its first run); a
+disabled premium configuration is NO limit rather than a fallback to the free one.
+
+Route (`internal/api/routes_monetization_test.go`): the page states whichever posture the instance is in, in
+BOTH directions — the pair is what makes a hard-coded sentence fail; every always-free item, its §18.2 words and
+each of its surfaces reach the page (compared escaped, because a feed route reads `&lt;token&gt;` in the
+document); the numbers rendered are the numbers the posture carries; the JSON serves the same struct, publishes
+HOW MANY comps exist and not who they are; the not-built list is derived from the feature list rather than
+written out again.
+
+Integration (`internal/api/monetization_integration_test.go`): THE LEAK TEST — every always-free surface is
+called with the switch OFF and then ON with the premium tier SOLD TO THE VERY MEMBER MAKING THE CALLS, and the
+two outcomes must be identical; the same file then plays out THE CONTROL, without which that equality would
+prove nothing: the comped member's `X-RateLimit-Limit` moves from the free rate to the premium one, an uncomped
+member's does not, an anonymous caller's does not, and neither does a feed reader's measured through the feed's
+own credential function. It also asserts the SERVED schema exposes every always-free field and that its
+directive list — two directives, counted — contains no paywall. The MUTATING surfaces (`sceneEdit`,
+`submitSceneDraft`) are covered by that schema assertion and are NOT called: a leak test that submitted an edit
+on every run would be a leak test that writes rows, and the limitation is stated in the file rather than papered
+over.
+
+**Step 8 — the commands and what they must return.**
+
+```bash
+gofmt -l internal/ cmd/ pkg/                      # no output
+go vet ./... && go vet -tags integration ./...    # no output
+go test ./internal/service/monetization/ ./internal/ratelimit/ ./internal/config/ ./internal/api/ -count=1
+POSTGRES_DB='postgres:smoke_pw@127.0.0.1:55434/sbx-monetization-15?sslmode=disable' \
+  go test -tags integration -count=1 -p 1 -run 'Monetization|AlwaysFree|ServedSchema' ./internal/api/
+python3 scripts/mutate-monetization.py             # 14/14 KILLED, RESTORED TREE green
+python3 docs/goal-check.py                         # C9 passes; C8 unchanged
+```
+
+### Phase 15, slice b — the recorded grant, and §18.3's reward pass (specified, not started)
+
+`users.premium_until` + `users.premium_source` (migration 142), the admin mutation that grants by hand, and the
+cron pass that derives §18.3's three grants: TL4 permanent (source `trust_level`), top-10 of the monthly
+leaderboard (source `top_10_monthly`, lapses when the month it names is over), seasonal winners (source
+`seasonal`). The entitlement cache (`monetization_entitlement_cache_seconds`, default 30) arrives with it,
+because a per-request grant read is the cost that makes the cache worth having — and the TTL is stated on the
+page, since a grant that takes 30 seconds to apply is a fact a member will otherwise report as a bug. On the
+day the store lands, `monetization_premium_members` is REFUSED BY NAME.
+
+### Phase 15, slice c — the streams that are named and not built (specified, not started)
+
+Ads (a contextual-only renderer, no tracking, the two-slot bound enforced where slots are counted), creator
+subscriptions (needs a payment path and phase 10), data licensing (an aggregate export plus a licence registry),
+the commercial API tier (deliberately the same mechanism as the premium tier, so it is not built twice), and
+§18.2's per-member export. Each starts by turning its `Implemented` flag over and giving its refusal a caller.
+
 ## Phase 16 — UI, metrics, accessibility
 
 **Goal:** NexusXXX §20–§23: the five key pages (home dashboard, search results,

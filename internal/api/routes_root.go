@@ -56,6 +56,11 @@ func (rr rootRoutes) Routes(fac service.Factory) chi.Router {
 		fac: fac,
 	}.Routes())
 
+	// What this instance charges for (phase 15, spec §18). Registered BEFORE the SPA catch-all for the same
+	// reason the policy and transparency pages are: it is addressed to a reader who may not be signed in, and
+	// the application would answer it with an HTML shell.
+	r.Mount("/monetization", monetizationRoutes{}.Routes())
+
 	// A saved search as a feed (phase 13 slice 13b). Registered BEFORE the SPA catch-all for the same
 	// reason the invitation page is: the application answers every other path, and a feed request that
 	// reached it would be handed HTML with a 200 -- a reader would report a parse failure rather than a

@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 	"github.com/stashapp/stash-box/internal/config"
+	"github.com/stashapp/stash-box/internal/service/monetization"
 	"github.com/stashapp/stash-box/pkg/logger"
 	"github.com/stashapp/stash-box/pkg/utils"
 )
@@ -63,6 +64,16 @@ The database connection string has been defaulted to: %s
 Please ensure this database is created and available, or change the connection string in the configuration file, then rerun stash-box.`,
 			viper.GetViper().ConfigFileUsed(), config.GetDatabasePath())
 		os.Exit(0)
+	}
+
+	// THE MONETIZATION POSTURE IS REFUSED, NOT WARNED ABOUT (plan phase 15, spec §18). A configuration that
+	// states two contradictory things -- a stream switched on while the switch is off, a stream this tree
+	// cannot sell, a "higher API limit" that is not higher -- would otherwise run in one posture while its
+	// file said the other, and the operator would have no way to tell which. This is the one place a config
+	// error of that kind can stop the process, and it does, naming the key or the stream.
+	if err := monetization.Validate(); err != nil {
+		fmt.Printf("Monetization is configured inconsistently: %s\n", err)
+		os.Exit(1)
 	}
 
 	missingEmail := config.GetMissingEmailSettings()

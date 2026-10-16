@@ -109,6 +109,15 @@ func PostureLine(limiter *Limiter) string {
 	if config.Disabled() {
 		return "rate limit: NONE -- this instance refuses no caller, however fast it goes"
 	}
-	return fmt.Sprintf("rate limit: %d requests per minute per credential, burst %d",
+	line := fmt.Sprintf("rate limit: %d requests per minute per credential, burst %d",
 		config.RequestsPerMinute, config.Burst)
+	// THE SECOND LIMIT IS STATED WHEN THERE IS ONE, because the operator's question is "which posture is this
+	// instance in", and an instance counting some credentials against a different limit is a posture. Both
+	// numbers appear so the line can be read against the configuration without a second source.
+	if premium := limiter.PremiumConfig(); !premium.Disabled() {
+		line += fmt.Sprintf(
+			"; a credential entitled to the premium API tier gets %d requests per minute, burst %d",
+			premium.RequestsPerMinute, premium.Burst)
+	}
+	return line
 }

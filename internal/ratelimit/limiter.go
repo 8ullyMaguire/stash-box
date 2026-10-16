@@ -34,6 +34,14 @@ func (c Config) Disabled() bool {
 	return c.RequestsPerMinute <= 0 || c.Burst <= 0
 }
 
+// The tiers a credential can count against. TierFree is the empty string rather than a word, so that a
+// limiter built by `New` -- which knows no tiers at all -- and a limiter built by `NewWithTiers` count the
+// same caller in the same bucket, and so that the zero value of a tier variable is the free tier.
+const (
+	TierFree    = ""
+	TierPremium = "premium"
+)
+
 // Decision is one verdict, and it carries everything the response needs rather than only the answer: a caller
 // that has to recompute the boundary is a second implementation of the same rule.
 type Decision struct {
@@ -50,8 +58,16 @@ type Decision struct {
 // implementation of a data structure in exchange for a contention problem this instance does not have.
 type Limiter struct {
 	config Config
-	rate   float64 // tokens per second
-	now    func() time.Time
+	// premium is the second limit an entitled credential is counted against (§18.1's "higher API limits",
+	// plan phase 15). Zero value means this instance has one limit, which is every configuration shipped
+	// before the tier existed and every configuration today unless an operator turned the stream on.
+	premium Config
+	// premiumCredential decides which limit a credential counts against. It is supplied by the caller
+	// because this package counts what it is handed and has no business resolving identities -- the API
+	// key's owner is monetization's question, not the limiter's.
+	premiumCredential func(key string) bool
+
+	now func() time.Time
 
 	mu      sync.Mutex
 	buckets map[string]*bucket
@@ -68,6 +84,13 @@ type Limiter struct {
 type bucket struct {
 	tokens float64
 	last   time.Time
+	// burst and rate are THE LIMIT THIS BUCKET COUNTS AGAINST, carried on the bucket rather than read from the
+	// limiter at refill time. With one limit the distinction is invisible; with two it is a defect in both
+	// directions: the sweep decides a bucket is "full again" by comparing it to the burst, so measuring a
+	// premium bucket against the free burst would discard buckets that are still spending, and the refill cap
+	// would cap a premium caller at the free burst.
+	burst float64
+	rate  float64
 }
 
 // DefaultMaxBuckets is the point at which the limiter sweeps. It is far above the number of credentials a real
@@ -77,15 +100,30 @@ const DefaultMaxBuckets = 10000
 // New builds a limiter. A disabled configuration returns nil, and every method tolerates a nil receiver, so
 // the wiring has one shape whether or not a limit is set.
 func New(config Config) *Limiter {
-	if config.Disabled() {
+	return NewWithTiers(config, Config{}, nil)
+}
+
+// NewWithTiers builds a limiter that counts a credential against ONE OF TWO limits, chosen by
+// premiumCredential (plan phase 15: §18.1's "higher API limits").
+//
+// THE FREE LIMIT KEEPS ITS MEANING. There is no arithmetic here that could raise what an ungranted caller
+// gets: a credential the predicate does not claim is counted against `free`, and the premium configuration is
+// reachable only through the predicate. A premium configuration that is disabled (zero means off, as
+// everywhere in this package) therefore grants unlimited requests to the credentials it claims -- which is a
+// posture an operator can choose deliberately and is not the default.
+//
+// nil premiumCredential means one limit, which is what every caller before the tier existed wanted.
+func NewWithTiers(free, premium Config, premiumCredential func(key string) bool) *Limiter {
+	if free.Disabled() {
 		return nil
 	}
 	return &Limiter{
-		config:     config,
-		rate:       float64(config.RequestsPerMinute) / 60.0,
-		now:        time.Now,
-		buckets:    make(map[string]*bucket),
-		maxBuckets: DefaultMaxBuckets,
+		config:            free,
+		premium:           premium,
+		premiumCredential: premiumCredential,
+		now:               time.Now,
+		buckets:           make(map[string]*bucket),
+		maxBuckets:        DefaultMaxBuckets,
 	}
 }
 
@@ -106,6 +144,38 @@ func (l *Limiter) AllowNow(key string) Decision {
 	return l.Allow(key, l.now())
 }
 
+// PremiumConfig is the second limit, or a disabled Config when this limiter has one limit. For the startup
+// line and for tests; nothing in the counting path reads it, because the bucket carries its own limit.
+func (l *Limiter) PremiumConfig() Config {
+	if l == nil {
+		return Config{}
+	}
+	return l.premium
+}
+
+// tierOf reports which limit a credential counts against, by asking the predicate the wiring supplied.
+//
+// ONE PLACE DECIDES. The middleware does not compute a tier and neither does the response: the limiter asks,
+// counts, and states the limit it used in the Decision, so "which limit applied to this request" has one
+// answer on the wire (X-RateLimit-Limit) and one in the log.
+func (l *Limiter) tierOf(key string) string {
+	if l == nil || l.premiumCredential == nil {
+		return TierFree
+	}
+	if l.premiumCredential(key) {
+		return TierPremium
+	}
+	return TierFree
+}
+
+// configFor is the configuration a tier counts against.
+func (l *Limiter) configFor(tier string) Config {
+	if tier == TierPremium {
+		return l.premium
+	}
+	return l.config
+}
+
 // Allow takes one token for key, or reports how long until one is available.
 //
 // The clock is a parameter so that the refill is TESTABLE: a limiter tested against the wall clock tests
@@ -115,6 +185,20 @@ func (l *Limiter) Allow(key string, now time.Time) Decision {
 		return Decision{Allowed: true}
 	}
 
+	tier := l.tierOf(key)
+	config := l.configFor(tier)
+	if config.Disabled() {
+		// The limit this credential counts against is switched off, and zero means off as it does
+		// everywhere in this package: no limit, no bucket, no memory spent counting it.
+		return Decision{Allowed: true}
+	}
+
+	// THE BUCKET IS KEYED BY TIER AND CREDENTIAL, and the separation is the point: tokens are counted
+	// against a LIMIT, so when a credential's limit changes the count in hand was an answer about a
+	// different question. A member who becomes premium therefore gets the premium bucket immediately, and a
+	// lapsed one gets the free bucket, instead of inheriting tokens minted against the other limit.
+	keyAt := tier + "\x00" + key
+
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -123,23 +207,23 @@ func (l *Limiter) Allow(key string, now time.Time) Decision {
 	// evicts somebody -- so on a busy instance the table would spend all its time throwing away the
 	// credentials it is supposed to be counting. A caller who is already tracked never costs another caller
 	// its bucket.
-	b, ok := l.buckets[key]
+	b, ok := l.buckets[keyAt]
 	if !ok {
 		if len(l.buckets) >= l.maxBuckets {
 			l.makeRoomLocked(now)
 		}
-		b = &bucket{tokens: float64(l.config.Burst), last: now}
-		l.buckets[key] = b
+		b = newBucket(config, now)
+		l.buckets[keyAt] = b
 	}
 
 	// Refill by elapsed time, capped at the burst. `last` moves only by the amount of time that has been
 	// accounted for, never to `now` unconditionally, so a clock that jumps backwards cannot mint tokens.
 	if elapsed := now.Sub(b.last).Seconds(); elapsed > 0 {
-		b.tokens = min(float64(l.config.Burst), b.tokens+elapsed*l.rate)
+		b.tokens = min(b.burst, b.tokens+elapsed*b.rate)
 		b.last = now
 	}
 
-	limit := l.config.RequestsPerMinute
+	limit := config.RequestsPerMinute
 	if b.tokens >= 1 {
 		b.tokens--
 		return Decision{Allowed: true, Limit: limit, Remaining: int(b.tokens)}
@@ -147,8 +231,19 @@ func (l *Limiter) Allow(key string, now time.Time) Decision {
 
 	// The wait for the NEXT token, which is what Retry-After means. Rounded up to a whole second: a header
 	// that says "0" invites an immediate retry that is refused again, which reads as a broken limit.
-	wait := time.Duration((1-b.tokens)/l.rate*float64(time.Second)) + time.Second
+	wait := time.Duration((1-b.tokens)/b.rate*float64(time.Second)) + time.Second
 	return Decision{Allowed: false, Limit: limit, Remaining: 0, RetryAfter: wait.Truncate(time.Second)}
+}
+
+// newBucket starts a full bucket for one limit, and the limit travels WITH the bucket. See the bucket type's
+// comment for why that is not an optimisation.
+func newBucket(config Config, now time.Time) *bucket {
+	return &bucket{
+		tokens: float64(config.Burst),
+		last:   now,
+		burst:  float64(config.Burst),
+		rate:   float64(config.RequestsPerMinute) / 60.0,
+	}
 }
 
 // makeRoomLocked bounds the map with a hard cap, in two passes, and the cap is the point: without one, how
@@ -161,9 +256,10 @@ func (l *Limiter) Allow(key string, now time.Time) Decision {
 // that caller gets its burst back. It costs an attacker thousands of requests per victim and buys it a burst
 // -- the alternative is memory that any client can make this process allocate without limit.
 func (l *Limiter) makeRoomLocked(now time.Time) {
-	full := float64(l.config.Burst)
 	for key, b := range l.buckets {
-		if b.tokens+now.Sub(b.last).Seconds()*l.rate >= full {
+		// Measured against the bucket's OWN limit (see the bucket type's comment): a bucket is forgettable
+		// when it is full again, and "full" is a fact about the limit it counts against.
+		if b.tokens+now.Sub(b.last).Seconds()*b.rate >= b.burst {
 			delete(l.buckets, key)
 			l.sweeps++
 		}
@@ -199,7 +295,7 @@ func (l *Limiter) Tracked(key string) bool {
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	_, ok := l.buckets[key]
+	_, ok := l.buckets[l.tierOf(key)+"\x00"+key]
 	return ok
 }
 

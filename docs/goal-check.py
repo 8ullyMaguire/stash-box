@@ -780,12 +780,97 @@ def c8_aggregator_programme():
             f"all {len(phases)} phases done, each naming its evidence")
 
 
+def c9_monetization_posture():
+    """§18 as a posture the tree can be checked against, clause by clause.
+
+    Every check here has a SUBJECT COUNT, and that is the lesson this programme keeps paying for: an assertion
+    that scans a set and finds nothing wrong is also what an assertion over an EMPTY set looks like. "No schema
+    directive mentions a subscription" is worth nothing if the scan read no directives, and "no shipped config
+    turns monetization on" is worth nothing if it read no config files -- so both count what they examined and
+    fail when the count is zero.
+    """
+    mon = REPO / "internal" / "service" / "monetization"
+    alwaysfree = mon / "alwaysfree.go"
+    gate = mon / "monetization.go"
+    for p in (alwaysfree, gate):
+        if not p.exists():
+            add("C9 monetization posture", "FAIL", f"{p.relative_to(REPO)} is missing")
+            return
+
+    free_src = alwaysfree.read_text()
+    gate_src = gate.read_text()
+    fails, notes = [], []
+
+    # 1. §18.2's seven items, by the names the gate refuses by -- not by §18.2's prose, which is what the code
+    #    quotes beside them.
+    ITEMS = ["search", "content", "tagging", "collections", "api_access", "data_export", "federation"]
+    named = [n for n in ITEMS if f'Name:  "{n}"' in free_src or f'Name: "{n}"' in free_src]
+    if len(named) != len(ITEMS):
+        fails.append(f"always-free capabilities missing from alwaysfree.go: "
+                     f"{', '.join(n for n in ITEMS if n not in named)}")
+    else:
+        notes.append(f"{len(named)} §18.2 capabilities in code")
+
+    # 2. The gate asks §18.2 FIRST. Source order is the rule here: a paywall that checked its price list first
+    #    would refuse a core path before the always-free list ever saw it.
+    in_gate = gate_src.split("func Gate(")[1].split("\n}")[0] if "func Gate(" in gate_src else ""
+    i_free, i_price = in_gate.find("alwaysFreeByName("), in_gate.find("premiumFeatureByName(")
+    if not in_gate:
+        fails.append("Gate is not in internal/service/monetization/monetization.go")
+    elif not (0 <= i_free < i_price):
+        fails.append("Gate does not consult alwaysFreeByName before the price list")
+    else:
+        notes.append("§18.2 consulted before §18.1 in Gate")
+
+    # 3. Nothing in the served schema gates on a subscription. The directive list is the one place such a rule
+    #    would have to appear to be enforced by the schema, so it is what this reads.
+    schemas = sorted((REPO / "graphql").rglob("*.graphql"))
+    directives, bad = [], []
+    for s in schemas:
+        directives += re.findall(r"^directive\s+@(\w+)", s.read_text(), re.M)
+    WORDS = ("monetiz", "premium", "subscri", "entitle", "paywall")
+    for d in directives:
+        if any(w in d.lower() for w in WORDS):
+            bad.append(d)
+    if not directives:
+        fails.append("no schema directives were found: the scan has no subject")
+    elif bad:
+        fails.append(f"schema directives that gate on a subscription: {', '.join(bad)}")
+    else:
+        notes.append(f"{len(directives)} schema directives, none a paywall")
+
+    # 4. The limiter is handed no second limit unless the operator is selling the tier: the clause is the one
+    #    that keeps the startup line from stating a premium rate nobody can reach.
+    limits = gate_src.split("func Limits(")[1].split("\n}")[0] if "func Limits(" in gate_src else ""
+    if "RequireStream(StreamPremiumSubscription)" not in limits or "ratelimit.Config{}" not in limits:
+        fails.append("Limits does not refuse a premium limit while the premium stream is off")
+    else:
+        notes.append("the second limit exists only while the stream is on")
+
+    # 5. Every configuration this repository ships leaves the switch off, or says nothing about it.
+    configs = sorted(list(REPO.glob("*.yml")) + list(REPO.glob(".config-dev/*.yml")) +
+                     list(REPO.glob("e2e/config/*.yml")))
+    on = [c.relative_to(REPO).as_posix() for c in configs
+          if re.search(r"^\s*monetization_enabled:\s*true", c.read_text(), re.M)]
+    if len(configs) < 3:
+        fails.append(f"only {len(configs)} configuration file(s) were scanned: the check has no subject")
+    elif on:
+        fails.append(f"shipped configuration(s) switch monetization on: {', '.join(on)}")
+    else:
+        notes.append(f"{len(configs)} shipped configuration(s), none switching it on")
+
+    if fails:
+        add("C9 monetization posture", "FAIL", "; ".join(fails))
+    else:
+        add("C9 monetization posture", "PASS", "; ".join(notes))
+
+
 def main():
     if "--update-baseline" in sys.argv:
         sys.exit(update_baseline())
     for fn in (c1_prs_decided, c2_issues_dispositioned, c3_plan_built,
                c4_narrow_merged, c5_migrations_coherent, c6_suite, c7_build_clean,
-               c8_aggregator_programme):
+               c8_aggregator_programme, c9_monetization_posture):
         try:
             fn()
         except Exception as e:  # a clause that crashes is not a passing clause
