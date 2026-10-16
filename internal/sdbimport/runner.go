@@ -32,9 +32,11 @@ import (
 
 	"github.com/gofrs/uuid"
 
+	"github.com/stashapp/stash-box/internal/config"
 	"github.com/stashapp/stash-box/internal/converter"
 	"github.com/stashapp/stash-box/internal/models"
 	"github.com/stashapp/stash-box/internal/queries"
+	"github.com/stashapp/stash-box/internal/service/content"
 )
 
 // errStopWalk travels from a per-record callback back through the pager. It is not an error condition: it IS the
@@ -83,6 +85,17 @@ type SyncOptions struct {
 	// LimitPerformer bounds the walk by RECORDS (0 = unbounded), for a bounded live test.
 	LimitPerformer int
 
+	// Images turns on the image pass (plan step 4): for each record in the walk, fetch the source's picture and
+	// store it through the destination's own image service. Off by default -- it is the slow half, and a
+	// metadata-only run should not spend a request per record on a third party's asset host.
+	Images bool
+
+	// ImageInterval is the per-host politeness interval between image requests.
+	ImageInterval time.Duration
+
+	// UserAgent names this instance to every host it fetches from.
+	UserAgent string
+
 	// Margin overrides DefaultSyncMargin.
 	Margin time.Duration
 
@@ -119,6 +132,14 @@ type EntityReport struct {
 	Failed    int `json:"failed"`
 
 	FieldChanges int `json:"field_changes"`
+
+	// The image pass (plan step 4). Available is how many pictures the source offered across the walk's
+	// records, so a reader can tell "the source has none" from "we stored none of many".
+	ImagesAvailable int `json:"images_available"`
+	ImagesStored    int `json:"images_stored"`
+	ImagesSkipped   int `json:"images_skipped"`
+	ImagesRefused   int `json:"images_refused"`
+	ImagesFailed    int `json:"images_failed"`
 
 	// SampleChanges names up to a handful of the planned changes, so a dry run is a diagnostic and not just a
 	// count. A run that says "would update 49" without saying which field cannot be acted on -- and a field
@@ -198,6 +219,10 @@ func (r RunReport) Summary() string {
 				atTime(e.WatermarkBefore), after, e.StopReason)
 			// The failure TEXT, not just the count: "failed 8" is not actionable, and the pager keeps one
 			// error per entity exactly so a report can name it.
+			if e.ImagesAvailable > 0 {
+				fmt.Fprintf(&b, "      images: %d offered, %d stored, %d already held, %d refused, %d failed\n",
+					e.ImagesAvailable, e.ImagesStored, e.ImagesSkipped, e.ImagesRefused, e.ImagesFailed)
+			}
 			for _, err := range e.Errors {
 				fmt.Fprintf(&b, "      failed: %s\n", err)
 			}
@@ -223,6 +248,9 @@ type Runner struct {
 
 	// local caches the destination's view of a performer for one walk.
 	local map[string]*LocalPerformer
+
+	// images fetches and stores pictures, when the run asks for them.
+	images *ImageFetcher
 }
 
 // NewRunner validates its options BEFORE anything is opened or walked.
@@ -253,6 +281,24 @@ func NewRunner(imp *Importer, db WatermarkDB, opts SyncOptions) (*Runner, error)
 		}
 	}
 	r := &Runner{imp: imp, db: db, opts: opts, margin: opts.Margin, now: opts.Now, local: map[string]*LocalPerformer{}}
+	if opts.Images {
+		ua := opts.UserAgent
+		if ua == "" {
+			// A User-Agent that names nothing is the one hosts block first. This one says what it is and who
+			// runs it, which is what "polite" means in practice.
+			ua = "stash-box-sync/1.0 (+" + opts.Source + ")"
+		}
+		f := NewImageFetcher(ua)
+		// THE INSTANCE'S OWN KNOB, not this tool's opinion: `content_fetch_min_interval` already exists, is
+		// already documented as "the least time between two requests this instance makes to the same host", and
+		// is already set to 2s on the live instance. A second default in a second file is how two halves of one
+		// instance come to disagree about how polite they are. The flag overrides it, for a one-off run.
+		f.Interval = config.GetContentFetchMinInterval()
+		if opts.ImageInterval > 0 {
+			f.Interval = opts.ImageInterval
+		}
+		r.images = f
+	}
 	if r.margin == 0 {
 		r.margin = DefaultSyncMargin
 	}
@@ -264,6 +310,18 @@ func NewRunner(imp *Importer, db WatermarkDB, opts SyncOptions) (*Runner, error)
 
 // Run walks the requested entities in the importer's order and returns the report.
 func (r *Runner) Run(ctx context.Context) (RunReport, error) {
+	// The instance's own outbound-fetching switch, checked BEFORE the walk rather than inside the fetch loop: it
+	// is a statement about what this instance may do, and a run that cannot do what it was asked must say so
+	// instead of walking, storing nothing, and letting a reader conclude the source has no pictures. The switch
+	// is `content_fetch_sources`, read through the same accessor the rest of the instance uses, so the two
+	// halves of the instance cannot come to different conclusions about whether outbound requests are allowed.
+	if r.opts.Images {
+		if err := content.RequireFetching(); err != nil {
+			return RunReport{}, fmt.Errorf("%w (-images asks this instance to make outbound requests, and "+
+				"content_fetch_sources says it may not)", err)
+		}
+	}
+
 	rep := RunReport{Source: r.opts.Source, StartedAt: r.now().UTC(), DryRun: r.opts.DryRun}
 	want := map[string]bool{}
 	for _, e := range r.opts.Entities {
@@ -349,6 +407,9 @@ func (r *Runner) walkPerformers(ctx context.Context) (EntityReport, error) {
 		if err := r.applyRecord(ctx, p, local, hasLocal, rep, &er); err != nil {
 			rep.Failed++
 			return err
+		}
+		if r.images != nil && hasLocal && local != nil {
+			r.syncImagesFor(ctx, p, local, &er)
 		}
 		if !cont {
 			return errStopWalk
@@ -478,6 +539,85 @@ func (r *Runner) applyAliasAndURLs(p Performer, changes []FieldChange, in *model
 			er.URLsNotApplied++
 		}
 	}
+}
+
+// syncImagesFor is the image pass for ONE record: at most one picture per performer per run.
+//
+// ONE PICTURE, NOT ALL OF THEM, and that is the idempotence rule doing the deciding. The source publishes a
+// gallery; the destination's performer images are a gallery too, but a sync has no way to tell "the picture the
+// row already holds" from "a different picture of the same person" without storing the source's image id
+// somewhere, and there is no column for that. So the rule is the plan's own: an entity that already has an image
+// is skipped BEFORE any HTTP request -- one indexed query per record, no traffic, and the second run fetches
+// nothing. `ImagesAvailable` reports how many the source offered, so "stored one of nine" is visible rather than
+// implied.
+//
+// A refusal is COUNTED AND NAMED, never fatal: a 404 on one performer's picture must not end a walk of a hundred
+// thousand records, and the report says which URL and why.
+func (r *Runner) syncImagesFor(ctx context.Context, p Performer, local *LocalPerformer, er *EntityReport) {
+	if len(p.Images) == 0 {
+		return
+	}
+	er.ImagesAvailable += len(p.Images)
+
+	existing, err := r.imp.queries.GetPerformerImages(ctx, local.ID)
+	if err != nil {
+		er.ImagesFailed++
+		er.Errors = append(er.Errors, fmt.Sprintf("reading the images of performer %s: %v", local.ID, err))
+		return
+	}
+	if len(existing) > 0 {
+		er.ImagesSkipped++
+		return
+	}
+
+	// The FIRST source image, which the source orders by its own preference.
+	img := p.Images[0]
+	body, err := r.images.Fetch(ctx, img.URL)
+	if err != nil {
+		if errors.Is(err, ErrImageRefused) {
+			er.ImagesRefused++
+			er.Errors = append(er.Errors, err.Error())
+			return
+		}
+		er.ImagesFailed++
+		er.Errors = append(er.Errors, fmt.Sprintf("fetching %s: %v", img.URL, err))
+		return
+	}
+
+	// Through the service, so the bytes arrive by the same door an upload does: checksum, deduplication against
+	// an image this instance already holds, dimension extraction, the row-written-before-bytes ordering and the
+	// file write are all the destination's own.
+	url := img.URL
+	created, err := r.imp.Factory.Image().Create(ctx, models.ImageCreateInput{
+		URL:   &url,
+		File:  uploadOf(img.URL, body),
+		Types: imageTypesFor(img),
+		Date:  img.Date,
+	})
+	if err != nil {
+		er.ImagesFailed++
+		er.Errors = append(er.Errors, fmt.Sprintf("storing %s: %v", img.URL, err))
+		return
+	}
+	if created == nil || created.ID == uuid.Nil {
+		er.ImagesFailed++
+		er.Errors = append(er.Errors, fmt.Sprintf("storing %s returned no image", img.URL))
+		return
+	}
+
+	// The link is written through the generated query because the service has no operation for it: a performer's
+	// images are set by a performer EDIT in this fork (internal/service/edit/performer.go), and running the edit
+	// pipeline from a sync would mean constructing edit data, casting a vote and waiting for it to apply. The
+	// link table is what the edit path writes in the end; this writes the same row, and says so here rather than
+	// leaving a reader to wonder which path was taken.
+	if _, err := r.imp.queries.CreatePerformerImages(ctx, []queries.CreatePerformerImagesParams{
+		{ImageID: created.ID, PerformerID: local.ID},
+	}); err != nil {
+		er.ImagesFailed++
+		er.Errors = append(er.Errors, fmt.Sprintf("linking %s to performer %s: %v", created.ID, local.ID, err))
+		return
+	}
+	er.ImagesStored++
 }
 
 // lookup is the source-record -> local-record function the diff needs.

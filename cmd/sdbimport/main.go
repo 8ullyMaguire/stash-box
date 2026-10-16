@@ -67,6 +67,8 @@ func run() error {
 		syncModes  = flag.String("sync-modes", "", "per-entity sync mode, e.g. performers=upstream-wins (default latest-wins)")
 		syncFull   = flag.Bool("sync-full", false, "ignore the stored watermark and walk the whole source (repair path)")
 		syncMargin = flag.Duration("sync-margin", sdbimport.DefaultSyncMargin, "how far behind the watermark to re-read")
+		images     = flag.Bool("images", false, "with -sync: fetch each record's picture from the source and store it locally")
+		imageEvery = flag.Duration("image-interval", sdbimport.DefaultImageInterval, "with -images: minimum wait between requests to the same host")
 		lockPath   = flag.String("lock", "", "lock file for a single running sync (default $XDG_RUNTIME_DIR/stash-box-sync.lock)")
 		jsonOut    = flag.String("json", "", "write the run's report as JSON to this path")
 	)
@@ -150,7 +152,8 @@ func run() error {
 	}
 
 	if *syncRun {
-		return runSync(ctx, db, imp, want, *syncModes, *syncFull, *syncMargin, *lockPath, *jsonOut, *limitP)
+		return runSync(ctx, db, imp, want, *syncModes, *syncFull, *syncMargin, *lockPath, *jsonOut,
+			*limitP, *images, *imageEvery)
 	}
 
 	r := imp.NewResolver()
@@ -198,6 +201,8 @@ func runSync(
 	margin time.Duration,
 	lock, jsonOut string,
 	limitPerformer int,
+	images bool,
+	imageInterval time.Duration,
 ) error {
 	modes, err := sdbimport.ParseSyncModes(modesRaw)
 	if err != nil {
@@ -239,6 +244,8 @@ func runSync(
 		LimitPerformer: limitPerformer,
 		Margin:         margin,
 		Source:         source,
+		Images:         images,
+		ImageInterval:  imageInterval,
 	})
 	if err != nil {
 		return err

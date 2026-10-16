@@ -83,6 +83,7 @@ query($page: Int!) {
       piercings { description location }
       aliases
       urls { url }
+      images { url width height types date }
     }
   }
 }`
@@ -117,7 +118,12 @@ type Performer struct {
 	Tattoos   []BodyModification `json:"tattoos"`
 	Piercings []BodyModification `json:"piercings"`
 	Aliases   []string           `json:"aliases"`
-	URLs      []struct {
+	// Images is what the source publishes for this record. Fetched only when the run asks for images
+	// (`-images`); the field is always requested because a second query per record for it would double the
+	// walk's request count for a feature most runs do not use.
+	Images []SourceImage `json:"images"`
+
+	URLs []struct {
 		URL string `json:"url"`
 	} `json:"urls"`
 
