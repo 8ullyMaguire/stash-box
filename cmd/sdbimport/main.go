@@ -68,7 +68,11 @@ func run() error {
 		syncFull   = flag.Bool("sync-full", false, "ignore the stored watermark and walk the whole source (repair path)")
 		syncMargin = flag.Duration("sync-margin", sdbimport.DefaultSyncMargin, "how far behind the watermark to re-read")
 		images     = flag.Bool("images", false, "with -sync: fetch each record's picture from the source and store it locally")
-		imageEvery = flag.Duration("image-interval", sdbimport.DefaultImageInterval, "with -images: minimum wait between requests to the same host")
+		// Default ZERO, meaning "use content_fetch_min_interval". A flag whose default supplies a value of its
+		// own would decide the interval for every run and make the instance's configured knob unreachable --
+		// the switch would still be in the config file and still be read by the server, and would never govern
+		// a sync. The one number this instance has an opinion about lives in one place.
+		imageEvery = flag.Duration("image-interval", 0, "with -images: minimum wait between requests to the same host (0 = content_fetch_min_interval)")
 		lockPath   = flag.String("lock", "", "lock file for a single running sync (default $XDG_RUNTIME_DIR/stash-box-sync.lock)")
 		jsonOut    = flag.String("json", "", "write the run's report as JSON to this path")
 	)
