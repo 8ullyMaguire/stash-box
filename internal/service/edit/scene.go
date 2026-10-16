@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"time"
 
 	"github.com/gofrs/uuid"
 	"github.com/jackc/pgx/v5"
@@ -12,6 +13,7 @@ import (
 	"github.com/stashapp/stash-box/internal/converter"
 	"github.com/stashapp/stash-box/internal/models"
 	"github.com/stashapp/stash-box/internal/queries"
+	"github.com/stashapp/stash-box/internal/service/verification"
 	"github.com/stashapp/stash-box/pkg/utils"
 )
 
@@ -403,7 +405,29 @@ func (m *SceneEditProcessor) applyModify(scene *models.Scene, data *models.Scene
 		return err
 	}
 
-	return m.ApplyEdit(scene, false, data, nil)
+	// THE AUTHOR, NOT A LITERAL NIL. This passed nil until §7.24.1's assertions needed an author on
+	// every applied edit: the parameter existed only for the create-only fingerprint write below, so
+	// nothing on the modify path ever read it -- and a verified-unknown asserted on a scene that
+	// already exists (the only kind there is) silently wrote nothing. The integration test that
+	// caught it stores the assertions in the edit data and could see them arrive; they reached this
+	// call and went no further.
+	//
+	// Passing it is inert for fingerprints: that write is still gated on `create`.
+	return m.ApplyEdit(scene, false, data, editAuthor(m.edit))
+}
+
+// editAuthor is an edit's author as an optional id, or nil when the edit has none.
+//
+// A NULL author stays nil rather than becoming the zero UUID, which would be worse than useless:
+// asserted_by is NOT NULL in the schema and the zero UUID is not null, so a zero would satisfy the
+// column and record a claim by nobody -- an assertion that can never be weighed against trust,
+// which is the property §7.24.1 routes these through the edit machinery to get.
+func editAuthor(edit *models.Edit) *uuid.UUID {
+	if edit == nil || !edit.UserID.Valid {
+		return nil
+	}
+	id := edit.UserID.UUID
+	return &id
 }
 
 func (m *SceneEditProcessor) applyDestroy(scene *models.Scene) error {
@@ -497,6 +521,24 @@ func (m *SceneEditProcessor) ApplyEdit(scene *models.Scene, create bool, data *m
 		}
 	}
 
+	// SPEC §7.24.1: the verified-unknowns this edit carries, written where the edit's OTHER extra
+	// data is written.
+	//
+	// NO create-ONLY GATE, unlike the fingerprints above: a fingerprint is attached when a scene is
+	// first catalogued, while an assertion about a field is the ordinary case on a scene that has
+	// existed for years. Gating this on `create` would make §7.24.1 reachable only for new scenes,
+	// which is the opposite of what it is for.
+	//
+	// A nil userID SKIPS rather than fails, following the fingerprint path beside it. asserted_by
+	// is NOT NULL in the schema, and refusing a whole curation act because its author is anonymous
+	// would lose the edit AND the assertion. The claim is not discarded: it stays on the edit's own
+	// data, where a moderator can act on it.
+	if userID != nil && data.New != nil && len(data.New.VerifiedUnknowns) > 0 {
+		if err := m.addVerifiedUnknownsFromEdit(scene, data, *userID); err != nil {
+			return err
+		}
+	}
+
 	return err
 }
 
@@ -585,6 +627,34 @@ func (m *SceneEditProcessor) updatePerformersFromEdit(scene *models.Scene, data 
 	}
 	_, err = m.queries.CreateScenePerformers(m.context, scenePerformers)
 	return err
+}
+
+// addVerifiedUnknownsFromEdit records the edit's verified-unknown assertions against the scene.
+//
+// assertedAt IS THE APPLY TIME, not the edit's submission time, and that is a decision: an
+// assertion takes effect when it is applied, so a pending edit's claim is not yet a fact about the
+// archive. A scene whose gap is suppressed by a claim that has not been accepted would report a
+// completion score nobody has agreed to.
+//
+// The edit id IS recorded, so the consensus trail is reachable from the assertion without a join
+// back through edits.data (which is jsonb and unindexable). 96 makes it nullable for a moderator
+// applying an assertion directly; this path is the norm, so it is filled in.
+func (m *SceneEditProcessor) addVerifiedUnknownsFromEdit(scene *models.Scene, data *models.SceneEditData, userID uuid.UUID) error {
+	var editID *uuid.UUID
+	if m.edit != nil {
+		id := m.edit.ID
+		editID = &id
+	}
+
+	return verification.New(m.queries).Assert(
+		m.context,
+		verification.EntityScene,
+		scene.ID,
+		data.New.VerifiedUnknowns,
+		userID,
+		editID,
+		time.Now(),
+	)
 }
 
 func (m *SceneEditProcessor) addFingerprintsFromEdit(scene *models.Scene, data *models.SceneEditData, userID uuid.UUID) error {

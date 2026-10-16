@@ -498,6 +498,12 @@ type Querier interface {
 	// stacking: the unique index in 96 refuses a second row, and two rows would make
 	// the suppression count double-count and let completion exceed what it should.
 	//
+	// ON CONFLICT NAMES THE COLUMNS, NOT THE CONSTRAINT, and that is not a style choice: 96 declares
+	// `field_verification_states_entity_field_key` as a UNIQUE INDEX, so `ON CONFLICT ON CONSTRAINT
+	// <that name>` fails at runtime with `constraint ... does not exist (SQLSTATE 42704)` even though
+	// the name reads like a constraint. Column inference matches the unique index, which is what
+	// actually enforces the rule.
+	//
 	// asserted_at is passed in rather than defaulted, because the caller is the edge
 	// that knows whether this is an approval or an immediate application.
 	CreateFieldVerificationState(ctx context.Context, arg CreateFieldVerificationStateParams) (FieldVerificationState, error)
@@ -1822,6 +1828,18 @@ type Querier interface {
 	GetPerformerSearchFacets(ctx context.Context, arg GetPerformerSearchFacetsParams) (interface{}, error)
 	GetPerformerTattoos(ctx context.Context, performerID uuid.UUID) ([]GetPerformerTattoosRow, error)
 	GetPerformerURLs(ctx context.Context, performerID uuid.UUID) ([]GetPerformerURLsRow, error)
+	// The author of the most recent OTHER edit of the scene an edit targets (SPEC §7.24.1's XP rule).
+	//
+	// `edits` has no target id (migration 05's shape, kept; migration 118 widened target_type to
+	// varchar(20) and left the id to the per-type tables), so the scene comes from scene_edits.
+	//
+	// The current edit is excluded by ID rather than by comparing timestamps: it has ALREADY been
+	// applied when this runs, so it is the entity's most recent edit, and `created_at < now` would be
+	// a claim about clock resolution where `id <> edit_id` is a fact.
+	//
+	// NULL user_id rows are skipped, so an anonymous edit is not "the previous editor" for anyone --
+	// which matches selfAffirming's own treatment of an absent author.
+	GetPreviousSceneEditAuthor(ctx context.Context, editID uuid.UUID) (uuid.NullUUID, error)
 	GetPrimaryEditCommentID(ctx context.Context, editID uuid.UUID) (uuid.UUID, error)
 	// The mean rating for an entity, and the count behind it.
 	//

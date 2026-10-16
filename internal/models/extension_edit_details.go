@@ -300,6 +300,23 @@ func (e SceneEditDetailsInput) SceneEditFromDiff(orig Scene, inputArgs utils.Arg
 		oldData.Code, newData.Code = ed.string(orig.Code, e.Code)
 	}
 
+	// SPEC §7.24.1: the verified-unknown claims this edit carries.
+	//
+	// NO old side and no IsNull guard, and both are deliberate. The old side would be the scene's
+	// existing assertions, and there is nothing to read them from here: they live in
+	// field_verification_states, one row per (entity, field), which is not part of the edit diff.
+	// Copying them onto NEW alone is also what makes an assertion-ONLY edit a CHANGE -- without it
+	// the diff comes back empty, the caller returns ErrNoChanges, and "this field is confirmed
+	// absent" is refused as a no-op, which is that section's entire use case.
+	//
+	// len > 0 rather than a nil check: an explicit empty list is not a change, and treating it as one
+	// would let a client create an edit that changes nothing. Retracting an assertion is not an edit
+	// operation at all -- a later assertion for the same (entity, field) replaces the row, and a
+	// moderator removes one otherwise. Named here rather than left to be inferred from its absence.
+	if len(e.VerifiedUnknowns) > 0 {
+		newData.VerifiedUnknowns = e.VerifiedUnknowns
+	}
+
 	return &SceneEditData{
 		New: newData,
 		Old: oldData,

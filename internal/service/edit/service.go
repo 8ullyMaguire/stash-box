@@ -108,6 +108,42 @@ func (s *Edit) recordTrustEvent(ctx context.Context, edit *models.Edit, kind tru
 		return
 	}
 
+	// SPEC §7.24.1: "No XP for asserting one on an entity you just edited. Otherwise
+	// verified-unknown becomes the cheapest XP-per-minute farm in the system."
+	//
+	// The ruling lives in verified_unknown_xp.go; what belongs HERE is the question it needs
+	// answered, and the reason it is asked at this funnel rather than at a call site: an immediate
+	// moderator accept, a vote that tips the tally and the cron sweep closing an expired edit all
+	// arrive through ApplyEdit, and the sweep runs unattended -- so a rule written at one accept
+	// path would be the one the unattended path silently mispays.
+	//
+	// This is checked BEFORE RecordEvent and returns early, so the event is never written for a
+	// self-affirming stretch. The edit itself is unaffected: it was applied by the time this runs,
+	// and this is a rule about the reputation side-effect, not about the edit.
+	// THE DATA IS READ FROM THE ROW, not taken from the model. models.Edit.Data exists and the
+	// converter does fill it -- but the rule's own input is the edit's stored jsonb, and this is the
+	// one place that decides whether to pay XP, so it reads what the database holds rather than a
+	// field that a future converter change, a partially-selected row or a hand-built model could
+	// leave empty. An empty payload would read as "no assertion" and pay the farm.
+	assertionData, err := s.editDataFor(ctx, edit)
+	if err != nil {
+		// Unreadable data means the rule cannot be applied. Fail OPEN, for the reason recorded
+		// above: a lost trust event is recoverable from the edits table, a silently withheld one is
+		// not visible at all, and a curator who did nothing wrong must not lose reputation because a
+		// read failed.
+		logger.Errorf("could not read edit %s data, so the §7.24.1 XP rule was applied without it: %v", edit.ID, err)
+		assertionData = nil
+	}
+
+	if editDataCarriesVerifiedUnknown(assertionData) {
+		if !assertionEarnsTrustRaw(s.previousEditorOf(ctx, edit), edit.UserID.UUID, assertionData) {
+			logger.Infof(
+				"no trust for edit %s: its author asserted a verified-unknown on an entity they had just edited (SPEC §7.24.1)",
+				edit.ID)
+			return
+		}
+	}
+
 	// The edit id is the dedup entity: an edit is applied at most once, so this
 	// key is a genuine exactly-once guard. If a future code path ever applies
 	// the same edit twice, the second RecordTrustEvent is a no-op rather than a
@@ -122,6 +158,50 @@ func (s *Edit) recordTrustEvent(ctx context.Context, edit *models.Edit, kind tru
 	}); err != nil {
 		logger.Errorf("Failed to record %s trust event for edit %s: %v", kind, edit.ID, err)
 	}
+}
+
+// editDataFor returns an edit's stored data payload.
+func (s *Edit) editDataFor(ctx context.Context, edit *models.Edit) ([]byte, error) {
+	if len(edit.Data) > 0 {
+		return edit.Data, nil
+	}
+	row, err := s.queries.FindEdit(ctx, edit.ID)
+	if err != nil {
+		return nil, err
+	}
+	return row.Data, nil
+}
+
+// previousEditorOf returns the author of the most recent OTHER edit of the entity this edit targets,
+// or uuid.Nil when there is none -- or when the history could not be read.
+//
+// A READ FAILURE IS TREATED AS "NO PREVIOUS EDITOR", which makes the assertion EARN trust. That
+// direction is deliberate and follows this file's own reasoning about the trust event itself: a lost
+// trust event is recoverable from the edits table, there is no unapply path, and a rule that starts
+// withholding XP from curators because a query failed would look like a bug rather than like a
+// farm. The failure is logged so that a rule which stopped being applied is visible.
+//
+// Scene-shaped because the WRITE PATH is scene-shaped: `verified_unknowns` is on the scene edit
+// details input, and no other entity type can carry an assertion yet. The rule is inert rather than
+// wrong for those types -- editDataCarriesVerifiedUnknown answers false for their data -- and a
+// second entity type means a second join here.
+func (s *Edit) previousEditorOf(ctx context.Context, edit *models.Edit) uuid.UUID {
+	if edit.TargetType != string(models.TargetTypeEnumScene) {
+		return uuid.Nil
+	}
+	previous, err := s.queries.GetPreviousSceneEditAuthor(ctx, edit.ID)
+	if err != nil {
+		// errutil.IgnoreNotFound is the house way of saying "no rows is an answer". Anything else
+		// is a real read failure and is named, because the rule is silently not applied.
+		if err := errutil.IgnoreNotFound(err); err != nil {
+			logger.Errorf("could not read the previous editor of edit %s, so the §7.24.1 XP rule was applied without it: %v", edit.ID, err)
+		}
+		return uuid.Nil
+	}
+	if !previous.Valid {
+		return uuid.Nil
+	}
+	return previous.UUID
 }
 
 func (s *Edit) FindByID(ctx context.Context, id uuid.UUID) (*models.Edit, error) {

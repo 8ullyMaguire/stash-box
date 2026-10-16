@@ -824,6 +824,17 @@ type FederationPeerUpdateInput struct {
 	Enabled     bool    `json:"enabled"`
 }
 
+// One reason a field may be marked unanswerable, as the registry holds it.
+type FieldVerificationReason struct {
+	Code string `json:"code"`
+	// Machine-readable. The human wording is i18n (SPEC §23), not an API string.
+	Description string `json:"description"`
+	// Whether this reason closes the completion gap. False for `not_yet_looked`, which is
+	// the load-bearing value: the gap stays in the missing list so an unanswerable question
+	// cannot be closed by assertion.
+	SuppressesGap bool `json:"suppresses_gap"`
+}
+
 type FileContentSourceAppealInput struct {
 	// "url" or "host", matching the kind of the block being contested.
 	Kind string `json:"kind"`
@@ -2279,7 +2290,12 @@ type SceneEditDetailsInput struct {
 	Director       *string                    `json:"director,omitempty"`
 	Code           *string                    `json:"code,omitempty"`
 	Fingerprints   []FingerprintInput         `json:"fingerprints,omitempty"`
-	DraftID        *uuid.UUID                 `json:"draft_id,omitempty"`
+	// Per-field claims that a value is NOT obtainable (SPEC §7.24.1). On the edit rather
+	// than beside it, so an assertion rides the consensus machinery and a curator with
+	// trust earns auto-approval for it -- the same logic that makes any low-risk edit
+	// earnable, rather than a moderator-only field.
+	VerifiedUnknowns []VerifiedUnknownInput `json:"verified_unknowns,omitempty"`
+	DraftID          *uuid.UUID             `json:"draft_id,omitempty"`
 }
 
 type SceneEditInput struct {

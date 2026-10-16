@@ -1,6 +1,8 @@
 package edit
 
 import (
+	"encoding/json"
+
 	"github.com/gofrs/uuid"
 
 	"github.com/stashapp/stash-box/internal/models"
@@ -63,8 +65,51 @@ func editCarriesVerifiedUnknown(data *models.SceneEditData) bool {
 // function that looked up either of them would need the transaction to see the other's
 // uncommitted state.
 func assertionEarnsTrust(recentEditor, assertedAbout uuid.UUID, data *models.SceneEditData) bool {
-	if !editCarriesVerifiedUnknown(data) {
+	return assertionEarnsTrustFor(recentEditor, assertedAbout, editCarriesVerifiedUnknown(data))
+}
+
+// assertionEarnsTrustFor is the ruling itself, parameterised by the ONE fact it needs: whether the
+// edit carries an assertion at all.
+//
+// It exists as a separate function because the funnel (recordTrustEvent) holds an edit whose data is
+// raw jsonb rather than a *SceneEditData, and an entity type that is not necessarily a scene. Two
+// callers with two copies of "if it carries one, and the editor is the same person, then no" is how
+// the rule drifts; so both entry points below reduce to this one line.
+func assertionEarnsTrustFor(recentEditor, assertedAbout uuid.UUID, carriesUnknown bool) bool {
+	if !carriesUnknown {
 		return true // an ordinary edit: nothing about §7.24.1 applies
 	}
 	return !selfAffirming(recentEditor, assertedAbout)
+}
+
+// assertionEarnsTrustRaw is the funnel's entry point: an edit's data as stored, for any entity type.
+//
+// It reads the assertion out of the raw jsonb rather than unmarshalling the whole edit, so it works
+// for a target type whose edit struct this package does not import -- and so that a future entity
+// type that adopts the field is covered by this rule the day its struct gains the key, rather than
+// the day somebody remembers to extend a type switch.
+func assertionEarnsTrustRaw(recentEditor, assertedAbout uuid.UUID, raw []byte) bool {
+	return assertionEarnsTrustFor(recentEditor, assertedAbout, editDataCarriesVerifiedUnknown(raw))
+}
+
+// editDataCarriesVerifiedUnknown reports whether raw edit data (the jsonb `data` column) carries at
+// least one verified-unknown assertion, whatever the entity type.
+//
+// A malformed or empty payload reports FALSE -- it carries no assertion, so the rule does not apply
+// -- rather than erroring. An edit whose data failed to unmarshal must not stop earning trust:
+// assertionsEarnsTrustFor's own test has this case for the typed path, and this is the same case for
+// the raw one.
+func editDataCarriesVerifiedUnknown(raw []byte) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	var probe struct {
+		New *struct {
+			VerifiedUnknowns []models.VerifiedUnknownInput `json:"verified_unknowns"`
+		} `json:"new_data"`
+	}
+	if err := json.Unmarshal(raw, &probe); err != nil {
+		return false
+	}
+	return probe.New != nil && len(probe.New.VerifiedUnknowns) > 0
 }

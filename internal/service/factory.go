@@ -73,6 +73,7 @@ import (
 	"github.com/stashapp/stash-box/internal/service/trust"
 	"github.com/stashapp/stash-box/internal/service/user"
 	"github.com/stashapp/stash-box/internal/service/usertoken"
+	"github.com/stashapp/stash-box/internal/service/verification"
 	"github.com/stashapp/stash-box/internal/service/vouch"
 )
 
@@ -485,6 +486,12 @@ func (f *Factory) ModAudit() *mod_audit.ModAuditService {
 // Fingerprint returns a Fingerprint clustering service instance
 func (f *Factory) Fingerprint() *fingerprint.Fingerprint {
 	return fingerprint.New(queries.New(f.db))
+}
+
+// Verification returns the verified-unknown service (SPEC §7.24.1): the reason registry, the
+// assertions, and the read the completion score uses.
+func (f *Factory) Verification() *verification.Service {
+	return verification.New(queries.New(f.db))
 }
 
 // Federation returns the peer registry service instance.

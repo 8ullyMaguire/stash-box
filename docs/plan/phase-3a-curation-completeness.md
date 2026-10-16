@@ -19,7 +19,7 @@ said "service and gates outstanding" until 2026-10-16, which its own table had a
 |---|---|---|
 | `96_field_verification_state` | **built** | applies cleanly after 01–95; 11 schema checks observed against a real database |
 | `102_field_verification_cascade` | **built** | 2026-10-04; fixes a real defect in 96 — see below |
-| §7.24.1 write path through `internal/service/edit` | **RULE built, PATH NOT** — see the correction below | `b5b242d1` built `assertionEarnsTrust` and 7/7 of its mutations died, and that work is sound. But it is a RULE, not a path: `assertionEarnsTrust` is referenced only by `verified_unknown_xp_test.go`, no GraphQL input carries `verified_unknown`, nothing writes `field_verification_states`, and nothing reads it. Measured 2026-10-16 by name, not inferred. |
+| §7.24.1 write path through `internal/service/edit` | **BUILT end to end, three defects found by the test that proves it** | Links 1-3 of the section below: the GraphQL input (`VerifiedUnknownInput` + `verified_unknowns` on `SceneEditDetailsInput`, mapped in `gqlgen.yml` because the edit-data model declares the type by hand), `internal/service/verification` (the registry, `Assert`, `SuppressingFields`), the materialisation at apply, and the XP rule wired at the funnel. Proven by `internal/api/verified_unknown_integration_test.go`: an assertion submitted through the API reaches `field_verification_states` with `entity_type = 'SCENE'` and the edit's id, `SuppressingFields` returns `[date]` and not `not_yet_looked`, a self-affirming assertion records NO trust event, and the positive control on another user's entity records one. |
 | §7.24.2 `97_expected_totals` | **built** | `0e8b54e0`; 9 schema behaviours observed against a real database |
 | §7.24.4 `98_lint_quest_definitions` | **built** | `15689da1`; 12 schema behaviours observed |
 | §7.24.6 `99_fingerprint_corroboration` | **built** | `003d93b6`; 6 logic behaviours + a measured decision to add no index |
@@ -353,12 +353,19 @@ WHAT DOES NOT, measured one link at a time:
 
 THE REMAINING WORK, in dependency order, one link each:
 
-1. A GraphQL input field on the scene edit details input, so a client can send an assertion.
-2. Materialisation at apply — write assertions into `field_verification_states` where the scene
+1. ~~A GraphQL input field on the scene edit details input~~ **DONE** — `VerifiedUnknownInput` in
+   `graphql/schema/types/field_verification.graphql`, the field on `SceneEditDetailsInput`, and an
+   explicit `gqlgen.yml` mapping (the edit-data model declares the type by hand, so without the
+   mapping gqlgen generates a SECOND one into `generated_models.go` and the schema binds to that
+   copy rather than the one the edit path unmarshals).
+2. ~~Materialisation at apply~~ **DONE** — `SceneEditProcessor.addVerifiedUnknownsFromEdit`, called
+   from `ApplyEdit` beside the fingerprint write, with `asserted_at` = the APPLY time (a pending
+   claim is not yet a fact) and `edit_id` filled in (this path is the norm). — write assertions into `field_verification_states` where the scene
    edit's fingerprints are written (`SceneEditProcessor.addFingerprintsFromEdit` is the template:
    extra data on an edit, written when the edit is applied).
-3. The funnel: call `assertionEarnsTrust` from `recordTrustEvent`, the single point every applied
-   edit passes through.
+3. ~~The funnel~~ **DONE** — `recordTrustEvent` asks the question, `assertionEarnsTrustFor` is the one
+   ruling (the scene-typed and raw-jsonb entry points both reduce to it), and `previousEditorOf`
+   resolves the entity's most recent OTHER edit.
 4. Suppression in the completion score (gate 2), reading
    `GetSuppressingFieldVerificationStates` — where `not_yet_looked` deliberately does NOT appear.
 5. The frontend control with the reason dropdown (gate 1's surface).
@@ -629,6 +636,39 @@ Unchanged and still binding:
 - codegen reproducible and clean (`sqlc` + `gqlgen`, empty `git status`)
 - integration suite requires `POSTGRES_DB=postgres://postgres:***@127.0.0.1:5432/stash-box-test?sslmode=disable` and the OpenEXR 3.5 install noted in §2.4
 - `make lint` — currently unavailable (§2.8), so record that rather than skipping it
+
+## Traps paid for: the three defects the write-path test found (2026-10-16)
+
+Each one was invisible to every existing test, including 7/7 mutations against the XP rule, and each
+was found by an assertion about a DIFFERENT layer than the one the defect was in.
+
+1. **THE AUTHOR WAS A LITERAL `nil` ON THE ONLY BRANCH THAT MATTERS.** `applyModify` called
+   `ApplyEdit(scene, false, data, nil)`. The `userID` parameter existed only for the create-only
+   fingerprint write, so nothing on the modify path had ever read it -- and an assertion on a scene
+   that already exists (the only kind there is) wrote nothing at all. The test could see the
+   assertions in the stored edit data and saw them go no further; the fix passes the author through
+   and is provably inert for fingerprints, which are still gated on `create`.
+2. **THE CONVERSION DROPPED THE FIELD, SO AN ASSERTION-ONLY EDIT WAS REFUSED.** `SceneEditFromDiff`
+   copies each field with an `IsNull()` guard and had no arm for `verified_unknowns`, so the diff came
+   back empty and the edit was rejected as `edit contains no changes`. That is §7.24.1's ENTIRE USE
+   CASE ("this field is confirmed absent") being refused as a no-op. It also means the field could
+   never have reached the apply path even once the writer existed.
+3. **A UNIQUE INDEX IS NOT A CONSTRAINT.** `ON CONFLICT ON CONSTRAINT
+   field_verification_states_entity_field_key` failed at runtime with `constraint ... does not exist
+   (SQLSTATE 42704)`, because migration 96 declares that name as a UNIQUE INDEX. Column inference is
+   what matches it. Nothing had ever run that query, which is the same shape as the inert rule itself
+   one layer down.
+
+And the instrument that named defect 3 in one line was not a debugger but the funnel's own design: a
+failed apply writes an edit comment carrying the error text, so the test read the reason out of
+`edit_comments`.
+
+THE TEST'S OWN PREMISE WAS WRONG ON THE FIRST RUN, and that is the fourth lesson. It asserted that a
+self-affirming assertion records no trust event -- using a fixture scene, which `createTestScene`
+writes DIRECTLY, with no create edit. So there was no previous editor, the rule could not fire, and
+the test was asserting a rule about a situation that did not exist. The lookup was correct and the
+fixture was not; the scene now gets a real create edit, which is also the scenario §7.24.1 describes.
+Ask what the fixture leaves behind before asserting a rule that depends on history.
 
 ## Traps paid for
 

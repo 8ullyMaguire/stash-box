@@ -185,6 +185,13 @@ input SceneEditDetailsInput {
   director: String
   code: String
   fingerprints: [FingerprintInput!]
+  """
+  Per-field claims that a value is NOT obtainable (SPEC §7.24.1). On the edit rather
+  than beside it, so an assertion rides the consensus machinery and a curator with
+  trust earns auto-approval for it -- the same logic that makes any low-risk edit
+  earnable, rather than a moderator-only field.
+  """
+  verified_unknowns: [VerifiedUnknownInput!]
   draft_id: ID
 }
 

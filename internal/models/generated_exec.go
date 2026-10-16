@@ -473,6 +473,12 @@ type ComplexityRoot struct {
 		TrustWeight func(childComplexity int) int
 	}
 
+	FieldVerificationReason struct {
+		Code          func(childComplexity int) int
+		Description   func(childComplexity int) int
+		SuppressesGap func(childComplexity int) int
+	}
+
 	Fingerprint struct {
 		Algorithm     func(childComplexity int) int
 		Created       func(childComplexity int) int
@@ -1104,6 +1110,7 @@ type ComplexityRoot struct {
 		FederationForeignCandidates    func(childComplexity int, queryID uuid.UUID) int
 		FederationPeers                func(childComplexity int) int
 		FetchSiteFavicons              func(childComplexity int, url string) int
+		FieldVerificationReasons       func(childComplexity int) int
 		FindDraft                      func(childComplexity int, id uuid.UUID) int
 		FindDrafts                     func(childComplexity int) int
 		FindEdit                       func(childComplexity int, id uuid.UUID) int
@@ -2128,6 +2135,7 @@ type QueryResolver interface {
 	AccessRules(ctx context.Context) (*AccessRuleSet, error)
 	FederationPeers(ctx context.Context) ([]FederationPeer, error)
 	FederationForeignCandidates(ctx context.Context, queryID uuid.UUID) ([]ForeignCandidate, error)
+	FieldVerificationReasons(ctx context.Context) ([]FieldVerificationReason, error)
 	FingerprintDemand(ctx context.Context, input *FingerprintDemandInput) (*FingerprintDemand, error)
 	ListOpenIdentificationQueries(ctx context.Context, limit *int) ([]IdentificationQuery, error)
 	IdentificationQuery(ctx context.Context, id uuid.UUID) (*IdentificationQuery, error)
@@ -3771,6 +3779,25 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.FederationPeer.TrustWeight(childComplexity), true
+
+	case "FieldVerificationReason.code":
+		if e.ComplexityRoot.FieldVerificationReason.Code == nil {
+			break
+		}
+
+		return e.ComplexityRoot.FieldVerificationReason.Code(childComplexity), true
+	case "FieldVerificationReason.description":
+		if e.ComplexityRoot.FieldVerificationReason.Description == nil {
+			break
+		}
+
+		return e.ComplexityRoot.FieldVerificationReason.Description(childComplexity), true
+	case "FieldVerificationReason.suppresses_gap":
+		if e.ComplexityRoot.FieldVerificationReason.SuppressesGap == nil {
+			break
+		}
+
+		return e.ComplexityRoot.FieldVerificationReason.SuppressesGap(childComplexity), true
 
 	case "Fingerprint.algorithm":
 		if e.ComplexityRoot.Fingerprint.Algorithm == nil {
@@ -7391,6 +7418,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.FetchSiteFavicons(childComplexity, args["url"].(string)), true
+	case "Query.fieldVerificationReasons":
+		if e.ComplexityRoot.Query.FieldVerificationReasons == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Query.FieldVerificationReasons(childComplexity), true
 	case "Query.findDraft":
 		if e.ComplexityRoot.Query.FindDraft == nil {
 			break
@@ -10621,6 +10654,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputUserDestroyInput,
 		ec.unmarshalInputUserQueryInput,
 		ec.unmarshalInputUserUpdateInput,
+		ec.unmarshalInputVerifiedUnknownInput,
 	)
 	first := true
 
@@ -12660,6 +12694,69 @@ extend type Mutation {
   """
   federation_peer_delete(id: ID!): Boolean! @hasRole(role: ADMIN)
 }`, BuiltIn: false},
+	{Name: "../../graphql/schema/types/field_verification.graphql", Input: `
+"""
+SPEC §7.24.1: verified-unknown markers -- "this field is confirmed not obtainable".
+
+Three facts are deliberately different and the API keeps them apart. "The value is not
+publicly knowable", "the value is knowable but nobody has looked" and "the owner has
+declined this field" are separate reason codes, because a free-text reason collapses
+them -- and a collapsed reason turns an assertion into a way to clear a completion gap
+without doing the work. A code is also what makes the XP rule enforceable at all.
+
+` + "`" + `suppresses_gap` + "`" + ` is exposed because it is the difference a curator is CHOOSING between:
+one reason closes the gap and one records a belief while leaving it actionable. A UI
+that did not say which would be asking for a decision without stating its consequence.
+
+` + "`" + `allows_self_affirming` + "`" + ` is NOT exposed, and that is a decision rather than an
+oversight. It is ` + "`" + `false` + "`" + ` for every reason today, and it is enforced by the server at
+the funnel every applied edit passes through (internal/service/edit/verified_unknown_xp.go).
+An API that published it would invite a client to decide whether a user may earn trust
+for their own assertion, which is a rule about the system's integrity rather than a
+field of a dropdown.
+"""
+input VerifiedUnknownInput {
+  """The jsonb key on this entity's edit struct -- "date", not "date_of_scenes"."""
+  field: String!
+  """
+  A code from the registry, never free text. Enforced by an FK on the write side, so a
+  misspelling cannot become a fourth meaning.
+  """
+  reason_code: String!
+  """
+  Optional. An assertion is a curator's judgement, not a citation: "nobody has
+  published this performer's height" needs no URL. Deliberately the opposite of
+  §7.24.2's expected totals, where an unsourced number silently deflates every
+  completion score on the instance.
+  """
+  citation_url: String
+}
+
+"""
+One reason a field may be marked unanswerable, as the registry holds it.
+"""
+type FieldVerificationReason {
+  code: String!
+  """Machine-readable. The human wording is i18n (SPEC §23), not an API string."""
+  description: String!
+  """
+  Whether this reason closes the completion gap. False for ` + "`" + `not_yet_looked` + "`" + `, which is
+  the load-bearing value: the gap stays in the missing list so an unanswerable question
+  cannot be closed by assertion.
+  """
+  suppresses_gap: Boolean!
+}
+
+extend type Query {
+  """
+  The reason registry, for the edit form's dropdown.
+
+  Ordered by code so the list does not move between requests: a dropdown whose options
+  reorder is a dropdown that takes a mis-click.
+  """
+  fieldVerificationReasons: [FieldVerificationReason!]! @hasRole(role: READ)
+}
+`, BuiltIn: false},
 	{Name: "../../graphql/schema/types/filter.graphql", Input: `input MultiIDCriterionInput {
   value: [ID!]
   modifier: CriterionModifier!
@@ -15514,6 +15611,13 @@ input SceneEditDetailsInput {
   director: String
   code: String
   fingerprints: [FingerprintInput!]
+  """
+  Per-field claims that a value is NOT obtainable (SPEC §7.24.1). On the edit rather
+  than beside it, so an assertion rides the consensus machinery and a curator with
+  trust earns auto-approval for it -- the same logic that makes any low-risk edit
+  earnable, rather than a moderator-only field.
+  """
+  verified_unknowns: [VerifiedUnknownInput!]
   draft_id: ID
 }
 
@@ -18639,6 +18743,18 @@ func (ec *executionContext) childFields_FederationPeer(ctx context.Context, fiel
 		return ec.fieldContext_FederationPeer_last_seen_at(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type FederationPeer", field.Name)
+}
+
+func (ec *executionContext) childFields_FieldVerificationReason(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "code":
+		return ec.fieldContext_FieldVerificationReason_code(ctx, field)
+	case "description":
+		return ec.fieldContext_FieldVerificationReason_description(ctx, field)
+	case "suppresses_gap":
+		return ec.fieldContext_FieldVerificationReason_suppresses_gap(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type FieldVerificationReason", field.Name)
 }
 
 func (ec *executionContext) childFields_Fingerprint(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -29827,6 +29943,75 @@ func (ec *executionContext) _FederationPeer_last_seen_at(ctx context.Context, fi
 }
 func (ec *executionContext) fieldContext_FederationPeer_last_seen_at(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("FederationPeer", field, false, false, errors.New("field of type DateTime does not have child fields"))
+}
+
+func (ec *executionContext) _FieldVerificationReason_code(ctx context.Context, field graphql.CollectedField, obj *FieldVerificationReason) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_FieldVerificationReason_code(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Code, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_FieldVerificationReason_code(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("FieldVerificationReason", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _FieldVerificationReason_description(ctx context.Context, field graphql.CollectedField, obj *FieldVerificationReason) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_FieldVerificationReason_description(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Description, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_FieldVerificationReason_description(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("FieldVerificationReason", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _FieldVerificationReason_suppresses_gap(ctx context.Context, field graphql.CollectedField, obj *FieldVerificationReason) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_FieldVerificationReason_suppresses_gap(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.SuppressesGap, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_FieldVerificationReason_suppresses_gap(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("FieldVerificationReason", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
 func (ec *executionContext) _Fingerprint_hash(ctx context.Context, field graphql.CollectedField, obj *Fingerprint) (ret graphql.Marshaler) {
@@ -50564,6 +50749,56 @@ func (ec *executionContext) fieldContext_Query_federation_foreign_candidates(ctx
 	return fc, nil
 }
 
+func (ec *executionContext) _Query_fieldVerificationReasons(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_fieldVerificationReasons(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Query().FieldVerificationReasons(ctx)
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal []FieldVerificationReason
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal []FieldVerificationReason
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v []FieldVerificationReason) graphql.Marshaler {
+			return ec.marshalNFieldVerificationReason2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐFieldVerificationReasonᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_fieldVerificationReasons(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_FieldVerificationReason(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Query_fingerprintDemand(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -67704,7 +67939,7 @@ func (ec *executionContext) unmarshalInputSceneEditDetailsInput(ctx context.Cont
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"title", "details", "urls", "date", "production_date", "studio_id", "performers", "tag_ids", "image_ids", "duration", "director", "code", "fingerprints", "draft_id"}
+	fieldsInOrder := [...]string{"title", "details", "urls", "date", "production_date", "studio_id", "performers", "tag_ids", "image_ids", "duration", "director", "code", "fingerprints", "verified_unknowns", "draft_id"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -67802,6 +68037,13 @@ func (ec *executionContext) unmarshalInputSceneEditDetailsInput(ctx context.Cont
 				return it, err
 			}
 			it.Fingerprints = data
+		case "verified_unknowns":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("verified_unknowns"))
+			data, err := ec.unmarshalOVerifiedUnknownInput2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐVerifiedUnknownInputᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.VerifiedUnknowns = data
 		case "draft_id":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("draft_id"))
 			data, err := ec.unmarshalOID2ᚖgithubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, v)
@@ -70144,6 +70386,50 @@ func (ec *executionContext) unmarshalInputUserUpdateInput(ctx context.Context, o
 				return it, err
 			}
 			it.Email = data
+		}
+	}
+	return it, nil
+}
+
+func (ec *executionContext) unmarshalInputVerifiedUnknownInput(ctx context.Context, obj any) (VerifiedUnknownInput, error) {
+	var it VerifiedUnknownInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"field", "reason_code", "citation_url"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "field":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("field"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Field = data
+		case "reason_code":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("reason_code"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ReasonCode = data
+		case "citation_url":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("citation_url"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.CitationURL = data
 		}
 	}
 	return it, nil
@@ -75138,6 +75424,54 @@ func (ec *executionContext) _FederationPeer(ctx context.Context, sel ast.Selecti
 		case "last_seen_at":
 			out.Values[i] = ec._FederationPeer_last_seen_at(ctx, field, obj)
 			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var fieldVerificationReasonImplementors = []string{"FieldVerificationReason"}
+
+func (ec *executionContext) _FieldVerificationReason(ctx context.Context, sel ast.SelectionSet, obj *FieldVerificationReason) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, fieldVerificationReasonImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("FieldVerificationReason")
+		case "code":
+			out.Values[i] = ec._FieldVerificationReason_code(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "description":
+			out.Values[i] = ec._FieldVerificationReason_description(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "suppresses_gap":
+			out.Values[i] = ec._FieldVerificationReason_suppresses_gap(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
 		default:
@@ -83003,6 +83337,28 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 					}
 				}()
 				res = ec._Query_federation_foreign_candidates(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "fieldVerificationReasons":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_fieldVerificationReasons(ctx, field)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -92667,6 +93023,26 @@ func (ec *executionContext) unmarshalNFederationPeerUpdateInput2githubᚗcomᚋs
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
+func (ec *executionContext) marshalNFieldVerificationReason2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐFieldVerificationReason(ctx context.Context, sel ast.SelectionSet, v FieldVerificationReason) graphql.Marshaler {
+	return ec._FieldVerificationReason(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNFieldVerificationReason2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐFieldVerificationReasonᚄ(ctx context.Context, sel ast.SelectionSet, v []FieldVerificationReason) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNFieldVerificationReason2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐFieldVerificationReason(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
 func (ec *executionContext) unmarshalNFileContentSourceAppealInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐFileContentSourceAppealInput(ctx context.Context, v any) (FileContentSourceAppealInput, error) {
 	res, err := ec.unmarshalInputFileContentSourceAppealInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
@@ -95653,6 +96029,11 @@ func (ec *executionContext) marshalNValidSiteTypeEnum2ᚕgithubᚗcomᚋstashapp
 	return ret
 }
 
+func (ec *executionContext) unmarshalNVerifiedUnknownInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐVerifiedUnknownInput(ctx context.Context, v any) (VerifiedUnknownInput, error) {
+	res, err := ec.unmarshalInputVerifiedUnknownInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
 func (ec *executionContext) marshalNVersion2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐVersion(ctx context.Context, sel ast.SelectionSet, v *Version) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
@@ -97372,6 +97753,23 @@ func (ec *executionContext) marshalOUserVotedFilterEnum2ᚖgithubᚗcomᚋstasha
 		return graphql.Null
 	}
 	return v
+}
+
+func (ec *executionContext) unmarshalOVerifiedUnknownInput2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐVerifiedUnknownInputᚄ(ctx context.Context, v any) ([]VerifiedUnknownInput, error) {
+	if v == nil {
+		return nil, nil
+	}
+	vSlice := graphql.CoerceList(v)
+	var err error
+	res := make([]VerifiedUnknownInput, len(vSlice))
+	for i := range vSlice {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithIndex(i))
+		res[i], err = ec.unmarshalNVerifiedUnknownInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐVerifiedUnknownInput(ctx, vSlice[i])
+		if err != nil {
+			return nil, err
+		}
+	}
+	return res, nil
 }
 
 func (ec *executionContext) unmarshalOVoteStatusEnum2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐVoteStatusEnum(ctx context.Context, v any) (*VoteStatusEnum, error) {

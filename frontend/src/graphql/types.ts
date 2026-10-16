@@ -1464,6 +1464,20 @@ export type FederationPeerUpdateInput = {
   trust_weight: Scalars['Float']['input'];
 };
 
+/** One reason a field may be marked unanswerable, as the registry holds it. */
+export type FieldVerificationReason = {
+  __typename: 'FieldVerificationReason';
+  code: Scalars['String']['output'];
+  /** Machine-readable. The human wording is i18n (SPEC §23), not an API string. */
+  description: Scalars['String']['output'];
+  /**
+   * Whether this reason closes the completion gap. False for `not_yet_looked`, which is
+   * the load-bearing value: the gap stays in the missing list so an unanswerable question
+   * cannot be closed by assertion.
+   */
+  suppresses_gap: Scalars['Boolean']['output'];
+};
+
 export type FileContentSourceAppealInput = {
   /** "url" or "host", matching the kind of the block being contested. */
   kind: Scalars['String']['input'];
@@ -4834,6 +4848,13 @@ export type Query = {
   federation_peers: Array<FederationPeer>;
   /** Discover favicon candidates for a URL, returned as base64 data URLs */
   fetchSiteFavicons: Array<SiteFavicon>;
+  /**
+   * The reason registry, for the edit form's dropdown.
+   *
+   * Ordered by code so the list does not move between requests: a dropdown whose options
+   * reorder is a dropdown that takes a mis-click.
+   */
+  fieldVerificationReasons: Array<FieldVerificationReason>;
   findDraft?: Maybe<Draft>;
   findDrafts: Array<Draft>;
   findEdit?: Maybe<Edit>;
@@ -6210,6 +6231,13 @@ export type SceneEditDetailsInput = {
   tag_ids?: InputMaybe<Array<Scalars['ID']['input']>>;
   title?: InputMaybe<Scalars['String']['input']>;
   urls?: InputMaybe<Array<UrlInput>>;
+  /**
+   * Per-field claims that a value is NOT obtainable (SPEC §7.24.1). On the edit rather
+   * than beside it, so an assertion rides the consensus machinery and a curator with
+   * trust earns auto-approval for it -- the same logic that makes any low-risk edit
+   * earnable, rather than a moderator-only field.
+   */
+  verified_unknowns?: InputMaybe<Array<VerifiedUnknownInput>>;
 };
 
 export type SceneEditInput = {
@@ -7581,6 +7609,43 @@ export enum ValidSiteTypeEnum {
   SCENE = 'SCENE',
   STUDIO = 'STUDIO'
 }
+
+/**
+ * SPEC §7.24.1: verified-unknown markers -- "this field is confirmed not obtainable".
+ *
+ * Three facts are deliberately different and the API keeps them apart. "The value is not
+ * publicly knowable", "the value is knowable but nobody has looked" and "the owner has
+ * declined this field" are separate reason codes, because a free-text reason collapses
+ * them -- and a collapsed reason turns an assertion into a way to clear a completion gap
+ * without doing the work. A code is also what makes the XP rule enforceable at all.
+ *
+ * `suppresses_gap` is exposed because it is the difference a curator is CHOOSING between:
+ * one reason closes the gap and one records a belief while leaving it actionable. A UI
+ * that did not say which would be asking for a decision without stating its consequence.
+ *
+ * `allows_self_affirming` is NOT exposed, and that is a decision rather than an
+ * oversight. It is `false` for every reason today, and it is enforced by the server at
+ * the funnel every applied edit passes through (internal/service/edit/verified_unknown_xp.go).
+ * An API that published it would invite a client to decide whether a user may earn trust
+ * for their own assertion, which is a rule about the system's integrity rather than a
+ * field of a dropdown.
+ */
+export type VerifiedUnknownInput = {
+  /**
+   * Optional. An assertion is a curator's judgement, not a citation: "nobody has
+   * published this performer's height" needs no URL. Deliberately the opposite of
+   * §7.24.2's expected totals, where an unsourced number silently deflates every
+   * completion score on the instance.
+   */
+  citation_url?: InputMaybe<Scalars['String']['input']>;
+  /** The jsonb key on this entity's edit struct -- "date", not "date_of_scenes". */
+  field: Scalars['String']['input'];
+  /**
+   * A code from the registry, never free text. Enforced by an FK on the write side, so a
+   * misspelling cannot become a fourth meaning.
+   */
+  reason_code: Scalars['String']['input'];
+};
 
 export type Version = {
   __typename: 'Version';

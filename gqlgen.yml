@@ -144,6 +144,13 @@ models:
         resolver: true
   FingerprintHash:
     model: github.com/stashapp/stash-box/internal/models.FingerprintHash
+  # HAND-WRITTEN, unlike FingerprintInput above it. The edit-data model declares this type
+  # in model_edit.go with its own jsonb tags, so without this mapping gqlgen would generate
+  # a second VerifiedUnknownInput into generated_models.go -- a duplicate type in the same
+  # package, and the one the schema binds to would be the generated one rather than the one
+  # the edit path unmarshals.
+  VerifiedUnknownInput:
+    model: github.com/stashapp/stash-box/internal/models.VerifiedUnknownInput
   Image:
     model: github.com/stashapp/stash-box/internal/models.Image
     fields:

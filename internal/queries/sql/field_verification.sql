@@ -10,6 +10,12 @@
 -- stacking: the unique index in 96 refuses a second row, and two rows would make
 -- the suppression count double-count and let completion exceed what it should.
 --
+-- ON CONFLICT NAMES THE COLUMNS, NOT THE CONSTRAINT, and that is not a style choice: 96 declares
+-- `field_verification_states_entity_field_key` as a UNIQUE INDEX, so `ON CONFLICT ON CONSTRAINT
+-- <that name>` fails at runtime with `constraint ... does not exist (SQLSTATE 42704)` even though
+-- the name reads like a constraint. Column inference matches the unique index, which is what
+-- actually enforces the rule.
+--
 -- asserted_at is passed in rather than defaulted, because the caller is the edge
 -- that knows whether this is an approval or an immediate application.
 INSERT INTO field_verification_states
@@ -18,7 +24,7 @@ VALUES
     (gen_random_uuid(), sqlc.arg(entity_type), sqlc.arg(entity_id), sqlc.arg(field),
      sqlc.arg(reason_code), sqlc.arg(asserted_by), sqlc.arg(asserted_at),
      sqlc.narg(citation_url), sqlc.narg(edit_id))
-ON CONFLICT ON CONSTRAINT field_verification_states_entity_field_key
+ON CONFLICT (entity_type, entity_id, field)
 DO UPDATE SET
     reason_code = EXCLUDED.reason_code,
     asserted_by = EXCLUDED.asserted_by,
@@ -64,3 +70,24 @@ WHERE s.entity_type = sqlc.arg(entity_type)
 SELECT code, description, suppresses_gap, allows_self_affirming
 FROM field_verification_reasons
 ORDER BY code;
+
+-- The author of the most recent OTHER edit of the scene an edit targets (SPEC §7.24.1's XP rule).
+--
+-- `edits` has no target id (migration 05's shape, kept; migration 118 widened target_type to
+-- varchar(20) and left the id to the per-type tables), so the scene comes from scene_edits.
+--
+-- The current edit is excluded by ID rather than by comparing timestamps: it has ALREADY been
+-- applied when this runs, so it is the entity's most recent edit, and `created_at < now` would be
+-- a claim about clock resolution where `id <> edit_id` is a fact.
+--
+-- NULL user_id rows are skipped, so an anonymous edit is not "the previous editor" for anyone --
+-- which matches selfAffirming's own treatment of an absent author.
+-- name: GetPreviousSceneEditAuthor :one
+SELECT e.user_id
+FROM edits e
+JOIN scene_edits se ON se.edit_id = e.id
+WHERE se.scene_id = (SELECT se2.scene_id FROM scene_edits se2 WHERE se2.edit_id = sqlc.arg(edit_id))
+  AND e.id <> sqlc.arg(edit_id)
+  AND e.user_id IS NOT NULL
+ORDER BY e.created_at DESC, e.id DESC
+LIMIT 1;
