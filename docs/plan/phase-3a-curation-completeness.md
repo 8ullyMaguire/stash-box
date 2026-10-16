@@ -366,8 +366,19 @@ THE REMAINING WORK, in dependency order, one link each:
 3. ~~The funnel~~ **DONE** — `recordTrustEvent` asks the question, `assertionEarnsTrustFor` is the one
    ruling (the scene-typed and raw-jsonb entry points both reduce to it), and `previousEditorOf`
    resolves the entity's most recent OTHER edit.
-4. Suppression in the completion score (gate 2), reading
-   `GetSuppressingFieldVerificationStates` — where `not_yet_looked` deliberately does NOT appear.
+4. ~~Suppression in the completion score (gate 2)~~ **DONE** — `completion.Service.score` folds the
+   entity's suppressing assertions into the field set before scoring, so a gap that can never be
+   answered stops holding completion below 100% and leaves the missing list. One place, not six:
+   the six `X(ctx, id)` methods now call `s.score` instead of `Score` directly, and the fold is not
+   inside `Score` because `Score` is pure (it takes a map of what is present and does arithmetic,
+   which is why it is testable without a database) while the suppression is a FACT about the entity.
+
+   THE MAPPING IS EXPLICIT AND THAT IS THE POINT: this package names its types LOWERCASE ("scene")
+   while `edits.target_type` — and therefore every assertion, which rides an edit — is UPPERCASE
+   ("SCENE"). `string(entityType)` would compile, run, and match nothing, so the entity stops being
+   suppressed and the failure reads as "the assertion did not work". Migration 96 has no CHECK to
+   catch it either. `verifiedUnknownEntityType` is that map, and mutating it to return "" turns the
+   gate red — measured, see the mutation record below.
 5. The frontend control with the reason dropdown (gate 1's surface).
 6. Gates 2 and 3 as tests plus mutations, with the XP battery re-aimed at the CALL SITE: 7/7
    mutants dying against a function nobody calls is the arithmetic this section exists to correct.
@@ -662,6 +673,20 @@ was found by an assertion about a DIFFERENT layer than the one the defect was in
 And the instrument that named defect 3 in one line was not a debugger but the funnel's own design: a
 failed apply writes an edit comment carrying the error text, so the test read the reason out of
 `edit_comments`.
+
+THE SCORE'S GATE WAS MUTATED BEFORE IT WAS BELIEVED, and it is two mutations rather than one
+because the two halves fail differently. `TestVerifiedUnknownSuppressesTheCompletionGap` asserts the
+gate's own wording: a `not_publicly_knowable` field leaves the missing list and the score does not
+fall, while a `not_yet_looked` field on the SAME edit stays — the half that makes the first half
+mean anything, since a gap closable by assertion is a gap nobody has to answer.
+
+  the fold writes false instead of true   -> RED, "should not contain "date"", subject counted
+  the entity-type mapping returns ""       -> RED, same message: the SPELLING is load-bearing
+  restored                                 -> GREEN
+
+The second mutation is the one worth keeping: it fails for the reason a cast would have, and the
+message it produces is the one a cast would never have produced, because a cast would not fail at
+all until somebody noticed the gap had stopped closing.
 
 THE TEST'S OWN PREMISE WAS WRONG ON THE FIRST RUN, and that is the fourth lesson. It asserted that a
 self-affirming assertion records no trust event -- using a fixture scene, which `createTestScene`

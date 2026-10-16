@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/stashapp/stash-box/internal/queries"
+	"github.com/stashapp/stash-box/internal/service/verification"
 )
 
 // Service reads completion scores.
@@ -31,11 +32,15 @@ import (
 // in a place a test can reach.
 type Service struct {
 	queries *queries.Queries
+	// verification reads §7.24.1's assertions. Built here rather than injected so the constructor
+	// stays one argument: it wraps the same *queries.Queries, and §7.24.1's storage has exactly one
+	// owner (internal/service/verification) whose rules the score must not restate.
+	verification *verification.Service
 }
 
 // NewService creates a completion service.
 func NewService(queries *queries.Queries) *Service {
-	return &Service{queries: queries}
+	return &Service{queries: queries, verification: verification.New(queries)}
 }
 
 // ErrNotFound is returned for a missing or soft-deleted entity.
@@ -66,13 +71,81 @@ func asBool(v interface{}) bool {
 	}
 }
 
+// score folds the entity's verified-unknown assertions into the field set, then scores it.
+//
+// THE FOLD IS HERE RATHER THAN INSIDE Score BECAUSE Score IS PURE: it takes a map of which fields are
+// present and does arithmetic, which is why it is testable without a database. §7.24.1's suppression
+// is a FACT about the entity, so it belongs with the other facts these methods collect.
+//
+// A suppressed field is marked PRESENT, and that is the section's intent rather than a shortcut: a
+// field nobody can ever supply must not hold completion below 100% forever, which is the state
+// §7.24.1 exists to end. `not_yet_looked` does not suppress, so a belief that the value exists keeps
+// the gap in the missing list and the score unchanged.
+func (s *Service) score(ctx context.Context, entityType EntityType, id uuid.UUID, present map[Field]bool) (Result, error) {
+	suppressed, err := s.suppressingFields(ctx, entityType, id)
+	if err != nil {
+		return Result{}, err
+	}
+	for _, field := range suppressed {
+		present[field] = true
+	}
+	return Score(entityType, present)
+}
+
+// suppressingFields returns the fields of an entity whose verified-unknown reason CLOSES the gap.
+func (s *Service) suppressingFields(ctx context.Context, entityType EntityType, id uuid.UUID) ([]Field, error) {
+	spelling := verifiedUnknownEntityType(entityType)
+	if spelling == "" {
+		// The type cannot carry an assertion: sites are not edit targets, so no write path could
+		// have asserted about one. Not an error -- an empty answer.
+		return nil, nil
+	}
+	fields, err := s.verification.SuppressingFields(ctx, spelling, id)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Field, 0, len(fields))
+	for _, field := range fields {
+		out = append(out, Field(field))
+	}
+	return out, nil
+}
+
+// verifiedUnknownEntityType maps a scoreable entity type to the spelling field_verification_states
+// uses, or "" when that type cannot carry an assertion.
+//
+// AN EXPLICIT MAP, NOT A string(entityType) CAST, and the difference is a silent bug rather than a
+// style preference: this package names its types LOWERCASE ("scene"), while edits.target_type -- and
+// therefore every assertion, which rides an edit -- is UPPERCASE ("SCENE"). A cast compiles, runs,
+// and matches nothing, which in a feature whose whole purpose is to remove a gap reads as "the
+// assertion did not work". Migration 96 put no CHECK on that column, so the database will not catch
+// it either.
+//
+// Site has no case because sites are not edit targets: TargetTypeEnum holds SCENE, STUDIO, PERFORMER,
+// TAG and CONTENT_ITEM.
+func verifiedUnknownEntityType(entityType EntityType) string {
+	switch entityType {
+	case EntityPerformer:
+		return verification.EntityPerformer
+	case EntityScene:
+		return verification.EntityScene
+	case EntityStudio:
+		return verification.EntityStudio
+	case EntityTag:
+		return verification.EntityTag
+	case EntityContentItem:
+		return verification.EntityContentItem
+	}
+	return ""
+}
+
 // Performer scores a performer.
 func (s *Service) Performer(ctx context.Context, id uuid.UUID) (Result, error) {
 	row, err := s.queries.PerformerCompletionInputs(ctx, id)
 	if err != nil {
 		return Result{}, notFoundOr(err)
 	}
-	return Score(EntityPerformer, map[Field]bool{
+	return s.score(ctx, EntityPerformer, id, map[Field]bool{
 		FieldName:         asBool(row.HasName),
 		FieldAliases:      row.HasAliases,
 		FieldBirthdate:    asBool(row.HasBirthdate),
@@ -95,7 +168,7 @@ func (s *Service) Scene(ctx context.Context, id uuid.UUID) (Result, error) {
 	if err != nil {
 		return Result{}, notFoundOr(err)
 	}
-	return Score(EntityScene, map[Field]bool{
+	return s.score(ctx, EntityScene, id, map[Field]bool{
 		FieldName:             asBool(row.HasName),
 		FieldDuration:         asBool(row.HasDuration),
 		FieldStudio:           asBool(row.HasStudio),
@@ -119,7 +192,7 @@ func (s *Service) ContentItem(ctx context.Context, id uuid.UUID) (Result, error)
 	if err != nil {
 		return Result{}, notFoundOr(err)
 	}
-	return Score(EntityContentItem, map[Field]bool{
+	return s.score(ctx, EntityContentItem, id, map[Field]bool{
 		FieldName:    asBool(row.HasName),
 		FieldDetails: asBool(row.HasDetails),
 		FieldDate:    asBool(row.HasDate),
@@ -134,7 +207,7 @@ func (s *Service) Studio(ctx context.Context, id uuid.UUID) (Result, error) {
 	if err != nil {
 		return Result{}, notFoundOr(err)
 	}
-	return Score(EntityStudio, map[Field]bool{
+	return s.score(ctx, EntityStudio, id, map[Field]bool{
 		FieldName:         asBool(row.HasName),
 		FieldURLs:         row.HasUrls,
 		FieldImage:        row.HasImage,
@@ -148,7 +221,7 @@ func (s *Service) Site(ctx context.Context, id uuid.UUID) (Result, error) {
 	if err != nil {
 		return Result{}, notFoundOr(err)
 	}
-	return Score(EntitySite, map[Field]bool{
+	return s.score(ctx, EntitySite, id, map[Field]bool{
 		FieldName:    asBool(row.HasName),
 		FieldURLs:    asBool(row.HasUrls),
 		FieldDetails: asBool(row.HasDetails),
@@ -162,7 +235,7 @@ func (s *Service) Tag(ctx context.Context, id uuid.UUID) (Result, error) {
 	if err != nil {
 		return Result{}, notFoundOr(err)
 	}
-	return Score(EntityTag, map[Field]bool{
+	return s.score(ctx, EntityTag, id, map[Field]bool{
 		FieldName:    asBool(row.HasName),
 		FieldDetails: asBool(row.HasDetails),
 	})
