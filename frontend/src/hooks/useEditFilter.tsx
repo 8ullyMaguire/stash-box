@@ -59,6 +59,11 @@ interface EditFilterProps {
   defaultVoted?: UserVotedFilterEnum;
   defaultBot?: "include" | "exclude" | "only";
   defaultUserSubmitted?: boolean;
+  // A page whose whole point is a QUEUE needs to open on the end of it that is
+  // aging. `sort`/`direction` above are FIXED (they remove the control); these are
+  // defaults, so the control stays and a URL parameter still wins.
+  defaultSort?: EditSortEnum;
+  defaultDirection?: SortDirectionEnum;
 }
 
 const useEditFilter = ({
@@ -77,11 +82,13 @@ const useEditFilter = ({
   defaultVoted,
   defaultBot = "include",
   defaultUserSubmitted = true,
+  defaultSort = EditSortEnum.CREATED_AT,
+  defaultDirection = SortDirectionEnum.DESC,
 }: EditFilterProps) => {
   const [params, setParams] = useQueryParams({
     query: { name: "query", type: "string", default: "" },
-    sort: { name: "sort", type: "string", default: EditSortEnum.CREATED_AT },
-    direction: { name: "dir", type: "string", default: SortDirectionEnum.DESC },
+    sort: { name: "sort", type: "string", default: defaultSort },
+    direction: { name: "dir", type: "string", default: defaultDirection },
     operation: { name: "operation", type: "string", default: "" },
     voted: {
       name: "voted",

@@ -1,6 +1,7 @@
 import { Temporal } from "temporal-polyfill";
 import { describe, expect, it } from "vitest";
 import {
+  formatElapsed,
   formatISODate,
   isDateInRange,
   isInstantInFuture,
@@ -13,6 +14,35 @@ import {
   parseInstant,
   partialDateError,
 } from "../date";
+
+// formatElapsed is the review queue's "aging" number: how long a pending edit has
+// been waiting. It takes an explicit `to` so the unit is pinned rather than
+// dependent on the clock the test happens to run against.
+describe("formatElapsed", () => {
+  const from = Temporal.Instant.from("2026-01-01T00:00:00Z");
+  const at = (iso: string) => formatElapsed(from, Temporal.Instant.from(iso));
+
+  it("counts days, with the unit agreeing with the number", () => {
+    expect(at("2026-01-02T00:00:00Z")).toBe("1 day");
+    expect(at("2026-01-04T00:00:00Z")).toBe("3 days");
+  });
+
+  it("falls to hours and minutes below a day", () => {
+    expect(at("2026-01-01T05:00:00Z")).toBe("5 hours");
+    expect(at("2026-01-01T00:30:00Z")).toBe("30 minutes");
+  });
+
+  it("reads as a LENGTH of time, not as a point in the past", () => {
+    // The whole reason this is not formatDistance: RelativeTimeFormat says
+    // "3 days ago", and "waiting 3 days ago" is not a sentence.
+    expect(at("2026-01-04T00:00:00Z")).not.toContain("ago");
+  });
+
+  it("a bigger unit swallows the smaller ones rather than summing them", () => {
+    // 1 day and 23 hours is "1 day", not "47 hours".
+    expect(at("2026-01-02T23:00:00Z")).toBe("1 day");
+  });
+});
 
 describe("isValidDate", () => {
   it("returns true for undefined/empty", () => {

@@ -5,9 +5,16 @@ import { Card, Col, Row } from "react-bootstrap";
 import { Link } from "react-router-dom";
 import { Icon, Tooltip } from "src/components/fragments";
 
-import { type EditFragment, OperationEnum } from "src/graphql";
+import { type EditFragment, OperationEnum, VoteStatusEnum } from "src/graphql";
 
-import { editHref, formatDateTime, formatOrdinals, userHref } from "src/utils";
+import {
+  editHref,
+  formatDateTime,
+  formatElapsed,
+  formatOrdinals,
+  parseInstant,
+  userHref,
+} from "src/utils";
 import AddComment from "./AddComment";
 import EditComment from "./EditComment";
 import EditExpiration from "./EditExpiration";
@@ -24,6 +31,34 @@ type Props = { showVotes?: boolean } & (
   | { edit: EditCardEdit; compact: true }
   | { edit: EditFragment; compact?: false }
 );
+
+// The waiting line is what a review queue's "aging" means: how long a pending
+// edit has been waiting for votes (SPEC 7.24.10 -- pending edits nobody votes on
+// block the multi-user verification 7.7 depends on). Only PENDING edits have a
+// wait; a decided one is done waiting, and saying how long it waited would be a
+// different fact about a different thing.
+//
+// Exported as a render function rather than inlined, following the file's
+// neighbours (ModifyEdit exports renderPerformerDetails): a component that needs
+// the whole router and GraphQL provider cannot be asserted with the helpers this
+// suite has, and a rule that cannot be asserted is a rule nobody checks.
+export const renderWaiting = (edit: {
+  status: VoteStatusEnum;
+  created: string;
+}) => {
+  if (edit.status !== VoteStatusEnum.PENDING) return null;
+  const created = parseInstant(edit.created);
+  if (!created) return null;
+
+  return (
+    <div data-testid="edit-waiting">
+      <b className="me-2">Waiting:</b>
+      <span title={formatDateTime(new Date(edit.created))}>
+        {formatElapsed(created)}
+      </span>
+    </div>
+  );
+};
 
 const EditCardComponent: FC<Props> = (props) => {
   const { edit, showVotes = false } = props;
@@ -63,6 +98,7 @@ const EditCardComponent: FC<Props> = (props) => {
             <b className="me-2">Created:</b>
             <span>{formatDateTime(created)}</span>
           </div>
+          {renderWaiting(edit)}
           {edit.updated && edit.update_count > 0 && (
             <div>
               <b className="me-2">Updated:</b>

@@ -120,6 +120,38 @@ export const formatDistance = (
   return rtf.format(round("second").seconds, "second");
 };
 
+// formatElapsed answers "how long has this been waiting", which formatDistance
+// deliberately does not: Intl.RelativeTimeFormat phrases a PAST instant as "3 days
+// ago" and a future one as "in 3 days", and a review-queue card reads wrong as
+// either ("waiting 3 days ago"). The quantity is the same; the sentence is not.
+// An optional `to` makes it deterministic under test, exactly like formatDistance.
+export const formatElapsed = (
+  from: Temporal.Instant,
+  to?: Temporal.Instant,
+) => {
+  const toInstant = to ?? Temporal.Now.instant();
+  // Through a TIME ZONE, not straight off the instants: Temporal's Instant.since
+  // refuses largestUnit "day" ("must be between nanosecond-hour") because a day is
+  // not a fixed number of nanoseconds and only a zone decides what one is. Every
+  // other formatter in this file converts first for the same reason -- this cost a
+  // red test rather than a wrong number, which is the good direction to find it in.
+  const tz = Temporal.Now.timeZoneId();
+  const elapsed = toInstant
+    .toZonedDateTimeISO(tz)
+    .since(from.toZonedDateTimeISO(tz), { largestUnit: "day" });
+  const rtf = (n: number, unit: Intl.NumberFormatOptions["unit"]) =>
+    new Intl.NumberFormat("en", {
+      style: "unit",
+      unit,
+      unitDisplay: "long",
+    }).format(n);
+
+  if (elapsed.days) return rtf(elapsed.days, "day");
+  if (elapsed.hours) return rtf(elapsed.hours, "hour");
+  if (elapsed.minutes) return rtf(elapsed.minutes, "minute");
+  return rtf(elapsed.seconds, "second");
+};
+
 export const parseDate = (date?: string): Temporal.PlainDate | undefined => {
   if (!date) return;
 

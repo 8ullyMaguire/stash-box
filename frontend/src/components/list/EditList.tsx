@@ -28,6 +28,10 @@ interface EditsProps {
   showVotedFilter?: boolean;
   userSubmitted?: boolean;
   defaultUserSubmitted?: boolean;
+  // Defaults (not fixed): the control stays and a URL parameter still wins. A page
+  // that is a review QUEUE opens on the oldest end of it (SPEC 7.24.10).
+  defaultSort?: EditSortEnum;
+  defaultDirection?: SortDirectionEnum;
 }
 
 const PER_PAGE = 20;
@@ -47,6 +51,8 @@ const EditListComponent: FC<EditsProps> = ({
   showVotedFilter,
   userSubmitted,
   defaultUserSubmitted,
+  defaultSort,
+  defaultDirection,
 }) => {
   const { page, setPage } = usePagination();
   const {
@@ -74,6 +80,8 @@ const EditListComponent: FC<EditsProps> = ({
     defaultBot,
     userSubmitted,
     defaultUserSubmitted,
+    defaultSort,
+    defaultDirection,
   });
   const { data, loading } = useEdits({
     input: {
