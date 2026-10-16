@@ -387,6 +387,14 @@ func Init(fac service.Factory) {
 		panic(err.Error())
 	}
 
+	// The federation ontology exchange (phase 12, slice 12f). Six-hourly rather than hourly because
+	// nothing it learns is urgent -- an ontology version changes when an operator ships one -- and a
+	// no-op instance (no peers registered) does not reach the network at all.
+	_, err = c.AddFunc("@every 6h", cronJobs.exchangeOntologies)
+	if err != nil {
+		panic(err.Error())
+	}
+
 	_, err = c.AddFunc("@daily", cronJobs.refreshPopularityAllTime)
 	if err != nil {
 		panic(err.Error())

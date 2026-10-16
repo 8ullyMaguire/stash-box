@@ -3737,6 +3737,60 @@ now **12/12**, W7/W8 reading the table from the running process with the config 
 bad mapping. MUTATIONS: `scripts/mutate-mapping-12e.py`, **3 probes, 3 KILLED** — the unagreed name passed
 through, the unmapped tag dropped instead of refused, the chain followed.
 
+### Slice 12f — the exchange: the outbound half's first caller
+
+**The gap this closes.** `Client.Broadcast` has existed since the mesh was built and **every caller of it
+was a test**. A broadcast method with no caller is not a capability — it is a comment with an HTTP client
+in it — and the consequence was that the wire had **one end wired**: this instance could answer a peer
+(12b, 12c) and had no mechanism to ask one. `cron.exchangeOntologies` (six-hourly) is the mechanism: it
+reads the peer registry, builds this instance's own claim with the same code the answering half uses, and
+asks every askable peer what ontology it speaks.
+
+**Why that question.** It is the only one this build can both ask and answer. The identification question
+is refused by name, and a question that is asked and always refused would make the caller look alive while
+proving nothing. The ontology question is answerable today, it is what a peer must answer before anything
+else can be sent to it, and its answer carries the version decision — so the exchange is the mesh's
+discovery step rather than a probe.
+
+**One row per peer, always.** `ExchangeOntologies` returns a row for every peer it was given: the ones it
+asked, the ones it did not (disabled in the registry, never seen, outside the freshness window, or with no
+instance id to attribute a reply to), and the ones that did not answer. Dropping a silent peer would make
+"no peers registered" and "every peer is down" the same list, and an operator reading that list would
+conclude the mesh was fine.
+
+**Both sides of the negotiation, compared on the DECISION.** Each row carries the crossing the peer sent
+and the same rule computed here from the same two claims, plus `Disagrees`. Writing the comparison found
+that comparing the two decisions **including their reasons** reports every correct peer as disagreeing:
+the reason is prose addressed to a reader and each side words it from its own end ("this instance declares
+core 1 only" versus "the peer declares core 1 only" about the same fact). The comparison is over (field,
+version, allowed) — a difference in the sentence is a difference in whose desk the note is on.
+
+**What it does not do:** it does not record the answers. The registry is the operator's, and writing a
+peer's self-description into it would make an unverified claim look like a known fact. An instance with no
+peers asks nothing (the registry read is `ListEnabled`, and it returns before any network call).
+
+**Found by writing it:**
+- The outbound path had no `Enabled` check. `AskableAt` answers "fresh enough, trusted enough" — not "does
+  the operator want it asked"; the registry read that filters on the switch is the caller's choice, and the
+  first version of the cron job reached for `List`. An outbound contact is the side where that mistake is
+  not recoverable, so both now check.
+- A question with no claim is refused by `Broadcast` (the F1 rule), which is right and cost this slice's
+  first test: an exchange that declared nothing would be answered by every peer against nothing, and every
+  field would come back refused for a reason about *us*, filed under the peer's name. `ExchangeOntologies`
+  now refuses it up front, and the test counts the peer's requests to prove the question never left.
+- The rule requires **both** instances to implement a field's version, so a version-skewed pair refuses
+  that field whichever way round it is passed; the argument order changes only which side the sentence
+  names — and it still has to be right, because a sentence calling the peer "this instance" is what two
+  correct implementations disagreeing looks like.
+
+**Verification.** `internal/service/federation/exchange_test.go` — the row-per-peer table with all four
+reasons, the reachable-and-answering peer (the control), the peer that computes the negotiation
+differently (with the both-refuse field as the control *inside* the case), a peer that hangs (the per-peer
+deadline bounding the exchange under 2s), and the guard with the peer's request count at zero.
+`internal/cron` compiles and passes. **Not yet done: the mutation battery for this slice**, and the
+exchange has not been walked live (both peers in a walk would be on 127.0.0.1, which the dial guard
+refuses — deliberately).
+
 ## Phase 13 — API, interoperability, exports
 
 **Placed elsewhere (2026-10-14):** exposing stash-box as an **MCP server** (search scenes and
