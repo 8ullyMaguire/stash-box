@@ -16,6 +16,47 @@ func TestServingImagesIsOffInTheShippedDefault(t *testing.T) {
 	}
 }
 
+// The media DIRECTORY is unset in the shipped default, and that is a refusal rather than a default
+// path: an instance told to serve images without being told where from refuses by naming the key
+// (internal/service/mediaplane.MediaDirError), which is the same shape as the switch itself -- the key
+// that lived in a deployed config for two years before any code read it (slice 10b-1).
+func TestTheMediaDirIsUnsetInTheShippedDefault(t *testing.T) {
+	if C.MediaDir != "" {
+		t.Fatalf("media_dir defaults to %q: every instance that has not named a directory would serve "+
+			"from a path it never chose", C.MediaDir)
+	}
+}
+
+// The accessor reads its OWN field, for the reason the image switch's does: a Getter that fell back to
+// the content plane's storage path would be a wire crossed invisibly, and this key is read by the
+// request-time gate.
+func TestTheMediaDirIsReadFromItsOwnField(t *testing.T) {
+	previous := C.MediaDir
+	t.Cleanup(func() { C.MediaDir = previous })
+
+	C.MediaDir = "/tmp/one"
+	if GetMediaDir() != "/tmp/one" {
+		t.Errorf("GetMediaDir() = %q with the field set to /tmp/one", GetMediaDir())
+	}
+	C.MediaDir = ""
+	if GetMediaDir() != "" {
+		t.Errorf("GetMediaDir() = %q with the field clear", GetMediaDir())
+	}
+}
+
+// The accessor returns the field AS WRITTEN, without cleaning or absolutising it: the check that decides
+// whether a path is usable lives in internal/service/mediaplane, so that there is one place that decides
+// and the startup line and the gate cannot disagree. Asserted with a path only cleaning would change.
+func TestTheAccessorDoesNotCleanThePath(t *testing.T) {
+	previous := C.MediaDir
+	t.Cleanup(func() { C.MediaDir = previous })
+
+	C.MediaDir = "/tmp/media/../media/"
+	if GetMediaDir() != "/tmp/media/../media/" {
+		t.Errorf("GetMediaDir() = %q, want the field verbatim", GetMediaDir())
+	}
+}
+
 // The accessor reads its OWN field, not the neighbouring content_delivery. A switch that read the other
 // bool would be a switch that does not control what its name says -- and the two are OR'd together in
 // mediaplane, where a crossed wire would be invisible: both keys off, both keys on, and one of the four

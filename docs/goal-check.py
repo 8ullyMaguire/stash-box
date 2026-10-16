@@ -978,9 +978,88 @@ def c10_media_plane_posture():
     # 5. The slices that have no surface to assert. Named, so that a reader of this output learns what is left
     #    rather than reading a PASS over a phase three-quarters unbuilt.
     add("C10b media-plane slices", "UNKNOWN",
-        "10b-10f (hosting, the variant ladder, the media toolchain, the players, the resize cache) are not "
-        "started: there is no surface to assert yet, and this clause will not report PASS for a phase whose "
-        "remaining slices do not exist")
+        "the variant ladder, hosting, the media toolchain, the players and the resize cache are not "
+        "started: there is no surface to assert yet, and this clause will not report PASS for a phase "
+        "whose remaining slices do not exist. What IS built and asserted elsewhere: slice 10a-ii (the "
+        "gate) by C10, 10b-1 (the media directory) by C10c, 10b-2 (the export invariant) by C10d")
+
+
+def c10c_media_directory():
+    """Phase 10, slice 10b-1: the switch says WHETHER, the directory says WHERE FROM, and the second has a
+    caller. The failure this clause exists for is an instance whose switch is on and whose directory is
+    missing: it answers 404 for every image it holds a row for, which is indistinguishable from an instance
+    that has no such image."""
+    cfg = (REPO / "internal" / "config" / "config.go").read_text()
+    plane = (REPO / "internal" / "service" / "mediaplane" / "mediaplane.go").read_text()
+    store_path = REPO / "internal" / "service" / "mediaplane" / "store.go"
+    fails, notes = [], []
+
+    if 'MediaDir string `mapstructure:"media_dir"`' not in cfg:
+        fails.append("`media_dir` is not a configuration key")
+    if "MediaDir: \"\"" not in cfg:
+        fails.append("`media_dir` does not default to empty: every instance would serve from a path it "
+                     "never chose")
+    else:
+        notes.append("media_dir ships unset, so nothing serves from a guessed path")
+    if "func GetMediaDir() string" not in cfg:
+        fails.append("`media_dir` has no accessor: a key with no reader is a comment")
+
+    if not store_path.exists():
+        fails.append("there is no storage check: the switch is all there is")
+    else:
+        store = store_path.read_text()
+        # The shape the code has, not the shape a reader remembers: ErrNoMediaDir is a var and
+        # ErrMediaDirUnusable is a TYPE with a constructor-free struct literal, and the first version of
+        # this line looked for `var` on both and failed a slice that was built correctly.
+        if "ErrNoMediaDir =" not in store or "type ErrMediaDirUnusable struct" not in store:
+            fails.append("the storage refusal is not by name")
+        for want in ("the path does not exist", "the path is not a directory", "cannot be read"):
+            if want not in store:
+                fails.append(f"the storage check does not distinguish {want!r}")
+        if "MediaDirError()" not in plane:
+            fails.append("the image gate does not consult the storage: the switch is on and the directory "
+                         "is missing is a state nothing refuses")
+        else:
+            notes.append("the gate consults the storage after the switch, and the refusal names the path")
+    add("C10c media directory", "FAIL" if fails else "PASS",
+        "; ".join(fails) if fails else "; ".join(notes))
+
+
+def c10d_export_invariant():
+    """Phase 10, slice 10b-2: a media directory inside an NFS export is shared with the LAN."""
+    path = REPO / "internal" / "service" / "mediaplane" / "exports.go"
+    if not path.exists():
+        add("C10d export invariant", "FAIL", "there is no export invariant: exports.go is missing")
+        return
+    src = path.read_text()
+    fails, notes = [], []
+
+    for want, why in (("func ExportedPaths()", "the export table is not read"),
+                      ("func ParseExportTable(", "the table is not parsed"),
+                      ("func InsideAnExport(", "nothing decides whether a directory is inside an export"),
+                      ("func MediaDirExportProblem(", "the invariant has no entry point"),
+                      ("ErrMediaDirExported", "the refusal is not a named error")):
+        if want not in src:
+            fails.append(why)
+    # THE FALSE PASS, as a checked invariant of the invariant: the table is read from the file exportfs
+    # reads, because `exportfs -v` as an unprivileged user prints nothing and exits ZERO -- so a reader
+    # that trusted it reported "this host exports nothing" on a host exporting four paths.
+    if "/var/lib/nfs/etab" not in src:
+        fails.append("the export table is not read from /var/lib/nfs/etab: `exportfs -v` without root "
+                     "prints nothing and exits zero, which reports a host that exports four paths as "
+                     "exporting none -- a false pass")
+    else:
+        notes.append("the table is read from the file exportfs reads, not from an unprivileged exportfs")
+    if "UNKNOWN" not in src:
+        fails.append("the reader does not say that an unreadable table leaves the answer unknown")
+    walk = REPO / "scripts" / "walk-images-gate.py"
+    if not walk.exists() or "/var/lib/nfs/etab" not in walk.read_text():
+        fails.append("the walk does not read the real export table, so the invariant is never exercised "
+                     "against a host that exports anything")
+    else:
+        notes.append("the walk exercises it against this host's real table")
+    add("C10d export invariant", "FAIL" if fails else "PASS",
+        "; ".join(fails) if fails else "; ".join(notes))
 
 
 def c11_federation_posture():
@@ -1076,7 +1155,8 @@ def main():
     for fn in (c1_prs_decided, c2_issues_dispositioned, c3_plan_built,
                c4_narrow_merged, c5_migrations_coherent, c6_suite, c7_build_clean,
                c8_aggregator_programme, c9_monetization_posture,
-               c10_media_plane_posture, c11_federation_posture):
+               c10_media_plane_posture, c10c_media_directory, c10d_export_invariant,
+               c11_federation_posture):
         try:
             fn()
         except Exception as e:  # a clause that crashes is not a passing clause

@@ -144,6 +144,26 @@ type config struct {
 	// The key is READ here; it was not read anywhere before this slice, which is why an instance could
 	// carry `images_enabled: false` in its configuration and still serve every image it had a row for.
 	ImagesEnabled bool `mapstructure:"images_enabled"`
+	// MediaDir is the DIRECTORY this instance would serve image bytes from, and it is empty in every
+	// shipped config: the switch above says whether an instance MAY serve bytes, and this says WHERE
+	// FROM, which are two different refusals an operator has to be able to tell apart.
+	//
+	// WHY IT IS NOT A DEFAULT PATH. A sensible-looking `/var/lib/stash-box/media` would mean every
+	// instance serves from a directory it never chose, and the first slice that writes a thumbnail
+	// would create it. Empty means "not configured", and an instance with `images_enabled: true` and no
+	// `media_dir` refuses every image request with a message naming this key -- the same shape as the
+	// switch itself, which was in a deployed config for two years before any code read it.
+	//
+	// WHAT BELONGS HERE AND WHAT DOES NOT. This directory is for DERIVED, RE-FETCHABLE bytes: the
+	// thumbnails a metadata engine generates from upstream references it already stores. It is not for
+	// the only copy of anything, because the storage it will usually sit on is a single spinning disk
+	// shared with other things -- and on this network that disk's paths are exported read-write to the
+	// whole LAN, which is why the invariant test beside this key refuses a media directory INSIDE an
+	// NFS export (see internal/service/mediaplane/exports.go). The measured numbers are in
+	// ~/secondbrain/10-Projects/stashforge/2026-10-16-stashbox-usb-storage-verdict.md: a bounded
+	// thumbnail tier for this corpus is ~31 GB against 1.6 TB free, while the originals are 0.35-1.7 TB
+	// and stay unhosted.
+	MediaDir string `mapstructure:"media_dir"`
 
 	// ContentDelivery lets this instance SERVE CONTENT: hosting, the variant ladder, the media
 	// toolchain, the players, PWA offline caching and the CDN/edge -- the media plane, phase 10.
@@ -368,6 +388,9 @@ var C = &config{
 	ContentDelivery: false,
 	// Off, and for the same reason: image bytes are bytes. See the field's comment.
 	ImagesEnabled: false,
+	// Empty, and deliberately not a default path: see the field's comment. An instance that enables
+	// images without naming a directory refuses by name rather than serving from somewhere it guessed.
+	MediaDir: "",
 	// See the field comments: on by default because this one protects the instance rather than gating a
 	// capability, and generous because a limit a member can hit while browsing is a bug in the limit.
 	RateLimitRequestsPerMinute: 600,
@@ -821,6 +844,15 @@ func GetContentFetchSources() bool {
 // the bool is a caller that can forget to refuse.
 func GetImagesEnabled() bool {
 	return C.ImagesEnabled
+}
+
+// GetMediaDir is the directory this instance serves image bytes from, or "" when none is configured.
+//
+// It returns the field as written, without cleaning or defaulting it: the check that decides whether a
+// path is usable lives in internal/service/mediaplane (MediaDirErrorFor), so that there is exactly one
+// place that decides, and so the startup line and the request-time gate cannot disagree about it.
+func GetMediaDir() string {
+	return C.MediaDir
 }
 
 // GetContentDelivery reports whether this instance may SERVE content (the media plane, plan phase

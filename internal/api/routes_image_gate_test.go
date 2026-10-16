@@ -23,7 +23,13 @@ import (
 //   - the middleware, over a probe handler, lets the request through when EITHER switch is on -- the
 //     control, without which the refusal could be a gate that refuses unconditionally.
 
-// withSwitches sets the two posture keys for one test and restores them after.
+// withSwitches sets the two posture keys AND the media directory for one test, restoring all three after.
+//
+// The directory is part of the setup since slice 10b-1, because the gate has TWO conditions: the switch says
+// whether this instance may serve image bytes and `media_dir` says where from. A test that turned a switch on
+// and expected the request to pass was asserting the old contract, and the mutation battery found it -- the
+// harness restores the file and runs the whole package, so a test left behind by a contract change shows up as
+// a RESTORE-FAIL rather than as a green run that proves the wrong thing.
 func withSwitches(t *testing.T, images, content bool) {
 	t.Helper()
 	previousImages, previousContent := config.C.ImagesEnabled, config.C.ContentDelivery
@@ -31,6 +37,19 @@ func withSwitches(t *testing.T, images, content bool) {
 		config.C.ImagesEnabled, config.C.ContentDelivery = previousImages, previousContent
 	})
 	config.C.ImagesEnabled, config.C.ContentDelivery = images, content
+
+	// A real directory, because "the switches are on" is no longer sufficient to serve: an instance with no
+	// directory refuses by naming the key, which is the behaviour TestImageRouterRefusesWhenTheDirIsMissing
+	// asserts on purpose.
+	withMediaDir(t, t.TempDir())
+}
+
+// withMediaDir points the instance at a directory for one test and restores the previous value after.
+func withMediaDir(t *testing.T, dir string) {
+	t.Helper()
+	previous := config.C.MediaDir
+	t.Cleanup(func() { config.C.MediaDir = previous })
+	config.C.MediaDir = dir
 }
 
 func TestImageRoutesRefuseWhenNeitherSwitchIsOn(t *testing.T) {
@@ -114,4 +133,33 @@ func TestImageBytesFollowTheBroaderPosture(t *testing.T) {
 	withSwitches(t, false, true)
 	assert.True(t, mediaplane.ImageBytesEnabled())
 	assert.NoError(t, mediaplane.RequireImageBytes())
+
+	// And the second condition, both ways: the switch is on and the directory is not there.
+	withSwitches(t, true, false)
+	withMediaDir(t, "")
+	assert.Same(t, mediaplane.ErrNoMediaDir, mediaplane.RequireImageBytes(),
+		"the switch alone is not enough: an instance with no media_dir has nowhere to serve from")
+}
+
+// The production router, with the switch ON and no media directory: 403, and the body names `media_dir`.
+//
+// This is the arm the shape of the refusal is for. Without it an operator in exactly this state -- images
+// enabled, directory missing, nothing writing thumbnails yet -- would see the handlers answer 404 for every
+// image, which reads as an instance that has no such image rather than as one that cannot serve any.
+func TestImageRouterRefusesWhenTheDirIsMissing(t *testing.T) {
+	withSwitches(t, true, false)
+	withMediaDir(t, "")
+
+	srv := httptest.NewServer(imageRoutes{}.Routes())
+	t.Cleanup(srv.Close)
+
+	resp, err := srv.Client().Get(srv.URL + "/00000000-0000-4000-8000-000000000000")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+	var body map[string]string
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	assert.Contains(t, body["error"], "media_dir", "an operator needs the key they must set")
+	assert.Contains(t, body["error"], "not set")
 }

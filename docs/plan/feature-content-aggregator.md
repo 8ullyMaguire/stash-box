@@ -238,7 +238,7 @@ reverted, and the lesson is the plan's own: **a claim that a thing is unreferenc
 | 5 | Kept. It gates what a reader may see of the metadata, which is now the only thing there is. |
 | 6, 7, 8 (8a-8e), 9 | Kept. 9 gains the gate on the health sweep and Wayback; 9's mirror resolution returns a LINK and never content, which is unchanged. |
 | 8f | **Removed** (forums). |
-| 10 | **Restored** (media plane), gated by `content_delivery`, off in every shipped config. Slice 10a (the switch, its gate, the startup line and the build gate's three arms) is built; **10a-ii (below) gave that switch its FIRST CALLER and wired the image key it turned out nobody read**; 10b–10f are specified. The identification models it once pointed at live on in `feature-04`. |
+| 10 | **Restored** (media plane), gated by `content_delivery`, off in every shipped config. **10b-1 (the media directory), 10b-2 (the export invariant) and 10b-3 (the measurement) are built — see below**; the ladder, hosting, the toolchain, the players and the resize cache remain. Slice 10a (the switch, its gate, the startup line and the build gate's three arms) is built; **10a-ii (below) gave that switch its FIRST CALLER and wired the image key it turned out nobody read**; 10b–10f are specified. The identification models it once pointed at live on in `feature-04`. |
 
 ### Slice 10a-ii — the switch gets its first caller, and the image key that was a string
 
@@ -270,6 +270,102 @@ away from serving images would go looking for a data problem. The body carries t
 value, which names BOTH keys. The gate also runs **before** the uuid is parsed, and that is asserted: every
 request to these routes meets the posture first, and "bad uuid" would be the wrong first thing to tell a
 reader who is not going to get an image either way.
+
+### Slices 10b-1, 10b-2 and 10b-3 — where the bytes would live, and what that costs
+
+**The finding that produced them.** A gate that refuses is only half a posture. The other half is that no
+instance can serve image bytes from nowhere, and before this slice `media_dir` did not exist as a key at all:
+an operator who turned on `images_enabled` got an instance whose switch said yes and whose handlers answered
+404 for every image, because a handler with no directory has nothing to read. That is the same silence the
+gate exists to remove, one step further in.
+
+**10b-1, the directory (`internal/config`, `mediaplane/store.go`).** `media_dir` is a real key, **empty in
+every shipped config**: a sensible-looking default path would mean every instance serves from a directory it
+never chose, and the first slice that wrote a thumbnail would create it. `MediaDirErrorFor` returns one of
+three refusals, each naming the PATH and the REASON — unset, does not exist, is not a directory, cannot be
+read (opening is what answers the last one; `stat` succeeds on mode 000) — because "media_dir is unusable"
+does not tell an operator with several instances which config to open, and the three fixes differ. **The gate
+checks the posture FIRST and the storage second, and that order is asserted**: an operator who never enabled
+images must be told about the switch, not sent to fix a directory they have not agreed to use. The startup
+line carries three states, and the middle one is the reason it changed — OFF, **ENABLED BUT REFUSED AT THE
+STORAGE** (the state that would otherwise log the same line as a working instance), and served, naming the
+directory.
+
+**10b-2, the export invariant (`mediaplane/exports.go`).** On this network the disk a media directory would
+naturally live on is exported to the whole LAN (`/personal`, `/public`, `/media` and
+`/mnt/disk-important/backups`, with `sec=sys`, `no_root_squash`, `insecure`), and one of those exports is
+already mounted elsewhere under the name `/media`. A media directory under any of them is readable **and
+writable** from every host on the subnet, and nothing about the instance's own behaviour would show it. So the
+invariant is a check: `MediaDirExportProblem` refuses a configured directory inside any export and names which
+one. The comparison is **by path component, not by string prefix** — `/mnt/disk-important/backups2` merely
+starts with the characters of the export `/mnt/disk-important/backups`, and a string-prefix check refuses a
+directory shared with nobody — and there is a test for exactly that pair.
+
+**The false pass, which is the part worth carrying forward.** The first version read `exportfs -v`. As an
+unprivileged user on the host this was measured on, that command **prints nothing and exits ZERO** (it cannot
+take `/var/lib/nfs/.etab.lock`), so the invariant reported *this host exports nothing* about a host exporting
+four paths, and every directory was "outside every export". The reader now reads `/var/lib/nfs/etab` — the file
+`exportfs` itself reads, world-readable in practice — and an **unreadable table is an ERROR that says UNKNOWN,
+never an empty list**: unknown is not zero, and the one direction an invariant must not err in is the one that
+returns a pass. The walk's own arm had the same defect and was fixed with it.
+
+**10b-3, the measurement (`scripts/weigh-upstream-thumbs.py`).** The earlier verdict assumed 20–30 KB per
+thumbnail because `images` holds **zero rows** — nothing in this instance has ever held an image. This slice
+measured instead, over 49 real photographs at the two widths a bounded ladder would store:
+**320 px webp q80: median 14.9 KB** (p10 6.0, p90 40.3); **480 px webp q80: median 30.2 KB** (p10 12.8, p90
+86.5); the sources as fetched: median 328 KB. Against this instance's own counts —
+
+| tier | measured basis | size | share of the 1.6 TB free on the USB disk |
+|---|---|---|---|
+| one thumbnail per entity | performer 320 px 14.9 KB · scene 480 px 30.2 KB · studio 320 px 14.9 KB | **36 GB** | 2.4 % |
+| the same at the measured MEAN | 19.3 / 40.7 / 19.3 KB | **48 GB** | 3.2 % |
+| the same at p90 | 40.3 / 86.5 / 40.3 KB | **103 GB** | 6.8 % |
+| scene ORIGINALS at the measured source size | 328 KB × 1,104,375 | 0.35 TB | 22 % |
+
+So the assumption was conservative and the conclusion holds with room to spare. **Three sources in a row
+answered a generic crawler with a disallow** — the instance's own scene sources, picsum.photos, and Wikimedia's
+upload host — which is a finding about the media plane and not only about the measurement (the instance's own
+fetcher honours `robots.txt` too, so an image pipeline cannot assume it may fetch what it can address). The
+numbers therefore describe the ENCODER and the SOURCE DIMENSIONS, which is what a thumbnail's size depends on;
+that limitation is stated with the result rather than hidden by it, and the run that fetched under
+`--respect-robots=no` printed every URL it used.
+
+**The disk, and the boot hazard next to it.** The drive is a 4.5 TB USB spinning disk, ext4, `/mnt/disk-important`,
+**1.6 TB free**, 96.2 M inodes free, 109 MB/s sequential. Its fstab entry carried `defaults,noatime 0 2` — no
+`nofail` — and `systemd-fstab-generator`'s output proved what that means: with the entry as it was, the generated
+mount unit carried `Requires=systemd-fsck@…` and `Before=local-fs.target`, i.e. **boot waits for a disk that may
+be unplugged**. After adding `nofail,x-systemd.device-timeout=15s,x-systemd.mount-timeout=60s`, the generated unit
+drops `Before=local-fs.target` and gains `TimeoutSec=1min`. That is a host change, recorded in
+`~/secondbrain/10-Projects/stashforge/2026-10-16-stashbox-usb-storage-verdict.md`, and it is a prerequisite
+rather than a nicety: an instance whose storage can hold up the boot is worse than one that refuses.
+
+**Verification.** `internal/config/image_posture_test.go`: the key ships unset, the accessor reads its own
+field, and it returns the path **verbatim** (cleaning happens in one place, so the startup line and the gate
+cannot disagree). `mediaplane/store_test.go`: all three unusable states name the path and the reason, a real
+directory is accepted (the control), mode 000 is refused and **skipped as root** where the bits do not bind, the
+gate reports the switch before the storage, and the three startup states are three different lines.
+`mediaplane/exports_test.go`: the parser counts its subjects over a **captured** `exportfs -v` sample that
+contains the wrapped client line, seven path comparisons including the sibling trap, and the false-pass
+regression — an unreadable table is an error saying UNKNOWN, an empty one is zero exports, and the fallback
+distinguishes a failed `exportfs` from a host without an NFS server. **MUTATIONS: `scripts/mutate-image-gate.py`,
+11 probes, 11 KILLED, every restore green** — including the two the harness itself got wrong first: it reported
+M2 and M3 as SURVIVED against tests that go red when the mutation is applied by hand, because `go test -run`
+against a package that does not contain the named test prints **"no tests to run" and exits ZERO**, so a probe
+aimed at the wrong package reads exactly like a test that failed to notice. The harness now treats that as its
+own bug and stops. **LIVE WALK: `scripts/walk-images-gate.py`, 14/14 green**, six arms against the real binary:
+both keys off → 403 naming both keys on three paths; one key on with a directory → the handler answers;
+the switch on with **no** directory → 403 naming `media_dir`, and the startup line says ENABLED BUT REFUSED AT
+THE STORAGE; a directory that does not exist → 403 naming the path; a real directory → the handler (404 from an
+empty table); and the export invariant against the host's own table, which on the dev host reads **0 exports**
+and says so rather than guessing. Read against the host's real table, the same rule correctly calls
+`/mnt/disk-important/stash-box-media` outside every export and `/media/stash-box` inside one.
+
+**Still open in phase 10, named rather than implied:** the variant ladder (reading bytes from `media_dir` and
+writing variants), hosting, the media toolchain, the players, PWA offline caching, the CDN/edge, and the
+resize-cache bounds. The stale-mount-point case — the drive unmounted leaves an empty directory on the root
+filesystem, so existence and readability both pass — is recorded in `store.go` with its fix shape (record the
+device id at startup, refuse when it changes) and belongs with the ladder, which is the first slice that reads
+bytes.
 
 **Verification.** `internal/api/routes_image_gate_test.go` drives the PRODUCTION router over three paths
 (including a malformed one: a zero-valued factory means a handler that ran would panic, so a 403 is also

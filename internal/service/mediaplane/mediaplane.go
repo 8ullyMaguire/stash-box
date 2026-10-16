@@ -92,11 +92,17 @@ func ImageBytesEnabled() bool {
 // it was mounted bare. A switch nothing asks is a comment, and the programme has now found that shape
 // often enough to write it down as a rule: when a switch is added, the question is not "does it
 // default off" but "what refuses".
+//
+// IT CHECKS TWO THINGS, IN THIS ORDER, and the order is asserted: the posture first, then the storage.
+// An instance whose operator never enabled images must be told the switch is off, even if its
+// `media_dir` is also missing -- naming a directory problem to someone who is not serving bytes sends
+// them to fix the second of two things they have not agreed to. The same rule as the gate running
+// before the uuid is parsed: name the fact the caller needs first.
 func RequireImageBytes() error {
 	if !ImageBytesEnabled() {
 		return ErrNoImageBytes
 	}
-	return nil
+	return MediaDirError()
 }
 
 // PostureLine reports how this process should describe its media-plane posture in the startup log.
@@ -105,13 +111,36 @@ func RequireImageBytes() error {
 // logger and so that the process has exactly one place that decides the wording. Both variants name
 // the key, because the log is where an operator finds out which posture they are in -- the same
 // shape as the cron's content_fetch_sources line.
+//
+// IT CARRIES THE IMAGE STATE TOO, since slice 10b-1, because "the switch is on" and "the bytes can
+// actually be served" are different facts and the startup log is where an operator finds out which one
+// they are in. Three states, each named: refused (both keys off), ENABLED BUT REFUSED AT THE STORAGE
+// (the switch is on and `media_dir` is unset or unusable -- the state that would otherwise look like a
+// working instance serving nothing), and served, naming the directory.
 func PostureLine() string {
+	var line string
 	if DeliveryEnabled() {
-		return "content_delivery is ON: this instance may serve content -- hosting, the variant " +
+		line = "content_delivery is ON: this instance may serve content -- hosting, the variant " +
 			"ladder, transcoding and the players (plan phase 10). Serving third-party material " +
 			"makes this instance a host; the operator has accepted that in writing."
+	} else {
+		line = "content_delivery is off: this instance serves no bytes -- it holds claims about works " +
+			"and the addresses of pages about them, and nothing it can hand a reader is a copy of a " +
+			"work. See docs/spec/feature-content-aggregator.md, second respec (2026-10-15)."
 	}
-	return "content_delivery is off: this instance serves no bytes -- it holds claims about works " +
-		"and the addresses of pages about them, and nothing it can hand a reader is a copy of a " +
-		"work. See docs/spec/feature-content-aggregator.md, second respec (2026-10-15)."
+	return line + " " + imageServingLine()
+}
+
+// imageServingLine is the image half of the posture, in the three states a reader has to be able to
+// tell apart. It is a separate function so that the wording has one home and a test can assert all
+// three without a logger -- the same reason PostureLine returns a string rather than logging one.
+func imageServingLine() string {
+	if !ImageBytesEnabled() {
+		return "Image bytes: refused (`images_enabled` and `content_delivery` are both off)."
+	}
+	if err := MediaDirError(); err != nil {
+		return "Image bytes: ENABLED BUT REFUSED AT THE STORAGE -- every image request will answer " +
+			"403 naming the problem: " + err.Error()
+	}
+	return "Image bytes: served from " + config.GetMediaDir() + "."
 }
