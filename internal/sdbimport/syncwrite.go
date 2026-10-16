@@ -131,7 +131,11 @@ type SyncWalk struct {
 // not the newest: a page is processed only if every record in it is inside the
 // window, because stopping halfway through a page would leave the watermark
 // claiming coverage it does not have.
-func (w SyncWalk) Step(page []Performer, rep *SyncReport, lookup func(name string) (*LocalPerformer, bool)) (continueWalk bool, firstErr error) {
+// The lookup takes the WHOLE source record, not its name. The destination's natural key for a performer is
+// (name, disambiguation) -- two legitimately distinct people share a name, and matching on name alone merges
+// them -- and a caller asked for a name alone cannot express that. The decision layer still decides nothing
+// about identity: it asks, and this is the question that can carry an answer through to the database.
+func (w SyncWalk) Step(page []Performer, rep *SyncReport, lookup func(up Performer) (*LocalPerformer, bool)) (continueWalk bool, firstErr error) {
 	if len(page) == 0 {
 		return false, nil
 	}
@@ -149,7 +153,7 @@ func (w SyncWalk) Step(page []Performer, rep *SyncReport, lookup func(name strin
 			rep.ReScanned++
 		}
 
-		loc, found := lookup(p.Name)
+		loc, found := lookup(p)
 		if !found {
 			// Not a sync decision: a record we do not have is the importer's
 			// job, not this one's. Counted as skipped so the number is not read
@@ -160,7 +164,8 @@ func (w SyncWalk) Step(page []Performer, rep *SyncReport, lookup func(name strin
 
 		localWritten := map[string]time.Time{} // no provenance table yet
 		changed := diffPerformerFields(p, *loc, localWritten)
-		plan := planUpdate(p.ID, changed, w.Mode)
+		plan, notWritable := planUpdate(p.ID, changed, w.Mode)
+		rep.NotApplied += notWritable
 		if len(plan) == 0 {
 			rep.Unchanged++
 			continue

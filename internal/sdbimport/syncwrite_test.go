@@ -108,7 +108,7 @@ func TestWalkStopsAtWatermark(t *testing.T) {
 		{ID: "c", Name: "C", Updated: now.Add(-3 * time.Hour)},
 	}
 	rep := &SyncReport{}
-	lookup := func(string) (*LocalPerformer, bool) { return nil, false }
+	lookup := func(Performer) (*LocalPerformer, bool) { return nil, false }
 
 	w := SyncWalk{Mode: ModeUpstream, Watermark: now.Add(-time.Hour), Margin: time.Hour}
 	cont, err := w.Step(page, rep, lookup)
@@ -127,12 +127,70 @@ func TestWalkContinuesWhenPageIsInsideWindow(t *testing.T) {
 		{ID: "b", Name: "B", Updated: now.Add(-10 * time.Minute)},
 	}
 	rep := &SyncReport{}
-	lookup := func(string) (*LocalPerformer, bool) { return nil, false }
+	lookup := func(Performer) (*LocalPerformer, bool) { return nil, false }
 
 	w := SyncWalk{Mode: ModeUpstream, Watermark: now.Add(-48 * time.Hour), Margin: time.Hour}
 	cont, err := w.Step(page, rep, lookup)
 	require.NoError(t, err)
 	assert.True(t, cont, "a page entirely inside the window must continue")
+}
+
+// TWO PEOPLE CAN SHARE A NAME, AND THE LOOKUP MUST NOT MERGE THEM.
+//
+// This is the destination's own uniqueness rule leaking into the sync's contract: `UNIQUE (name, disambiguation)
+// WHERE NOT deleted`, and the importer's sampling found 15.5% of source performers share a name with someone
+// else ("alex" appears 29 times). A lookup asked for a NAME cannot express that, which is why the decision layer
+// now asks with the whole record -- and this test fails if that ever narrows back to a name.
+func TestTheLookupIsAskedWithEnoughToTellTwoPeopleApart(t *testing.T) {
+	now := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	asked := []Performer{}
+
+	first, second := localPerf("Alex"), localPerf("Alex")
+	first.Disambiguation = ptr("Black Boy Addictionz")
+	second.Disambiguation = ptr("HardTied")
+	// Each local row differs from the source in a field of its own, so the planned changes name WHICH row each
+	// record was compared against. A name-only lookup would give both the same answer.
+	first.Country, second.Country = ptr("AA"), ptr("BB")
+
+	page := []Performer{
+		{ID: "one", Name: "Alex", Disambiguation: ptr("Black Boy Addictionz"), Country: ptr("CC"), Updated: now},
+		{ID: "two", Name: "Alex", Disambiguation: ptr("HardTied"), Country: ptr("CC"), Updated: now},
+	}
+
+	rep := &SyncReport{}
+	lookup := func(up Performer) (*LocalPerformer, bool) {
+		asked = append(asked, up)
+		switch deref(up.Disambiguation) {
+		case "Black Boy Addictionz":
+			return &first, true
+		case "HardTied":
+			return &second, true
+		}
+		return nil, false
+	}
+
+	w := SyncWalk{Mode: ModeUpstream, Watermark: now.Add(-48 * time.Hour), Margin: time.Hour, DryRun: true}
+	_, err := w.Step(page, rep, lookup)
+	require.NoError(t, err)
+
+	require.Len(t, asked, 2)
+	if deref(asked[0].Disambiguation) != "Black Boy Addictionz" || deref(asked[1].Disambiguation) != "HardTied" {
+		t.Fatalf("the lookup was asked without disambiguation: %q then %q -- two people with one name "+
+			"would be diffed against each other's rows", deref(asked[0].Disambiguation), deref(asked[1].Disambiguation))
+	}
+
+	// And each record was compared against ITS OWN row: the two planned country changes must carry the two
+	// different local values. One value twice is what a name-only lookup produces.
+	olds := map[string]bool{}
+	for _, c := range rep.Changes {
+		if c.Field == "country" {
+			olds[c.Old] = true
+		}
+	}
+	if !olds["AA"] || !olds["BB"] || len(olds) != 2 {
+		t.Errorf("country changes carry local values %v, want AA and BB: the two Alexes were diffed against "+
+			"the same row", olds)
+	}
 }
 
 func TestWalkReportsChangesForKnownRecords(t *testing.T) {
@@ -147,8 +205,8 @@ func TestWalkReportsChangesForKnownRecords(t *testing.T) {
 	loc.URLs = nil
 
 	rep := &SyncReport{}
-	lookup := func(n string) (*LocalPerformer, bool) {
-		if n == "Jane Doe" {
+	lookup := func(up Performer) (*LocalPerformer, bool) {
+		if up.Name == "Jane Doe" {
 			return &loc, true
 		}
 		return nil, false
@@ -170,7 +228,7 @@ func TestWalkReportsChangesForKnownRecords(t *testing.T) {
 func TestWalkSkipsUnknownRecords(t *testing.T) {
 	now := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
 	rep := &SyncReport{}
-	lookup := func(string) (*LocalPerformer, bool) { return nil, false }
+	lookup := func(Performer) (*LocalPerformer, bool) { return nil, false }
 
 	w := SyncWalk{Mode: ModeUpstream, Watermark: now.Add(-48 * time.Hour), Margin: time.Hour}
 	_, err := w.Step([]Performer{{ID: "x", Name: "Nobody", Updated: now}}, rep, lookup)

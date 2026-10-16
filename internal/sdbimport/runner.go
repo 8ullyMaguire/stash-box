@@ -30,7 +30,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gofrs/uuid"
+
+	"github.com/stashapp/stash-box/internal/converter"
 	"github.com/stashapp/stash-box/internal/models"
+	"github.com/stashapp/stash-box/internal/queries"
 )
 
 // errStopWalk travels from a per-record callback back through the pager. It is not an error condition: it IS the
@@ -322,7 +326,7 @@ func (r *Runner) walkPerformers(ctx context.Context) (EntityReport, error) {
 		// upstream -- and the write needs the DESTINATION's row. The translation is this caller's job because
 		// the decision layer has no database. Look the local row up once and hand its id to the applier; a
 		// change exists only for a record the lookup found, so the two always agree.
-		local, hasLocal := r.lookup(p.Name)
+		local, hasLocal := r.lookup(p)
 
 		cont, stepErr := walk.Step([]Performer{p}, rep, r.lookup)
 		if stepErr != nil {
@@ -462,19 +466,26 @@ func (r *Runner) applyAliasAndURLs(p Performer, changes []FieldChange, in *model
 	}
 }
 
-// lookup is the source-name -> local-record function the diff needs.
+// lookup is the source-record -> local-record function the diff needs.
 //
-// It answers with the destination's row by NATURAL KEY, and caches per walk. A name that matches several local
-// rows resolves to the first: the destination's uniqueness is (name, disambiguation), so a single-answer
-// resolver is a real simplification -- the diff is reported against that row rather than against a guess.
-func (r *Runner) lookup(name string) (*LocalPerformer, bool) {
-	key := strings.ToLower(strings.TrimSpace(name))
+// IT MATCHES ON (name, disambiguation) AND ON URL, which is the importer's own natural key and not a detail:
+// the destination's uniqueness is `UNIQUE (name, disambiguation) WHERE NOT deleted`, and the importer's own
+// sampling found 15.5% of source performers share a name with someone else ("alex" appears 29 times). The first
+// version of this function asked the service for a name and took the first row -- measured against the live
+// source, that produced a plan to write "HardTied" as the disambiguation of a different performer named Alex.
+// `FindExistingPerformers` is the query the import path uses for the same question, and it matches a rename by
+// URL as well.
+//
+// The cache is keyed by the full natural key, for the same reason: two records can share a name and only one of
+// them is in the database.
+func (r *Runner) lookup(up Performer) (*LocalPerformer, bool) {
+	key := normKey(up.Name) + "|" + strings.ToLower(deref(up.Disambiguation))
 	if v, ok := r.local[key]; ok {
 		return v, v != nil
 	}
 	r.local[key] = nil
 
-	local, err := r.loadLocal(context.Background(), name)
+	local, err := r.loadLocal(context.Background(), up)
 	if err != nil {
 		// A lookup failure is not a sync decision: leaving the record out of the diff is correct, and Step
 		// counts it as skipped rather than updated.
@@ -484,24 +495,42 @@ func (r *Runner) lookup(name string) (*LocalPerformer, bool) {
 	return local, local != nil
 }
 
-func (r *Runner) loadLocal(ctx context.Context, name string) (*LocalPerformer, error) {
-	p, err := r.imp.Factory.Performer().FindByName(ctx, name)
-	if err != nil || p == nil {
-		return nil, err
-	}
-	aliases, err := r.imp.queries.GetEditPerformerAliases(ctx, p.ID)
+func (r *Runner) loadLocal(ctx context.Context, up Performer) (*LocalPerformer, error) {
+	matches, err := r.imp.queries.FindExistingPerformers(ctx, queries.FindExistingPerformersParams{
+		Name:           strPtr(trimmed(up.Name)),
+		Disambiguation: nullString(deref(up.Disambiguation)),
+		Urls:           up.URLStrings(),
+	})
 	if err != nil {
 		return nil, err
 	}
-	rows, err := r.imp.queries.GetPerformerURLs(ctx, p.ID)
+	if len(matches) == 0 {
+		return nil, nil
+	}
+	row := matches[0]
+
+	// Aliases come from the performer's OWN alias rows. The first version of this read them through
+	// GetEditPerformerAliases -- which takes an EDIT id, not a performer id, and answers "no aliases" for any
+	// performer id handed to it. That is invisible from the call site and was visible in the report: aliases
+	// appeared as a change on every run, because the local side always looked empty.
+	aliases, err := r.imp.queries.FindPerformerAliasesByIds(ctx, []uuid.UUID{row.ID})
 	if err != nil {
 		return nil, err
 	}
-	urls := make([]string, 0, len(rows))
-	for _, row := range rows {
-		urls = append(urls, row.Url)
+	aliasList := make([]string, 0, len(aliases))
+	for _, a := range aliases {
+		aliasList = append(aliasList, a.Alias)
 	}
-	return &LocalPerformer{Performer: *p, Aliases: aliases, URLs: urls}, nil
+	urlRows, err := r.imp.queries.GetPerformerURLs(ctx, row.ID)
+	if err != nil {
+		return nil, err
+	}
+	urls := make([]string, 0, len(urlRows))
+	for _, u := range urlRows {
+		urls = append(urls, u.Url)
+	}
+
+	return &LocalPerformer{Performer: *converter.PerformerToModelPtr(row), Aliases: aliasList, URLs: urls}, nil
 }
 
 func (r *Runner) modeFor(entity string) (SyncMode, error) {

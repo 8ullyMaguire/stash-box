@@ -222,7 +222,7 @@ func TestUpdatePreservesUnsetFields(t *testing.T) {
 	assert.True(t, fields["country"], "country differs and is a real change")
 
 	// And the plan must only ever carry fields the source actually spoke about.
-	plan := planUpdate("s", changed, ModeUpstream)
+	plan, _ := planUpdate("s", changed, ModeUpstream)
 	for _, c := range plan {
 		assert.NotEqual(t, "height", c.Field,
 			"an update plan must never contain a field the source did not set")
@@ -239,18 +239,19 @@ func TestPlanRespectsMode(t *testing.T) {
 	}
 
 	// local-wins writes only the empty one.
-	plan := planUpdate("s", fields, ModeLocal)
+	plan, _ := planUpdate("s", fields, ModeLocal)
 	require.Len(t, plan, 1)
 	assert.Equal(t, "eye_color", plan[0].Field)
 
 	// upstream-wins writes both.
-	assert.Len(t, planUpdate("s", fields, ModeUpstream), 2)
+	plan2, _ := planUpdate("s", fields, ModeUpstream)
+	assert.Len(t, plan2, 2)
 
 	// latest-wins: country was written locally at the same instant upstream
 	// touched it, so it is not newer; eye_color has never been written here.
-	plan = planUpdate("s", fields, ModeLatest)
-	require.Len(t, plan, 1)
-	assert.Equal(t, "eye_color", plan[0].Field)
+	latestPlan, _ := planUpdate("s", fields, ModeLatest)
+	require.Len(t, latestPlan, 1)
+	assert.Equal(t, "eye_color", latestPlan[0].Field)
 }
 
 // An idempotent re-run must produce nothing the second time. This is the
@@ -271,13 +272,13 @@ func TestIdempotent(t *testing.T) {
 	// First run: destination agrees with upstream.
 	loc := localPerf("Jane Doe")
 	loc.Country = ptr("CA")
-	first := planUpdate("s", diffPerformerFields(up, loc, nil), ModeUpstream)
+	first, _ := planUpdate("s", diffPerformerFields(up, loc, nil), ModeUpstream)
 	assert.Empty(t, first, "nothing to do when the destination already matches")
 
 	// After the write, the destination matches; a second run finds nothing.
 	loc2 := localPerf("Jane Doe")
 	loc2.Country = ptr("CA")
-	second := planUpdate("s", diffPerformerFields(up, loc2, nil), ModeUpstream)
+	second, _ := planUpdate("s", diffPerformerFields(up, loc2, nil), ModeUpstream)
 	assert.Empty(t, second, "a re-run after a write must find nothing to do")
 }
 

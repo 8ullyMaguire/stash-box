@@ -76,6 +76,11 @@ type SyncReport struct {
 	// margin is too small for the source's update rate.
 	ReScanned int
 
+	// NotApplied counts differences that were found and deliberately not planned, because the destination cannot
+	// write that value at all. It is NOT a synonym for dropped: dropped would mean the source has data this
+	// instance chose not to keep, and this means the source's value has no representation here.
+	NotApplied int
+
 	Changes []FieldChange
 }
 

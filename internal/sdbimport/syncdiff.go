@@ -46,6 +46,10 @@ type Field struct {
 	// UpUpdated is the source's `updated` for the whole record, used as the
 	// upstream side's write time in latest-wins. See shouldWrite.
 	UpUpdated time.Time
+
+	// notWritable marks a difference this sync records but does not plan: the value cannot be written, so
+	// planning it would produce a change that is applied as a no-op and re-detected on every run.
+	notWritable bool
 }
 
 // fieldDiff is the closed list of syncable fields, and the only place one is
@@ -62,6 +66,14 @@ type fieldDiff struct {
 	up    func(u Performer) string
 	// neverSync is set for fields deliberately excluded from syncing.
 	neverSync bool
+	// writable, when set, answers whether an upstream value is one the destination can represent at all.
+	//
+	// It exists because "we cannot write this value" and "this value changed" are different statements, and
+	// conflating them makes the diff never converge: an enum whose upstream value is the source's "NA"
+	// sentinel -- meaning "not applicable" -- was planned as a change on every single run, written as the
+	// no-op `enumOrNil` deliberately makes it, and re-detected next time. The report then said "updated 49"
+	// for 49 records where nothing had changed and nothing would.
+	writable func(up string) bool
 }
 
 // syncableFields is ordered for readable reports, not for lookup speed.
@@ -74,7 +86,7 @@ var syncableFields = []fieldDiff{
 		local: func(l LocalPerformer) string { return normStr(l.Disambiguation) },
 		up:    func(u Performer) string { return normStr(u.Disambiguation) }},
 
-	{name: "gender",
+	{name: "gender", writable: representable(genderValues),
 		local: func(l LocalPerformer) string { return enumStr(l.Gender) },
 		up:    func(u Performer) string { return normStr(u.Gender) }},
 
@@ -86,19 +98,19 @@ var syncableFields = []fieldDiff{
 		local: func(l LocalPerformer) string { return normStr(l.Country) },
 		up:    func(u Performer) string { return normStr(u.Country) }},
 
-	{name: "ethnicity",
+	{name: "ethnicity", writable: representable(ethnicityValues),
 		local: func(l LocalPerformer) string { return enumStr(l.Ethnicity) },
 		up:    func(u Performer) string { return normStr(u.Ethnicity) }},
 
-	{name: "eye_color",
+	{name: "eye_color", writable: representable(eyeValues),
 		local: func(l LocalPerformer) string { return enumStr(l.EyeColor) },
 		up:    func(u Performer) string { return normStr(u.EyeColor) }},
 
-	{name: "hair_color",
+	{name: "hair_color", writable: representable(hairValues),
 		local: func(l LocalPerformer) string { return enumStr(l.HairColor) },
 		up:    func(u Performer) string { return normStr(u.HairColor) }},
 
-	{name: "breast_type",
+	{name: "breast_type", writable: representable(breastValues),
 		local: func(l LocalPerformer) string { return enumStr(l.BreastType) },
 		up:    func(u Performer) string { return normStr(u.BreastType) }},
 
@@ -145,6 +157,12 @@ func diffPerformerFields(up Performer, loc LocalPerformer, localWritten map[stri
 			continue
 		}
 		l, r := fd.local(loc), fd.up(up)
+		if fd.writable != nil && !fd.writable(r) {
+			// A value the destination cannot represent is not a change. It is not a DROP either, which is why
+			// it is not counted: dropped means "the source has data we chose not to keep" and this means "the
+			// source has no data".
+			continue
+		}
 		// An ABSENT upstream value is never a request to clear the local one.
 		//
 		// The wire format cannot distinguish "the source has no value for this
@@ -183,12 +201,23 @@ func diffPerformerFields(up Performer, loc LocalPerformer, localWritten map[stri
 		upURLs = append(upURLs, u.URL)
 	}
 	if len(upURLs) > 0 && !listEq(loc.URLs, upURLs) {
+		// A URL DIFFERENCE IS CAPTURED, NOT PLANNED.
+		//
+		// The sync cannot write a URL: a URL carries a SiteID, a uuid this code cannot invent, so attaching one
+		// would violate a foreign key or attach it to a meaningless site row. The import path made the same
+		// choice and recorded it (mapping.go). Planning it anyway made every run report the same performers as
+		// changed -- writes that were deliberately no-ops, re-detected forever, inflating "updated" until the
+		// number meant nothing.
+		//
+		// It is counted instead, so a reader still sees that URLs differ and the report does not claim the two
+		// sides agree about them.
 		out = append(out, Field{
 			Name:           "urls",
 			Local:          strings.Join(loc.URLs, ", "),
 			Up:             strings.Join(upURLs, ", "),
 			LocalEmpty:     len(loc.URLs) == 0,
 			LocalWrittenAt: localWritten["urls"],
+			notWritable:    true,
 		})
 	}
 
@@ -244,14 +273,27 @@ func shouldWrite(f Field, mode SyncMode) bool {
 // Kept separate from the write so a dry run and a real run compute the same plan
 // and differ only in whether it is applied. A dry run that derives its report by
 // a different path is not evidence about the real path.
-func planUpdate(upID string, fields []Field, mode SyncMode) []FieldChange {
-	var out []FieldChange
+// planUpdate also reports how many differences it declined to plan, so a caller can say "this record has
+// differences, none of which are writable" rather than silently reading as "nothing to do".
+func planUpdate(upID string, fields []Field, mode SyncMode) (changes []FieldChange, notWritable int) {
 	for _, f := range fields {
+		if f.notWritable {
+			notWritable++
+			continue
+		}
 		if shouldWrite(f, mode) {
-			out = append(out, FieldChange{EntityID: upID, Field: f.Name, Old: f.Local, New: f.Up})
+			changes = append(changes, FieldChange{EntityID: upID, Field: f.Name, Old: f.Local, New: f.Up})
 		}
 	}
-	return out
+	return changes, notWritable
+}
+
+// representable reports whether an upstream value is one the destination's enum set contains.
+//
+// It is the same rule enumOrNil applies at the write, asked one step earlier -- and asking it here is the whole
+// difference between "we will not write this" and "this changed".
+func representable(allowed []string) func(string) bool {
+	return func(up string) bool { return enumOrNil(&up, allowed) != nil }
 }
 
 // --- rendering helpers -----------------------------------------------------
