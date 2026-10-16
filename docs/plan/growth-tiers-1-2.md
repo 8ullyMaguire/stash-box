@@ -1,5 +1,8 @@
 # Growth surfaces, Tiers 1–2 — PLAN
 
+Status: **not built**. No slice of this plan carries a BUILT marker (`grep -c BUILT` is 0): these two
+growth surfaces are unbuilt work.
+
 Spec: `docs/spec/growth-tiers-1-2.md`. Written before implementation, per the
 standing spec-first rule.
 

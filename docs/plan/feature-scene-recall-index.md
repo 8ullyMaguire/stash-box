@@ -1,5 +1,9 @@
 # Plan — scene recall: make the stored fields findable
 
+Status: **not built**. No slice of this plan carries a BUILT marker (`grep -c BUILT` is 0). Written before
+any code, per the standing spec-first rule, and the recall index is unbuilt work rather than a record of
+something that shipped.
+
 Implements **SPEC §7.25.1** (the recall index) and **§7.25.2** (the drift
 check). Written 2026-10-05, before any code. Executable by an LLM with no
 prior context on this codebase.

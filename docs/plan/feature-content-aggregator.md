@@ -3505,6 +3505,72 @@ the draft.
 against a core tag; a hash lookup returns mirrors; an instance that declares core
 v1 is refused a v2-only field rather than silently mis-mapping.
 
+### Slice 12a — the ontology crosses the boundary, and a version a peer cannot speak is refused by name
+
+**The rule.** Two instances have to be able to say *which ontology they speak* and decide, before
+anything crosses, what the other one can read. The phase's clause names both halves: "two instances
+exchange an ontology version and resolve a local tag against a core tag; ... an instance that declares
+core v1 is refused a v2-only field rather than silently mis-mapping."
+
+**The comparison travels as a DIGEST, never as the document.** The question a peer needs answered is
+"is your ontology mine", and the document that answers it is this instance's whole tag graph. Sending it
+to every peer would make the taxonomy readable by anyone who can reach the answering endpoint -- a
+disclosure the mesh's one-question-at-a-time protocol exists to avoid -- so the declaration carries the
+SHA-256 of the document's **canonical** form: `tag`, `implies`, `created`-free, sorted, no whitespace
+(`federation.CanonicalDigest`). Same ontology, same digest, whatever order either database returned its
+rows in; one changed edge, a different digest. `localVersion` is published but **never compared**: it is
+a local counter (migration 112's trigger), so two instances that edited the same ontology in different
+orders reach the same graph at different numbers, and comparing the numbers would report disagreement
+between instances that agree.
+
+**The core versions, and why v2 is named before it exists.** Core **v1** is the implication graph as
+migration 111/112 store it: `{tag, implies}` pairs. Core **v2** is that document *plus the one thing
+migration 112's own COMMENT says it is not* -- "this is the implication graph only -- tag renames and
+category changes are not in it" -- so v2 adds `category` to an edge. v2 is **not built**, and naming it
+here is the point: a version this instance knows the SHAPE of is a version it can refuse field by field,
+and the alternative is a v2 instance whose edges arrive with the category dropped on the floor. That is
+what "silently mis-mapping" looks like in practice -- the tag arrives, in the wrong branch, with nothing
+saying so.
+
+**A field crosses when BOTH sides implement the version that introduced it**, and every field of the
+document is decided on every call, not only the refused ones (`federation.Compatibility`): a caller that
+gets one refusal back cannot tell whether the other fields were allowed or simply not asked about. Each
+refusal names the side that has to move -- "introduced in core 2; the peer declares core 1 only" -- and
+that sentence is the deliverable. "Not supported" leaves an operator to find out which end to upgrade.
+
+**The declaration is a set of versions, not a level.** A peer that declares core 2 alone has dropped the
+older document, so its v1 fields are refused and its v2-only field is allowed; a peer that declares both
+reads everything. This is not a detail: the first version of the query surface took ONE version number,
+and no input could produce "everything crosses" -- the field's most useful answer was unreachable, which
+the integration test showed by failing on it.
+
+**Verification.** `go test ./internal/service/federation/ -run 'Ontology|Compatibility|CanonicalDigest|
+LocalDeclaration|ValidateDeclaration|SupportsCore'` -- **13 tests, no database and no network**, because
+the rule is a decision and a decision needs no second instance: the digest's order-independence (with a
+fixture guard asserting the two documents differ as text), its change on an add/reverse/rename, `null`
+and `""` reading as the empty ontology while a half-written edge is REFUSED, the declaration being read
+per call rather than cached (the fake's document moves between two calls), the v1/v2/only-v2/no-shared
+ladder one arm at a time, and `ValidateDeclaration` with a positive control before its five refusals.
+`go test -tags integration -run 'TestOntologyDeclaration|TestOntologyCompatibility' ./internal/api/` --
+**3 tests over GraphQL**, the strongest being the ROUND TRIP: a peer asks for `findOntologyVersion(n)`,
+hashes the document with the same public function, and must arrive at the digest
+`ontologyDeclaration` published -- without which `digest` is a number this instance prints and nothing
+else can reproduce. Then an implication added by a real tag edit moves the version, the counts and the
+digest together. MUTATIONS: `scripts/mutate-ontology-12a.py`, **6 probes, 6 KILLED**, package restored
+green (the peer's half of the condition; the refusal losing the side it names; the sort removed from
+canonicalisation; a nameless edge accepted; the hex check dropped; `namedTags` counting edges).
+
+**NOT BUILT, NAMED: THE TRANSPORT.** This tree serves no inbound endpoint at all. `client.go` asks peers
+at `/federation/identify` and nothing in `internal/api` answers that path, so today this instance asks
+and cannot be asked -- the phase's "two instances exchange an ontology version" is verified in the only
+form this tree supports (the declaration naming a document a peer can fetch and reproduce the digest of)
+and NOT as an exchange. The next slice builds the serving half: the endpoint, the peer's declaration
+riding on the question and the answer, and `ValidateDeclaration` on the way in (it is written and tested
+here, with no caller yet, for exactly that reason). Also not built: core v2 itself, the ontology
+MAPPING (resolving a local tag to a core tag needs the core ontology to exist as a document, which is
+v2's work), and any write path -- F2 applies to an ontology as it applies to a candidate, so nothing
+here merges a remote graph into a local one.
+
 ## Phase 13 — API, interoperability, exports
 
 **Placed elsewhere (2026-10-14):** exposing stash-box as an **MCP server** (search scenes and

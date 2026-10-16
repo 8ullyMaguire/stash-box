@@ -881,6 +881,26 @@ type ComplexityRoot struct {
 		Read    func(childComplexity int) int
 	}
 
+	OntologyCompatibility struct {
+		Fields func(childComplexity int) int
+		Shared func(childComplexity int) int
+	}
+
+	OntologyDeclaration struct {
+		CoreVersions func(childComplexity int) int
+		Digest       func(childComplexity int) int
+		Implications func(childComplexity int) int
+		LocalVersion func(childComplexity int) int
+		NamedTags    func(childComplexity int) int
+	}
+
+	OntologyFieldDecision struct {
+		Allowed func(childComplexity int) int
+		Name    func(childComplexity int) int
+		Reason  func(childComplexity int) int
+		Since   func(childComplexity int) int
+	}
+
 	OntologyVersion struct {
 		Created  func(childComplexity int) int
 		Note     func(childComplexity int) int
@@ -1083,6 +1103,8 @@ type ComplexityRoot struct {
 		Lists                          func(childComplexity int, userID *uuid.UUID, perPage *int, page *int) int
 		Me                             func(childComplexity int) int
 		MyIdentificationDetectiveScore func(childComplexity int) int
+		OntologyCompatibility          func(childComplexity int, coreVersions []int) int
+		OntologyDeclaration            func(childComplexity int) int
 		OntologyVersion                func(childComplexity int) int
 		OntologyVersions               func(childComplexity int, limit int) int
 		PerformerChangelog             func(childComplexity int, since time.Time, afterID *uuid.UUID, limit *int) int
@@ -2008,6 +2030,8 @@ type QueryResolver interface {
 	OntologyVersion(ctx context.Context) (int, error)
 	OntologyVersions(ctx context.Context, limit int) ([]OntologyVersion, error)
 	FindOntologyVersion(ctx context.Context, version int) (*OntologyVersion, error)
+	OntologyDeclaration(ctx context.Context) (*OntologyDeclaration, error)
+	OntologyCompatibility(ctx context.Context, coreVersions []int) (*OntologyCompatibility, error)
 	FindScene(ctx context.Context, id uuid.UUID) (*Scene, error)
 	FindScenes(ctx context.Context, ids []uuid.UUID) ([]*Scene, error)
 	FindScenesBySceneFingerprints(ctx context.Context, fingerprints [][]FingerprintQueryInput) ([][]*Scene, error)
@@ -6212,6 +6236,75 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.Notification.Read(childComplexity), true
 
+	case "OntologyCompatibility.fields":
+		if e.ComplexityRoot.OntologyCompatibility.Fields == nil {
+			break
+		}
+
+		return e.ComplexityRoot.OntologyCompatibility.Fields(childComplexity), true
+	case "OntologyCompatibility.shared":
+		if e.ComplexityRoot.OntologyCompatibility.Shared == nil {
+			break
+		}
+
+		return e.ComplexityRoot.OntologyCompatibility.Shared(childComplexity), true
+
+	case "OntologyDeclaration.core_versions":
+		if e.ComplexityRoot.OntologyDeclaration.CoreVersions == nil {
+			break
+		}
+
+		return e.ComplexityRoot.OntologyDeclaration.CoreVersions(childComplexity), true
+	case "OntologyDeclaration.digest":
+		if e.ComplexityRoot.OntologyDeclaration.Digest == nil {
+			break
+		}
+
+		return e.ComplexityRoot.OntologyDeclaration.Digest(childComplexity), true
+	case "OntologyDeclaration.implications":
+		if e.ComplexityRoot.OntologyDeclaration.Implications == nil {
+			break
+		}
+
+		return e.ComplexityRoot.OntologyDeclaration.Implications(childComplexity), true
+	case "OntologyDeclaration.local_version":
+		if e.ComplexityRoot.OntologyDeclaration.LocalVersion == nil {
+			break
+		}
+
+		return e.ComplexityRoot.OntologyDeclaration.LocalVersion(childComplexity), true
+	case "OntologyDeclaration.named_tags":
+		if e.ComplexityRoot.OntologyDeclaration.NamedTags == nil {
+			break
+		}
+
+		return e.ComplexityRoot.OntologyDeclaration.NamedTags(childComplexity), true
+
+	case "OntologyFieldDecision.allowed":
+		if e.ComplexityRoot.OntologyFieldDecision.Allowed == nil {
+			break
+		}
+
+		return e.ComplexityRoot.OntologyFieldDecision.Allowed(childComplexity), true
+	case "OntologyFieldDecision.name":
+		if e.ComplexityRoot.OntologyFieldDecision.Name == nil {
+			break
+		}
+
+		return e.ComplexityRoot.OntologyFieldDecision.Name(childComplexity), true
+	case "OntologyFieldDecision.reason":
+		if e.ComplexityRoot.OntologyFieldDecision.Reason == nil {
+			break
+		}
+
+		return e.ComplexityRoot.OntologyFieldDecision.Reason(childComplexity), true
+	case "OntologyFieldDecision.since":
+		if e.ComplexityRoot.OntologyFieldDecision.Since == nil {
+			break
+		}
+
+		return e.ComplexityRoot.OntologyFieldDecision.Since(childComplexity), true
+
 	case "OntologyVersion.created":
 		if e.ComplexityRoot.OntologyVersion.Created == nil {
 			break
@@ -7464,6 +7557,23 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.MyIdentificationDetectiveScore(childComplexity), true
+	case "Query.ontologyCompatibility":
+		if e.ComplexityRoot.Query.OntologyCompatibility == nil {
+			break
+		}
+
+		args, err := ec.field_Query_ontologyCompatibility_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.OntologyCompatibility(childComplexity, args["core_versions"].([]int)), true
+	case "Query.ontologyDeclaration":
+		if e.ComplexityRoot.Query.OntologyDeclaration == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Query.OntologyDeclaration(childComplexity), true
 	case "Query.ontologyVersion":
 		if e.ComplexityRoot.Query.OntologyVersion == nil {
 			break
@@ -16233,6 +16343,49 @@ type OntologyVersion {
   snapshot: String
 }
 
+"""
+What an instance says about the ontology it speaks (phase 12, slice 12a).
+
+It carries no tag names and no edges: see ` + "`" + `ontologyDeclaration` + "`" + ` in schema.graphql for why the
+comparison travels as a digest rather than as the document.
+"""
+type OntologyDeclaration {
+  "The core ontology versions this instance implements, ascending."
+  core_versions: [Int!]!
+  "The version of THIS instance's document. Local: two instances at version 7 hold two different ontologies."
+  local_version: Int!
+  "SHA-256, in hexadecimal, of the canonical implication document. Two instances holding the same ontology agree on it."
+  digest: String!
+  "How many distinct tag names the document mentions. NOT the count of tags: a tag with no implications is not in the document."
+  named_tags: Int!
+  "How many implication edges the document holds."
+  implications: Int!
+}
+
+"""
+One field of the ontology document, and whether it may cross to the peer under discussion.
+"""
+type OntologyFieldDecision {
+  "The field's key in the document: tag, implies, category."
+  name: String!
+  "The core ontology version that introduced the field."
+  since: Int!
+  "Whether both instances implement ` + "`" + `since` + "`" + `. A field only one side implements is not sent, and not dropped either: ` + "`" + `reason` + "`" + ` says why."
+  allowed: Boolean!
+  "The sentence an operator reads: which version the field needs, and which side lacks it."
+  reason: String!
+}
+
+"""
+What may be exchanged with a peer, decided field by field.
+"""
+type OntologyCompatibility {
+  "Every core version both instances implement, ascending. Empty means the two cannot speak at all."
+  shared: [Int!]!
+  "Every field of the document, decided -- the closed list, so a caller can tell 'allowed' from 'not asked about'."
+  fields: [OntologyFieldDecision!]!
+}
+
 input TagCreateInput {
   name: String!
   description: String
@@ -16977,6 +17130,32 @@ type Query {
 
   """One ontology version, with the whole graph as it stood at that version."""
   findOntologyVersion(version: Int!): OntologyVersion @hasRole(role: READ)
+
+  """
+  What this instance says about the ontology it speaks, for a peer or an operator comparing two
+  instances: the core versions implemented, the local version in force, and the SHA-256 of the
+  canonical implication document.
+
+  There is no field carrying the document itself, deliberately. ` + "`" + `digest` + "`" + ` is what makes two instances
+  comparable -- same ontology, same digest, whatever order either database returned its rows in --
+  and it discloses nothing, where sending the graph would hand a peer this instance's whole taxonomy.
+  """
+  ontologyDeclaration: OntologyDeclaration! @hasRole(role: READ)
+
+  """
+  What may be exchanged with a peer that declares these core ontology versions, field by field.
+
+  A LIST rather than one number, because that is the shape a declaration has and the rule is about
+  SETS: an instance that implements core 2 may or may not still implement core 1, and the difference
+  decides whether the v1 fields cross. Asking about "core 2" alone answers a different question --
+  whether a peer that speaks ONLY the newer document can still be sent the older fields -- and the
+  answer to that one is no.
+
+  A field introduced by a version the peer does not implement is refused WITH A REASON naming the
+  side that has to move, rather than being dropped from the exchange. Dropping it is the silent
+  mis-mapping phase 12 exists to prevent: the tag arrives, in the wrong branch, with nothing saying so.
+  """
+  ontologyCompatibility(core_versions: [Int!]!): OntologyCompatibility! @hasRole(role: READ)
 
   #### Scenes ####
 
@@ -18547,6 +18726,46 @@ func (ec *executionContext) childFields_Notification(ctx context.Context, field 
 		return ec.fieldContext_Notification_data(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type Notification", field.Name)
+}
+
+func (ec *executionContext) childFields_OntologyCompatibility(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "shared":
+		return ec.fieldContext_OntologyCompatibility_shared(ctx, field)
+	case "fields":
+		return ec.fieldContext_OntologyCompatibility_fields(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type OntologyCompatibility", field.Name)
+}
+
+func (ec *executionContext) childFields_OntologyDeclaration(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "core_versions":
+		return ec.fieldContext_OntologyDeclaration_core_versions(ctx, field)
+	case "local_version":
+		return ec.fieldContext_OntologyDeclaration_local_version(ctx, field)
+	case "digest":
+		return ec.fieldContext_OntologyDeclaration_digest(ctx, field)
+	case "named_tags":
+		return ec.fieldContext_OntologyDeclaration_named_tags(ctx, field)
+	case "implications":
+		return ec.fieldContext_OntologyDeclaration_implications(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type OntologyDeclaration", field.Name)
+}
+
+func (ec *executionContext) childFields_OntologyFieldDecision(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "name":
+		return ec.fieldContext_OntologyFieldDecision_name(ctx, field)
+	case "since":
+		return ec.fieldContext_OntologyFieldDecision_since(ctx, field)
+	case "allowed":
+		return ec.fieldContext_OntologyFieldDecision_allowed(ctx, field)
+	case "reason":
+		return ec.fieldContext_OntologyFieldDecision_reason(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type OntologyFieldDecision", field.Name)
 }
 
 func (ec *executionContext) childFields_OntologyVersion(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -22492,6 +22711,20 @@ func (ec *executionContext) field_Query_lists_args(ctx context.Context, rawArgs 
 		return nil, err
 	}
 	args["page"] = arg2
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_ontologyCompatibility_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "core_versions",
+		func(ctx context.Context, v any) ([]int, error) {
+			return ec.unmarshalNInt2ᚕintᚄ(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["core_versions"] = arg0
 	return args, nil
 }
 
@@ -41240,6 +41473,268 @@ func (ec *executionContext) fieldContext_Notification_data(_ context.Context, fi
 	return graphql.NewScalarFieldContext("Notification", field, true, true, errors.New("field of type NotificationData does not have child fields"))
 }
 
+func (ec *executionContext) _OntologyCompatibility_shared(ctx context.Context, field graphql.CollectedField, obj *OntologyCompatibility) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_OntologyCompatibility_shared(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Shared, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []int) graphql.Marshaler {
+			return ec.marshalNInt2ᚕintᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_OntologyCompatibility_shared(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("OntologyCompatibility", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _OntologyCompatibility_fields(ctx context.Context, field graphql.CollectedField, obj *OntologyCompatibility) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_OntologyCompatibility_fields(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Fields, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []OntologyFieldDecision) graphql.Marshaler {
+			return ec.marshalNOntologyFieldDecision2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐOntologyFieldDecisionᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_OntologyCompatibility_fields(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "OntologyCompatibility",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_OntologyFieldDecision(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _OntologyDeclaration_core_versions(ctx context.Context, field graphql.CollectedField, obj *OntologyDeclaration) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_OntologyDeclaration_core_versions(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.CoreVersions, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []int) graphql.Marshaler {
+			return ec.marshalNInt2ᚕintᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_OntologyDeclaration_core_versions(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("OntologyDeclaration", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _OntologyDeclaration_local_version(ctx context.Context, field graphql.CollectedField, obj *OntologyDeclaration) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_OntologyDeclaration_local_version(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.LocalVersion, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_OntologyDeclaration_local_version(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("OntologyDeclaration", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _OntologyDeclaration_digest(ctx context.Context, field graphql.CollectedField, obj *OntologyDeclaration) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_OntologyDeclaration_digest(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Digest, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_OntologyDeclaration_digest(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("OntologyDeclaration", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _OntologyDeclaration_named_tags(ctx context.Context, field graphql.CollectedField, obj *OntologyDeclaration) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_OntologyDeclaration_named_tags(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.NamedTags, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_OntologyDeclaration_named_tags(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("OntologyDeclaration", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _OntologyDeclaration_implications(ctx context.Context, field graphql.CollectedField, obj *OntologyDeclaration) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_OntologyDeclaration_implications(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Implications, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_OntologyDeclaration_implications(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("OntologyDeclaration", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _OntologyFieldDecision_name(ctx context.Context, field graphql.CollectedField, obj *OntologyFieldDecision) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_OntologyFieldDecision_name(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Name, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_OntologyFieldDecision_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("OntologyFieldDecision", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _OntologyFieldDecision_since(ctx context.Context, field graphql.CollectedField, obj *OntologyFieldDecision) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_OntologyFieldDecision_since(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Since, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_OntologyFieldDecision_since(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("OntologyFieldDecision", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _OntologyFieldDecision_allowed(ctx context.Context, field graphql.CollectedField, obj *OntologyFieldDecision) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_OntologyFieldDecision_allowed(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Allowed, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_OntologyFieldDecision_allowed(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("OntologyFieldDecision", field, false, false, errors.New("field of type Boolean does not have child fields"))
+}
+
+func (ec *executionContext) _OntologyFieldDecision_reason(ctx context.Context, field graphql.CollectedField, obj *OntologyFieldDecision) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_OntologyFieldDecision_reason(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Reason, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_OntologyFieldDecision_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("OntologyFieldDecision", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
 func (ec *executionContext) _OntologyVersion_version(ctx context.Context, field graphql.CollectedField, obj *OntologyVersion) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -45623,6 +46118,118 @@ func (ec *executionContext) fieldContext_Query_findOntologyVersion(ctx context.C
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Query_findOntologyVersion_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_ontologyDeclaration(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_ontologyDeclaration(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Query().OntologyDeclaration(ctx)
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal *OntologyDeclaration
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *OntologyDeclaration
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *OntologyDeclaration) graphql.Marshaler {
+			return ec.marshalNOntologyDeclaration2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐOntologyDeclaration(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_ontologyDeclaration(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_OntologyDeclaration(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_ontologyCompatibility(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_ontologyCompatibility(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().OntologyCompatibility(ctx, fc.Args["core_versions"].([]int))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal *OntologyCompatibility
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *OntologyCompatibility
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *OntologyCompatibility) graphql.Marshaler {
+			return ec.marshalNOntologyCompatibility2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐOntologyCompatibility(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_ontologyCompatibility(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_OntologyCompatibility(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_ontologyCompatibility_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -76726,6 +77333,160 @@ func (ec *executionContext) _Notification(ctx context.Context, sel ast.Selection
 	return out
 }
 
+var ontologyCompatibilityImplementors = []string{"OntologyCompatibility"}
+
+func (ec *executionContext) _OntologyCompatibility(ctx context.Context, sel ast.SelectionSet, obj *OntologyCompatibility) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, ontologyCompatibilityImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("OntologyCompatibility")
+		case "shared":
+			out.Values[i] = ec._OntologyCompatibility_shared(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "fields":
+			out.Values[i] = ec._OntologyCompatibility_fields(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var ontologyDeclarationImplementors = []string{"OntologyDeclaration"}
+
+func (ec *executionContext) _OntologyDeclaration(ctx context.Context, sel ast.SelectionSet, obj *OntologyDeclaration) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, ontologyDeclarationImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("OntologyDeclaration")
+		case "core_versions":
+			out.Values[i] = ec._OntologyDeclaration_core_versions(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "local_version":
+			out.Values[i] = ec._OntologyDeclaration_local_version(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "digest":
+			out.Values[i] = ec._OntologyDeclaration_digest(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "named_tags":
+			out.Values[i] = ec._OntologyDeclaration_named_tags(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "implications":
+			out.Values[i] = ec._OntologyDeclaration_implications(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var ontologyFieldDecisionImplementors = []string{"OntologyFieldDecision"}
+
+func (ec *executionContext) _OntologyFieldDecision(ctx context.Context, sel ast.SelectionSet, obj *OntologyFieldDecision) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, ontologyFieldDecisionImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("OntologyFieldDecision")
+		case "name":
+			out.Values[i] = ec._OntologyFieldDecision_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "since":
+			out.Values[i] = ec._OntologyFieldDecision_since(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "allowed":
+			out.Values[i] = ec._OntologyFieldDecision_allowed(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "reason":
+			out.Values[i] = ec._OntologyFieldDecision_reason(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
 var ontologyVersionImplementors = []string{"OntologyVersion"}
 
 func (ec *executionContext) _OntologyVersion(ctx context.Context, sel ast.SelectionSet, obj *OntologyVersion) graphql.Marshaler {
@@ -79364,6 +80125,50 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 				}()
 				res = ec._Query_findOntologyVersion(ctx, field)
 				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "ontologyDeclaration":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_ontologyDeclaration(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "ontologyCompatibility":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_ontologyCompatibility(ctx, field)
+				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
 				return res
@@ -91320,6 +92125,46 @@ func (ec *executionContext) unmarshalNNotificationLevel2githubᚗcomᚋstashapp�
 
 func (ec *executionContext) marshalNNotificationLevel2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐNotificationLevel(ctx context.Context, sel ast.SelectionSet, v NotificationLevel) graphql.Marshaler {
 	return v
+}
+
+func (ec *executionContext) marshalNOntologyCompatibility2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐOntologyCompatibility(ctx context.Context, sel ast.SelectionSet, v *OntologyCompatibility) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._OntologyCompatibility(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNOntologyDeclaration2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐOntologyDeclaration(ctx context.Context, sel ast.SelectionSet, v *OntologyDeclaration) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._OntologyDeclaration(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNOntologyFieldDecision2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐOntologyFieldDecision(ctx context.Context, sel ast.SelectionSet, v OntologyFieldDecision) graphql.Marshaler {
+	return ec._OntologyFieldDecision(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNOntologyFieldDecision2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐOntologyFieldDecisionᚄ(ctx context.Context, sel ast.SelectionSet, v []OntologyFieldDecision) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNOntologyFieldDecision2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐOntologyFieldDecision(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
 }
 
 func (ec *executionContext) marshalNOntologyVersion2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐOntologyVersion(ctx context.Context, sel ast.SelectionSet, v OntologyVersion) graphql.Marshaler {

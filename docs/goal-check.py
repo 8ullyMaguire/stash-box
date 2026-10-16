@@ -255,7 +255,29 @@ def c3_plan_built():
         t = p.read_text()
         m = re.search(r"^Status:.*$", t, re.M)
         status = m.group(0) if m else "(no Status: line)"
-        if not re.search(r"status:.*\b(built|implemented|shipped|complete)", status, re.I):
+        # THE STATUS MUST LEAD WITH ITS VERDICT, and this clause was measured getting it wrong.
+        #
+        # It used to be `\b(built|implemented|shipped|complete)\b` ANYWHERE on the line, and there are
+        # two ways that lies. The first was measured here: five plan documents say "Status: **not
+        # built**" to state their state honestly, `built` is in `not built`, and C3 went from "6/11 not
+        # Built" to "1/11 not Built" across a commit that built NOTHING. The second is older: a status
+        # reading "in progress -- the schema is built, the service is not" passes on the word `built`
+        # three words in.
+        #
+        # The rule is now that the first word of the status IS the verdict, which is how every plan
+        # document that really is built writes it ("Status: **Built, verified 2026-09-30.**"). A negation
+        # needs no special case: "not built" and "unbuilt" do not LEAD with an affirmative word. The
+        # clause reports 7 rather than 6 as a result, and that is the true number: phase 3a's plan is
+        # partially built and its status says "in progress" first.
+        value = status.split(":", 1)[1] if ":" in status else status
+        # THE NEGATION MATTERS, and this clause was measured getting it wrong. The word after
+        # "Status:" is often "not": five plan documents here say "Status: **not built**" to state
+        # their state honestly, and the pattern below matched every one of them -- `\bbuilt\b` is in
+        # "not built" too. C3 went from "6/11 not Built" to "1/11 not Built" across a commit that
+        # built NOTHING, purely because the documents started saying so out loud. A status check
+        # that cannot tell "built" from "not built" is the presence check this programme keeps
+        # finding; the lookbehinds are the fix, and they are why the clause still reports 6.
+        if not re.match(r"[\s*_`]*(built|implemented|shipped|complete)\b", value, re.I):
             unbuilt.append((p.name, status[:70]))
 
     if unbuilt:

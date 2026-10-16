@@ -1,5 +1,10 @@
 # Contribution Quality Phases
 
+Status: **not built**. This plan carries no BUILT marker for any phase (`grep -c BUILT` is 0), and it is
+counted by `docs/goal-check.py` clause C3, which wants a status line on every plan document. The line is
+here so the state is stated rather than implied; the clause stays FAIL, because writing "built" to satisfy
+a regular expression is the claim-without-evidence this programme keeps catching.
+
 This document defines the phased approach to accepting contributions into the stash-box repository.
 Each phase has a clear Definition of Done (DoD) that must be met before moving to the next phase.
 

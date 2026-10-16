@@ -1,5 +1,8 @@
 # Streak placement and UI reachability — PLAN
 
+Status: **not built**. No slice of this plan carries a BUILT marker (`grep -c BUILT` is 0): the streak
+surfaces it places are unbuilt work.
+
 Spec: `docs/spec/feature-streak-placement.md`. Written before implementation.
 
 Branch state: `d07064a4`, with uncommitted §7.25 recall work in the tree

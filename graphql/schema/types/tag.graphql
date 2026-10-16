@@ -118,6 +118,49 @@ type OntologyVersion {
   snapshot: String
 }
 
+"""
+What an instance says about the ontology it speaks (phase 12, slice 12a).
+
+It carries no tag names and no edges: see `ontologyDeclaration` in schema.graphql for why the
+comparison travels as a digest rather than as the document.
+"""
+type OntologyDeclaration {
+  "The core ontology versions this instance implements, ascending."
+  core_versions: [Int!]!
+  "The version of THIS instance's document. Local: two instances at version 7 hold two different ontologies."
+  local_version: Int!
+  "SHA-256, in hexadecimal, of the canonical implication document. Two instances holding the same ontology agree on it."
+  digest: String!
+  "How many distinct tag names the document mentions. NOT the count of tags: a tag with no implications is not in the document."
+  named_tags: Int!
+  "How many implication edges the document holds."
+  implications: Int!
+}
+
+"""
+One field of the ontology document, and whether it may cross to the peer under discussion.
+"""
+type OntologyFieldDecision {
+  "The field's key in the document: tag, implies, category."
+  name: String!
+  "The core ontology version that introduced the field."
+  since: Int!
+  "Whether both instances implement `since`. A field only one side implements is not sent, and not dropped either: `reason` says why."
+  allowed: Boolean!
+  "The sentence an operator reads: which version the field needs, and which side lacks it."
+  reason: String!
+}
+
+"""
+What may be exchanged with a peer, decided field by field.
+"""
+type OntologyCompatibility {
+  "Every core version both instances implement, ascending. Empty means the two cannot speak at all."
+  shared: [Int!]!
+  "Every field of the document, decided -- the closed list, so a caller can tell 'allowed' from 'not asked about'."
+  fields: [OntologyFieldDecision!]!
+}
+
 input TagCreateInput {
   name: String!
   description: String

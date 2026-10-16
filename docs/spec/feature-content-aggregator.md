@@ -305,7 +305,7 @@ behaviour. "New" = nothing to extend. Phase numbers are §Phases in
 | §3.3 | dedup groups, canonical election, merge/split votes | fingerprint clusters + merge edits exist | 2 (extend) |
 | §3.4 | metadata snapshots, diff, rollback, anomaly detection | `edit` + changelog + `field_verification_state` | 2 (extend) |
 | §4.1–4.5 | tag ontology: implications, DAG, tiers, search language | aliases + **nested categories**; no tag graph | 4 |
-| §4.6 | ontology versioning + RFC | none | 4 |
+| §4.6 | ontology versioning + RFC | versioning built (migration 112: `ontology_versions`, one row per change, document by tag NAME); the RFC half is the edit system's comment thread; the federation half is phase 12 slice 12a (declaration + digest + compatibility, no transport) | 4/12 |
 | §5.1 | TL0–TL4 ladder | six-level ladder §7.6 | exists |
 | §5.2 | visible sub-scores | `UserTrust` curve — **owner-private today** | 6 (decision) |
 | §5.3 | decay, recovery, streak freeze | `streak` only | 6 |
@@ -328,7 +328,7 @@ behaviour. "New" = nothing to extend. Phase numbers are §Phases in
 | §9.3 | playlists, fork, auto-update | `list` (107) | 8 (extend) |
 | §10 | T0–T3 tiers, warnings vs gates, onboarding wizard | denylist + access rules | 5 |
 | §11 | invite allocation, referrals, QR, seed cohorts | `InviteKey` + the level-derived allowance (11a), the referral payment (11b), the durable event journal, the three counters, the landing page and the QR (11c: `invite_key_events` + `User.invite_stats` + `GET /invite/<code>` + `InviteKey.link`/`qr_svg`), seed cohorts and campaigns (11d: `seed_cohorts`/`seed_cohort_members`/`seed_campaigns` + `SeedCampaignRunResult` + the `seed_fast_track` points-only kind) | 11 |
-| §12.1–12.5 | metadata federation, ontology sync, hash network, specialised instances | mesh §7.17/§7.18 is **ahead**; hash network new | 12 |
+| §12.1–12.5 | metadata federation, ontology sync, hash network, specialised instances | mesh §7.17/§7.18 is **ahead**, and slice 12a adds the ontology DECLARATION, its canonical digest and the field-by-field compatibility rule (phase 12, in progress); the hash network is new, and the declaration has no transport yet — this tree serves no inbound federation endpoint, so a peer can reproduce our digest but cannot yet exchange a version with us | 12 |
 | §12.6 | ActivityPub | none (rejected in the crosswalk) | 12 |
 | §13.1–13.5 | 5 players/viewers | **refused by the respec** — no player, no embed, no proxy. Reading *metadata* is a different surface and it is in: a comic's chapter list and page count are `content_item_chapters` (phase 3) | — |
 | §14 | facial recognition, community ID, profile claiming | identification board (untouched); local models live in `feature-04-identification-federation.md` §8, where a model's output is a suggestion | 4 (feature 04) |

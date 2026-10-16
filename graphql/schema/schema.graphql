@@ -68,6 +68,32 @@ type Query {
   """One ontology version, with the whole graph as it stood at that version."""
   findOntologyVersion(version: Int!): OntologyVersion @hasRole(role: READ)
 
+  """
+  What this instance says about the ontology it speaks, for a peer or an operator comparing two
+  instances: the core versions implemented, the local version in force, and the SHA-256 of the
+  canonical implication document.
+
+  There is no field carrying the document itself, deliberately. `digest` is what makes two instances
+  comparable -- same ontology, same digest, whatever order either database returned its rows in --
+  and it discloses nothing, where sending the graph would hand a peer this instance's whole taxonomy.
+  """
+  ontologyDeclaration: OntologyDeclaration! @hasRole(role: READ)
+
+  """
+  What may be exchanged with a peer that declares these core ontology versions, field by field.
+
+  A LIST rather than one number, because that is the shape a declaration has and the rule is about
+  SETS: an instance that implements core 2 may or may not still implement core 1, and the difference
+  decides whether the v1 fields cross. Asking about "core 2" alone answers a different question --
+  whether a peer that speaks ONLY the newer document can still be sent the older fields -- and the
+  answer to that one is no.
+
+  A field introduced by a version the peer does not implement is refused WITH A REASON naming the
+  side that has to move, rather than being dropped from the exchange. Dropping it is the silent
+  mis-mapping phase 12 exists to prevent: the tag arrives, in the wrong branch, with nothing saying so.
+  """
+  ontologyCompatibility(core_versions: [Int!]!): OntologyCompatibility! @hasRole(role: READ)
+
   #### Scenes ####
 
   # ids should be unique
