@@ -95,8 +95,8 @@ PROBES = [
     (
         "M7 the collision query stops considering ALIASES as the other side",
         GENERATED,
-        "        UNION ALL\n        SELECT performer_id, alias, 'alias' FROM performer_aliases) o",
-        "        UNION ALL\n        SELECT performer_id, alias, 'alias' FROM performer_aliases WHERE FALSE) o",
+        "    SELECT performer_id, alias, 'alias' FROM performer_aliases\n",
+        "    SELECT performer_id, alias, 'alias' FROM performer_aliases WHERE FALSE\n",
         "TestAliasCollisionFiresWhenTwoPerformersShareAnAlias",
         "-tags integration -p 1 -run TestAliasCollisionFiresWhenTwoPerformersShareAnAlias",
         "two performers claiming the same alias stop being a finding, and the detail can no longer say "

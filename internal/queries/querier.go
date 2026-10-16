@@ -1976,6 +1976,16 @@ type Querier interface {
 	// is the direction a lint should be wrong in. (An accuracy COLUMN would have been the natural thing
 	// to write here; it does not exist, and reading a dropped column is a query that fails at runtime
 	// on a live database rather than at review.)
+	// TWO ARMS, WRITTEN AS ONE UNION RATHER THAN ONE OR, and the reason is measured. The first version
+	// joined scenes to their performers and asked `future OR before-a-birthdate` in a single WHERE; on a
+	// real archive (1,104,375 scenes) PostgreSQL answered that with a nested loop probing scene_performers
+	// once per scene -- 1.1M index searches -- and the detector took 9.3s. Written as a union, each arm
+	// gets the access path its own predicate deserves: the future arm is a scan of scenes by date, and the
+	// birthdate arm is driven by whatever scene_performers holds.
+	//
+	// DISTINCT because a scene with three performers all born after it is ONE finding, and the entity_ids
+	// path (§7.24.4's import validation) would otherwise report the same scene several times. Two arms that
+	// both fire on one scene stay two rows: they are two different reasons.
 	LintImpossibleSceneDates(ctx context.Context, arg LintImpossibleSceneDatesParams) ([]LintImpossibleSceneDatesRow, error)
 	// A performer's picture whose SHORTER side is below $2 pixels. The shorter side rather than the
 	// area, because a 4000x200 strip is not a usable performer image and an area threshold calls it
