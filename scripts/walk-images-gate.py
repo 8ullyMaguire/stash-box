@@ -31,6 +31,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+import uuid
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRATCH = os.environ.get("BH_AGENT_WORKSPACE", "/tmp")
@@ -100,6 +101,21 @@ def get(port, path):
         return e.code, e.read()
 
 
+def get_raw(port, path):
+    """GET one path and return the status, the RAW BYTES and the headers.
+
+    The ladder arm needs all three: bytes because a served variant is bytes and the point is that they are the
+    ones that were stored (a decoded body would also match a JSON answer that happens to contain them), and
+    headers because the content type is part of the contract -- the ladder stores one format, so the answer is
+    not negotiated per request.
+    """
+    try:
+        with urllib.request.urlopen(f"http://{HOST}:{port}{path}", timeout=10) as resp:
+            return resp.status, resp.read(), dict(resp.headers)
+    except urllib.error.HTTPError as e:
+        return e.code, e.read(), dict(e.headers)
+
+
 def main():
     build = subprocess.run(["go", "build", "-o", BIN, "./cmd/stash-box"], cwd=REPO,
                            capture_output=True, text=True, timeout=900)
@@ -144,6 +160,41 @@ def main():
         check("W3 with images_enabled on and a directory to serve from, the request reaches the handler "
               "rather than the posture refusal",
               status != 403 and b"posture" not in raw and b"media_dir" not in raw, f"{status} {raw[:160]!r}")
+
+        # W3b -- THE LADDER, SERVED BY THE RUNNING BINARY (slice 10c-1). A variant file placed in the
+        # instance's own media directory at the documented path must come back as ITS BYTES, with webp's
+        # content type, WITHOUT a database row: this image id has never been in the images table, so a
+        # response carrying these bytes can only have come from the layout the slice defines. That is the
+        # difference between a unit test of a path builder and a served byte.
+        #
+        # The width is one of mediaplane.VariantWidths AND one the route accepts (300) -- the invariant the
+        # slice's own defect turned into a test. A file is also written at 1280, a REQUESTABLE width the
+        # ladder does not store, so that the second request proves the fall-through happens with the file
+        # PRESENT: without it, "1280 is not served from the ladder" would be answered by the file's absence
+        # rather than by the width rule, which is exactly how the mutation removing that rule survived its
+        # unit test on the first run.
+        ladder_id = str(uuid.uuid4())
+        stored = b"RIFF" + b"\x00" * 4 + b"WEBPVP8 " + b"walk-ladder-bytes"
+        variant_dir = os.path.join(on_dir, ladder_id[:2])
+        os.makedirs(variant_dir, exist_ok=True)
+        for width in (300, 1280):
+            with open(os.path.join(variant_dir, f"{ladder_id}_{width}.webp"), "wb") as f:
+                f.write(stored)
+
+        # `headers.get("Content-Type")`, NOT `"image/webp" in headers`: the second form asks whether that
+        # string is a header NAME, which it never is, so it answered False for the arm that wanted it True
+        # (this arm failed its first live run with the right bytes already in hand) and True for the arm that
+        # wanted it False -- a check that could not read the thing it was about.
+        status, raw, headers = get_raw(13996, f"/images/{ladder_id}?size=300")
+        content_type = headers.get("Content-Type", "")
+        check("W3b a variant stored in media_dir is served by its own bytes, webp-typed, with no database row",
+              status == 200 and raw == stored and content_type == "image/webp",
+              f"{status} {raw[:40]!r} content-type={content_type!r}")
+
+        status, raw, headers = get_raw(13996, f"/images/{ladder_id}?size=1280")
+        check("W3c a width the ladder does not store falls through even with a file of that name present",
+              raw != stored and headers.get("Content-Type", "") != "image/webp",
+              f"{status} {raw[:40]!r} content-type={headers.get('Content-Type')!r}")
     finally:
         stop(proc, log)
 

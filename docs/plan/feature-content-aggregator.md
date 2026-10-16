@@ -5103,6 +5103,70 @@ limit existing only while its stream is on, and no shipped configuration switchi
 examines, for the reason this file's own rule gives: an assertion over an empty set and an assertion that found
 nothing wrong are the same output.
 
+### Slice 10c-1 — the ladder's storage: where a variant lives, and the two invariants
+
+**The layout, and the decision that a stored width must be a REQUESTABLE width.** A variant lives at
+`{media_dir}/<first two characters of the id>/<id>_<width>.webp` — the resize cache's own spelling plus one
+directory level, so that an operator who has looked at the cache recognises it and a hundred thousand entries
+stay listable on the spinning disk this is likely to live on. The extension is part of the layout rather than a
+negotiated thing because the ladder's output format is a decision (webp at both widths, measured at a median
+14.9 KB at 320 px and 30.2 KB at 480 px).
+
+**THE DEFECT THIS SLICE FOUND IN ITSELF, because it is the mistake worth repeating in the telling.** The first
+version stored 320 and 480 — the widths the *storage measurement* used — while the image route accepts
+`size=300`, `600` or `1280`. The ladder would therefore have written files **no request can ever ask for**: the
+producer filling a directory its own server never looks in, which is this programme's recurring "a thing
+nothing asks for" shape, arrived at by writing the second list from the first one's *intent* rather than
+reading the first list. `VariantWidths` is now `{300, 600}` — a subset of what the route can ask for — and
+`TestEveryStoredVariantWidthIsOneTheRouteCanAskFor` (in package `api`, the only place both lists are visible)
+asserts the relation. The rule is **one-directional, and the asymmetry is the decision**: a stored width nobody
+can ask for is dead weight nothing outside can notice, while a requestable width the ladder does not store is
+simply a fall-through to the instance's own image path. 1280 is deliberately one of those — several times the
+bytes for a size a thumbnail grid never asks for.
+
+**Invariant one: the resize cache must not be inside the store, in either direction.** Both hold derived bytes,
+so this is not tidiness — it is that the two have different LIFETIMES. The cache is deletable at any moment by
+an operator or a cleanup job and the instance is expected to carry on; the media directory holds the
+instance's own copies of what it ingested. A cache inside the store means one `rm -rf` of the cache takes the
+instance's images with it. `NewStore` refuses with `ErrDirsOverlap` naming **both** paths, because one of the
+two settings may be inherited from a file the operator has not opened; the overlap test's control arm is two
+sibling directories, without which the invariant could be "refuse everything".
+
+**Invariant two: the directory is still on the filesystem it was on when the process started.** This is the
+gap `store.go`'s own comment named and left open, and it is the one failure that existence *and* readability
+both pass: an unmounted disk leaves behind a perfectly ordinary empty directory at the mount point. `Store`
+takes the device id at construction — which is why it is resolved **once per process** rather than per request,
+and why `ResolveStoreForTest` exists for the tests that change the directory — and `Check()` compares. The
+refusal, `ErrMountChanged`, says what an operator has to look at, since the fact that produced it is invisible
+to every other check in the package. On a platform that reports no device ids the check is SKIPPED and
+`DeviceChecked()` says so, rather than passing silently.
+
+**It has a caller, which is the whole point of doing the storage before the producer.** The image route asks
+the ladder for a variant **before** it goes to the database: a stored variant is bytes the instance already
+has, so it is served with no query, no resize and no factory — the api test builds the router over a
+zero-valued factory, so a handler that reached for the database would fail rather than quietly pass. The
+fall-through is a fall-through and not an error: an instance that has not fetched an image's bytes yet is not
+broken, and the only thing that IS an error is the storage being unusable, which the route answers with the
+posture **403** — the same shape as the gate's, because it is a fact about this instance rather than about the
+image, and a 404 would send an operator looking for a missing image on an instance that has lost its storage.
+
+**Posture still beats the ladder.** A request for a variant the instance HAS is refused when images are off,
+which is asserted: otherwise "images are off" would be a statement about the configuration rather than about
+what the instance serves, and storing one file would be enough to change it.
+
+**NOT BUILT, NAMED.** The PRODUCER: nothing here fetches an upstream image, re-encodes it or writes a variant.
+That is the next slice, and this one says so rather than leaving a layout that looks finished.
+
+**Verification.** Nine tests across the two packages: the path scheme on a known id; no-directory as a nil
+store and not a failure; an unusable directory refused by name; the overlap invariant in four directions plus
+its control, with the refusal required to name both keys; the mount check, including that it reaches a caller
+through the read path and not only through `Check()`; bytes-versus-nothing from a read; the subset invariant;
+service-without-a-database; and posture-beats-the-ladder. **MUTATIONS: `scripts/mutate-ladder.py`, 5 probes** —
+including **M1, which re-introduces the 320/480 mistake** and is killed by the invariant written for it, and
+**M2, which survived the first run** and found a broken test rather than a missing one: the fall-through arm
+asked for an unstored width with no file present, so the fixture's absence produced the answer the width rule
+was supposed to produce. Writing the file first made the rule the only remaining cause.
+
 ### Slice 12g — core v2 exists as a reader, and the version number starts meaning something
 
 **What was there.** `core ontology v2` was a constant with a comment saying "NOT BUILT", and a field table that

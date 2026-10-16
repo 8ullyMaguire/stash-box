@@ -583,6 +583,16 @@ func GetS3Config() *S3Config {
 	return &C.S3.S3Config
 }
 
+// GetImageCachePath is the directory the resize cache writes to, or "" when no resize cache is configured.
+//
+// It exists as its own accessor rather than being read through GetImageResizeConfig by each caller for the
+// same reason GetMediaDir does: the media plane's overlap invariant (a cache inside the store means one
+// cleanup of the cache takes the store with it) needs the CACHE's path, and a caller that reached into the
+// nested struct for it would be a second place that decides what "the cache directory" means.
+func GetImageCachePath() string {
+	return C.Image_Resizing.CachePath
+}
+
 func GetImageResizeConfig() *ImageResizeConfig {
 	return &C.Image_Resizing.ImageResizeConfig
 }

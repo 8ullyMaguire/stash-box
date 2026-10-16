@@ -1149,6 +1149,52 @@ def c11_federation_posture():
         "Core v2's READER is built and asserted by C11c; its writer is named by C11d")
 
 
+def c10e_ladder_storage():
+    """Phase 10, slice 10c-1: the variant ladder's layout and its two invariants -- with its producer NOT built."""
+    ladder = REPO / "internal" / "service" / "mediaplane" / "ladder.go"
+    route = REPO / "internal" / "api" / "routes_image.go"
+    subset = REPO / "internal" / "api" / "routes_image_ladder_test.go"
+    for p in (ladder, route, subset):
+        if not p.exists():
+            add("C10e ladder storage", "FAIL", f"{p.relative_to(REPO)} is missing")
+            return
+    src, route_src, tests = ladder.read_text(), route.read_text(), subset.read_text()
+    fails, notes = [], []
+
+    if "func (s *Store) VariantPath(" not in src:
+        fails.append("no layout: nothing names where a variant lives")
+    if "func ResolveStore()" not in src:
+        fails.append("the store is not resolved once per process, so the filesystem comparison -- which is only "
+                     "meaningful against the value taken when the process STARTED -- has nothing to compare to")
+    if "func (s *Store) Check() error" not in src or "ErrMountChanged" not in src:
+        fails.append("the mount check is missing: an unmounted disk leaves an ordinary empty directory behind, "
+                     "which existence and readability both pass")
+    else:
+        notes.append("a directory on a different filesystem is refused by name")
+    if "ErrDirsOverlap" not in src:
+        fails.append("the cache-inside-the-store invariant is missing: one cleanup of the resize cache would "
+                     "take the instance's images with it")
+    else:
+        notes.append("the resize cache and the store may not be each other")
+    # The alignment invariant, which is the defect this slice found in itself.
+    if "TestEveryStoredVariantWidthIsOneTheRouteCanAskFor" not in tests:
+        fails.append("nothing checks that the widths the ladder stores are widths the route can ask for: the "
+                     "first version of this list was the measurement's (320, 480) against the route's "
+                     "(300, 600, 1280), i.e. files no request could ever ask for")
+    if "mediaplane.IsVariantWidth(size)" not in route_src:
+        fails.append("the image route does not consult the ladder, so the layout is a comment rather than a path "
+                     "anything reads")
+    else:
+        notes.append("the route asks the ladder before the database, so the layout is exercised by requests")
+    add("C10e ladder storage", "FAIL" if fails else "PASS",
+        "; ".join(fails) if fails else "; ".join(notes))
+
+    add("C10f ladder producer", "UNKNOWN",
+        "nothing fetches an upstream image, re-encodes it or writes a variant: this instance SERVES a variant it "
+        "is handed and PRODUCES none. The storage, its invariants and its caller exist; the thing that fills it "
+        "does not, and it is named here rather than implied by a layout that looks finished")
+
+
 def c11c_core_v2():
     """Phase 12, slice 12g: core v2 exists as a READER -- a version number that means something. Nothing in
     the tree writes a category yet, and this clause says so rather than letting the version look finished."""
@@ -1202,7 +1248,7 @@ def main():
                c4_narrow_merged, c5_migrations_coherent, c6_suite, c7_build_clean,
                c8_aggregator_programme, c9_monetization_posture,
                c10_media_plane_posture, c10c_media_directory, c10d_export_invariant,
-               c11_federation_posture, c11c_core_v2):
+               c11_federation_posture, c10e_ladder_storage, c11c_core_v2):
         try:
             fn()
         except Exception as e:  # a clause that crashes is not a passing clause

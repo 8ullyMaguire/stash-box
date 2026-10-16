@@ -45,11 +45,21 @@ func withSwitches(t *testing.T, images, content bool) {
 }
 
 // withMediaDir points the instance at a directory for one test and restores the previous value after.
+//
+// It also drops the process-wide media store, because that store resolves `media_dir` ONCE and compares the
+// filesystem it is on against the value taken at that moment. A test that changes the directory without
+// dropping the store would be exercising the previous test's directory -- and the device check that catches
+// an unmounted disk is only meaningful against a value taken when the process started, so caching it is the
+// point rather than an optimisation.
 func withMediaDir(t *testing.T, dir string) {
 	t.Helper()
 	previous := config.C.MediaDir
-	t.Cleanup(func() { config.C.MediaDir = previous })
+	t.Cleanup(func() {
+		config.C.MediaDir = previous
+		mediaplane.ResetStoreForTest()
+	})
 	config.C.MediaDir = dir
+	mediaplane.ResetStoreForTest()
 }
 
 func TestImageRoutesRefuseWhenNeitherSwitchIsOn(t *testing.T) {

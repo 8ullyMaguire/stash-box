@@ -87,6 +87,57 @@ func (rs imageRoutes) image(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 	}
 
+	// THE LADDER, BEFORE THE DATABASE (plan phase 10, slice 10c-1).
+	//
+	// A stored variant is bytes this instance already has, so serving it costs no query and no resize. The
+	// store is resolved once per process; a nil store means no `media_dir` is configured -- the shipped
+	// default -- and the request falls through to the instance's own path, which is the only correct answer:
+	// an instance with no media directory is not an instance with no images.
+	//
+	// The mount check is why this arm exists at all rather than being folded into the cache: `media_dir` may
+	// name a directory on a disk that is no longer mounted, and the directory left behind is a perfectly
+	// ordinary empty one. The answer there is 403 naming the problem -- the same class as the posture gate's
+	// refusal, because it is a fact about this instance rather than about the image -- and NOT a 404, which
+	// would send an operator looking for a missing image on an instance that has lost its storage.
+	if size, sizeErr := getImageSize(r); sizeErr == nil && mediaplane.IsVariantWidth(size) {
+		store, storeErr := mediaplane.ResolveStore()
+		if storeErr != nil {
+			writeRefusal(w, storeErr)
+			return
+		}
+		if store != nil {
+			reader, err := store.OpenVariant(uuid, size)
+			var unusable mediaplane.ErrMediaDirUnusable
+			switch {
+			case err == nil && reader == nil:
+				// No stored variant: fall through to the instance's own path. NOT an error and NOT a refusal
+				// -- an instance that has not fetched this image's bytes yet is not broken.
+			case errors.Is(err, mediaplane.ErrNoMediaDir),
+				errors.Is(err, mediaplane.ErrStorageUnusable),
+				errors.Is(err, mediaplane.ErrMountChanged),
+				errors.Is(err, mediaplane.ErrDirsOverlap),
+				errors.As(err, &unusable):
+				// The storage refusals, each of which names the key or the path an operator has to look at.
+				// 403, and the same body shape as the posture gate: both mean "this instance will not hand
+				// you bytes", and a caller does not need to know which layer decided.
+				writeRefusal(w, err)
+				return
+			case err != nil:
+				logger.Debugf("reading stored variant for %s at %d: %v", uuid, size, err)
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			default:
+				defer reader.Close()
+				w.Header().Set("Content-Type", "image/webp")
+				w.Header().Set("Cache-Control", "max-age=604800000")
+				if _, err := io.Copy(w, reader); err != nil {
+					logger.Debugf("failed to write stored variant: %v", err)
+				}
+				return
+			}
+		}
+	}
+
 	cacheManager := cache.GetCacheManager()
 
 	// Check for cached image
@@ -268,6 +319,16 @@ func faviconContentType(data []byte) string {
 
 // Limit allowed sizes to prevent abuse
 var allowedSizes = []int{300, 600, 1280}
+
+// writeRefusal answers with the posture refusal: 403 and the package's own error value as JSON.
+//
+// It is the SAME shape the gate's middleware uses, deliberately -- a caller cannot tell which of the two
+// layers refused, and does not need to: both mean "this instance will not hand you bytes, and here is why".
+func writeRefusal(w http.ResponseWriter, err error) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusForbidden)
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+}
 
 func getImageSize(r *http.Request) (int, error) {
 	maxSize := 0
