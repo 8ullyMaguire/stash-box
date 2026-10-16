@@ -1,7 +1,16 @@
 # The sync service — stashdb.org → this instance, running on its own
 
-Status: **PLAN. No code in this document is built yet.** Written 2026-10-16, after a live survey of both ends
-(this instance at commit `a3ea8407`, deployed on thinkcentre 2026-10-16 12:28, and stashdb.org's public API).
+Status: **steps 1 and 2 are BUILT** (commit `a3ea8407`'s successor; migration 143, `watermark_store.go`,
+7 integration tests, 8 mutation probes 8/8). **Steps 3–6 are PLAN.** Written 2026-10-16, after a live survey of
+both ends (this instance at commit `a3ea8407`, deployed on thinkcentre 2026-10-16 12:28, and stashdb.org's
+public API).
+
+**The source's credential no longer works**, and that is a blocker for step 3 onward but not for 1 and 2: with
+the credentials in `~/.sdb_auth.env` (unchanged since 2026-09-30, when they imported 1.1M scenes),
+`queryPerformers`, `queryScenes` and `queryStudios` now answer **`not authorized`**. The same probe settled two
+things the plan needed: the timestamp field is **`updated`** (not `updated_at`), and the query inputs have **no
+`updated_at` filter** — so increments work by *sort-and-stop*, which is exactly what the existing `shouldStop`
+plus its margin does, and the reason that function is not a bare comparison stands.
 
 ## What already exists, and the three things that do not
 
@@ -55,7 +64,7 @@ All steps are implemented in `internal/sdbimport` + `cmd/sdbimport`, built on th
 (`go build -o /tmp/… ./cmd/sdbimport`), deployed beside the running instance, and verified against the live
 database. Nothing here is verified by a unit test alone: the last step of every part is a real run.
 
-### Step 1 — the watermark table (migration 143)
+### Step 1 — the watermark table (migration 143) — **BUILT**
 
 ```sql
 CREATE TABLE sync_watermarks (
@@ -73,7 +82,13 @@ hard-coded, so a second source does not collide with this one's rows.
 table; the migration is additive (no DROP, no ALTER of an existing table) — checked with the same
 `grep -ilE '^\s*(DROP|TRUNCATE|DELETE FROM)'` audit the deploy uses, and the only match must be a `.down` file.
 
-### Step 2 — watermarks loaded and stored, `internal/sdbimport/watermark_store.go`
+### Step 2 — watermarks loaded and stored, `internal/sdbimport/watermark_store.go` — **BUILT**
+
+**Adjustment from the sketch above, made while building:** the writer is `SaveWatermark` (ONE entity), not
+`SaveWatermarks` (a map). The per-entity call *is* the rule the section describes — a mark is saved once per
+entity after that entity's walk returns — and a bulk writer would make it possible to save a map that contains
+entities whose walks never finished, which is the first lie this store exists to prevent. `LoadWatermarks` stays
+bulk because reading is not the dangerous direction.
 
 ```go
 func LoadWatermarks(ctx context.Context, q *queries.Queries, source string) (Watermarks, error)
@@ -82,11 +97,26 @@ func SaveWatermarks(ctx context.Context, q *queries.Queries, source string, w Wa
 `Watermarks` already has `Get`/`Set`; this gives it a store. Saving happens **once per entity, after that
 entity's walk completed**, never mid-walk: an interrupted run must replay, not skip.
 
-**Verification (mutation-verified, not asserted):** `scripts/mutate-sync-watermark.py` will (M1) save the
-watermark *before* the walk instead of after — the test that must fail is the one that interrupts a walk and
-asserts the watermark did not move; (M2) drop the `source` column from the key — the test that must fail is the
-two-sources test; (M3) let the watermark rewind (write an older value over a newer one) — the test that must
-fail is `TestWatermarkNeverRewinds`, which is the existing rule re-pointed at the store.
+**Verification, as built.** `internal/sdbimport/watermark_store_test.go` (pure): the source key derived from
+the endpoint host, including the two spellings of one source and the near-miss entity names. Plus seven
+integration tests against a real Postgres through the same harness `internal/api` uses (`POSTGRES_DB`, migrations
+at startup, tables dropped at teardown, `-p 1`): a mark survives and is read back; **an entity with no mark is
+absent rather than zero** (the runner's "walk in full" cue); **two sources keep separate marks**; **a mark never
+moves backwards** — with the forward direction asserted too, so this is not "refuse everything"; a near-miss
+entity name is refused AND writes nothing (asserted by counting rows); a zero mark is refused; a blank source is
+refused. Migration 143 applies cleanly through the harness, which is how the migration itself is verified before
+it ever reaches the live database.
+
+**MUTATIONS: `scripts/mutate-sync-watermark.py`, 8 probes, 8/8 killed, every restore green.** The plan
+predicted three of them; the battery has eight, because building it turned up five more ways this table can lie
+— a near-miss entity name given its own row, "never synced" reported as "synced to the beginning of time", a
+walk that read nothing saving a position, a blank source becoming a usable key, the key being the whole endpoint
+instead of its host, and the entity list losing the importer's order. **M1 (the source dropped from the read)
+and M2 (the mark allowed to rewind) are the two the plan named**, and both die on the test written for them.
+
+The probes run the INTEGRATION build, and the script refuses to start without `POSTGRES_DB`: two of the three
+guarantees are SQL statements, and a fake with the same shape would assert what the test file already
+believes.
 
 ### Step 3 — the runner, `internal/sdbimport/runner.go` + `cmd/sdbimport -sync`
 
