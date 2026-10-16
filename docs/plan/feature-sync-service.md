@@ -1,6 +1,6 @@
 # The sync service — stashdb.org → this instance, running on its own
 
-Status: **steps 1 and 2 are BUILT** (commit `a3ea8407`'s successor; migration 143, `watermark_store.go`,
+Status: **steps 1, 2, 3, 5 and 6 are BUILT AND RUNNING ON THINKCENTRE** (step 4, thumbnails, is the only unbuilt step). Earlier wording: **steps 1 and 2 are BUILT** (commit `a3ea8407`'s successor; migration 143, `watermark_store.go`,
 7 integration tests, 8 mutation probes 8/8). **Steps 3–6 are PLAN.** Written 2026-10-16, after a live survey of
 both ends (this instance at commit `a3ea8407`, deployed on thinkcentre 2026-10-16 12:28, and stashdb.org's
 public API).
@@ -118,7 +118,7 @@ The probes run the INTEGRATION build, and the script refuses to start without `P
 guarantees are SQL statements, and a fake with the same shape would assert what the test file already
 believes.
 
-### Step 3 — the runner, `internal/sdbimport/runner.go` + `cmd/sdbimport -sync`
+### Step 3 — the runner, `internal/sdbimport/runner.go` + `cmd/sdbimport -sync` — **BUILT, and the live run changed it four times**
 
 Flags added to the existing command rather than a new binary: `-sync` (run the reconcile instead of the
 import), `-sync-modes performer=latest-wins,scene=local-wins` (per-entity mode; the default is `latest-wins`,
@@ -147,10 +147,50 @@ nothing.
 (`~/stash-box-deploy/import-logs/sync-<timestamp>.json` in the service), so the timer's history is parseable
 without a log parser.
 
-**Verification:** `-sync -dry-run` against the live instance prints changes and writes **nothing** — asserted by
-taking the watermark and the row counts before and after and asserting both are unchanged. Then a real
-`-sync -limit-performer 50` (adapted from the existing limit flag) must update rows and move the watermark
-forward by exactly the boundary it reports.
+**Verification, as built — and every finding below came from running it, not from reading it.**
+`-sync -dry-run -limit-performer 50`: 49 of 50 records would change, 140 field changes, and **rows and watermarks
+were unchanged before and after** (a dry run writes nothing, asserted by counting both). Then the real run: 49
+updated, **watermark written**. The run after it: **13 scanned, 0 updated** — the mark and the margin doing
+exactly what they exist for.
+
+The four findings, in the order the live runs produced them:
+
+1. **The reconcile's decision was never applied, and the first applier crashed the process.**
+   `SyncWalk.Step` says "The caller applies rep.Changes"; the first caller did, with the wrong id:
+   `panic: ... converter.UpdatePerformerFromUpdateInput(_, ...)`. The plan is keyed by the SOURCE's id
+   (`planUpdate(upID, ...)`, "up" as in upstream) and the write needs the DESTINATION's row. The dry run passed
+   because it writes nothing. Translating is the caller's job (the decision layer has no database), and a
+   decided change with no local row is now **refused by name** rather than written — defence in depth, because
+   the service **panics rather than errors** on an id with no row.
+2. **The source page did not select `updated`, so the walk could never stop.** Every record arrived with a zero
+   timestamp: `shouldStop` never fired, the store's zero-mark refusal correctly declined to save a mark, and
+   latest-wins had no upstream write time to compare against. Fixed, and the sort is now **explicit**
+   (`sort: UPDATED_AT, direction: DESC`, both values confirmed by introspection of the source's schema) rather
+   than inherited from an undocumented default — a stop condition that depends on a default stops working
+   silently, and its failure mode is a full walk, not an error.
+3. **The local lookup merged two people.** It asked for a row BY NAME and took the first match, while the
+   destination's key is `(name, disambiguation)` and the importer's own sampling found 15.5% of source performers
+   share a name. Measured: a plan to write one performer's disambiguation onto a different performer with the
+   same name. The lookup now takes the whole record and uses `FindExistingPerformers` — the query the import path
+   already uses for this exact question — which also matches a rename by URL. **This is the finding no test in the
+   package could have produced; the report's change sample is what exposed it.**
+4. **Aliases were read from the wrong table.** `GetEditPerformerAliases` takes an EDIT id
+   (`WITH edit AS (SELECT ... FROM edits ...)`); handed a performer id it answers "no aliases", which is
+   invisible at the call site and made aliases appear changed on every run forever. Now
+   `FindPerformerAliasesByIds`.
+
+Plus the two non-convergences the report exposed, both correct refusals that were nonetheless planned on every
+run, applied as no-ops and re-detected: URLs (never written — a URL carries a SiteID this code cannot invent, the
+import path's own trade) and enums whose upstream value is the source's `NA`/`UNKNOWN` sentinel (the write refuses
+to invent a fact). A difference the destination cannot write is now **counted** (`SyncReport.NotApplied`), not
+planned — and it is deliberately not called "dropped": dropped means the source has data this instance chose not
+to keep, while this means the source's value has no representation here at all.
+
+**Convergence, measured after the fixes:** the same full dry run over the 20 newest records reports **would update
+1, unchanged 19** (before: would update 20 with 58 field changes), and two consecutive real runs report **13
+scanned, 0 updated** each. A refused watermark prints `refused: an older mark than the one stored` instead of the
+value it wished it had written: a bounded `-sync-full` walk computes an older mark than the one stored, and the
+store's never-rewind rule refuses that write in SQL — visible in production, and now visible in the report.
 
 ### Step 4 — thumbnails: `internal/sdbimport/images.go` + `-images <entities>`
 
@@ -180,7 +220,27 @@ staying at 25); and a request for one of them through the running instance must 
 check, not the row count. Failure arms: a record whose URL 404s, one whose URL returns HTML, one whose host is
 robots-disallowed — each must be reported by name and skipped, and the run must not stop.
 
-### Step 5 — the service: `stash-box-sync.service` + `stash-box-sync.timer`
+### Step 5 — the service: `stash-box-sync.service` + `stash-box-sync.timer` — **BUILT, as two services and two timers**
+
+**As built, and why it differs from the sketch below.** Four units, because a timer cannot pass an argument to a
+service: `stash-box-sync.{service,timer}` (the incremental run, 6-hourly) and
+`stash-box-sync-full.{service,timer}` (every entity, weekly). Both execute the SAME script, so the scheduled path
+and the by-hand path cannot drift. The script does two halves in order — the watermarked reconcile, then the
+import walk that ADDS what is new (the sync never creates: an id the instance has never seen is the import path's
+job, by design, so without the second half the timers would keep an old mirror current instead of growing it).
+
+`OnCalendar` (±10 min randomised) rather than `OnBootSec`/`OnUnitActiveSec`: six hours from an arbitrary boot is a
+schedule nobody can predict or reason about, and `Persistent=true` still covers a host that was down at the
+scheduled minute. `Conflicts=` on the full unit rather than relying on the lock alone, because a queued unit
+reads as a failure. The 6-hour cadence is a judgement, and the reasoning is in the unit file: the source's newest
+records are typically minutes old (measured: `updated` of 10:30:54, 10:30:50, 10:17:08 at 10:53), so six hours
+means trailing by at most a quarter of a day, while the walk itself costs one page plus the margin window — 13
+records, measured. The password reaches neither `ExecStart` nor `ps`: `EnvironmentFile=%h/.sdb_auth.env` (0600),
+which is also what `systemctl show` redacts.
+
+Nothing in step 5's sketch is lost: images become step 4's flag when step 4 exists.
+
+
 
 Two user units on thinkcentre, beside `stash-box.service`:
 
@@ -229,7 +289,15 @@ JSON report are read; `systemctl --user list-timers stash-box-sync.timer` shows 
 manual start while the first is running must exit 0 with `skipped: locked` (assert by running two in
 parallel and reading both exit codes and both report files).
 
-### Step 6 — the repeatable full run, documented and scripted
+### Step 6 — the repeatable full run, documented and scripted — **BUILT**
+
+**As built:** `scripts/sync-thinkcentre.sh` is the OPERATIONAL script — the same one both timers execute — with
+`--incremental` (default), `--full` and `--dry-run`, and flags valid for both halves kept apart from flags valid
+only for the sync half (`-sync-modes` is not an import flag, and a script that fails at its own convenience is a
+script nobody runs twice). Deployment is the separate, already-established loop this session used every time:
+`scripts/publish.sh` (push to both remotes, verified by SHA) then build on the host from a worktree of
+`origin/main` and `install` beside the running instance. The two are deliberately not fused: deploying is a
+decision, syncing is a schedule.
 
 `scripts/sync-thinkcentre.sh` in this repository: pushes nothing, builds on the host, installs `sdbimport`
 beside the running instance, then runs one full pass with `-sync-full -images` and prints the report. It is the
