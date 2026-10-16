@@ -1,6 +1,6 @@
 # The sync service — stashdb.org → this instance, running on its own
 
-Status: **steps 1, 2, 3, 5 and 6 are BUILT AND RUNNING ON THINKCENTRE** (step 4, thumbnails, is the only unbuilt step). Earlier wording: **steps 1 and 2 are BUILT** (commit `a3ea8407`'s successor; migration 143, `watermark_store.go`,
+Status: **ALL SIX STEPS ARE BUILT, and five of them are running on thinkcentre on a schedule; step 4 (pictures) is built, verified live, and deliberately not on a timer.** Earlier wording: **steps 1 and 2 are BUILT** (commit `a3ea8407`'s successor; migration 143, `watermark_store.go`,
 7 integration tests, 8 mutation probes 8/8). **Steps 3–6 are PLAN.** Written 2026-10-16, after a live survey of
 both ends (this instance at commit `a3ea8407`, deployed on thinkcentre 2026-10-16 12:28, and stashdb.org's
 public API).
@@ -194,6 +194,51 @@ store's never-rewind rule refuses that write in SQL — visible in production, a
 
 ### Step 4 — thumbnails: `internal/sdbimport/images.go` + `-images <entities>`
 
+**BUILT, LIVE-VERIFIED, AND THE LIVE RUN CORRECTED THE SKETCH IN FOUR PLACES.** The mechanism below is what was
+built; what follows is what running it against the real source changed.
+
+**The source's `Image` type has three fields, and `types` and `date` are not among them.** The first live walk
+answered `422 Cannot query field "types" on type "Image"` — the richer type belongs to THIS fork's schema and the
+source runs the upstream one — so the query asks for `url`, `width` and `height`, and **the dimension heuristic
+this sketch proposed is what actually runs**, not the fallback. The type pass-through is kept for a source that
+does publish them (this fork, or a later upstream) and is dead code against today's source, which is said here
+rather than implied. The general lesson: a query's field list is a contract with a REMOTE schema, and no unit
+test in this repository holds the other end — only a live walk. The unit tests were green through all of this.
+
+**`image.DecodeConfig` is not enough, and a test found it.** `DecodeConfig` reads the header; the first half of a
+PNG satisfies the sniffer AND the header, so half a picture was stored as a picture. The validation is a full
+`image.Decode`. The truncated-PNG fixture is the subject that only the decoder can catch — the HTML case is
+caught by the content-type check first, so deleting the decoder left the suite green until that fixture existed.
+
+**Two config keys, not one, and neither the writing half nor the serving half knows about the other.**
+`image_location` is where `sdbimport`/the image service WRITE (`ImageLocation not set` names it); `media_dir` is
+where the running instance SERVES image bytes from, and `images_enabled` decides whether it serves them at all.
+They must point at the same directory, and nothing in the code enforces that — a deployment that sets one and
+not the other stores pictures it cannot serve, which is what happened on the first live run (13 rows, 13 files,
+`403 this instance serves image bytes but media_dir is not set`). All three are now set on thinkcentre, and the
+message naming the key is what made the fix a one-liner.
+
+**A flag's default can quietly make a config key unreachable.** The interval flag first defaulted to 2s, so
+every run supplied a value and `content_fetch_min_interval`—the instance's own documented knob—was never read.
+The flag now defaults to 0, meaning "use the configured interval".
+
+**As built**, and what differs from the sketch: one picture per performer, not the whole gallery (an entity with
+an image is skipped before any HTTP request — the sketch's own idempotence rule, and the reason a second run
+costs no traffic); the look-up of "already has an image" is a count on `performer_images`; `-images` is a flag
+on `sdbimport` and on `scripts/sync-thinkcentre.sh`, and is on **neither timer**, because one request per picture
+at the host's politeness interval makes a full walk of 112,733 performers a matter of days — the timers keep the
+metadata mirror current, pictures are fetched deliberately. `-images` also refuses to run at all when the
+instance's own `content_fetch_sources` is false, named rather than silent.
+
+**Verified live on thinkcentre** (commit `ee5b6f03`, 2026-10-16): `images 0 -> 13`, `performer_images 13`,
+13 files on disk; a second run reported `94 offered, 0 stored, 13 already held` — no traffic; and
+`GET /images/<id>` through the running instance returned `200`, 123,548 bytes, `image/jpeg`, with the served
+bytes' md5 **equal to the row's checksum** and the file decoding as 665x997, the row's own dimensions. The
+failure arm was demonstrated live by accident and is worth more than a staged one: the first run stored 13 rows
+and failed 13 writes with `ImageLocation not set` — each named, the run continued, the exit code said
+`the sync reported failures`, and the rows it left behind had to be deleted before the real run.
+
+
 For each entity, the source's GraphQL payload is extended with the image the source publishes for it
 (`images { url width height }` on `Performer`/`Studio`/`Scene`). For each record with an image and no local
 image:
@@ -238,7 +283,7 @@ means trailing by at most a quarter of a day, while the walk itself costs one pa
 records, measured. The password reaches neither `ExecStart` nor `ps`: `EnvironmentFile=%h/.sdb_auth.env` (0600),
 which is also what `systemctl show` redacts.
 
-Nothing in step 5's sketch is lost: images become step 4's flag when step 4 exists.
+Nothing in step 5's sketch is lost, and step 4's flag now exists: `-images` is opt-in on both the CLI and the script, and on neither timer.
 
 
 

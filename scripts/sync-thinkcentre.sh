@@ -12,6 +12,12 @@
 #                            performers and 1,118,852 scenes, and the import is a page-at-a-time walk). This is
 #                            what the weekly timer runs.
 #   --dry-run                report what would change and write nothing. Passed through to both halves.
+#   --images                 ALSO fetch each performer's picture from the source and store it (plan step 4).
+#                            OFF by default, and off in both timer units, because it is the slow half: one
+#                            request per image, one image per record, at the host's politeness interval. A run
+#                            that adds a hundred performers is a few minutes of metadata plus a few minutes of
+#                            pictures; a full walk of the source would be days of pictures. The scheduled runs
+#                            therefore keep the metadata mirror current, and pictures are fetched deliberately.
 #
 # Both halves are idempotent by construction -- the import by natural key, the sync by its watermark and its
 # diff -- so running this twice in a row is free and running it after a failure resumes rather than duplicating.
@@ -38,6 +44,12 @@ while [ $# -gt 0 ]; do
       BOTH+=("$1" "$2"); shift ;;
     --sync-modes|--sync-margin)
       SYNC_ONLY+=("$1" "$2"); shift ;;
+    --images)
+      # SYNC_ONLY, not BOTH: `-images` is a sync flag, and the script's own rule is that a flag valid for one
+      # half does not get handed to the other "at its own convenience".
+      SYNC_ONLY+=("-images") ;;
+    --image-interval)
+      SYNC_ONLY+=("$1" "$2"); shift ;;
     *) echo "sync-thinkcentre.sh: unknown argument $1" >&2; exit 2 ;;
   esac
   shift
@@ -63,7 +75,7 @@ JSON="$LOG_DIR/sync-$STAMP.json"
 
 run() { "$DEPLOY/bin/sdbimport" -config "$CONFIG" "$@"; }
 
-echo "== $(date -Is) sync-thinkcentre.sh $MODE $DRY =="
+echo "== $(date -Is) sync-thinkcentre.sh $MODE $DRY ${SYNC_ONLY[*]-} =="
 
 # HALF ONE: the reconcile. Cheap, watermarked, and first, because it is the half that must run every time.
 # A held lock is a normal outcome (a manual run beside the timer's) and this is where that shows up.
