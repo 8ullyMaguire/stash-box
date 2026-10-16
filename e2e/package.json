@@ -15,6 +15,7 @@
   },
   "packageManager": "pnpm@11.21.0",
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
     "@playwright/test": "^1.49.0",
     "@types/mailparser": "^3.4.5",
     "@types/node": "~24",

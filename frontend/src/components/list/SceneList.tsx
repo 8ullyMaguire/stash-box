@@ -113,8 +113,12 @@ const SceneList: FC<Props> = ({
         <TagFilter tag={params.tag} onChange={(t) => setParams("tag", t?.id)} />
       )}
       <InputGroup className="scene-sort w-auto">
+        {/* The select and the direction toggle below are both unlabelled controls (axe: `select-name` and
+            `button-name`, both critical): the toggle carries only an arrow icon and the select only its
+            options, so neither announced what it does. */}
         <Form.Select
           className="w-auto"
+          aria-label="Sort scenes by"
           onChange={(e) =>
             setParams("sort", e.currentTarget.value.toLowerCase())
           }
@@ -128,6 +132,11 @@ const SceneList: FC<Props> = ({
         </Form.Select>
         <Button
           variant="secondary"
+          aria-label={
+            direction === SortDirectionEnum.DESC
+              ? "Sort direction: descending. Switch to ascending"
+              : "Sort direction: ascending. Switch to descending"
+          }
           onClick={() =>
             setParams(
               "dir",
@@ -162,19 +171,28 @@ const SceneList: FC<Props> = ({
           />
         </Form.Group>
       ) : favoriteFilter === "all" ? (
-        <Select
-          className="FavoriteFilter ms-4"
-          classNamePrefix="react-select"
-          onChange={(val) => setParams("favorite", val ? val.value : "NONE")}
-          placeholder="Favorite filter"
-          isClearable
-          defaultValue={
-            favorite
-              ? favoriteOptions.find((fav) => fav.value === favorite)
-              : undefined
-          }
-          options={favoriteOptions}
-        />
+        // The label has to be here, in the branch that renders the select: react-select names its input
+        // `react-select-N-input` on its own, and axe reports that as `label` [critical] -- an unlabelled form
+        // control on the list pages.
+        <>
+          <label htmlFor="favorite-filter-input" className="visually-hidden">
+            Filter scenes by favorite
+          </label>
+          <Select
+            inputId="favorite-filter-input"
+            className="FavoriteFilter ms-4"
+            classNamePrefix="react-select"
+            onChange={(val) => setParams("favorite", val ? val.value : "NONE")}
+            placeholder="Favorite filter"
+            isClearable
+            defaultValue={
+              favorite
+                ? favoriteOptions.find((fav) => fav.value === favorite)
+                : undefined
+            }
+            options={favoriteOptions}
+          />
+        </>
       ) : null}
     </>
   );

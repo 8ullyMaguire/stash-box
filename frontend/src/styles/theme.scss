@@ -43,6 +43,15 @@ $textfield-bg: rgba(16 22 26 / 30%);
 @import "bootstrap/scss/utilities";
 @import "bootstrap/scss/utilities/api";
 
+// Bootstrap 5.2 compiles `.text-muted` to a STATIC `color: $text-muted` -- #bfccd6, the dark palette's muted
+// grey -- so the utility cannot follow the theme. In the light palette that is 1.53:1 against the page: the
+// muted text on every card was effectively invisible, and axe reported it as `color-contrast` [serious] on
+// all six key pages. Both palettes define `--sb-text-muted` and `theme.test.ts` asserts each against its
+// background; the utility now reads the one that is in force.
+.text-muted {
+  color: var(--sb-text-muted) !important;
+}
+
 // Layout & components
 @import "bootstrap/scss/tables";
 @import "bootstrap/scss/forms";
@@ -103,6 +112,11 @@ $textfield-bg: rgba(16 22 26 / 30%);
 
   --sb-bg: #202b33;
   --sb-surface: #30404d;
+  // Links and the outline button are the one accent that is TEXT on a surface, so the token is asserted
+  // against BOTH backgrounds in theme.test.ts. #48aff0 -- the link colour this palette shipped with --
+  // measures 4.41:1 on a card surface and would have failed the moment a link landed on one; the axe gate
+  // caught the outline button (2.36:1) before any link did.
+  --sb-link: #6cc4f2;
   --sb-text: #f5f8fa;
   --sb-text-muted: #bfccd6;
   --sb-border: #394b59;
@@ -128,6 +142,9 @@ $textfield-bg: rgba(16 22 26 / 30%);
 
   --sb-bg: #f5f8fa;
   --sb-surface: #ffffff;
+  // Blueprint's blue2. The dark palette's #48aff0 measures 2.27:1 here -- the tab links on five pages were
+  // unreadable in light mode.
+  --sb-link: #106ba3;
   --sb-text: #182026;
   --sb-text-muted: #5c7080;
   --sb-border: #d3dde4;
@@ -308,11 +325,13 @@ hr {
   }
 }
 
+// The modal's text and its close button were `$text-color` (#f5f8fa, a static near-white): in the light
+// palette that is white text on a white surface. Both now read the palette.
 .modal {
-  color: $text-color;
+  color: var(--sb-text);
 
   .btn-close {
-    background-color: $text-color;
+    background-color: var(--sb-text);
   }
 
   &-header,
@@ -320,7 +339,7 @@ hr {
   &-footer {
     background-color: var(--sb-surface);
     border-color: transparent;
-    color: $text-color;
+    color: var(--sb-text);
   }
 
   &-content {
@@ -328,8 +347,12 @@ hr {
   }
 }
 
+// `.card` was `#30404d` -- the DARK palette's surface, hard-coded, so in the light palette a card stayed
+// dark while its text followed the theme: axe measured `#182026` on `#30404d`, 1.54:1, on the scene page's
+// own card. The surface token is the surface. (`theme.test.ts` already asserts `--sb-text` against
+// `--sb-surface`; what it could not see was a component that never asked for either.)
 .card {
-  background-color: #30404d;
+  background-color: var(--sb-surface);
   border: none;
   border-radius: 3px;
   box-shadow:
@@ -423,6 +446,39 @@ textarea.text-input {
   min-height: 12ex;
   overflow-y: scroll;
 }
+
+// The phase's "reduced motion" item. The app has no long set-piece animation, but every bootstrap control
+// transitions colour and the spinners rotate, and motion is motion: a reader who asks the operating system to
+// reduce it gets none. The durations are near-zero rather than the properties being removed, because removing
+// `transition` entirely also removes the transitionend events some bootstrap components listen for.
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+// These MUST come last: they are deliberately the same specificity as bootstrap's own rules and win only by
+// order. Placed earlier they lost, and the gate kept measuring the compiled #48aff0 (2.27:1 in light, and
+// 2.36:1 for the dark palette's outline button), which is why this block is at the foot of the file rather
+// than beside the tokens it reads.
+/* stylelint-disable no-descending-specificity */
+a,
+.nav-link,
+.nav-tabs .nav-link.active,
+.nav-pills .nav-link.active,
+.btn-outline-primary {
+  color: var(--sb-link);
+}
+
+.btn-outline-primary {
+  border-color: var(--sb-link);
+}
+/* stylelint-enable no-descending-specificity */
 
 .sr-only {
   @include visually-hidden;

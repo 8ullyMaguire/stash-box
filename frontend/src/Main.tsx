@@ -108,15 +108,25 @@ const Main: FC<Props> = ({ children }) => {
     contextValue.user && (
       <>
         <ThemeSwitcher />
-        <Link to={ROUTE_NOTIFICATIONS}>
-          <Button variant="link" className="NotificationBadge">
-            <Icon icon={notificationCount ? faBell : faBellOutlined} />
-            {notificationCount && (
-              <Badge bg={hasUrgent ? "danger" : "primary"} className="ms-1">
-                {notificationCount}
-              </Badge>
-            )}
-          </Button>
+        {/* One link, not a button inside a link. The nested pair was two interactive controls in one
+            tab stop with no accessible name between them (`button-name` and `link-name`, both critical):
+            a screen reader announced "link, button" and nothing about where it goes. The count is part of
+            the name now, so "Notifications, 3 unread" is what a reader hears rather than a bare bell. */}
+        <Link
+          to={ROUTE_NOTIFICATIONS}
+          className="NotificationBadge"
+          aria-label={
+            notificationCount
+              ? `Notifications, ${notificationCount} unread`
+              : "Notifications"
+          }
+        >
+          <Icon icon={notificationCount ? faBell : faBellOutlined} />
+          {notificationCount && (
+            <Badge bg={hasUrgent ? "danger" : "primary"} className="ms-1">
+              {notificationCount}
+            </Badge>
+          )}
         </Link>
         <NavLink
           to={userHref(contextValue.user)}

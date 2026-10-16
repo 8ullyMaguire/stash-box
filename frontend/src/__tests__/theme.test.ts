@@ -128,9 +128,11 @@ describe("theme persistence", () => {
   });
 
   it("survives localStorage throwing", () => {
-    const spy = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
-      throw new Error("blocked by privacy mode");
-    });
+    const spy = vi
+      .spyOn(Storage.prototype, "getItem")
+      .mockImplementation(() => {
+        throw new Error("blocked by privacy mode");
+      });
     expect(readStoredTheme()).toBe("system");
     spy.mockRestore();
   });
@@ -232,8 +234,11 @@ describe("token parity between theme.ts and theme.scss", () => {
     // is exactly where unreadable text ships unnoticed.
     const luminance = (hex: string) => {
       const v = hex.replace("#", "");
-      const [r, g, b] = [0, 2, 4].map((i) => parseInt(v.slice(i, i + 2), 16) / 255);
-      const lin = (c: number) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+      const [r, g, b] = [0, 2, 4].map(
+        (i) => parseInt(v.slice(i, i + 2), 16) / 255,
+      );
+      const lin = (c: number) =>
+        c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
       return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
     };
     const contrast = (a: string, b: string) => {
@@ -255,6 +260,18 @@ describe("token parity between theme.ts and theme.scss", () => {
         contrast(t["--sb-text-muted"], t["--sb-bg"]),
         `${theme}: muted text on the page background must reach 3:1`,
       ).toBeGreaterThanOrEqual(3);
+      // The link token is checked against BOTH backgrounds, and that is the point of checking it here: the
+      // dark palette's link measured 4.41:1 on a card surface while passing easily on the page background, so
+      // a test that only looked at the page would have certified a colour that fails as soon as a link lands
+      // on a card. The browser gate found the same trap from the other end (`.btn-outline-primary`, 2.36:1).
+      expect(
+        contrast(t["--sb-link"], t["--sb-bg"]),
+        `${theme}: link text on the page background must reach 4.5:1`,
+      ).toBeGreaterThanOrEqual(4.5);
+      expect(
+        contrast(t["--sb-link"], t["--sb-surface"]),
+        `${theme}: link text on a card surface must reach 4.5:1`,
+      ).toBeGreaterThanOrEqual(4.5);
     }
   });
 });

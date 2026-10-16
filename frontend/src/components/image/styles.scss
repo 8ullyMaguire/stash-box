@@ -22,7 +22,10 @@
   &-error,
   &-missing {
     position: absolute;
-    background-color: $secondary;
+    // `$secondary` is a dark surface in both palettes, so in the light one this placeholder was dark with
+    // the theme's dark text on it. The palette's surface carries its own text colour with it.
+    background-color: var(--sb-surface);
+    color: var(--sb-text);
     width: 100%;
     height: 100%;
     align-content: center;

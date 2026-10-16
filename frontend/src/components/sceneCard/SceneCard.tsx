@@ -20,7 +20,15 @@ const CLASSNAME_BODY = `${CLASSNAME}-body`;
 const SceneCard: FC<{ scene: Performance }> = ({ scene }) => (
   <Card className={CLASSNAME}>
     <Card.Body className={CLASSNAME_BODY}>
-      <Link className={CLASSNAME_IMAGE} to={sceneHref(scene)}>
+      {/* The link is named here rather than by the image's alt: a scene with no image renders a
+          placeholder instead of an `<img>`, and axe reported all sixteen of these as `link-name` [serious]
+          -- "Links must have discernible text". A nameless link is not a cosmetic problem: a screen reader
+          announces "link" and nothing else, on the card's largest target. */}
+      <Link
+        className={CLASSNAME_IMAGE}
+        to={sceneHref(scene)}
+        aria-label={scene.title ? `Open ${scene.title}` : "Open scene"}
+      >
         <Thumbnail
           alt={scene.title}
           className={imageType(scene.images[0])}

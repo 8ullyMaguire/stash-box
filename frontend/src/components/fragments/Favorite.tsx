@@ -52,6 +52,14 @@ export const FavoriteStar: FC<Props> = ({
         onClick={handleClick}
         className={cx(CLASSNAME, className)}
         variant="link"
+        // The star is an icon, so the button had no accessible name at all: axe reported `button-name`
+        // [critical] -- "Buttons must have discernible text" -- on the performer and tag pages. The name is
+        // the same sentence the tooltip shows.
+        aria-label={
+          interactable
+            ? `${entity.is_favorite ? "Remove" : "Add"} favorite`
+            : "Favorite"
+        }
       >
         <Icon
           icon={entity.is_favorite ? faStar : farStar}

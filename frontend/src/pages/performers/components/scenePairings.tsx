@@ -86,8 +86,15 @@ export const ScenePairings: FC<Props> = ({ id }) => {
         defaultValue={params.query}
         className="w-auto"
       />
+      {/* `id` sets react-select's WRAPPER id; the input it renders still gets a generated
+          `react-select-N-input`, which is what axe reports as `label` [critical]. `inputId` names the input,
+          and the label points at it. */}
+      <label htmlFor="performer-gender-input" className="visually-hidden">
+        Filter by gender
+      </label>
       <Select
         id="performer-gender"
+        inputId="performer-gender-input"
         options={genderOptions}
         defaultValue={genderOptions.find((o) => o.value === gender)}
         placeholder="Gender"

@@ -28,6 +28,7 @@ interface SearchResult {
 
 const CLASSNAME = "TagFilter";
 const CLASSNAME_SELECT = `${CLASSNAME}-select`;
+const TAG_FILTER_INPUT_ID = "tag-filter-input";
 
 const TagFilter: FC<TagFilterProps> = ({
   tag: tagId,
@@ -112,26 +113,36 @@ const TagFilter: FC<TagFilterProps> = ({
   };
 
   return (
-    <Async
-      classNamePrefix="react-select"
-      className={`react-select ${CLASSNAME_SELECT}`}
-      onChange={handleChange}
-      loadOptions={debouncedLoadOptions}
-      placeholder="Filter by tag"
-      noOptionsMessage={({ inputValue }) =>
-        inputValue === "" ? null : `No tags found for "${inputValue}"`
-      }
-      value={
-        selectedTag && {
-          label: selectedTag.name,
-          value: selectedTag,
-          sublabel: "",
+    // react-select renders `role="combobox"` on a generated input id (`react-select-3-input`) with no label,
+    // which axe reports as `label` [critical] and `select-name` [critical]: the tag filter was a combobox
+    // nobody could name. `inputId` plus the visually-hidden label below gives it both, without changing what
+    // is drawn.
+    <>
+      <label htmlFor={TAG_FILTER_INPUT_ID} className="visually-hidden">
+        Filter by tag
+      </label>
+      <Async
+        inputId={TAG_FILTER_INPUT_ID}
+        classNamePrefix="react-select"
+        className={`react-select ${CLASSNAME_SELECT}`}
+        onChange={handleChange}
+        loadOptions={debouncedLoadOptions}
+        placeholder="Filter by tag"
+        noOptionsMessage={({ inputValue }) =>
+          inputValue === "" ? null : `No tags found for "${inputValue}"`
         }
-      }
-      isClearable
-      menuPlacement={menuPlacement}
-      formatOptionLabel={formatOptionLabel}
-    />
+        value={
+          selectedTag && {
+            label: selectedTag.name,
+            value: selectedTag,
+            sublabel: "",
+          }
+        }
+        isClearable
+        menuPlacement={menuPlacement}
+        formatOptionLabel={formatOptionLabel}
+      />
+    </>
   );
 };
 

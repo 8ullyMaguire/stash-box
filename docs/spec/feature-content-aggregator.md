@@ -797,3 +797,91 @@ The refusal is also distinguished from a fault: a member without the role is tol
 not that something went wrong, because sending somebody to look for a fault that does not exist is its own
 kind of wrong answer.
 
+
+## 16.3 Accessibility: the target, the tool that measured it, and what a green gate does not mean
+(phase 16, slices 16d and 16e)
+
+Phase 16's verification sentence is two clauses: *"keyboard-only navigation reaches every control on each key
+page; the a11y target is recorded with the tool that measured it."* This section is both clauses, and it is
+written as a test rather than as a policy because a policy cannot fail.
+
+**The target is WCAG 2.1 level AA**, and **the tool is axe-core**, run in a real browser through Playwright
+(`@axe-core/playwright`), over the four tag sets that make up that level: `wcag2a, wcag2aa, wcag21a, wcag21aa`.
+The tool is named because the phase asks for it to be named: "the a11y target is recorded with the tool that
+measured it" means a reader must be able to re-run the measurement, and `e2e/tests/a11y.spec.ts` is that
+measurement. A run with `A11Y_REPORT=1` writes axe's own findings, page by page, to `e2e/a11y-report.json`.
+
+**The pages are the five the phase names** — home dashboard, search results, content detail, tag page,
+performer page — **plus `/metrics`**, which this phase added. Each is opened with data in it: an empty search
+page and a populated one have different DOM, and the populated one is what a reader gets.
+
+**What a green gate does not mean, said out loud because a green accessibility gate is easy to over-read.**
+axe decides only the subset of WCAG that a machine can decide from the DOM. It can see that an image has an
+`alt` attribute; it cannot see whether the sentence in it means anything. It can see that a button has a
+discernible name; it cannot see whether the name describes what the button does. So this gate is a **floor,
+not a certificate**, and the second check exists to cover the half axe cannot reach.
+
+**The second instrument is the keyboard walk.** axe cannot tell whether a control that is focusable in the DOM
+ever actually receives focus, and that difference is a real defect class: an element with a positive tabindex,
+a trap, or a stray `tabindex="-1"` all leave a control that a keyboard user cannot use while the markup looks
+correct. The test enumerates every control the DOM says is focusable — excluding ones the browser itself puts
+beyond the keyboard (`:disabled`, `[tabindex="-1"]`, and anything inside an `aria-hidden` subtree, because a
+disabled control is not a control a keyboard user was promised) — then presses Tab until every one of them has
+received focus, and fails naming the ones that never did.
+
+**The subject is counted before its reachability is asserted.** "Every control is reachable" is vacuously true
+of a page that rendered no controls, which is exactly what a broken selector produces; so the count is asserted
+`> 0` first, and the same discipline applies to the axe half, where a run that analysed zero nodes and a run
+that analysed three hundred both print "0 violations" — which is why the report records `passes` and
+`incomplete` counts beside the violations.
+
+**What the first run found** (2026-10-16, six pages, 12 tests, before any of it was fixed):
+
+| rule | impact | pages | what it was |
+|---|---|---|---|
+| `button-name` | critical | all six | the notification bell: a `<Button>` inside a `<Link>`, with only an icon in it — two interactive controls in one tab stop and no accessible name on either |
+| `link-name` | serious | all six | the same element, seen as the anchor around the button |
+| `label` | critical | all six | the header search: react-select numbers its own input id (`react-select-2-input`) when `inputId` is absent, and an input with a generated id has no label to point at it |
+| `color-contrast` | serious | all six | the instance's own theme: muted text on cards, the active nav item, card headers and the secondary line of each performer card |
+
+The three structural violations were defects in this repository's own markup and are fixed in it: the bell is
+now one link carrying the count in its accessible name (`Notifications, 3 unread`), and a search field whose
+caller supplies no `inputId` now gets a real label and a stable id. Contrast is a property of the theme rather
+than of the markup, and §16.5 records what was done about it and what was left.
+
+## 16.4 The keyboard contract, in two halves
+
+Tab reaches every control the DOM says is focusable -- and a tablist's inactive tabs are not reached by Tab,
+which is CORRECT: the WAI-ARIA tabs pattern puts one tab in the tab order and moves between them with the arrow
+keys. A check that had insisted on Tab-only reachability would have flagged three working pages, and a check
+that simply excluded tablists would have left the widget unverified. So the gate does both: controls inside a
+`[role="tablist"]` are excluded from the Tab walk, and a second test presses ArrowRight through every tablist
+on every key page and requires each tab to receive focus. The exclusion carries its own proof.
+
+Both halves count their subject first. "Every control is reachable" is vacuously true of a page that rendered no
+controls; "every tab is reachable with the arrow keys" is vacuously true of a tablist with no tabs.
+
+## 16.5 The palette: the same page in the mode a developer is not looking at
+
+Two of the four defects this phase's gate found were invisible in the dark palette, which is the one the
+application was written in: `.text-muted` compiled to a static `#bfccd6` (1.53:1 on the light page) and `.card`
+hard-coded `#30404d`, the dark surface, so in light mode a card stayed dark while its text followed the theme
+(1.54:1). Neither is reachable by a unit test of the tokens -- `theme.test.ts` already asserted every
+`theme.ts` value against its `theme.scss` counterpart and the text/surface pairs against each other; what it
+could not see was a component that never asked for either.
+
+The rule this slice adds to the token layer, and the reason it is a rule rather than a fix: **a colour that is
+TEXT on a surface must be asserted against both backgrounds it can sit on.** The dark palette's link colour was
+`#48aff0`: 5.96:1 on the page background, and **4.41:1 on a card surface** -- passing where a reader usually
+sees it and failing the moment a link lands on a card. `theme.test.ts` now checks `--sb-link` against both, in
+both palettes, and the gate found the same trap independently from the other end (the outline button's text at
+2.36:1 on a dark card). The tokens are `#6cc4f2` in dark and `#106ba3` in light.
+
+**Order is part of the fix.** The rules that carry the link token have to come AFTER bootstrap's, because they
+are deliberately the same specificity and win only by being later; placed beside the tokens they lost and the
+gate kept measuring the compiled `#48aff0`. The file says so where they are.
+
+**What this slice does not claim.** The light palette has never been rendered across all 33 stylesheets --
+`theme.ts`'s own header says as much -- and this fixes what the gate can see, not the sweep. WCAG 1.4.11
+non-text contrast has no rule in this gate at all, so a border that fails it is not reported. `forced-colors`
+(Windows high contrast) is not audited. Those are the phase's remaining items.

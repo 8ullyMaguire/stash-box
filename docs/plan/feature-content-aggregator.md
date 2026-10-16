@@ -4286,6 +4286,110 @@ is its own slice: folding it into a metrics commit would hide a real piece of wo
 `mutations/index.ts`, `hooks/useTheme.tsx`, `lists/{AddList,MyLists}.tsx` fail `biome check`), which is worth
 knowing before anybody treats that command as a gate.
 
+### Phase 16, slice 4 — the accessibility gate, and the four defects its first run found — **BUILT 2026-10-16**
+
+The phase's verification sentence has two clauses -- *"keyboard-only navigation reaches every control on each
+key page; the a11y target is recorded with the tool that measured it"* -- and this is both of them, as a test
+that fails rather than as a policy that cannot.
+
+**Files.** `e2e/tests/a11y.spec.ts` (new, 25 tests: 12 page-palette audits, 6 Tab walks, 6 arrow-key walks,
+1 reduced-motion measurement); `@axe-core/playwright` in `e2e/package.json`; and the app-side fixes it found:
+`frontend/src/Main.tsx` (the notification bell), `components/searchField/SearchField.tsx`,
+`components/sceneCard/SceneCard.tsx`, `components/fragments/Favorite.tsx`, `components/list/SceneList.tsx`,
+`components/tagFilter/TagFilter.tsx`, `components/CompletionBar.tsx`,
+`components/checkboxSelect/CheckboxSelect.tsx`, `pages/performers/components/scenePairings.tsx`.
+
+**The decisions, each a thing a cheaper version would have got wrong:**
+
+1. **The tool is named and its output is kept.** WCAG 2.1 AA is the target and axe-core (via
+   `@axe-core/playwright`, tags `wcag2a, wcag2aa, wcag21a, wcag21aa`) is the instrument; a run with
+   `A11Y_REPORT=1` writes axe's own findings per page to `e2e/a11y-report/`. "Recorded with the tool that
+   measured it" means a reader can re-run the measurement.
+2. **Both palettes are audited.** Not thoroughness for its own sake: the theme is a token layer over 33
+   stylesheets that predate it, and the first run measured a palette that was consistent in dark and broken in
+   light -- `.text-muted` compiled to the dark grey in both modes (1.53:1 on the light page) and `.card`
+   hard-coded the dark surface while its text followed the theme (1.54:1). A developer looking at the dark
+   palette sees neither.
+3. **The keyboard walk is a second, independent instrument.** axe cannot tell whether a control that is
+   focusable in the DOM ever receives focus; the walk enumerates every control the DOM says is focusable --
+   excluding `:disabled`, `[tabindex="-1"]` and anything inside an `aria-hidden` subtree, because a control the
+   browser itself put beyond the keyboard is not a control a keyboard user was promised -- then presses Tab
+   until each has received focus and fails naming the ones that never did.
+4. **The subject is counted before its reachability is asserted.** "Every control is reachable" is vacuously
+   true of a page that rendered no controls, which is what a broken selector produces.
+5. **The keyboard contract is two halves, because Tab is not the whole of it.** A tablist's inactive tabs are
+   not reached by Tab, and that is CORRECT -- the WAI-ARIA tabs pattern keeps one tab in the tab order and moves
+   between them with the arrow keys -- so controls inside a `[role="tablist"]` are excluded from the Tab walk and
+   a SECOND test presses ArrowRight through every tablist on every key page and requires each tab to receive
+   focus. A Tab-only check would have failed three working pages; a bare exclusion would have left the widget
+   unverified. The exclusion carries its own proof.
+6. **The report is one file per page per palette.** It was first collected on `globalThis` and flushed in
+   `afterAll`, which produced `{}`: Playwright runs six workers and each has its own global, so the last one to
+   finish wrote its own empty object over everybody else's work.
+
+**What the first run found, and what each fix was.** The bell was a `<Button>` inside a `<Link>` with only an
+icon: `button-name` and `link-name`, both critical, and two interactive controls in one tab stop. The header
+search was a react-select with a generated `inputId` and no label (`label` [critical]); a caller that supplies
+no id now gets a stable one and a label. Scene cards render a placeholder instead of an `<img>` when a scene has
+no image, and the image link was then nameless (`link-name` x16 on the home page) -- the link carries the
+scene's name itself now. The favourite star, the scene sort select and its direction toggle, the tag filter's
+combobox, the studio filter and the favourite filter were all unlabelled controls (`button-name`, `select-name`,
+`label`); the `CheckboxSelect` fix is in the component rather than at its seven call sites, deriving the input id
+from the placeholder the control already shows. The completion bar's `role="progressbar"` needed its name ON the
+bar: `role="progressbar"` takes a name from the author only (content does not name it), and a prop-level
+`aria-label` on react-bootstrap's `ProgressBar` lands on the OUTER wrapper, whose role forbids it
+(`aria-prohibited-attr`) while the bar stayed nameless (`aria-progressbar-name`) -- so the bar is rendered as a
+child, which is the form that puts the props on the bar itself.
+
+**What this gate cannot see**, recorded because a green accessibility gate is easy to over-read: axe decides
+only the machine-decidable subset of WCAG. It can see that an image has an `alt`; not that the sentence in it
+means anything. It has no rule for WCAG 1.4.11 non-text contrast (the `.btn-outline-primary` border is a real
+case, measured at 2.36:1 and not covered by any rule this gate runs). It cannot judge whether a tab order is
+sensible. This is a floor, not a certificate.
+
+**Verification:** `cd e2e && STASH_BOX_DATABASE=... npx playwright test tests/a11y.spec.ts` -- 25 tests, 12 of
+them the same six pages in both palettes. Expected: all pass. Proven able to fail on the committed tree:
+`aria-label` removed from `FavoriteStar` -> the performer page reddens with `button-name` [critical] in both
+palettes -> restored -> green. The gate was proven able to fail before it was
+believed: every fix above was made because a named rule and a named element reddened first, and the counts in
+`e2e/a11y-report/*.json` (passes, incomplete, violations with their targets, html and measured colours) are the
+record.
+
+### Phase 16, slice 5 — the palette: the link token is asserted against both backgrounds — **BUILT 2026-10-16**
+
+**Files.** `frontend/src/styles/theme.scss` (the `--sb-link` token in both palettes, `.text-muted`, `.card`, the
+modal's text, the `a` / `.nav-link.active` / `.btn-outline-primary` rules, and the `prefers-reduced-motion`
+block), `frontend/src/theme.ts` (the same token in the JS source of truth), `frontend/src/__tests__/theme.test.ts`
+(the assertion that found the trap), `frontend/src/components/image/styles.scss` (the missing-image placeholder).
+
+**The decisions.** (1) **The surface token is the surface**: `.card` was `#30404d`, the DARK palette's surface
+hard-coded, so in light mode a card stayed dark while its text followed the theme -- 1.54:1, and `.modal`'s text
+was `$text-color` (#f5f8fa) on a white surface. (2) **A compiled utility cannot follow a theme**: bootstrap 5.2
+compiles `.text-muted` to a static `color: $text-muted`, so both palettes shipped the dark grey; the utility now
+reads `--sb-text-muted`. (3) **The link token is asserted against BOTH backgrounds, in both palettes.** The dark
+palette's `#48aff0` measures 5.96:1 on the page background and **4.41:1 on a card surface** -- it fails the
+moment a link lands on a card, and no test of the page background can see that. The token is `#6cc4f2` in dark
+(5.5:1 on a surface, 7.43:1 on the page) and `#106ba3` in light (5.39:1 / 5.75:1 on white), and
+`theme.test.ts` now asserts both pairs. The browser gate found the same trap from the other end: the outline
+button's text was `#137cbd` at 2.36:1 on a dark card.
+
+**Reduced motion, and why the test measures twice.** The stylesheet now answers `prefers-reduced-motion:
+reduce` by taking every animation and transition to 0.01ms rather than removing the properties (removing
+`transition` also removes the `transitionend` events bootstrap components listen for). The gate emulates the
+media query and compares the computed duration on a real control against the same control with no preference:
+the normal case must be measurably non-zero FIRST, because "0 seconds" and "no transition at all" are the same
+string and a reduced-only assertion would pass on a stylesheet that had no motion either way.
+
+**What is NOT done here, named rather than implied.** The light palette has never been rendered across all 33
+stylesheets -- `theme.ts`'s own header says so -- and this slice fixes the elements the gate can see, not the
+whole sweep. Non-text contrast (WCAG 1.4.11) has no rule in this gate at all: the outline button's border was
+measured at 2.36:1 by hand and no rule in the tag set reports it. `forced-colors` (Windows high contrast) is not
+audited. Those are the phase's remaining items.
+
+**Verification:** `cd frontend && npx vitest run src/__tests__/theme.test.ts` -- 11 tests, including the two new
+link-contrast assertions, and the suite that already asserts the JS tokens and the SCSS `:root` block are equal.
+Then the gate: `cd e2e && npx playwright test tests/a11y.spec.ts`.
+
 ## Phase 17 — the predicate grows (threaded, not separate)
 
 Every phase adds its clause to `docs/goal-check.py`, asserting an observable surface:

@@ -32,6 +32,17 @@ export enum SearchType {
   Combined = "combined",
 }
 
+/**
+ * The id this field's input gets when the caller supplies none.
+ *
+ * react-select numbers its ids itself (`react-select-2-input`) when `inputId` is absent, and an input with a
+ * generated id has no label to point at it: axe reports `label` [critical] -- "Form elements must have
+ * labels". Callers that pass `inputId` are the ones rendering their own `<label htmlFor>` (that is the
+ * convention `e2e/support/helpers/forms.ts` documents); a caller that does not now gets a real label and a
+ * stable id rather than a numbered one.
+ */
+const DEFAULT_SEARCH_INPUT_ID = "search-field-input";
+
 interface SearchFieldProps {
   onClick?: (result: SceneResult | PerformerResult) => void;
   onClickPerformer?: (result: PerformerResult) => void;
@@ -152,9 +163,14 @@ const SearchField: FC<SearchFieldProps> = ({
 
   return (
     <div className="SearchField">
+      {!inputId && (
+        <label htmlFor={DEFAULT_SEARCH_INPUT_ID} className="visually-hidden">
+          Search
+        </label>
+      )}
       <Async
         autoFocus={autoFocus}
-        inputId={inputId}
+        inputId={inputId ?? DEFAULT_SEARCH_INPUT_ID}
         classNamePrefix="react-select"
         value={selectedValue}
         loadOptions={handleLoad}

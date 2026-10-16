@@ -143,16 +143,23 @@ const CompletionBar: FC<{
             </span>
           </span>
         </div>
-
-        <ProgressBar
-          now={completion.score}
-          // The label is on screen already; a second one inside the bar is
-          // duplicated text at a smaller size.
-          label=""
-          variant={completion.score >= 70 ? "success" : "warning"}
-          className="mb-2"
-        />
-
+        // TWO components, and the nesting is the point. `role="progressbar"`
+        takes its name from the author // only -- content does not name it --
+        and react-bootstrap's `ProgressBar` treats an unlabelled bar as // the
+        outer wrapper, so a prop-level `aria-label` landed on a div whose role
+        forbids naming (axe: // `aria-prohibited-attr`) while the bar stayed
+        nameless (axe: `aria-progressbar-name` [serious]). As a // CHILD, the
+        same component renders the bar itself and spreads the rest of the props
+        onto it, which is // where a name belongs. `label=""` keeps the score
+        from being drawn a second time at a smaller size.
+        <ProgressBar className="mb-2">
+          <ProgressBar
+            now={completion.score}
+            label=""
+            aria-label={`Completion: ${completion.score} percent`}
+            variant={completion.score >= 70 ? "success" : "warning"}
+          />
+        </ProgressBar>
         {completion.missing.length > 0 && (
           <>
             <div className="small text-muted mb-1">
@@ -166,7 +173,6 @@ const CompletionBar: FC<{
             </ul>
           </>
         )}
-
         {showCTA && editPath && (
           /* A plain <a class="btn">, NOT <Button as={Link}>: react-bootstrap
              adds role="button" when `as` is a component, which OVERRIDES the
