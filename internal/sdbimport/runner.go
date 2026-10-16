@@ -29,8 +29,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gofrs/uuid"
-
 	"github.com/stashapp/stash-box/internal/models"
 )
 
@@ -296,11 +294,17 @@ func (r *Runner) walkPerformers(ctx context.Context) (EntityReport, error) {
 		if !ok {
 			return nil
 		}
+		// The decision layer reports changes keyed by the SOURCE's id -- `planUpdate(upID, ...)`, "up" as in
+		// upstream -- and the write needs the DESTINATION's row. The translation is this caller's job because
+		// the decision layer has no database. Look the local row up once and hand its id to the applier; a
+		// change exists only for a record the lookup found, so the two always agree.
+		local, hasLocal := r.lookup(p.Name)
+
 		cont, stepErr := walk.Step([]Performer{p}, rep, r.lookup)
 		if stepErr != nil {
 			return stepErr
 		}
-		if err := r.applyRecord(ctx, p, rep, &er); err != nil {
+		if err := r.applyRecord(ctx, p, local, hasLocal, rep, &er); err != nil {
 			rep.Failed++
 			return err
 		}
@@ -352,7 +356,7 @@ func (r *Runner) walkPerformers(ctx context.Context) (EntityReport, error) {
 // A FAILED APPLY IS COUNTED AND NOT RETURNED. The walk has a million records to get through and one refused
 // update must not end the run; the failure is named in the report's counters and the record's error is the
 // first one, which `page` already retains per entity.
-func (r *Runner) applyRecord(ctx context.Context, p Performer, rep *SyncReport, er *EntityReport) error {
+func (r *Runner) applyRecord(ctx context.Context, p Performer, local *LocalPerformer, hasLocal bool, rep *SyncReport, er *EntityReport) error {
 	if len(rep.Changes) == 0 {
 		return nil
 	}
@@ -366,15 +370,21 @@ func (r *Runner) applyRecord(ctx context.Context, p Performer, rep *SyncReport, 
 		return nil
 	}
 	if r.opts.DryRun {
-		// The plan's own field names are counted, so a dry run's numbers are the real path's numbers.
+		// Nothing is written, so nothing is translated: a dry run's numbers are the real path's numbers
+		// without the local id being needed at all.
 		return nil
 	}
 
-	id, err := uuid.FromString(p.ID)
-	if err != nil {
-		return fmt.Errorf("the source returned a performer id that is not a uuid: %q", p.ID)
+	// A decided change with no local row is a state the two halves cannot produce together: Step only plans a
+	// change for a record its lookup found. Refused by NAME rather than looked up again, because the service's
+	// Update panics -- does not error -- when the id it is handed has no row, and a panic in the middle of a
+	// million-record walk is the failure this check exists to make impossible.
+	if !hasLocal || local == nil {
+		return fmt.Errorf("a change was planned for source performer %s (%s) and the destination has no matching "+
+			"row: refusing to write, because the service panics on an id with no row", p.ID, p.Name)
 	}
 
+	id := local.ID
 	byName := make(map[string]Field, len(changes))
 	for _, c := range changes {
 		byName[c.Field] = Field{Name: c.Field, Local: c.Old, Up: c.New}
