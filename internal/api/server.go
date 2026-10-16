@@ -37,6 +37,7 @@ import (
 	"github.com/stashapp/stash-box/internal/models"
 	"github.com/stashapp/stash-box/internal/ratelimit"
 	"github.com/stashapp/stash-box/internal/service"
+	"github.com/stashapp/stash-box/internal/service/federation"
 	"github.com/stashapp/stash-box/internal/service/mediaplane"
 	"github.com/stashapp/stash-box/internal/service/monetization"
 	"github.com/stashapp/stash-box/internal/service/user"
@@ -212,6 +213,16 @@ func Start(fac service.Factory, ui embed.FS) {
 	freeLimit, premiumLimit := monetization.Limits()
 	limiter := ratelimit.NewWithTiers(freeLimit, premiumLimit, monetization.CredentialIsPremium)
 	r.Handle("/graphql", ratelimit.Middleware(limiter, ratelimit.Credential)(dataloader.Middleware(fac)(gqlSrv)))
+
+	// The federation identify endpoint (phase 12, slice 12b). It is registered OUTSIDE the rate limiter
+	// and without the GraphQL dataloader: a peer has no account here, so a per-credential limiter would
+	// bucket every peer under one anonymous key, and the dataloader is a per-session batching device for
+	// a graph a peer does not walk. What it does run is the authenticate middleware (which tolerates an
+	// anonymous request, exactly as /graphql does), the compressor and the recoverer.
+	//
+	// The path comes from the federation package rather than a literal here, because it is the same
+	// constant the outbound client builds its URL from -- one name, two sides.
+	r.Post(federation.AnswerPath, FederationIdentify(fac))
 
 	if !config.GetIsProduction() {
 		r.Handle("/playground", gqlPlayground.Handler("GraphQL playground", "/graphql"))

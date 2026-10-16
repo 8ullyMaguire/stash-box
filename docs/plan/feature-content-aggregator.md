@@ -3571,6 +3571,67 @@ MAPPING (resolving a local tag to a core tag needs the core ontology to exist as
 v2's work), and any write path -- F2 applies to an ontology as it applies to a candidate, so nothing
 here merges a remote graph into a local one.
 
+### Slice 12b — the answering half: the endpoint `client.go` has been asking since the mesh was built
+
+**The rule.** This tree asked and could not be asked. `client.go` POSTs a Question to
+`AnswerPath` and **nothing served that path** — the constant's own comment described "the endpoint a
+peer serves", which was a claim about a different repository. Slice 12b serves it, so "two instances
+exchange an ontology version" becomes something this instance can actually do.
+
+**A route, not a GraphQL field.** A peer is a different implementation with no account here. A GraphQL
+surface is session-authenticated for people; a peer that had to hold an account to say "here is the
+ontology I speak" would be a peer holding a credential it can lose. And the answer is public posture —
+a version number and a digest — not user data, so the route sits outside the per-credential rate
+limiter and without the GraphQL dataloader.
+
+**The identity is configuration, and its absence is a refusal.** The answer names the answering
+instance, and the peer registry is keyed by instance id. There was no such setting: `internal/config`
+had no instance id at all, so this slice adds `instance_id` — **with no default**, because a
+hostname-derived guess behind one host gives two instances the same id and files their answers under
+each other's row. Unset means the endpoint answers **503 naming the key** (not 422: nothing about the
+peer's request is wrong), the same fail-closed posture `content_delivery` takes about its own key.
+
+**Four checks on the way in**, in this order: the `X-Stash-Federation-Version` header (a peer on an
+older build must be recognisable as older rather than as broken, and the refusal says which version
+arrived, or that none did); the question's shape via `Question.Validate` — the same F1 check the
+outbound path runs, so an inbound question is held to the rule this instance holds its own to; the
+answering instance's identity; and the asking peer's own claim, validated with `ValidateDeclaration`
+if it declared one. **The refusals are statuses, not an empty 200**, because a peer that cannot tell
+"this instance has not built that" from "this instance has nothing" will record the empty answer as
+evidence.
+
+**TWO ARMS A TEST COULD NOT HAVE SHOWN, FOUND BY USING THE THING.** (1) `Question.Validate` required a
+target type unconditionally, so an instance whose whole question is "here is the ontology I speak" had
+to invent one — a peer receiving "performer" as a placeholder for "I am only describing myself". A
+question may now carry no identification at all; every F1 check still runs, so nothing about what may
+cross loosened. (2) The first version of the integration test's fixture sent a question with an empty
+claim, and `Validate` read it as a question with nothing in it — which is the honest reading, and it is
+why the fixture now declares a well-formed claim.
+
+**Verification.** `go test -tags integration -run TestFederationIdentifyIntegration ./internal/api/` —
+**6 subtests** through the real handler on an httptest server: an ontology-only question answered with
+the claim, with the digest asserted against an INDEPENDENT read (`federation.LocalDeclaration` from the
+service, not read back out of the answer); the version header required and named, including the
+"none sent" arm; an identification question refused by name; a declared-but-malformed peer claim
+refused; an F1 violation refused on the way in; and the missing `instance_id` refused 503 with the key
+in the message. `go test ./internal/service/federation/` — the decision itself with no database:
+8 tests, including both arms of the new `Validate` rule and the F1 check still firing on an
+ontology-only question.
+
+**NOT BUILT, NAMED.** Three things, and the first two are the ones a reader would otherwise assume.
+
+- **The identification half of the protocol.** An identification question is refused by name rather than
+  answered with an empty candidate list, because "this peer has nothing" and "this peer has not built it"
+  must not look alike. F2 invents no evidence on either path: `Candidates` stays nil.
+- **The outbound path has NO CALLER.** `Client.Broadcast` is called by nothing in this tree — the
+  identification service never broadcasts — so the client's half of this exchange (putting its own claim
+  on a question) is exercised only by its tests. A wire with one end wired is an interface, not a mesh.
+- **The route is verified at the HANDLER, not with a live instance.** The integration test builds an
+  `httptest` server around `api.FederationIdentify` — the same handler `server.go` registers, with the
+  same decisions — but it does not go through the chi router's middleware chain or a running process. A
+  walk against a live instance (`scripts/walk-12b-live.py`) is the missing instrument and is named here
+  rather than implied by the word "endpoint".
+
 ## Phase 13 — API, interoperability, exports
 
 **Placed elsewhere (2026-10-14):** exposing stash-box as an **MCP server** (search scenes and

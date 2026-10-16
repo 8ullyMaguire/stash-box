@@ -53,6 +53,11 @@ var allowedSliceElemTypes = map[reflect.Type]bool{
 	reflect.TypeOf(""):                true,
 	reflect.TypeOf(uuid.UUID{}):       true,
 	reflect.TypeOf(RemoteCandidate{}): true,
+	// int, added by slice 12b for OntologyClaim.CoreVersions. A core ontology version is an ordinal
+	// number, not content: it cannot carry a path, a URL or a name, and the set of versions is what the
+	// compatibility rule decides over. Widening this vocabulary is a decision, so it is written down
+	// here rather than inferred from a green reflection test.
+	reflect.TypeOf(0): true,
 }
 
 // TestWireFieldTypesAreClosed is the F1 test: reflect over every field of the
@@ -71,6 +76,7 @@ func TestWireFieldTypesAreClosed(t *testing.T) {
 		{"Question", reflect.TypeOf(Question{})},
 		{"Answer", reflect.TypeOf(Answer{})},
 		{"RemoteCandidate", reflect.TypeOf(RemoteCandidate{})},
+		{"OntologyClaim", reflect.TypeOf(OntologyClaim{})},
 	}
 
 	for _, c := range cases {

@@ -50,8 +50,17 @@ type FrontendConfig struct {
 }
 
 type config struct {
-	Host         string `mapstructure:"host"`
-	Port         int    `mapstructure:"port"`
+	Host string `mapstructure:"host"`
+	Port int    `mapstructure:"port"`
+
+	// InstanceID is what this instance calls ITSELF on the federation wire (phase 12, slice 12b).
+	//
+	// It is not derived from the hostname and has no default: an instance that cannot say who it is
+	// cannot answer a peer, because the peer registry is keyed by instance id and an answer that does
+	// not name its sender is an answer nobody can attribute. Empty means unset, and the answer endpoint
+	// REFUSES with the key's name rather than inventing an identity -- the same posture `content_delivery`
+	// takes about its own key.
+	InstanceID   string `mapstructure:"instance_id"`
 	Database     string `mapstructure:"database"`
 	ProfilerPort int    `mapstructure:"profiler_port"`
 
@@ -377,6 +386,15 @@ func GetDatabasePath() string {
 
 func GetHost() string {
 	return C.Host
+}
+
+// GetInstanceID is this instance's own name on the federation wire, or "" when unset.
+//
+// An empty string is returned rather than a hostname-derived guess: two instances behind one host
+// would derive the same id, and a peer registry keyed on a guess attributes one instance's answers
+// to another.
+func GetInstanceID() string {
+	return C.InstanceID
 }
 
 func GetPort() int {

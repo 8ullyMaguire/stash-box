@@ -200,7 +200,16 @@ func (q Question) Validate() error {
 	if q.QueryID == uuid.Nil {
 		return fmt.Errorf("a question needs a query id")
 	}
-	if strings.TrimSpace(q.TargetType) == "" {
+	// A QUESTION EITHER DECLARES AN ONTOLOGY, ASKS ABOUT AN ENTITY, OR BOTH, and the target type is
+	// required for the second only (slice 12b).
+	//
+	// It was required unconditionally, and the answering half is what exposed it: an instance whose
+	// whole question is "here is the ontology I speak" has no entity to name, so the honest sender would
+	// have had to invent a target type -- which is a peer being told "performer" as a placeholder for "I
+	// am only describing myself". The F1 checks below still run on every question, so nothing about what
+	// may CROSS has loosened; what changed is that a question is allowed to carry no identification at
+	// all, which is exactly what an ontology declaration is.
+	if strings.TrimSpace(q.TargetType) == "" && !q.Ontology.Declared() {
 		return fmt.Errorf("a question needs a target type")
 	}
 	if len(q.Description) > MaxDescriptionLen {
