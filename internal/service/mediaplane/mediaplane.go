@@ -66,6 +66,39 @@ func RequireDelivery() error {
 	return nil
 }
 
+// ErrNoImageBytes is what a caller returns when this instance will not hand out image bytes.
+//
+// It names BOTH keys deliberately. Two switches can turn this on and an operator who set neither (or
+// set one and expected the other) has to be able to find the line to change from the message alone --
+// the same rule ErrDeliveryDisabled follows, applied to a pair rather than a single key.
+var ErrNoImageBytes = errors.New(
+	"this instance does not serve image bytes (`images_enabled` and `content_delivery` are both off)")
+
+// ImageBytesEnabled reports whether this instance may serve image bytes.
+//
+// OR, not AND: content_delivery is the BROADER posture -- it says this instance may serve bytes to a
+// reader at all, which is what images are. An operator who has accepted hosting video has accepted
+// hosting an image, and requiring them to flip a second switch would make the pair a puzzle rather
+// than two ways of saying the same thing.
+func ImageBytesEnabled() bool {
+	return config.GetImagesEnabled() || DeliveryEnabled()
+}
+
+// RequireImageBytes returns ErrNoImageBytes unless the operator has enabled one of the two keys.
+//
+// Its first caller is the image router (internal/api/routes_image.go), and that matters more than the
+// function: until this slice the media-plane switch had NO caller anywhere in the tree -- it was a
+// posture line in the startup log and a string in a config file, while the byte-serving route beside
+// it was mounted bare. A switch nothing asks is a comment, and the programme has now found that shape
+// often enough to write it down as a rule: when a switch is added, the question is not "does it
+// default off" but "what refuses".
+func RequireImageBytes() error {
+	if !ImageBytesEnabled() {
+		return ErrNoImageBytes
+	}
+	return nil
+}
+
 // PostureLine reports how this process should describe its media-plane posture in the startup log.
 //
 // The pair is returned rather than logged here so that the line is assertable in a test without a

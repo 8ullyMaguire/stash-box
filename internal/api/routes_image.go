@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -24,6 +25,7 @@ import (
 	"github.com/stashapp/stash-box/internal/config"
 	"github.com/stashapp/stash-box/internal/image"
 	"github.com/stashapp/stash-box/internal/image/cache"
+	"github.com/stashapp/stash-box/internal/service/mediaplane"
 	"github.com/stashapp/stash-box/pkg/logger"
 )
 
@@ -36,10 +38,41 @@ type imageRoutes struct {
 func (rs imageRoutes) Routes() chi.Router {
 	r := chi.NewRouter()
 
+	// THE POSTURE GATE, and it is middleware rather than a line at the top of each handler for a reason
+	// that is about the future: this router is where bytes leave the instance, so the refusal belongs to
+	// the ROUTE and not to the two handlers that happen to be on it today. A third image route added
+	// later inherits the gate by existing; a line copied into two handlers is a line the third one
+	// forgets.
+	r.Use(requireImageBytes)
+
 	r.Get("/{uuid}", rs.image)
 	r.Get("/site/{uuid}", rs.siteImage)
 
 	return r
+}
+
+// requireImageBytes refuses the image router when this instance does not serve image bytes.
+//
+// 403, NOT 404. A 404 would be indistinguishable from "this instance has no such image" -- the same
+// defect the federation answer endpoint refuses by name instead of answering empty -- and an operator
+// whose instance is one config line away from serving images would go looking for a data problem. The
+// body carries the package's own error value, so the key an operator has to change travels with the
+// refusal.
+//
+// The gate runs BEFORE the uuid is parsed, which is deliberate and is asserted: a malformed image path
+// gets the posture answer as well, because "this instance serves no image bytes" is true of every
+// request to these routes and is the fact the caller needs first. Parsing first would answer "bad uuid"
+// to a reader who is not going to get an image either way.
+func requireImageBytes(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := mediaplane.RequireImageBytes(); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (rs imageRoutes) image(w http.ResponseWriter, r *http.Request) {

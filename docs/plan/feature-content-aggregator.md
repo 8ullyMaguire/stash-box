@@ -238,7 +238,51 @@ reverted, and the lesson is the plan's own: **a claim that a thing is unreferenc
 | 5 | Kept. It gates what a reader may see of the metadata, which is now the only thing there is. |
 | 6, 7, 8 (8a-8e), 9 | Kept. 9 gains the gate on the health sweep and Wayback; 9's mirror resolution returns a LINK and never content, which is unchanged. |
 | 8f | **Removed** (forums). |
-| 10 | **Restored** (media plane), gated by `content_delivery`, off in every shipped config. Slice 10a (the switch, its gate, the startup line and the build gate's three arms) is built; 10b–10f are specified. The identification models it once pointed at live on in `feature-04`. |
+| 10 | **Restored** (media plane), gated by `content_delivery`, off in every shipped config. Slice 10a (the switch, its gate, the startup line and the build gate's three arms) is built; **10a-ii (below) gave that switch its FIRST CALLER and wired the image key it turned out nobody read**; 10b–10f are specified. The identification models it once pointed at live on in `feature-04`. |
+
+### Slice 10a-ii — the switch gets its first caller, and the image key that was a string
+
+**The finding.** Measuring the deployed instance (111,243 performers, 1,104,375 scenes, **0 image rows**,
+`/images/{uuid}` answering 404) turned up three facts that together made the "text only" posture an accident
+rather than a setting:
+
+- `images_enabled: false`, which that instance's config carries, **was read by no code anywhere**. A key in
+  a config file with no reader is a comment.
+- `/images` is mounted with **no gate at all** (`internal/api/routes_root.go`).
+- `mediaplane.RequireDelivery` — the media-plane switch's own enforcement point — had **no caller in the
+  tree**; the only uses of the package were `PostureLine()` in the startup log and the transparency page.
+
+The instance was text-only because its `images` table is empty, and for no other reason. Populate that table
+— an importer, an editor, a future slice — and it starts serving bytes with nothing in the way.
+
+**What this slice builds.** `images_enabled` is a real key, off in the shipped default (an image URL in a
+payload is a CLAIM about where an image is; a 200 with an `image/jpeg` body is a COPY of it).
+`mediaplane` gains `ImageBytesEnabled`/`RequireImageBytes`, where the rule is **OR**: `content_delivery` is
+the broader posture — serving bytes to a reader at all — so an operator who has accepted hosting video has
+accepted serving an image, and two keys that both had to be flipped would be a puzzle rather than two ways
+of saying the same thing. The image router carries the gate as **middleware**, not as a line in each handler:
+a third image route inherits it by existing, and a line copied into two handlers is a line the third one
+forgets.
+
+**403, not 404.** A 404 is indistinguishable from "this instance has no such image" — the same defect the
+federation answer endpoint refuses by name rather than answering empty — and an operator one config line
+away from serving images would go looking for a data problem. The body carries the package's own error
+value, which names BOTH keys. The gate also runs **before** the uuid is parsed, and that is asserted: every
+request to these routes meets the posture first, and "bad uuid" would be the wrong first thing to tell a
+reader who is not going to get an image either way.
+
+**Verification.** `internal/api/routes_image_gate_test.go` drives the PRODUCTION router over three paths
+(including a malformed one: a zero-valued factory means a handler that ran would panic, so a 403 is also
+evidence it did not), a probe handler proving the request passes when either key is on, and the predicate
+compared by identity (`assert.Same`, so two refusals with the same text cannot be mistaken for one); the
+shipped default and the own-field accessor in `internal/config/image_posture_test.go`. **MUTATIONS:
+`scripts/mutate-image-gate.py`, 3 probes, 3 KILLED** — and the first `M1` came back a BUILD ERROR rather
+than a verdict (deleting the call left the import unused), so the probe now keeps the call and falsifies the
+condition; **a probe that does not compile is not a result**. **LIVE WALK: `scripts/walk-images-gate.py`,
+8/8 green** — two arms against the real binary: with both keys off, an image by id, a site image and a
+malformed path each answer 403 with the message naming both keys; with `images_enabled: true`, the same
+request reaches the handler and answers 404 from an empty table, which is the control a gate refusing
+unconditionally would fail.
 | 11, 12, 13, 15, 16, 17 | Unaffected. |
 | 14 | Kept, and its gate is RESTORED with phase 10: 14's policy text precedes 10's first stored byte (see the hard constraints above), because the moment this instance holds content it is a host. CSAM/DMCA/age/consent policy text and the appeals path are still wanted, and a takedown still has to be enforceable against addresses the instance already records. |
 

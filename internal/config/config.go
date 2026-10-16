@@ -131,6 +131,20 @@ type config struct {
 	// terms is a switch that turns this instance into the category of client the whole respec exists
 	// to keep it out of.
 	ContentFetchMinInterval string `mapstructure:"content_fetch_min_interval"`
+	// ImagesEnabled lets this instance serve the image entities it holds -- performer, scene and
+	// studio images -- as BYTES to a reader.
+	//
+	// IT IS A POSTURE SWITCH AND NOT A TUNING KNOB, for the same reason content_delivery is: a URL in
+	// a payload is a claim about where an image is, and a 200 with an image/jpeg body is a copy of it.
+	// The first is what a metadata engine hands out; the second is what a host hands out, and hosting
+	// is the category this programme's respec exists to keep an instance out of unless its operator
+	// has decided otherwise. Off by default, and the refusal names both this key and content_delivery,
+	// because an operator who means to serve images should not have to guess which of the two they own.
+	//
+	// The key is READ here; it was not read anywhere before this slice, which is why an instance could
+	// carry `images_enabled: false` in its configuration and still serve every image it had a row for.
+	ImagesEnabled bool `mapstructure:"images_enabled"`
+
 	// ContentDelivery lets this instance SERVE CONTENT: hosting, the variant ladder, the media
 	// toolchain, the players, PWA offline caching and the CDN/edge -- the media plane, phase 10.
 	//
@@ -352,6 +366,8 @@ var C = &config{
 	// host. See the field's comment -- the capability is specified and planned, and every shipped
 	// config leaves it off.
 	ContentDelivery: false,
+	// Off, and for the same reason: image bytes are bytes. See the field's comment.
+	ImagesEnabled: false,
 	// See the field comments: on by default because this one protects the instance rather than gating a
 	// capability, and generous because a limit a member can hit while browsing is a bug in the limit.
 	RateLimitRequestsPerMinute: 600,
@@ -796,6 +812,15 @@ func GetContentSweepInterval() string {
 // its own message for the refusal.
 func GetContentFetchSources() bool {
 	return C.ContentFetchSources
+}
+
+// GetImagesEnabled reports whether this instance may serve image bytes.
+//
+// ASK THIS THROUGH internal/service/mediaplane's RequireImageBytes RATHER THAN HERE, for the reason the
+// content-delivery accessor states: the switch and its refusal belong together, and a caller that reads
+// the bool is a caller that can forget to refuse.
+func GetImagesEnabled() bool {
+	return C.ImagesEnabled
 }
 
 // GetContentDelivery reports whether this instance may SERVE content (the media plane, plan phase
