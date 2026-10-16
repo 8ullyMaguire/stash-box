@@ -116,6 +116,11 @@ type EntityReport struct {
 
 	FieldChanges int `json:"field_changes"`
 
+	// SampleChanges names up to a handful of the planned changes, so a dry run is a diagnostic and not just a
+	// count. A run that says "would update 49" without saying which field cannot be acted on -- and a field
+	// that keeps appearing run after run is how a non-converging diff is noticed at all.
+	SampleChanges []ReportedChange `json:"sample_changes,omitempty"`
+
 	// AliasUpdated counts performers whose alias list was replaced; URLsNotApplied counts field changes this
 	// run deliberately did not write, for the importer's own reason (see applyAliasAndURLs).
 	AliasUpdated   int      `json:"alias_updated"`
@@ -125,6 +130,19 @@ type EntityReport struct {
 	ElapsedMS      int64    `json:"elapsed_ms"`
 	Errors         []string `json:"errors,omitempty"`
 }
+
+// ReportedChange is one planned field change, for the report's sample. The decision layer's own FieldChange
+// carries no json tags (it is a pure type), so the report maps it rather than changing that type's shape.
+type ReportedChange struct {
+	EntityID string `json:"source_id"`
+	Field    string `json:"field"`
+	Old      string `json:"old"`
+	New      string `json:"new"`
+}
+
+// sampleCap is how many changes of one entity a report keeps. Enough to see the pattern, far too few to be a
+// data export.
+const sampleCap = 8
 
 // RunReport is the whole run, and the JSON the service writes to import-logs/.
 type RunReport struct {
@@ -160,6 +178,11 @@ func (r RunReport) Summary() string {
 			fmt.Fprintf(&b, "  %-11s %s: scanned %d updated %d unchanged %d skipped %d failed %d; watermark %s -> %s (%s)\n",
 				e.Entity, e.Mode, e.Scanned, e.Updated, e.Unchanged, e.Skipped, e.Failed,
 				atTime(e.WatermarkBefore), atTime(e.WatermarkAfter), e.StopReason)
+			// The failure TEXT, not just the count: "failed 8" is not actionable, and the pager keeps one
+			// error per entity exactly so a report can name it.
+			for _, err := range e.Errors {
+				fmt.Fprintf(&b, "      failed: %s\n", err)
+			}
 		}
 	}
 	return b.String()
@@ -330,6 +353,14 @@ func (r *Runner) walkPerformers(ctx context.Context) (EntityReport, error) {
 
 	er.Scanned, er.Updated, er.Unchanged, er.Skipped, er.Failed = rep.Scanned, rep.Updated, rep.Unchanged, rep.Skipped, rep.Failed
 	er.ReScanned, er.FieldChanges = rep.ReScanned, len(rep.Changes)
+	if r.opts.DryRun {
+		for _, c := range rep.Changes {
+			if len(er.SampleChanges) >= sampleCap {
+				break
+			}
+			er.SampleChanges = append(er.SampleChanges, ReportedChange{EntityID: c.EntityID, Field: c.Field, Old: c.Old, New: c.New})
+		}
+	}
 
 	// The pager keeps one error per entity so a 5,000-record page does not lose 4,999 records to one bad one.
 	// Surfacing it is the difference between "failed 19" and knowing what failed: a report that counts
