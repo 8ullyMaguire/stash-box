@@ -1,0 +1,154 @@
+# The data-lint quest board (SPEC §7.24.4, plan phase 3a).
+#
+# WHAT THIS SURFACE IS FOR, AND WHAT IT MUST NOT BECOME. A lint finding is work
+# somebody can do: two performers sharing a URL are usually one person entered
+# twice, an alias claiming another performer's name asserts a merge nobody voted
+# on. The board's job is to show those findings with enough context to act on,
+# and to stop there. There is no "apply" here and there is no merge endpoint
+# behind it -- §7.24.4 is explicit that a detector emits a quest and NEVER
+# auto-merges, because the merge path is the consensus flow in
+# `internal/service/edit` and an unattributable merge is worse than a duplicate.
+# A client cannot reach a write through this schema because none exists.
+#
+# NOTHING HERE IS STORED. Every field is re-derived from the archive on every
+# read. A stored "these two scenes share a URL" is false the moment somebody
+# fixes one of them, and the board would keep asking for work already done; the
+# same rule the generated quest board states, for the same reason.
+#
+# THE BOARD REFUSES TO RENDER FROM A REGISTRY IT CANNOT HONOUR. The service
+# validates the registry before answering, so a response implies every enabled
+# row it names has an implementation in this build. That is why there is no
+# `skipped` field a client would have to interpret: the answer is either a board
+# with everything on it, or an error naming the slug this build is missing.
+
+type LintQuestDefinition {
+  """
+  The stable identifier. Migration 98 makes this the key an operator writes in
+  the registry and the name a build implements, so it is the one string that
+  appears in an error message, a migration and this response.
+  """
+  slug: String!
+
+  """
+  One line describing what the detector looks for, as stored in the registry --
+  editable by an operator without a deploy, which is the point of the table.
+  """
+  description: String!
+
+  """
+  Whether the board runs it.
+
+  A DISABLED ROW STILL EXISTS. Retirement is a rollback tool: a detector whose
+  findings turned out to be noise is switched off without deleting the row that
+  records its price and the fact that it once ran. The board omits it, and the
+  registry list shows it as disabled rather than as absent.
+  """
+  enabled: Boolean!
+
+  """
+  What a curator is paid for acting on one finding (§7.24.3's pricing audit).
+  """
+  bountyPoints: Int!
+
+  """
+  True for a detector this fork ships, false for one an operator added. The
+  distinction matters at upgrade time: a builtin row whose slug a release no
+  longer implements is what migration 98's validation refuses, while an
+  operator's own row is theirs to keep.
+  """
+  isBuiltin: Boolean!
+
+  """
+  Whether THIS build implements the detector -- which is not the same fact as
+  `enabled`, and is why it is a field.
+
+  The registry outlives any one build: a rollback leaves rows behind for
+  detectors the running binary has never heard of. A client that rendered such a
+  row as a board entry would be listing work nothing can do, and a client that
+  hid it would be hiding a detector somebody switched on. So it is shown, named
+  as unimplemented, and the board's own validation means this can only ever be
+  true for a row that is disabled.
+  """
+  implemented: Boolean!
+}
+
+type LintCandidate {
+  """
+  The record to look at. Deliberately an id and not a URL: the entity type is on
+  the report, the client owns its own routing, and a server-built link would
+  break the day a route moves.
+  """
+  entityId: ID!
+
+  """
+  The entity's name as it is in the archive right now, so the board can be read
+  without a second request per row.
+  """
+  entityName: String!
+
+  """
+  WHY this record is a finding, in a sentence a curator can act on: "dated
+  2015-01-01, before X born 2020" rather than a rule id. The detector composes
+  it, so the explanation and the rule cannot drift apart.
+  """
+  detail: String!
+}
+
+type LintQuestReport {
+  slug: String!
+  description: String!
+
+  """
+  Which kind of record the candidates are. A client needs it to route a
+  candidate and to say "scene" rather than "record".
+  """
+  entityType: String!
+
+  bountyPoints: Int!
+
+  """
+  The number of candidates in THIS response, which is not the number of findings
+  that exist -- see `limitNotice`.
+  """
+  count: Int!
+
+  """
+  Set when the detector stopped at the requested limit, and null otherwise.
+
+  IT IS NOT A COUNT OF EVERYTHING. A detector does not run a second query to
+  count what it did not return: the board is a way in, and a total nobody acts
+  on is a query paid for on every page load. What the field says is what is
+  true -- "there are at least this many".
+  """
+  limitNotice: String
+
+  """
+  Newest-first by the detector's own ordering (worst first where there is one),
+  capped at the requested limit.
+  """
+  candidates: [LintCandidate!]!
+}
+
+extend type Query {
+  """
+  Every enabled detector this build implements, with its findings.
+
+  Role VOTE, the same gate the curation dashboard uses: this is a work queue,
+  and a viewer who cannot vote on an edit has nothing to do with its contents.
+  Findings name unmerged duplicates and mis-entered identities, so "read-only
+  visitor" is not a reason to show them.
+  """
+  lintQuestBoard(limit: Int): [LintQuestReport!]! @hasRole(role: VOTE)
+
+  """
+  The registry as it stands, including disabled rows and rows this build does
+  not implement.
+
+  Role ADMIN, unlike the board itself, and the split is deliberate: the board is
+  a curator's work list, while this is the table an operator edits to retire a
+  noisy detector or price a new one. It is also the honest answer to "what is
+  this instance running", which is an operator's question rather than a
+  curator's.
+  """
+  lintQuestDefinitions: [LintQuestDefinition!]! @hasRole(role: ADMIN)
+}

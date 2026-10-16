@@ -35,6 +35,16 @@ INTEG_PKG = "./internal/api/"
 
 PROBES = [
     (
+        "M9 an empty registry is served as a clean board",
+        SERVICE,
+        "\tif len(defs) == 0 {",
+        "\tif len(defs) < 0 {",
+        "TestValidateRefusesAnEmptyRegistry",
+        None,
+        "an instance whose seeding never ran answers with a board that has no rows on it, which reads "
+        "exactly like a board whose every detector found nothing",
+    ),
+    (
         "M8 the board renders without checking the registry",
         SERVICE,
         "\tif err := s.Validate(ctx); err != nil {\n\t\treturn nil, err\n\t}\n\tdefs, err := s.q.ListEnabledLintQuestDefinitions(ctx)",

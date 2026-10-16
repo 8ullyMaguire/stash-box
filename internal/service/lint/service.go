@@ -224,10 +224,21 @@ var errNoRow = errors.New("no row")
 //     this instance retired: the row is history and refusing to start over it would make a rollback
 //     impossible. (An AUTHORED row is a different thing again -- a local rule with no SQL -- and this
 //     package does not run those at all; see the note in Builtins' caller.)
+//
+// AND AN EMPTY REGISTRY IS REFUSED, which is the third direction and the one the integration harness
+// found. The rows are written by the instance's startup, so a registry with nothing in it means the
+// seeding never ran -- and a board drawn from it has no rows on it at all, which is indistinguishable
+// from a board whose every detector found nothing. An instance whose registry is empty must not be able
+// to serve a clean-looking answer. (Refusing here rather than seeding here is deliberate: seeding is a
+// write, and this package has no write path by design.)
 func (s *Service) Validate(ctx context.Context) error {
 	defs, err := s.Definitions(ctx)
 	if err != nil {
 		return fmt.Errorf("reading the lint registry: %w", err)
+	}
+	if len(defs) == 0 {
+		return fmt.Errorf("%w: the registry is empty, so an empty board would read as an archive with no "+
+			"findings; nothing has seeded it (this build implements %v)", ErrUnknownDetector, Slugs())
 	}
 
 	known := map[string]bool{}
@@ -270,6 +281,20 @@ func detectorFor(slug string) (Detector, bool) {
 		}
 	}
 	return Detector{}, false
+}
+
+// Implements reports whether THIS BUILD ships the named detector, which is a different question from
+// whether the instance has enabled it. A registry row outlives any one build -- a rollback leaves rows
+// behind for detectors the running binary has never heard of -- so an operator listing what this
+// instance has needs both facts, and a client showing only "enabled" would present a detector nothing
+// can run.
+//
+// Package-level rather than a method because the answer comes from the compiled registry and not from
+// the database: a Service built over any earlier Querier gives the same answer, and saying so here
+// keeps the resolver from having to hold a service just to ask about the code.
+func Implements(slug string) bool {
+	_, ok := detectorFor(slug)
+	return ok
 }
 
 // Definitions returns the registry rows as they are, for an operator surface that lists what this

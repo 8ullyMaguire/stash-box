@@ -680,6 +680,31 @@ type ComplexityRoot struct {
 		UserID   func(childComplexity int) int
 	}
 
+	LintCandidate struct {
+		Detail     func(childComplexity int) int
+		EntityID   func(childComplexity int) int
+		EntityName func(childComplexity int) int
+	}
+
+	LintQuestDefinition struct {
+		BountyPoints func(childComplexity int) int
+		Description  func(childComplexity int) int
+		Enabled      func(childComplexity int) int
+		Implemented  func(childComplexity int) int
+		IsBuiltin    func(childComplexity int) int
+		Slug         func(childComplexity int) int
+	}
+
+	LintQuestReport struct {
+		BountyPoints func(childComplexity int) int
+		Candidates   func(childComplexity int) int
+		Count        func(childComplexity int) int
+		Description  func(childComplexity int) int
+		EntityType   func(childComplexity int) int
+		LimitNotice  func(childComplexity int) int
+		Slug         func(childComplexity int) int
+	}
+
 	List struct {
 		AuditTrail        func(childComplexity int) int
 		CanEdit           func(childComplexity int) int
@@ -1098,6 +1123,8 @@ type ComplexityRoot struct {
 		ImageTypeGroups                func(childComplexity int, target *ImageTypeScopeEnum, includeDisabled *bool) int
 		InstanceMetrics                func(childComplexity int) int
 		Leaderboard                    func(childComplexity int, input *LeaderboardInput) int
+		LintQuestBoard                 func(childComplexity int, limit *int) int
+		LintQuestDefinitions           func(childComplexity int) int
 		List                           func(childComplexity int, id uuid.UUID) int
 		ListOpenIdentificationQueries  func(childComplexity int, limit *int) int
 		Lists                          func(childComplexity int, userID *uuid.UUID, perPage *int, page *int) int
@@ -2095,6 +2122,8 @@ type QueryResolver interface {
 	IdentificationSources(ctx context.Context) ([]IdentificationSource, error)
 	InstanceMetrics(ctx context.Context) (*InstanceMetrics, error)
 	Leaderboard(ctx context.Context, input *LeaderboardInput) ([]LeaderboardEntry, error)
+	LintQuestBoard(ctx context.Context, limit *int) ([]LintQuestReport, error)
+	LintQuestDefinitions(ctx context.Context) ([]LintQuestDefinition, error)
 	List(ctx context.Context, id uuid.UUID) (*List, error)
 	PublishedLists(ctx context.Context, perPage *int, page *int) (*ListBrowseResult, error)
 	Lists(ctx context.Context, userID *uuid.UUID, perPage *int, page *int) ([]List, error)
@@ -4515,6 +4544,105 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.LeaderboardEntry.UserID(childComplexity), true
+
+	case "LintCandidate.detail":
+		if e.ComplexityRoot.LintCandidate.Detail == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LintCandidate.Detail(childComplexity), true
+	case "LintCandidate.entityId":
+		if e.ComplexityRoot.LintCandidate.EntityID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LintCandidate.EntityID(childComplexity), true
+	case "LintCandidate.entityName":
+		if e.ComplexityRoot.LintCandidate.EntityName == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LintCandidate.EntityName(childComplexity), true
+
+	case "LintQuestDefinition.bountyPoints":
+		if e.ComplexityRoot.LintQuestDefinition.BountyPoints == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LintQuestDefinition.BountyPoints(childComplexity), true
+	case "LintQuestDefinition.description":
+		if e.ComplexityRoot.LintQuestDefinition.Description == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LintQuestDefinition.Description(childComplexity), true
+	case "LintQuestDefinition.enabled":
+		if e.ComplexityRoot.LintQuestDefinition.Enabled == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LintQuestDefinition.Enabled(childComplexity), true
+	case "LintQuestDefinition.implemented":
+		if e.ComplexityRoot.LintQuestDefinition.Implemented == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LintQuestDefinition.Implemented(childComplexity), true
+	case "LintQuestDefinition.isBuiltin":
+		if e.ComplexityRoot.LintQuestDefinition.IsBuiltin == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LintQuestDefinition.IsBuiltin(childComplexity), true
+	case "LintQuestDefinition.slug":
+		if e.ComplexityRoot.LintQuestDefinition.Slug == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LintQuestDefinition.Slug(childComplexity), true
+
+	case "LintQuestReport.bountyPoints":
+		if e.ComplexityRoot.LintQuestReport.BountyPoints == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LintQuestReport.BountyPoints(childComplexity), true
+	case "LintQuestReport.candidates":
+		if e.ComplexityRoot.LintQuestReport.Candidates == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LintQuestReport.Candidates(childComplexity), true
+	case "LintQuestReport.count":
+		if e.ComplexityRoot.LintQuestReport.Count == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LintQuestReport.Count(childComplexity), true
+	case "LintQuestReport.description":
+		if e.ComplexityRoot.LintQuestReport.Description == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LintQuestReport.Description(childComplexity), true
+	case "LintQuestReport.entityType":
+		if e.ComplexityRoot.LintQuestReport.EntityType == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LintQuestReport.EntityType(childComplexity), true
+	case "LintQuestReport.limitNotice":
+		if e.ComplexityRoot.LintQuestReport.LimitNotice == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LintQuestReport.LimitNotice(childComplexity), true
+	case "LintQuestReport.slug":
+		if e.ComplexityRoot.LintQuestReport.Slug == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LintQuestReport.Slug(childComplexity), true
 
 	case "List.auditTrail":
 		if e.ComplexityRoot.List.AuditTrail == nil {
@@ -7512,6 +7640,23 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.Leaderboard(childComplexity, args["input"].(*LeaderboardInput)), true
+	case "Query.lintQuestBoard":
+		if e.ComplexityRoot.Query.LintQuestBoard == nil {
+			break
+		}
+
+		args, err := ec.field_Query_lintQuestBoard_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.LintQuestBoard(childComplexity, args["limit"].(*int)), true
+	case "Query.lintQuestDefinitions":
+		if e.ComplexityRoot.Query.LintQuestDefinitions == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Query.LintQuestDefinitions(childComplexity), true
 	case "Query.list":
 		if e.ComplexityRoot.Query.List == nil {
 			break
@@ -13396,6 +13541,161 @@ extend type Mutation {
   setLeaderboardListed(listed: Boolean!): UserTrust!
 }
 `, BuiltIn: false},
+	{Name: "../../graphql/schema/types/lint_quest.graphql", Input: `# The data-lint quest board (SPEC §7.24.4, plan phase 3a).
+#
+# WHAT THIS SURFACE IS FOR, AND WHAT IT MUST NOT BECOME. A lint finding is work
+# somebody can do: two performers sharing a URL are usually one person entered
+# twice, an alias claiming another performer's name asserts a merge nobody voted
+# on. The board's job is to show those findings with enough context to act on,
+# and to stop there. There is no "apply" here and there is no merge endpoint
+# behind it -- §7.24.4 is explicit that a detector emits a quest and NEVER
+# auto-merges, because the merge path is the consensus flow in
+# ` + "`" + `internal/service/edit` + "`" + ` and an unattributable merge is worse than a duplicate.
+# A client cannot reach a write through this schema because none exists.
+#
+# NOTHING HERE IS STORED. Every field is re-derived from the archive on every
+# read. A stored "these two scenes share a URL" is false the moment somebody
+# fixes one of them, and the board would keep asking for work already done; the
+# same rule the generated quest board states, for the same reason.
+#
+# THE BOARD REFUSES TO RENDER FROM A REGISTRY IT CANNOT HONOUR. The service
+# validates the registry before answering, so a response implies every enabled
+# row it names has an implementation in this build. That is why there is no
+# ` + "`" + `skipped` + "`" + ` field a client would have to interpret: the answer is either a board
+# with everything on it, or an error naming the slug this build is missing.
+
+type LintQuestDefinition {
+  """
+  The stable identifier. Migration 98 makes this the key an operator writes in
+  the registry and the name a build implements, so it is the one string that
+  appears in an error message, a migration and this response.
+  """
+  slug: String!
+
+  """
+  One line describing what the detector looks for, as stored in the registry --
+  editable by an operator without a deploy, which is the point of the table.
+  """
+  description: String!
+
+  """
+  Whether the board runs it.
+
+  A DISABLED ROW STILL EXISTS. Retirement is a rollback tool: a detector whose
+  findings turned out to be noise is switched off without deleting the row that
+  records its price and the fact that it once ran. The board omits it, and the
+  registry list shows it as disabled rather than as absent.
+  """
+  enabled: Boolean!
+
+  """
+  What a curator is paid for acting on one finding (§7.24.3's pricing audit).
+  """
+  bountyPoints: Int!
+
+  """
+  True for a detector this fork ships, false for one an operator added. The
+  distinction matters at upgrade time: a builtin row whose slug a release no
+  longer implements is what migration 98's validation refuses, while an
+  operator's own row is theirs to keep.
+  """
+  isBuiltin: Boolean!
+
+  """
+  Whether THIS build implements the detector -- which is not the same fact as
+  ` + "`" + `enabled` + "`" + `, and is why it is a field.
+
+  The registry outlives any one build: a rollback leaves rows behind for
+  detectors the running binary has never heard of. A client that rendered such a
+  row as a board entry would be listing work nothing can do, and a client that
+  hid it would be hiding a detector somebody switched on. So it is shown, named
+  as unimplemented, and the board's own validation means this can only ever be
+  true for a row that is disabled.
+  """
+  implemented: Boolean!
+}
+
+type LintCandidate {
+  """
+  The record to look at. Deliberately an id and not a URL: the entity type is on
+  the report, the client owns its own routing, and a server-built link would
+  break the day a route moves.
+  """
+  entityId: ID!
+
+  """
+  The entity's name as it is in the archive right now, so the board can be read
+  without a second request per row.
+  """
+  entityName: String!
+
+  """
+  WHY this record is a finding, in a sentence a curator can act on: "dated
+  2015-01-01, before X born 2020" rather than a rule id. The detector composes
+  it, so the explanation and the rule cannot drift apart.
+  """
+  detail: String!
+}
+
+type LintQuestReport {
+  slug: String!
+  description: String!
+
+  """
+  Which kind of record the candidates are. A client needs it to route a
+  candidate and to say "scene" rather than "record".
+  """
+  entityType: String!
+
+  bountyPoints: Int!
+
+  """
+  The number of candidates in THIS response, which is not the number of findings
+  that exist -- see ` + "`" + `limitNotice` + "`" + `.
+  """
+  count: Int!
+
+  """
+  Set when the detector stopped at the requested limit, and null otherwise.
+
+  IT IS NOT A COUNT OF EVERYTHING. A detector does not run a second query to
+  count what it did not return: the board is a way in, and a total nobody acts
+  on is a query paid for on every page load. What the field says is what is
+  true -- "there are at least this many".
+  """
+  limitNotice: String
+
+  """
+  Newest-first by the detector's own ordering (worst first where there is one),
+  capped at the requested limit.
+  """
+  candidates: [LintCandidate!]!
+}
+
+extend type Query {
+  """
+  Every enabled detector this build implements, with its findings.
+
+  Role VOTE, the same gate the curation dashboard uses: this is a work queue,
+  and a viewer who cannot vote on an edit has nothing to do with its contents.
+  Findings name unmerged duplicates and mis-entered identities, so "read-only
+  visitor" is not a reason to show them.
+  """
+  lintQuestBoard(limit: Int): [LintQuestReport!]! @hasRole(role: VOTE)
+
+  """
+  The registry as it stands, including disabled rows and rows this build does
+  not implement.
+
+  Role ADMIN, unlike the board itself, and the split is deliberate: the board is
+  a curator's work list, while this is the table an operator edits to retire a
+  noisy detector or price a new one. It is also the honest answer to "what is
+  this instance running", which is an operator's question rather than a
+  curator's.
+  """
+  lintQuestDefinitions: [LintQuestDefinition!]! @hasRole(role: ADMIN)
+}
+`, BuiltIn: false},
 	{Name: "../../graphql/schema/types/list.graphql", Input: `# Shareable user lists over GraphQL (SPEC §28, growth item 28).
 #
 # THE TYPE THAT HAS NO VISIBILITY ENUM, and that absence is the design.
@@ -18598,6 +18898,56 @@ func (ec *executionContext) childFields_LeaderboardEntry(ctx context.Context, fi
 	return nil, fmt.Errorf("no field named %q was found under type LeaderboardEntry", field.Name)
 }
 
+func (ec *executionContext) childFields_LintCandidate(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "entityId":
+		return ec.fieldContext_LintCandidate_entityId(ctx, field)
+	case "entityName":
+		return ec.fieldContext_LintCandidate_entityName(ctx, field)
+	case "detail":
+		return ec.fieldContext_LintCandidate_detail(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type LintCandidate", field.Name)
+}
+
+func (ec *executionContext) childFields_LintQuestDefinition(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "slug":
+		return ec.fieldContext_LintQuestDefinition_slug(ctx, field)
+	case "description":
+		return ec.fieldContext_LintQuestDefinition_description(ctx, field)
+	case "enabled":
+		return ec.fieldContext_LintQuestDefinition_enabled(ctx, field)
+	case "bountyPoints":
+		return ec.fieldContext_LintQuestDefinition_bountyPoints(ctx, field)
+	case "isBuiltin":
+		return ec.fieldContext_LintQuestDefinition_isBuiltin(ctx, field)
+	case "implemented":
+		return ec.fieldContext_LintQuestDefinition_implemented(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type LintQuestDefinition", field.Name)
+}
+
+func (ec *executionContext) childFields_LintQuestReport(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "slug":
+		return ec.fieldContext_LintQuestReport_slug(ctx, field)
+	case "description":
+		return ec.fieldContext_LintQuestReport_description(ctx, field)
+	case "entityType":
+		return ec.fieldContext_LintQuestReport_entityType(ctx, field)
+	case "bountyPoints":
+		return ec.fieldContext_LintQuestReport_bountyPoints(ctx, field)
+	case "count":
+		return ec.fieldContext_LintQuestReport_count(ctx, field)
+	case "limitNotice":
+		return ec.fieldContext_LintQuestReport_limitNotice(ctx, field)
+	case "candidates":
+		return ec.fieldContext_LintQuestReport_candidates(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type LintQuestReport", field.Name)
+}
+
 func (ec *executionContext) childFields_List(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 	switch field.Name {
 	case "id":
@@ -22653,6 +23003,20 @@ func (ec *executionContext) field_Query_leaderboard_args(ctx context.Context, ra
 		return nil, err
 	}
 	args["input"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_lintQuestBoard_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "limit",
+		func(ctx context.Context, v any) (*int, error) {
+			return ec.unmarshalOInt2ᚖint(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["limit"] = arg0
 	return args, nil
 }
 
@@ -32358,6 +32722,383 @@ func (ec *executionContext) _LeaderboardEntry_level(ctx context.Context, field g
 }
 func (ec *executionContext) fieldContext_LeaderboardEntry_level(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("LeaderboardEntry", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _LintCandidate_entityId(ctx context.Context, field graphql.CollectedField, obj *LintCandidate) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_LintCandidate_entityId(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.EntityID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v uuid.UUID) graphql.Marshaler {
+			return ec.marshalNID2githubᚗcomᚋgofrsᚋuuidᚐUUID(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_LintCandidate_entityId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("LintCandidate", field, false, false, errors.New("field of type ID does not have child fields"))
+}
+
+func (ec *executionContext) _LintCandidate_entityName(ctx context.Context, field graphql.CollectedField, obj *LintCandidate) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_LintCandidate_entityName(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.EntityName, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_LintCandidate_entityName(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("LintCandidate", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _LintCandidate_detail(ctx context.Context, field graphql.CollectedField, obj *LintCandidate) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_LintCandidate_detail(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Detail, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_LintCandidate_detail(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("LintCandidate", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _LintQuestDefinition_slug(ctx context.Context, field graphql.CollectedField, obj *LintQuestDefinition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_LintQuestDefinition_slug(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Slug, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_LintQuestDefinition_slug(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("LintQuestDefinition", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _LintQuestDefinition_description(ctx context.Context, field graphql.CollectedField, obj *LintQuestDefinition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_LintQuestDefinition_description(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Description, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_LintQuestDefinition_description(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("LintQuestDefinition", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _LintQuestDefinition_enabled(ctx context.Context, field graphql.CollectedField, obj *LintQuestDefinition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_LintQuestDefinition_enabled(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Enabled, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_LintQuestDefinition_enabled(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("LintQuestDefinition", field, false, false, errors.New("field of type Boolean does not have child fields"))
+}
+
+func (ec *executionContext) _LintQuestDefinition_bountyPoints(ctx context.Context, field graphql.CollectedField, obj *LintQuestDefinition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_LintQuestDefinition_bountyPoints(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.BountyPoints, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_LintQuestDefinition_bountyPoints(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("LintQuestDefinition", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _LintQuestDefinition_isBuiltin(ctx context.Context, field graphql.CollectedField, obj *LintQuestDefinition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_LintQuestDefinition_isBuiltin(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.IsBuiltin, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_LintQuestDefinition_isBuiltin(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("LintQuestDefinition", field, false, false, errors.New("field of type Boolean does not have child fields"))
+}
+
+func (ec *executionContext) _LintQuestDefinition_implemented(ctx context.Context, field graphql.CollectedField, obj *LintQuestDefinition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_LintQuestDefinition_implemented(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Implemented, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_LintQuestDefinition_implemented(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("LintQuestDefinition", field, false, false, errors.New("field of type Boolean does not have child fields"))
+}
+
+func (ec *executionContext) _LintQuestReport_slug(ctx context.Context, field graphql.CollectedField, obj *LintQuestReport) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_LintQuestReport_slug(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Slug, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_LintQuestReport_slug(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("LintQuestReport", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _LintQuestReport_description(ctx context.Context, field graphql.CollectedField, obj *LintQuestReport) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_LintQuestReport_description(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Description, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_LintQuestReport_description(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("LintQuestReport", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _LintQuestReport_entityType(ctx context.Context, field graphql.CollectedField, obj *LintQuestReport) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_LintQuestReport_entityType(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.EntityType, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_LintQuestReport_entityType(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("LintQuestReport", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _LintQuestReport_bountyPoints(ctx context.Context, field graphql.CollectedField, obj *LintQuestReport) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_LintQuestReport_bountyPoints(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.BountyPoints, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_LintQuestReport_bountyPoints(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("LintQuestReport", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _LintQuestReport_count(ctx context.Context, field graphql.CollectedField, obj *LintQuestReport) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_LintQuestReport_count(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Count, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_LintQuestReport_count(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("LintQuestReport", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _LintQuestReport_limitNotice(ctx context.Context, field graphql.CollectedField, obj *LintQuestReport) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_LintQuestReport_limitNotice(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.LimitNotice, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
+			return ec.marshalOString2ᚖstring(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_LintQuestReport_limitNotice(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("LintQuestReport", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _LintQuestReport_candidates(ctx context.Context, field graphql.CollectedField, obj *LintQuestReport) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_LintQuestReport_candidates(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Candidates, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []LintCandidate) graphql.Marshaler {
+			return ec.marshalNLintCandidate2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐLintCandidateᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_LintQuestReport_candidates(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "LintQuestReport",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_LintCandidate(ctx, field)
+		},
+	}
+	return fc, nil
 }
 
 func (ec *executionContext) _List_id(ctx context.Context, field graphql.CollectedField, obj *List) (ret graphql.Marshaler) {
@@ -49898,6 +50639,118 @@ func (ec *executionContext) fieldContext_Query_leaderboard(ctx context.Context, 
 	if fc.Args, err = ec.field_Query_leaderboard_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_lintQuestBoard(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_lintQuestBoard(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().LintQuestBoard(ctx, fc.Args["limit"].(*int))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "VOTE")
+				if err != nil {
+					var zeroVal []LintQuestReport
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal []LintQuestReport
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v []LintQuestReport) graphql.Marshaler {
+			return ec.marshalNLintQuestReport2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐLintQuestReportᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_lintQuestBoard(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_LintQuestReport(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_lintQuestBoard_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_lintQuestDefinitions(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_lintQuestDefinitions(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Query().LintQuestDefinitions(ctx)
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "ADMIN")
+				if err != nil {
+					var zeroVal []LintQuestDefinition
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal []LintQuestDefinition
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v []LintQuestDefinition) graphql.Marshaler {
+			return ec.marshalNLintQuestDefinition2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐLintQuestDefinitionᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_lintQuestDefinitions(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_LintQuestDefinition(ctx, field)
+		},
 	}
 	return fc, nil
 }
@@ -75646,6 +76499,185 @@ func (ec *executionContext) _LeaderboardEntry(ctx context.Context, sel ast.Selec
 	return out
 }
 
+var lintCandidateImplementors = []string{"LintCandidate"}
+
+func (ec *executionContext) _LintCandidate(ctx context.Context, sel ast.SelectionSet, obj *LintCandidate) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, lintCandidateImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("LintCandidate")
+		case "entityId":
+			out.Values[i] = ec._LintCandidate_entityId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "entityName":
+			out.Values[i] = ec._LintCandidate_entityName(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "detail":
+			out.Values[i] = ec._LintCandidate_detail(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var lintQuestDefinitionImplementors = []string{"LintQuestDefinition"}
+
+func (ec *executionContext) _LintQuestDefinition(ctx context.Context, sel ast.SelectionSet, obj *LintQuestDefinition) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, lintQuestDefinitionImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("LintQuestDefinition")
+		case "slug":
+			out.Values[i] = ec._LintQuestDefinition_slug(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "description":
+			out.Values[i] = ec._LintQuestDefinition_description(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "enabled":
+			out.Values[i] = ec._LintQuestDefinition_enabled(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "bountyPoints":
+			out.Values[i] = ec._LintQuestDefinition_bountyPoints(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "isBuiltin":
+			out.Values[i] = ec._LintQuestDefinition_isBuiltin(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "implemented":
+			out.Values[i] = ec._LintQuestDefinition_implemented(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var lintQuestReportImplementors = []string{"LintQuestReport"}
+
+func (ec *executionContext) _LintQuestReport(ctx context.Context, sel ast.SelectionSet, obj *LintQuestReport) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, lintQuestReportImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("LintQuestReport")
+		case "slug":
+			out.Values[i] = ec._LintQuestReport_slug(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "description":
+			out.Values[i] = ec._LintQuestReport_description(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "entityType":
+			out.Values[i] = ec._LintQuestReport_entityType(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "bountyPoints":
+			out.Values[i] = ec._LintQuestReport_bountyPoints(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "count":
+			out.Values[i] = ec._LintQuestReport_count(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "limitNotice":
+			out.Values[i] = ec._LintQuestReport_limitNotice(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		case "candidates":
+			out.Values[i] = ec._LintQuestReport_candidates(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
 var listImplementors = []string{"List"}
 
 func (ec *executionContext) _List(ctx context.Context, sel ast.SelectionSet, obj *List) graphql.Marshaler {
@@ -81554,6 +82586,50 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 					}
 				}()
 				res = ec._Query_leaderboard(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "lintQuestBoard":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_lintQuestBoard(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "lintQuestDefinitions":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_lintQuestDefinitions(ctx, field)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -91841,6 +92917,66 @@ func (ec *executionContext) marshalNLeaderboardEntry2ᚕgithubᚗcomᚋstashapp�
 		fc := graphql.GetFieldContext(ctx)
 		fc.Result = &v[i]
 		return ec.marshalNLeaderboardEntry2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐLeaderboardEntry(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNLintCandidate2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐLintCandidate(ctx context.Context, sel ast.SelectionSet, v LintCandidate) graphql.Marshaler {
+	return ec._LintCandidate(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNLintCandidate2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐLintCandidateᚄ(ctx context.Context, sel ast.SelectionSet, v []LintCandidate) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNLintCandidate2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐLintCandidate(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNLintQuestDefinition2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐLintQuestDefinition(ctx context.Context, sel ast.SelectionSet, v LintQuestDefinition) graphql.Marshaler {
+	return ec._LintQuestDefinition(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNLintQuestDefinition2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐLintQuestDefinitionᚄ(ctx context.Context, sel ast.SelectionSet, v []LintQuestDefinition) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNLintQuestDefinition2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐLintQuestDefinition(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNLintQuestReport2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐLintQuestReport(ctx context.Context, sel ast.SelectionSet, v LintQuestReport) graphql.Marshaler {
+	return ec._LintQuestReport(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNLintQuestReport2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐLintQuestReportᚄ(ctx context.Context, sel ast.SelectionSet, v []LintQuestReport) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNLintQuestReport2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐLintQuestReport(ctx, sel, v[i])
 	})
 
 	for _, e := range ret {

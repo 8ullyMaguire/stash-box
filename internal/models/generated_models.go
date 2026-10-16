@@ -1475,6 +1475,76 @@ type LeaderboardInput struct {
 	Limit *int `json:"limit,omitempty"`
 }
 
+type LintCandidate struct {
+	// The record to look at. Deliberately an id and not a URL: the entity type is on
+	// the report, the client owns its own routing, and a server-built link would
+	// break the day a route moves.
+	EntityID uuid.UUID `json:"entityId"`
+	// The entity's name as it is in the archive right now, so the board can be read
+	// without a second request per row.
+	EntityName string `json:"entityName"`
+	// WHY this record is a finding, in a sentence a curator can act on: "dated
+	// 2015-01-01, before X born 2020" rather than a rule id. The detector composes
+	// it, so the explanation and the rule cannot drift apart.
+	Detail string `json:"detail"`
+}
+
+type LintQuestDefinition struct {
+	// The stable identifier. Migration 98 makes this the key an operator writes in
+	// the registry and the name a build implements, so it is the one string that
+	// appears in an error message, a migration and this response.
+	Slug string `json:"slug"`
+	// One line describing what the detector looks for, as stored in the registry --
+	// editable by an operator without a deploy, which is the point of the table.
+	Description string `json:"description"`
+	// Whether the board runs it.
+	//
+	// A DISABLED ROW STILL EXISTS. Retirement is a rollback tool: a detector whose
+	// findings turned out to be noise is switched off without deleting the row that
+	// records its price and the fact that it once ran. The board omits it, and the
+	// registry list shows it as disabled rather than as absent.
+	Enabled bool `json:"enabled"`
+	// What a curator is paid for acting on one finding (§7.24.3's pricing audit).
+	BountyPoints int `json:"bountyPoints"`
+	// True for a detector this fork ships, false for one an operator added. The
+	// distinction matters at upgrade time: a builtin row whose slug a release no
+	// longer implements is what migration 98's validation refuses, while an
+	// operator's own row is theirs to keep.
+	IsBuiltin bool `json:"isBuiltin"`
+	// Whether THIS build implements the detector -- which is not the same fact as
+	// `enabled`, and is why it is a field.
+	//
+	// The registry outlives any one build: a rollback leaves rows behind for
+	// detectors the running binary has never heard of. A client that rendered such a
+	// row as a board entry would be listing work nothing can do, and a client that
+	// hid it would be hiding a detector somebody switched on. So it is shown, named
+	// as unimplemented, and the board's own validation means this can only ever be
+	// true for a row that is disabled.
+	Implemented bool `json:"implemented"`
+}
+
+type LintQuestReport struct {
+	Slug        string `json:"slug"`
+	Description string `json:"description"`
+	// Which kind of record the candidates are. A client needs it to route a
+	// candidate and to say "scene" rather than "record".
+	EntityType   string `json:"entityType"`
+	BountyPoints int    `json:"bountyPoints"`
+	// The number of candidates in THIS response, which is not the number of findings
+	// that exist -- see `limitNotice`.
+	Count int `json:"count"`
+	// Set when the detector stopped at the requested limit, and null otherwise.
+	//
+	// IT IS NOT A COUNT OF EVERYTHING. A detector does not run a second query to
+	// count what it did not return: the board is a way in, and a total nobody acts
+	// on is a query paid for on every page load. What the field says is what is
+	// true -- "there are at least this many".
+	LimitNotice *string `json:"limitNotice,omitempty"`
+	// Newest-first by the detector's own ordering (worst first where there is one),
+	// capped at the requested limit.
+	Candidates []LintCandidate `json:"candidates"`
+}
+
 // A user's named, ordered set of archive entities.
 //
 // Private until `publishedAt` is set. There is no visibility field to contradict it.

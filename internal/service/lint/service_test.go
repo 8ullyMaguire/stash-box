@@ -115,6 +115,22 @@ func TestValidateRefusesAnEnabledSlugThisBuildDoesNotImplement(t *testing.T) {
 	assert.Contains(t, err.Error(), "duplicate_scene_url")
 }
 
+// AN EMPTY REGISTRY IS NOT A CLEAN ARCHIVE, and this test is why the service refuses one. The rows are
+// written by the instance's startup, so a registry with nothing in it means the seeding never ran -- and
+// a board drawn from it has no rows on it at all, which is exactly what a board looks like when every
+// detector has run and found nothing. The integration harness found this the honest way: it builds an
+// in-process server around the resolvers, never runs `cmd/stash-box`'s startup, and every board test in
+// it "passed" against a board that had never run a detector.
+func TestValidateRefusesAnEmptyRegistry(t *testing.T) {
+	err := NewService(&fakeQueries{}).Validate(context.Background())
+	require.Error(t, err, "an empty registry must not be able to serve a clean-looking board")
+	assert.ErrorIs(t, err, ErrUnknownDetector)
+	assert.Contains(t, err.Error(), "empty")
+	// And it says what a build DOES implement, because the fix might be "seed this instance" or might be
+	// "you are running a binary that ships no detectors", and the message has to serve both.
+	assert.Contains(t, err.Error(), "duplicate_performer_url")
+}
+
 // THE BOARD ITSELF HAS TO REFUSE, and this test exists because the live walk found that it did not.
 // The startup check protects the instance; the board is reached by other callers (the CLI, and the
 // frontend when it lands), and a skipped row is invisible there -- the board simply comes back with one
