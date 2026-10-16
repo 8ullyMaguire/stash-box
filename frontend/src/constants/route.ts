@@ -4,6 +4,7 @@ export const ROUTE_CURATION_MATCHUP = "/curation/matchup";
 // `lintQuestBoard` is @hasRole(VOTE), which is exactly the gate the rest of this
 // tree carries, so nesting it cannot hide it from anybody the schema allows.
 export const ROUTE_CURATION_LINT = "/curation/lint";
+export const ROUTE_CURATION_FINGERPRINT_DEMAND = "/curation/fingerprint-demand";
 // The detector registry: the operator's table behind the board. ADMIN at the
 // schema, which is why its nav entry lives in the admin block rather than here.
 export const ROUTE_CURATION_LINT_DEFINITIONS = "/curation/lint/definitions";

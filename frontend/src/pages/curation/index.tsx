@@ -2,6 +2,7 @@ import type { FC } from "react";
 import { Route, Routes } from "react-router-dom";
 import Title from "src/components/title";
 import CurationDashboard from "./CurationDashboard";
+import FingerprintDemandBoard from "./FingerprintDemandBoard";
 import LintQuestBoard from "./LintQuestBoard";
 import LintQuestDefinitions from "./LintQuestDefinitions";
 import MatchupVote from "./MatchupVote";
@@ -54,6 +55,19 @@ const CurationRoutes: FC = () => (
         <>
           <Title page="Detector registry" />
           <LintQuestDefinitions />
+        </>
+      }
+    />
+    {/* Relative, like every other nested child here: see the note above about the
+        absolute constants that matched nothing. The demand board sits BESIDE the
+        lint board rather than under it -- the two are different questions (what we
+        have got wrong, and what we have not got at all). */}
+    <Route
+      path="/fingerprint-demand"
+      element={
+        <>
+          <Title page="Fingerprint demand" />
+          <FingerprintDemandBoard />
         </>
       }
     />

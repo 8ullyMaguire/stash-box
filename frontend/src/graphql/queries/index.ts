@@ -22,6 +22,7 @@ import {
   type FetchSiteFaviconsQueryVariables,
   FingerprintClustersDocument,
   type FingerprintClustersQueryVariables,
+  FingerprintDemandDocument,
   FullPerformerDocument,
   IdentificationBoardDocument,
   type IdentificationBoardQuery,
@@ -504,6 +505,18 @@ export const useUserStreak = (skip = false) =>
 // the same gate.
 export const useLintQuestBoard = (limit?: number) =>
   useQuery(LintQuestBoardDocument, { variables: { limit } });
+
+// The unmatched-fingerprint demand board (SPEC §7.24.5, plan phase 3a gate 6).
+//
+// No variables at all, following the lint board: the server has a default and clamps
+// whatever it is given, so passing a number here would make a second place that decides
+// how much of the board a curator sees, and the two would drift. The floor the server
+// actually applied comes back in the response, and that is what the page reports.
+//
+// There is no `skip`: this query has no wrong-subject case to guard. It is gated on READ
+// at the schema, and the route that mounts it sits inside the curation tree, which is
+// VOTE -- a role that implies READ -- so a caller who reaches the page may read it.
+export const useFingerprintDemand = () => useQuery(FingerprintDemandDocument);
 
 // The detector registry (SPEC §7.24.4) -- the operator's view of the same table.
 //

@@ -1320,8 +1320,23 @@ anything.
 #### 7.24.5 Unmatched-fingerprint demand board, and the holder lower bound
 
 Adopted. `18_fingerprint_user` gives `scene_fingerprints.user_id` `NOT NULL` with
-an index on `(user_id, algorithm, hash)`, so the aggregation exists;
-`89_identification_federation` already provides the board to seed.
+an index on `(user_id, algorithm, hash)`, so the aggregation exists.
+
+**Built 2026-10-16, with one correction to what this section used to say.** It said
+`89_identification_federation` "already provides the board to seed"; it does not.
+89 is the federation peer registry (`federation_peers`,
+`identification_foreign_candidates`), and neither it nor any migration in this
+schema records a MISS — a submission is always attached to a scene, so "unmatched"
+here means *not tied to a scene in the answer*, which is what the boundary asks for,
+not *a row that failed to match*. The board is the local aggregation itself:
+`count(DISTINCT user_id)` per `(algorithm, hash)` over `scene_fingerprints`, exposed
+as `fingerprintDemand`, with the floor enforced **in the query**
+(`HAVING ... >= GREATEST(arg, 2)`) so no caller can ask for the unthresholded board.
+`vote = -1` rows are excluded rather than subtracted: a report says the hash is wrong
+for that scene, which is a statement about the fingerprint and not a request for the
+content. The API's response type is asserted on its FIELD SET in the integration
+suite, at the type level as well as the value level, because "no scene, no user, no
+path" is a property that has to survive an empty board.
 
 **The boundary, now load-bearing:** aggregate by **hash and count only** — never
 store or expose the path, the user, or the scene. A miss is evidence that a copy

@@ -3,6 +3,7 @@ import { Button, Card, Col, Row } from "react-bootstrap";
 import { Link } from "react-router-dom";
 import { ErrorMessage, LoadingIndicator } from "src/components/fragments";
 import {
+  ROUTE_CURATION_FINGERPRINT_DEMAND,
   ROUTE_CURATION_LINT,
   ROUTE_CURATION_MATCHUP,
   ROUTE_PERFORMERS,
@@ -114,6 +115,23 @@ const CurationDashboard: FC = () => {
           </p>
           <Link to={ROUTE_CURATION_LINT}>
             <Button variant="primary">Open the lint board</Button>
+          </Link>
+        </Card.Body>
+      </Card>
+
+      <Card>
+        <Card.Header>
+          <h4 className="mb-0">What the archive has not got</h4>
+        </Card.Header>
+        <Card.Body>
+          <p className="text-muted mb-3">
+            Hashes that more than one member has fingerprinted, aggregated by
+            hash. The figure is a lower bound on how many copies exist, and the
+            board names no scene, no member and no path: a board that pointed at
+            a copy would be a locator for content this instance does not hold.
+          </p>
+          <Link to={ROUTE_CURATION_FINGERPRINT_DEMAND}>
+            <Button variant="primary">Open the demand board</Button>
           </Link>
         </Card.Body>
       </Card>

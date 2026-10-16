@@ -1,0 +1,40 @@
+
+"""
+SPEC §7.24.5: the unmatched-fingerprint demand board, and the holder lower bound.
+
+The board aggregates BY HASH. No scene, no user and no path appears in it, and
+none may be added: a fingerprint submission is evidence that a copy exists
+somewhere, and the record must not become a pointer to it.
+
+The figure is a LOWER BOUND and is named as one. One holder with three copies of
+a file counts once -- the submission table cannot tell three copies from one
+upload claimed three times -- so it can understate how many replicas exist and
+never overstate them. It is only ever exposed above a threshold.
+"""
+type FingerprintDemandEntry {
+  algorithm: FingerprintAlgorithm!
+  hash: FingerprintHash!
+  "Distinct submitters, therefore at least this many copies. Never a count."
+  holder_lower_bound: Int!
+}
+
+type FingerprintDemand {
+  entries: [FingerprintDemandEntry!]!
+  "The floor actually applied, which is never below 2 however the caller asks."
+  min_holders: Int!
+}
+
+input FingerprintDemandInput {
+  "Requested floor. Values below 2 are raised to 2 rather than refused."
+  min_holders: Int
+  "Maximum entries. Capped at 200 regardless of what is asked for."
+  limit: Int
+}
+
+extend type Query {
+  """
+  SPEC §7.24.5. A thresholded aggregate by hash: never a scene, a user or a path.
+  """
+  fingerprintDemand(input: FingerprintDemandInput): FingerprintDemand!
+    @hasRole(role: READ)
+}

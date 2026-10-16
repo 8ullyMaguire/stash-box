@@ -374,7 +374,12 @@ const SWEEP_ROUTES = [
   "/users",
   "/audits",
   "/metrics",
+  // The curation AREA was in this list and its two boards were not, which is the shape the note above
+  // warns about: a surface ships and the gate that would have audited it keeps looking at the page it
+  // replaced. Both boards are here because both are new this phase.
   "/curation",
+  "/curation/lint",
+  "/curation/fingerprint-demand",
   "/drafts",
   "/archive",
 ];

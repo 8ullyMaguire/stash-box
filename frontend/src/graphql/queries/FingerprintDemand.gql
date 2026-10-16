@@ -1,0 +1,21 @@
+# The unmatched-fingerprint demand board (SPEC §7.24.5, plan phase 3a gate 6).
+#
+# An aggregate BY HASH: a hash, and how many distinct members hold it. There is no
+# scene, no user and no path in this query, and none can be added -- the API's
+# response type is asserted on its FIELD SET in the integration suite, because a
+# board that could point at a copy would be a cross-instance locator rather than a
+# statement about demand.
+#
+# `minHolders` is a REQUEST and not a setting: the server raises anything below 2
+# and returns the floor it applied as `min_holders`, so the page can say what it is
+# actually showing instead of what it asked for.
+query FingerprintDemand($minHolders: Int, $limit: Int) {
+  fingerprintDemand(input: { min_holders: $minHolders, limit: $limit }) {
+    entries {
+      algorithm
+      hash
+      holder_lower_bound
+    }
+    min_holders
+  }
+}

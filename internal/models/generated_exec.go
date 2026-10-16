@@ -494,6 +494,17 @@ type ComplexityRoot struct {
 		Truncated func(childComplexity int) int
 	}
 
+	FingerprintDemand struct {
+		Entries    func(childComplexity int) int
+		MinHolders func(childComplexity int) int
+	}
+
+	FingerprintDemandEntry struct {
+		Algorithm        func(childComplexity int) int
+		Hash             func(childComplexity int) int
+		HolderLowerBound func(childComplexity int) int
+	}
+
 	FingerprintMovedScene struct {
 		FingerprintHash func(childComplexity int) int
 		SourceScene     func(childComplexity int) int
@@ -1113,6 +1124,7 @@ type ComplexityRoot struct {
 		FindTags                       func(childComplexity int, ids []uuid.UUID) int
 		FindUser                       func(childComplexity int, id *uuid.UUID, username *string) int
 		FingerprintClusters            func(childComplexity int, input FingerprintClustersInput) int
+		FingerprintDemand              func(childComplexity int, input *FingerprintDemandInput) int
 		Followers                      func(childComplexity int) int
 		Following                      func(childComplexity int) int
 		ForYou                         func(childComplexity int, input *ForYouInput) int
@@ -2116,6 +2128,7 @@ type QueryResolver interface {
 	AccessRules(ctx context.Context) (*AccessRuleSet, error)
 	FederationPeers(ctx context.Context) ([]FederationPeer, error)
 	FederationForeignCandidates(ctx context.Context, queryID uuid.UUID) ([]ForeignCandidate, error)
+	FingerprintDemand(ctx context.Context, input *FingerprintDemandInput) (*FingerprintDemand, error)
 	ListOpenIdentificationQueries(ctx context.Context, limit *int) ([]IdentificationQuery, error)
 	IdentificationQuery(ctx context.Context, id uuid.UUID) (*IdentificationQuery, error)
 	ResolvedIdentificationQueries(ctx context.Context, entityType IdentificationTargetType, entityID uuid.UUID, limit *int) ([]IdentificationQuery, error)
@@ -3833,6 +3846,38 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.FingerprintClustersResult.Truncated(childComplexity), true
+
+	case "FingerprintDemand.entries":
+		if e.ComplexityRoot.FingerprintDemand.Entries == nil {
+			break
+		}
+
+		return e.ComplexityRoot.FingerprintDemand.Entries(childComplexity), true
+	case "FingerprintDemand.min_holders":
+		if e.ComplexityRoot.FingerprintDemand.MinHolders == nil {
+			break
+		}
+
+		return e.ComplexityRoot.FingerprintDemand.MinHolders(childComplexity), true
+
+	case "FingerprintDemandEntry.algorithm":
+		if e.ComplexityRoot.FingerprintDemandEntry.Algorithm == nil {
+			break
+		}
+
+		return e.ComplexityRoot.FingerprintDemandEntry.Algorithm(childComplexity), true
+	case "FingerprintDemandEntry.hash":
+		if e.ComplexityRoot.FingerprintDemandEntry.Hash == nil {
+			break
+		}
+
+		return e.ComplexityRoot.FingerprintDemandEntry.Hash(childComplexity), true
+	case "FingerprintDemandEntry.holder_lower_bound":
+		if e.ComplexityRoot.FingerprintDemandEntry.HolderLowerBound == nil {
+			break
+		}
+
+		return e.ComplexityRoot.FingerprintDemandEntry.HolderLowerBound(childComplexity), true
 
 	case "FingerprintMovedScene.fingerprint_hash":
 		if e.ComplexityRoot.FingerprintMovedScene.FingerprintHash == nil {
@@ -7561,6 +7606,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.FingerprintClusters(childComplexity, args["input"].(FingerprintClustersInput)), true
+	case "Query.fingerprintDemand":
+		if e.ComplexityRoot.Query.FingerprintDemand == nil {
+			break
+		}
+
+		args, err := ec.field_Query_fingerprintDemand_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.FingerprintDemand(childComplexity, args["input"].(*FingerprintDemandInput)), true
 	case "Query.followers":
 		if e.ComplexityRoot.Query.Followers == nil {
 			break
@@ -10460,6 +10516,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputFileContentSourceAppealInput,
 		ec.unmarshalInputFingerprintBatchSubmission,
 		ec.unmarshalInputFingerprintClustersInput,
+		ec.unmarshalInputFingerprintDemandInput,
 		ec.unmarshalInputFingerprintEditInput,
 		ec.unmarshalInputFingerprintInput,
 		ec.unmarshalInputFingerprintQueryInput,
@@ -12708,6 +12765,47 @@ type ClusterOshash {
 input FingerprintClustersInput {
   scene_id: ID!
   distance: Int!
+}
+`, BuiltIn: false},
+	{Name: "../../graphql/schema/types/fingerprint_demand.graphql", Input: `
+"""
+SPEC §7.24.5: the unmatched-fingerprint demand board, and the holder lower bound.
+
+The board aggregates BY HASH. No scene, no user and no path appears in it, and
+none may be added: a fingerprint submission is evidence that a copy exists
+somewhere, and the record must not become a pointer to it.
+
+The figure is a LOWER BOUND and is named as one. One holder with three copies of
+a file counts once -- the submission table cannot tell three copies from one
+upload claimed three times -- so it can understate how many replicas exist and
+never overstate them. It is only ever exposed above a threshold.
+"""
+type FingerprintDemandEntry {
+  algorithm: FingerprintAlgorithm!
+  hash: FingerprintHash!
+  "Distinct submitters, therefore at least this many copies. Never a count."
+  holder_lower_bound: Int!
+}
+
+type FingerprintDemand {
+  entries: [FingerprintDemandEntry!]!
+  "The floor actually applied, which is never below 2 however the caller asks."
+  min_holders: Int!
+}
+
+input FingerprintDemandInput {
+  "Requested floor. Values below 2 are raised to 2 rather than refused."
+  min_holders: Int
+  "Maximum entries. Capped at 200 regardless of what is asked for."
+  limit: Int
+}
+
+extend type Query {
+  """
+  SPEC §7.24.5. A thresholded aggregate by hash: never a scene, a user or a path.
+  """
+  fingerprintDemand(input: FingerprintDemandInput): FingerprintDemand!
+    @hasRole(role: READ)
 }
 `, BuiltIn: false},
 	{Name: "../../graphql/schema/types/hydrus.graphql", Input: `"""
@@ -18585,6 +18683,28 @@ func (ec *executionContext) childFields_FingerprintClustersResult(ctx context.Co
 	return nil, fmt.Errorf("no field named %q was found under type FingerprintClustersResult", field.Name)
 }
 
+func (ec *executionContext) childFields_FingerprintDemand(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "entries":
+		return ec.fieldContext_FingerprintDemand_entries(ctx, field)
+	case "min_holders":
+		return ec.fieldContext_FingerprintDemand_min_holders(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type FingerprintDemand", field.Name)
+}
+
+func (ec *executionContext) childFields_FingerprintDemandEntry(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "algorithm":
+		return ec.fieldContext_FingerprintDemandEntry_algorithm(ctx, field)
+	case "hash":
+		return ec.fieldContext_FingerprintDemandEntry_hash(ctx, field)
+	case "holder_lower_bound":
+		return ec.fieldContext_FingerprintDemandEntry_holder_lower_bound(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type FingerprintDemandEntry", field.Name)
+}
+
 func (ec *executionContext) childFields_FingerprintSubmissionResult(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 	switch field.Name {
 	case "hash":
@@ -22973,6 +23093,20 @@ func (ec *executionContext) field_Query_fingerprintClusters_args(ctx context.Con
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
 		func(ctx context.Context, v any) (FingerprintClustersInput, error) {
 			return ec.unmarshalNFingerprintClustersInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐFingerprintClustersInput(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_fingerprintDemand_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
+		func(ctx context.Context, v any) (*FingerprintDemandInput, error) {
+			return ec.unmarshalOFingerprintDemandInput2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐFingerprintDemandInput(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -29987,6 +30121,130 @@ func (ec *executionContext) _FingerprintClustersResult_truncated(ctx context.Con
 }
 func (ec *executionContext) fieldContext_FingerprintClustersResult_truncated(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("FingerprintClustersResult", field, false, false, errors.New("field of type Boolean does not have child fields"))
+}
+
+func (ec *executionContext) _FingerprintDemand_entries(ctx context.Context, field graphql.CollectedField, obj *FingerprintDemand) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_FingerprintDemand_entries(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Entries, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []FingerprintDemandEntry) graphql.Marshaler {
+			return ec.marshalNFingerprintDemandEntry2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐFingerprintDemandEntryᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_FingerprintDemand_entries(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "FingerprintDemand",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_FingerprintDemandEntry(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _FingerprintDemand_min_holders(ctx context.Context, field graphql.CollectedField, obj *FingerprintDemand) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_FingerprintDemand_min_holders(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.MinHolders, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_FingerprintDemand_min_holders(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("FingerprintDemand", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _FingerprintDemandEntry_algorithm(ctx context.Context, field graphql.CollectedField, obj *FingerprintDemandEntry) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_FingerprintDemandEntry_algorithm(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Algorithm, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v FingerprintAlgorithm) graphql.Marshaler {
+			return ec.marshalNFingerprintAlgorithm2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐFingerprintAlgorithm(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_FingerprintDemandEntry_algorithm(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("FingerprintDemandEntry", field, false, false, errors.New("field of type FingerprintAlgorithm does not have child fields"))
+}
+
+func (ec *executionContext) _FingerprintDemandEntry_hash(ctx context.Context, field graphql.CollectedField, obj *FingerprintDemandEntry) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_FingerprintDemandEntry_hash(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Hash, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v FingerprintHash) graphql.Marshaler {
+			return ec.marshalNFingerprintHash2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐFingerprintHash(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_FingerprintDemandEntry_hash(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("FingerprintDemandEntry", field, false, false, errors.New("field of type FingerprintHash does not have child fields"))
+}
+
+func (ec *executionContext) _FingerprintDemandEntry_holder_lower_bound(ctx context.Context, field graphql.CollectedField, obj *FingerprintDemandEntry) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_FingerprintDemandEntry_holder_lower_bound(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.HolderLowerBound, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_FingerprintDemandEntry_holder_lower_bound(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("FingerprintDemandEntry", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
 func (ec *executionContext) _FingerprintMovedScene_source_scene(ctx context.Context, field graphql.CollectedField, obj *FingerprintMovedScene) (ret graphql.Marshaler) {
@@ -50306,6 +50564,68 @@ func (ec *executionContext) fieldContext_Query_federation_foreign_candidates(ctx
 	return fc, nil
 }
 
+func (ec *executionContext) _Query_fingerprintDemand(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_fingerprintDemand(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().FingerprintDemand(ctx, fc.Args["input"].(*FingerprintDemandInput))
+		},
+		func(ctx context.Context, next graphql.Resolver) graphql.Resolver {
+			directive0 := next
+
+			directive1 := func(ctx context.Context) (any, error) {
+				role, err := ec.unmarshalNRoleEnum2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐRoleEnum(ctx, "READ")
+				if err != nil {
+					var zeroVal *FingerprintDemand
+					return zeroVal, err
+				}
+				if ec.Directives.HasRole == nil {
+					var zeroVal *FingerprintDemand
+					return zeroVal, errors.New("directive hasRole is not implemented")
+				}
+				return ec.Directives.HasRole(ctx, nil, directive0, role)
+			}
+
+			next = directive1
+			return next
+		},
+		func(ctx context.Context, selections ast.SelectionSet, v *FingerprintDemand) graphql.Marshaler {
+			return ec.marshalNFingerprintDemand2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐFingerprintDemand(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_fingerprintDemand(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_FingerprintDemand(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_fingerprintDemand_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Query_listOpenIdentificationQueries(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -63734,6 +64054,43 @@ func (ec *executionContext) unmarshalInputFingerprintClustersInput(ctx context.C
 	return it, nil
 }
 
+func (ec *executionContext) unmarshalInputFingerprintDemandInput(ctx context.Context, obj any) (FingerprintDemandInput, error) {
+	var it FingerprintDemandInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"min_holders", "limit"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "min_holders":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("min_holders"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.MinHolders = data
+		case "limit":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("limit"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Limit = data
+		}
+	}
+	return it, nil
+}
+
 func (ec *executionContext) unmarshalInputFingerprintEditInput(ctx context.Context, obj any) (FingerprintEditInput, error) {
 	var it FingerprintEditInput
 	if obj == nil {
@@ -74963,6 +75320,97 @@ func (ec *executionContext) _FingerprintClustersResult(ctx context.Context, sel 
 	return out
 }
 
+var fingerprintDemandImplementors = []string{"FingerprintDemand"}
+
+func (ec *executionContext) _FingerprintDemand(ctx context.Context, sel ast.SelectionSet, obj *FingerprintDemand) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, fingerprintDemandImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("FingerprintDemand")
+		case "entries":
+			out.Values[i] = ec._FingerprintDemand_entries(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "min_holders":
+			out.Values[i] = ec._FingerprintDemand_min_holders(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var fingerprintDemandEntryImplementors = []string{"FingerprintDemandEntry"}
+
+func (ec *executionContext) _FingerprintDemandEntry(ctx context.Context, sel ast.SelectionSet, obj *FingerprintDemandEntry) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, fingerprintDemandEntryImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("FingerprintDemandEntry")
+		case "algorithm":
+			out.Values[i] = ec._FingerprintDemandEntry_algorithm(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "hash":
+			out.Values[i] = ec._FingerprintDemandEntry_hash(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "holder_lower_bound":
+			out.Values[i] = ec._FingerprintDemandEntry_holder_lower_bound(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
 var fingerprintMovedSceneImplementors = []string{"FingerprintMovedScene", "NotificationData"}
 
 func (ec *executionContext) _FingerprintMovedScene(ctx context.Context, sel ast.SelectionSet, obj *FingerprintMovedScene) graphql.Marshaler {
@@ -82555,6 +83003,28 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 					}
 				}()
 				res = ec._Query_federation_foreign_candidates(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "fingerprintDemand":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_fingerprintDemand(ctx, field)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -92286,6 +92756,36 @@ func (ec *executionContext) marshalNFingerprintClustersResult2ᚖgithubᚗcomᚋ
 	return ec._FingerprintClustersResult(ctx, sel, v)
 }
 
+func (ec *executionContext) marshalNFingerprintDemand2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐFingerprintDemand(ctx context.Context, sel ast.SelectionSet, v *FingerprintDemand) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._FingerprintDemand(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNFingerprintDemandEntry2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐFingerprintDemandEntry(ctx context.Context, sel ast.SelectionSet, v FingerprintDemandEntry) graphql.Marshaler {
+	return ec._FingerprintDemandEntry(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNFingerprintDemandEntry2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐFingerprintDemandEntryᚄ(ctx context.Context, sel ast.SelectionSet, v []FingerprintDemandEntry) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNFingerprintDemandEntry2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐFingerprintDemandEntry(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
 func (ec *executionContext) unmarshalNFingerprintEditInput2githubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐFingerprintEditInput(ctx context.Context, v any) (FingerprintEditInput, error) {
 	res, err := ec.unmarshalInputFingerprintEditInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
@@ -95797,6 +96297,14 @@ func (ec *executionContext) marshalOFingerprint2ᚕgithubᚗcomᚋstashappᚋsta
 	}
 
 	return ret
+}
+
+func (ec *executionContext) unmarshalOFingerprintDemandInput2ᚖgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐFingerprintDemandInput(ctx context.Context, v any) (*FingerprintDemandInput, error) {
+	if v == nil {
+		return nil, nil
+	}
+	res, err := ec.unmarshalInputFingerprintDemandInput(ctx, v)
+	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
 func (ec *executionContext) unmarshalOFingerprintEditInput2ᚕgithubᚗcomᚋstashappᚋstashᚑboxᚋinternalᚋmodelsᚐFingerprintEditInputᚄ(ctx context.Context, v any) ([]FingerprintEditInput, error) {

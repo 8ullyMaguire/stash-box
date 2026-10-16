@@ -181,3 +181,36 @@ JOIN scene_fingerprints PH_SFP
     AND PH_SFP.user_id = OS_SFP.user_id
     AND ABS(EXTRACT(EPOCH FROM (OS_SFP.created_at - PH_SFP.created_at))) <= 60
 WHERE PH_SFP.fingerprint_id = ANY(sqlc.arg('phash_fingerprint_ids')::INT[]);
+
+-- name: GetFingerprintDemand :many
+-- SPEC §7.24.5: the unmatched-fingerprint demand board.
+--
+-- Aggregate by hash and count ONLY. No scene, no user and no path is selected
+-- here, and none may be added later: a fingerprint a user holds is evidence that
+-- a copy exists somewhere, and the record must not become a pointer to it. That
+-- is §7A's boundary applied to a table which would otherwise be a quiet
+-- cross-instance locator.
+--
+-- The figure is a LOWER BOUND, never a count. count(DISTINCT user_id) makes one
+-- holder with three copies of a file contribute once, because this table cannot
+-- tell three copies from one upload claimed three times. That is the only honest
+-- direction: it can understate how many replicas exist and never overstate them.
+--
+-- Reports are not demand. vote = -1 means somebody says the hash is wrong for
+-- that scene, which is a statement about the fingerprint and not a request for
+-- the content, so the row is excluded rather than subtracted.
+--
+-- The THRESHOLD is enforced here, not by the caller. "Exposed thresholded" means
+-- a request must not be able to ask for the unthresholded board, so the HAVING
+-- clause takes GREATEST(arg, 2) and the floor is the same for every caller.
+SELECT
+    fp.algorithm,
+    fp.hash,
+    count(DISTINCT sf.user_id)::INTEGER AS holder_count
+FROM scene_fingerprints sf
+JOIN fingerprints fp ON fp.id = sf.fingerprint_id
+WHERE sf.vote = 1
+GROUP BY fp.algorithm, fp.hash
+HAVING count(DISTINCT sf.user_id) >= GREATEST(sqlc.arg(min_holders)::INTEGER, 2)
+ORDER BY holder_count DESC, fp.hash ASC
+LIMIT sqlc.arg(row_limit)::INTEGER;

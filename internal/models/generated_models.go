@@ -875,6 +875,36 @@ type FingerprintClustersResult struct {
 	Truncated bool `json:"truncated"`
 }
 
+type FingerprintDemand struct {
+	Entries []FingerprintDemandEntry `json:"entries"`
+	// The floor actually applied, which is never below 2 however the caller asks.
+	MinHolders int `json:"min_holders"`
+}
+
+// SPEC §7.24.5: the unmatched-fingerprint demand board, and the holder lower bound.
+//
+// The board aggregates BY HASH. No scene, no user and no path appears in it, and
+// none may be added: a fingerprint submission is evidence that a copy exists
+// somewhere, and the record must not become a pointer to it.
+//
+// The figure is a LOWER BOUND and is named as one. One holder with three copies of
+// a file counts once -- the submission table cannot tell three copies from one
+// upload claimed three times -- so it can understate how many replicas exist and
+// never overstate them. It is only ever exposed above a threshold.
+type FingerprintDemandEntry struct {
+	Algorithm FingerprintAlgorithm `json:"algorithm"`
+	Hash      FingerprintHash      `json:"hash"`
+	// Distinct submitters, therefore at least this many copies. Never a count.
+	HolderLowerBound int `json:"holder_lower_bound"`
+}
+
+type FingerprintDemandInput struct {
+	// Requested floor. Values below 2 are raised to 2 rather than refused.
+	MinHolders *int `json:"min_holders,omitempty"`
+	// Maximum entries. Capped at 200 regardless of what is asked for.
+	Limit *int `json:"limit,omitempty"`
+}
+
 type FingerprintEditInput struct {
 	UserIds     []uuid.UUID          `json:"user_ids,omitempty"`
 	Hash        FingerprintHash      `json:"hash"`

@@ -385,7 +385,7 @@ identifier rather than by reading the plan's own table:**
 | Verification control on the edit form (§7.24.1) | **not built** — no `verificationReason`/`notPubliclyKnowable` field exists on the write path's input, in the frontend or in the schema |
 | Completion panel with the §7.24.8 delta preview (§7.24.8) | **not built** — `components/CompletionBar.tsx` shows the score; nothing shows the marginal-gain ranking or a before/after delta |
 | Bounty authoring surface (§7.24.3) | **not built** — `bounty_points` is read (the registry displays it); nothing writes an authored bounty price |
-| Fingerprint demand board (§7.24.5) | **not built** — migration 99's corroboration view exists on the storage side, but no query exposes a hash+count board |
+| Fingerprint demand board (§7.24.5) | **built** — `fingerprintDemand` (query `GetFingerprintDemand`, service `internal/service/fingerprint/demand.go`, resolver `internal/api/resolver_query_fingerprint_demand.go`), the `/curation/fingerprint-demand` page, and a card on the curation dashboard. Aggregate by `(algorithm, hash)` over `scene_fingerprints`, `count(DISTINCT user_id)` as a LOWER BOUND, floor enforced in the query. See the SPEC correction: 89 does not provide the board to seed, and nothing in this schema records a miss. |
 | Review-queue aging view (§7.24.10) | **built** — a pending edit carries `Waiting: <elapsed>` (`renderWaiting` in `components/editCard/EditCard.tsx`, `formatElapsed` in `utils/date.ts`), and the queue OPENS oldest-first (`pages/edits/Edits.tsx` passes `defaultDirection: ASC` through `EditList` to a new `defaultSort`/`defaultDirection` parameter on `useEditFilter`, which are defaults rather than fixed values, so the control and any URL parameter still win) |
 
 The plan stays `in progress` because of this table: C3 in `docs/goal-check.py`
@@ -401,7 +401,10 @@ is not there.
   suggestion, visibly marked as a suggestion, with the override recorded.
 - **Fingerprint demand board**: hash + count only. **No scene, no user, no path
   column exists in this view and the API response must not carry one** — the
-  temptation to add it later is the risk.
+  temptation to add it later is the risk. BUILT: gate 6 below is the assertion, the
+  response type is checked at the type level as well as the value level (so it holds
+  for an empty board), and `DemandTable` asserts in the browser-side suite that no
+  hash carries a link — the same firewall on the other side of the wire.
 - **Lint quest board** and **review-queue aging view** (§7.24.10).
 - **A record's own findings** (`src/components/recordFindings/`), mounted on the
   performer page: the same validation pass asked about one id, silent when the

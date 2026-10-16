@@ -1701,6 +1701,27 @@ type Querier interface {
 	// rather than silently recorded against nobody.
 	GetFederationPeerByInstanceId(ctx context.Context, instanceID string) (FederationPeer, error)
 	GetFingerprint(ctx context.Context, arg GetFingerprintParams) (Fingerprint, error)
+	// SPEC §7.24.5: the unmatched-fingerprint demand board.
+	//
+	// Aggregate by hash and count ONLY. No scene, no user and no path is selected
+	// here, and none may be added later: a fingerprint a user holds is evidence that
+	// a copy exists somewhere, and the record must not become a pointer to it. That
+	// is §7A's boundary applied to a table which would otherwise be a quiet
+	// cross-instance locator.
+	//
+	// The figure is a LOWER BOUND, never a count. count(DISTINCT user_id) makes one
+	// holder with three copies of a file contribute once, because this table cannot
+	// tell three copies from one upload claimed three times. That is the only honest
+	// direction: it can understate how many replicas exist and never overstate them.
+	//
+	// Reports are not demand. vote = -1 means somebody says the hash is wrong for
+	// that scene, which is a statement about the fingerprint and not a request for
+	// the content, so the row is excluded rather than subtracted.
+	//
+	// The THRESHOLD is enforced here, not by the caller. "Exposed thresholded" means
+	// a request must not be able to ask for the unthresholded board, so the HAVING
+	// clause takes GREATEST(arg, 2) and the floor is the same for every caller.
+	GetFingerprintDemand(ctx context.Context, arg GetFingerprintDemandParams) ([]GetFingerprintDemandRow, error)
 	GetForeignCandidate(ctx context.Context, id uuid.UUID) (IdentificationForeignCandidate, error)
 	// A single candidate, for the vote path.
 	//
