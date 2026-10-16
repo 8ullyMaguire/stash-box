@@ -25,6 +25,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -330,6 +331,15 @@ func (r *Runner) walkPerformers(ctx context.Context) (EntityReport, error) {
 	er.Scanned, er.Updated, er.Unchanged, er.Skipped, er.Failed = rep.Scanned, rep.Updated, rep.Unchanged, rep.Skipped, rep.Failed
 	er.ReScanned, er.FieldChanges = rep.ReScanned, len(rep.Changes)
 
+	// The pager keeps one error per entity so a 5,000-record page does not lose 4,999 records to one bad one.
+	// Surfacing it is the difference between "failed 19" and knowing what failed: a report that counts
+	// failures without naming one cannot be acted on.
+	if st, ok := r.imp.Stats["performers"]; ok {
+		for _, field := range sortedKeys(st.FirstErr) {
+			er.Errors = append(er.Errors, st.FirstErr[field])
+		}
+	}
+
 	// The mark moves only after the entity's walk has returned, and only forward: the store refuses the
 	// backwards write, in SQL, because a stale writer is not a condition a Go check can see.
 	if !r.opts.DryRun && !rep.StoppedAt.IsZero() {
@@ -515,6 +525,16 @@ func ParseSyncModes(s string) (map[string]SyncMode, error) {
 		out[entity] = mode
 	}
 	return out, nil
+}
+
+// sortedKeys keeps a report's error order stable, so two runs of the same data produce the same text.
+func sortedKeys(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // pidLine is what the lock file holds, so an operator who finds one can see who has it.

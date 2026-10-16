@@ -42,13 +42,27 @@ func TotalPages(count int) int {
 // completion mean something rather than being a guess.
 const CountPerformers = `{ queryPerformers(input: {per_page: 1}) { count } }`
 
+// performerQuery is the source page every performer walk reads.
+//
+// `updated` IS SELECTED AND THE SORT IS EXPLICIT, and both are load-bearing for the incremental sync rather than
+// niceties:
+//
+//   - Without `updated` in the selection, every record arrives with a zero timestamp, so `shouldStop` cannot
+//     fire (the walk never stops), `SyncWalk` cannot move a watermark (there is no position to save) and
+//     latest-wins cannot compare upstream's write time against the destination's.
+//   - The default order is the source's, which happens to be updated-descending today. A stop condition that
+//     depends on an undocumented default is a stop condition that silently stops working the day the default
+//     changes, and the failure mode is a full walk, not an error.
+//
+// The sort values are the source's own enum (verified by introspection: UPDATED_AT and DESC both exist).
 const performerQuery = `
 query($page: Int!) {
-  queryPerformers(input: {per_page: 5000, page: $page}) {
+  queryPerformers(input: {per_page: 5000, page: $page, sort: UPDATED_AT, direction: DESC}) {
     count
     performers {
       id
       name
+      updated
       disambiguation
       gender
       country
