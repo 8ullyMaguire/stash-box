@@ -18,6 +18,10 @@ const EditNote: FC<Props> = ({ register, error }) => (
       className={cx({ "is-invalid": error })}
       register={register}
       hasError={!!error?.message}
+      // The same words as the visible label above: WCAG 2.5.3 asks the accessible name to CONTAIN
+      // the visible one, so passing "Edit Note" here is what makes "click Edit Note" work for
+      // somebody driving the page by voice.
+      label="Edit Note"
     />
     <Form.Text>
       Please add any relevant sources or other supporting information for your

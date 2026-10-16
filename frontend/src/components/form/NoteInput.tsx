@@ -11,6 +11,16 @@ interface IProps {
   register?: UseFormRegister<{ note: string }>;
   hasError?: boolean;
   initialValue?: string;
+  /**
+   * The textarea's accessible name, since the field has no label of its own.
+   *
+   * This component is rendered inside a tab whose ONLY label is whatever the caller puts beside it --
+   * and on the delete forms there is nothing beside it at all -- so the name has to live on the
+   * control. Every caller that shows a visible label passes that label's text here, which is what
+   * keeps WCAG 2.5.3 (label in name) true: a reader told to "click Edit Note" is talking about an
+   * element whose name CONTAINS those words, not one named something else.
+   */
+  label?: string;
 }
 
 const NoteInput: FC<IProps> = ({
@@ -19,6 +29,7 @@ const NoteInput: FC<IProps> = ({
   register,
   hasError = false,
   initialValue = "",
+  label = "Note",
 }) => {
   const { user } = useCurrentUser();
   const [comment, setComment] = useState(initialValue);
@@ -38,6 +49,7 @@ const NoteInput: FC<IProps> = ({
           <Form.Control
             as="textarea"
             className={className}
+            aria-label={label}
             onInput={handleChange}
             rows={5}
             defaultValue={initialValue}

@@ -52,6 +52,19 @@ $textfield-bg: rgba(16 22 26 / 30%);
   color: var(--sb-text-muted) !important;
 }
 
+// `.form-text` IS THE SAME DEFECT AT A SECOND SELECTOR, and it survived the first fix because the fix
+// went to the utility rather than to the value it compiles from. Bootstrap compiles BOTH `.text-muted`
+// and `.form-text` to the static `$text-muted` (#bfccd6, the dark palette's muted grey), so every
+// form's helper text -- "The primary name used by the performer.", "Height in centimeters" -- was
+// 1.53:1 on the light page: axe's `color-contrast` [serious] on ten nodes of the performer form.
+//
+// It went unseen because the sweep had no FORM in it until the scene edit form was added, and that
+// form's helper text sits on tabs the audit does not open. Both selectors now read the token, and
+// `theme.test.ts` asserts the pair rather than one of them.
+.form-text {
+  color: var(--sb-text-muted) !important;
+}
+
 // Layout & components
 @import "bootstrap/scss/tables";
 @import "bootstrap/scss/forms";

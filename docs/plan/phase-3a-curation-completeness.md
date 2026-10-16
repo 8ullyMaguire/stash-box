@@ -402,6 +402,33 @@ THE REMAINING WORK, in dependency order, one link each:
       how focus ended up in the wrong list. `getClientRects()` rather than `offsetParent`, which is
       also null for every `position: fixed` element.
 
+   THE SWEEP THEN WENT FROM 9 ROUTES TO 32, and the widening was evidence-driven: the same components
+   (StudioSelect, TagSelect, SearchField, the shared Form layouts) build every form, so the call-site
+   omission fixed on the scene form was reachable from all of them -- and the scene form's fix was made
+   at ITS call site, which by construction could not fix the others. It found three more defects on four
+   more pages, in two rules:
+
+   d. `color-contrast` x22, on the performer add/edit/delete and tag edit forms: every `small.form-text`
+      helper ("The primary name used by the performer.", "Height in centimeters.") measured
+      `#bfccd6` on `#f5f8fa` = **1.53:1** in the LIGHT palette. Bootstrap compiles `.form-text` from the
+      same static `$text-muted` as `.text-muted` -- and `.text-muted` had already been fixed to
+      `var(--sb-text-muted)`. The fix went to the utility rather than to the value both selectors compile
+      from, so the sibling shipped. It had been invisible to the gate because the sweep had no FORM in it.
+   e. `label` x4: the edit note's `<textarea>` had no name at all. It lives in ONE shared component
+      (`NoteInput`), whose label is whatever the caller puts beside it -- and on the delete forms there is
+      nothing beside it. Fixed once, in the component, with the caller's visible label passed through so
+      WCAG 2.5.3 (label in name) holds.
+   f. `label` x2: two unlabelled react-selects, under ids that differ between pages (`#react-select-4-input`
+      on the edit form, `#react-select-8-input` on the add form) -- which is what made the same defect look
+      like two. One was `BodyModification`'s picker (a `<Form.Label>` with no `htmlFor`, a `Creatable` with
+      no `inputId`), the other the performer form's Nationality select: `controlId` on a `Form.Group` wires
+      a label to a react-bootstrap Control through context, and a raw react-select is not one.
+
+   All three are asserted in `theme.test.ts` / covered by the sweep, and the sweep is green at 32 routes
+   in both palettes (134 passed). The count is worth stating plainly: **one route found three defects, and
+   widening from 9 to 32 found three more.** The rule is not "audit the new surface" but "the surfaces
+   nobody ever audited are where the defects are".
+
    THE FIX FOR (b) TOOK FOUR MEASUREMENTS AND TWO WRONG ANSWERS, and the wrong answers are the part
    worth keeping. First I themed only the text colours, on the reasoning -- written into the comment
    -- that the control's background was the library's business too. axe then measured `#f5f8fa` on
@@ -426,15 +453,34 @@ THE REMAINING WORK, in dependency order, one link each:
    "e2e 38/38" were vitest counts, mislabelled. The real suite is 179 tests and is NOT green: 174 pass
    and 5 fail, none of them reachable from this section's changes.
 
-   Two were fixed here rather than recorded, because they could never pass: the merge tests asserted
-   `findSource?.deleted === true`, and a soft-deleted entity is not returned by a lookup at all (the
-   behaviour is asserted in Go, in deleted_entity_lookup_integration_test.go), so `?.deleted` was
-   always `undefined`. They now assert the real contract with a live-entity control beside it, and
-   they FAIL -- honestly -- reporting `Received: {"deleted": false}`, which is the finding: after a
-   merge the source is still live. The same shape in the three DESTROY tests was fixed and passes,
-   mutation-proved by pointing the control at the deleted id.
+   Three of the five were fixed here rather than recorded, and the way they were fixed IS the lesson:
+   all five asserted `findX(id)?.deleted`, and two different truths make that field the wrong
+   instrument.
 
-   The three left open are unrelated to this section and are named rather than implied:
+   The three DESTROY tests asserted `findSource?.deleted === true`. A destroyed entity is not returned
+   by a lookup at all -- asserted in Go, in deleted_entity_lookup_integration_test.go -- so `?.deleted`
+   was always `undefined`. They now assert `toBeNull()`, with a live entity's successful resolution
+   beside them as the control, and they pass. Mutation-proved by pointing the control at the deleted
+   id: exactly one test goes red, its neighbours stay green.
+
+   The two MERGE tests asserted the same thing, and correcting them to `toBeNull()` was ALSO wrong.
+   They then failed reporting `Received: {"deleted": false}`, and I read that as "after a merge the
+   source is still live" and recorded it in this plan as a product defect. IT IS NOT. A merged source
+   does not disappear: its id RESOLVES TO THE SURVIVOR, so a client holding a stale id keeps working
+   instead of reading a deleted row (issue #1007; asserted in Go in deleted_entity_lookup_
+   integration_test.go's TestFindStudioResolvesMergedSourceToSurvivor). The answer came from the
+   TARGET, which is why it reported `false`. `MergeInto` does SoftDelete the source and does write the
+   redirect; the merge was never broken. The assertion is now the IDENTITY of the answer --
+   `findSource.id === target.id` -- the only shape that proves both halves at once: the merge applied
+   AND the redirect exists. Both merge tests pass.
+
+   THE TRANSFERABLE TRAP, worth more than the fix: when a field reports a plausible value about a
+   deleted entity, ask WHICH ROW ANSWERED. A resolution or redirect layer turns "the entity I asked
+   about" into "some entity related to it", and the value that comes back belongs to the relative. A
+   wrong reading of that shape looks exactly like a wrong product, and this one reached three
+   documents before a test contradicted it.
+
+   The three still failing are unrelated to this section and are named rather than implied:
    `auth/account.spec.ts` (change own password), `entities/images.spec.ts` (performer image crop via
    UI) and `first-contribution.spec.ts` (EDIT user logs in, submits an edit, logs out).
 
@@ -485,10 +531,11 @@ numbers existed at once, and the older of the two was the one a skimming reader 
    nothing about whether the funnel asks it.
 2. **The form-to-row walk**, named in the frontend control's entry above: nothing drives the control
    in a browser, clicks Add, submits, and asserts the row.
-3. **The merge source is not marked deleted.** After a merge the source still resolves as live
-   (`Received: {"deleted": false}`), which the corrected assertion in `merges.spec.ts` now reports.
-   Either the merge is not deleting its source or the UI flow does not reach it — not yet diagnosed,
-   and it belongs to the merge feature rather than to this section.
+
+(An item 3 stood here claiming the merge source was not marked deleted. That was WRONG, and it is
+recorded as wrong in the entry above rather than quietly dropped: a merged source id resolves to its
+survivor (#1007), so `deleted: false` was the target answering. Both merge tests now pass. The entry
+is kept as a correction because the mis-reading is the transferable part.)
 
 ## Why this order
 

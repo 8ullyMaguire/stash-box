@@ -60,24 +60,33 @@ test("performer merge UI: pick source, continue, submit, approve, verify", async
   // Post-conditions via GraphQL.
   const admin2 = await adminApi();
   const result = await gql<{
-    findTarget: { deleted: boolean } | null;
-    findSource: { deleted: boolean } | null;
+    findTarget: { id: string; deleted: boolean } | null;
+    findSource: { id: string; deleted: boolean } | null;
   }>(
     admin2,
     `query($t: ID!, $s: ID!) {
-       findTarget: findPerformer(id: $t) { deleted }
-       findSource: findPerformer(id: $s) { deleted }
+       findTarget: findPerformer(id: $t) { id deleted }
+       findSource: findPerformer(id: $s) { id deleted }
      }`,
     { t: target.id, s: source.id },
   );
   await admin2.dispose();
-  // The survivor is live and reports itself as such; the source was merged away and no longer
-  // resolves at all. Asserting `findSource?.deleted === true` cannot pass: a soft-deleted entity is
-  // not returned by a lookup -- that is asserted in Go, in deleted_entity_lookup_integration_test.go
-  // -- so the old form of this line asserted a state the API never produces. The target's own
-  // resolution is the control: the same query, against an entity that still exists.
+  // A merged source does NOT disappear, and it is not reported as deleted: its id RESOLVES TO THE
+  // SURVIVOR, so a client holding a stale id keeps working rather than reading a deleted row. That is
+  // the documented behaviour (issue #1007), asserted in Go in deleted_entity_lookup_integration_test.go
+  // (TestFindStudioResolvesMergedSourceToSurvivor) -- and it is why BOTH earlier forms of this
+  // assertion were wrong: the answer comes from the target, so `findSource?.deleted` is `false` when
+  // written as `true` and `undefined` when written as `null`.
+  //
+  // The assertion is therefore the IDENTITY of the answer, which is the only shape that proves both
+  // halves at once: the merge was applied AND the redirect exists. A `null` is also what a typo in the
+  // id or a broken query produces; the survivor's own id in the same response is the control.
+  expect(result.findTarget?.id, "the survivor resolves as itself").toBe(target.id);
   expect(result.findTarget?.deleted).toBe(false);
-  expect(result.findSource, "the merged-away source still resolves").toBeNull();
+  expect(
+    result.findSource?.id,
+    "the merged-away source id did not resolve to its survivor: the merge did not apply, or its redirect is missing",
+  ).toBe(target.id);
 });
 
 test("tag merge UI: pick source, submit, approve, verify", async ({
@@ -120,22 +129,31 @@ test("tag merge UI: pick source, submit, approve, verify", async ({
 
   const admin2 = await adminApi();
   const result = await gql<{
-    findTarget: { deleted: boolean } | null;
-    findSource: { deleted: boolean } | null;
+    findTarget: { id: string; deleted: boolean } | null;
+    findSource: { id: string; deleted: boolean } | null;
   }>(
     admin2,
     `query($t: ID!, $s: ID!) {
-       findTarget: findTag(id: $t) { deleted }
-       findSource: findTag(id: $s) { deleted }
+       findTarget: findTag(id: $t) { id deleted }
+       findSource: findTag(id: $s) { id deleted }
      }`,
     { t: target.id, s: source.id },
   );
   await admin2.dispose();
-  // The survivor is live and reports itself as such; the source was merged away and no longer
-  // resolves at all. Asserting `findSource?.deleted === true` cannot pass: a soft-deleted entity is
-  // not returned by a lookup -- that is asserted in Go, in deleted_entity_lookup_integration_test.go
-  // -- so the old form of this line asserted a state the API never produces. The target's own
-  // resolution is the control: the same query, against an entity that still exists.
+  // A merged source does NOT disappear, and it is not reported as deleted: its id RESOLVES TO THE
+  // SURVIVOR, so a client holding a stale id keeps working rather than reading a deleted row. That is
+  // the documented behaviour (issue #1007), asserted in Go in deleted_entity_lookup_integration_test.go
+  // (TestFindStudioResolvesMergedSourceToSurvivor) -- and it is why BOTH earlier forms of this
+  // assertion were wrong: the answer comes from the target, so `findSource?.deleted` is `false` when
+  // written as `true` and `undefined` when written as `null`.
+  //
+  // The assertion is therefore the IDENTITY of the answer, which is the only shape that proves both
+  // halves at once: the merge was applied AND the redirect exists. A `null` is also what a typo in the
+  // id or a broken query produces; the survivor's own id in the same response is the control.
+  expect(result.findTarget?.id, "the survivor resolves as itself").toBe(target.id);
   expect(result.findTarget?.deleted).toBe(false);
-  expect(result.findSource, "the merged-away source still resolves").toBeNull();
+  expect(
+    result.findSource?.id,
+    "the merged-away source id did not resolve to its survivor: the merge did not apply, or its redirect is missing",
+  ).toBe(target.id);
 });

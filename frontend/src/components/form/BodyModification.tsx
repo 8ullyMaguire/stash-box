@@ -75,9 +75,20 @@ const BodyModification: FC<BodyModificationProps> = ({
     <>
       <Row className={CLASSNAME}>
         <Col className="mb-3">
-          <Form.Label className="text-capitalize">{name}</Form.Label>
+          {/* The id is what associates this label with the picker below. Without it the label is a
+              sibling rather than a name, and react-select names its input `react-select-N-input` --
+              which is how the performer form's audit reported an unlabelled form element. `name` is
+              the modification's kind ("tattoos", "piercings"), so the id is unique among the pickers
+              this component renders. */}
+          <Form.Label
+            htmlFor={`body-modification-${name}`}
+            className="text-capitalize"
+          >
+            {name}
+          </Form.Label>
           <Creatable
             classNamePrefix="react-select"
+            inputId={`body-modification-${name}`}
             value={null}
             name={name}
             placeholder={locationPlaceholder}

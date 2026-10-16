@@ -178,6 +178,29 @@ describe("library colours are replaced, not inherited", () => {
   const scss = readFileSync(resolvePath("src/styles/theme.scss"), "utf8");
 
   /**
+   * Bootstrap compiles BOTH `.text-muted` and `.form-text` to the static `$text-muted`, so a fix that
+   * names one of them leaves the other at the dark palette's grey in both palettes. `.text-muted` was
+   * fixed first and `.form-text` kept shipping 1.53:1 on the light page: every form's helper text,
+   * which the sweep could not see until a form was in it. The pair is asserted together so the next
+   * person to move this rule has to move both.
+   */
+  it("theme-colours both muted-text selectors Bootstrap compiles from one value", () => {
+    for (const selector of [".text-muted", ".form-text"]) {
+      const start = scss.search(new RegExp(`^\\${selector} \\{`, "m"));
+      expect(
+        start,
+        `no ${selector} rule at the start of a line`,
+      ).toBeGreaterThan(-1);
+      const block = scss.slice(start, scss.indexOf("}", start));
+      expect(block, `${selector} does not read the muted token`).toContain(
+        "var(--sb-text-muted)",
+      );
+      // A literal here is correct in exactly one palette -- which is the bug, not a near miss.
+      expect(block).not.toMatch(/#[0-9a-f]{3,8}\b|hsla?\(/i);
+    }
+  });
+
+  /**
    * react-select ships its own text colours -- `hsl(0, 0%, 20%)` for the selected value, `50%` for
    * the input and placeholder -- written for a light page. On the dark palette the studio picker's
    * chosen value measured as failing contrast on the scene edit form. The fix is a stylesheet rule,

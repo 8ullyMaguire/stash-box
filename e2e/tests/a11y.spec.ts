@@ -16,9 +16,15 @@
 // checks here are the two that a machine CAN decide -- and the keyboard check is a second, independent
 // instrument for the half axe does not cover.
 //
-// THE PAGES ARE THE FIVE THE PHASE NAMES (home dashboard, search results, content detail, tag page,
-// performer page) plus /metrics, which this phase added. Each is visited with data in it: an empty search
-// page and a populated one have different DOM, and the populated one is what a reader gets.
+// THE PAGES ARE EVERY SURFACE THE ROUTER HAS, not the five the phase names. It started as those five plus
+// /metrics, and the widening was forced by evidence rather than thoroughness: ONE added route (the scene
+// edit form, added with the control that shipped on it) produced three defects, none of them the control --
+// and then widening to the rest of the forms and lists produced three more, on four more pages, in the SAME
+// two rules. A sweep over the pages somebody picked cannot name the pages nobody picked; every visitor the
+// table has ever gained has found something.
+//
+// Each is visited with data in it: an empty search page and a populated one have different DOM, and the
+// populated one is what a reader gets. Routes that need an entity get one from the fixture above.
 
 import AxeBuilder from "@axe-core/playwright";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -42,6 +48,7 @@ interface Seeded {
   tag: { id: string; name: string };
   performer: { id: string; name: string };
   scene: { id: string; title: string | null };
+  studio: { id: string; name: string };
 }
 
 let seeded: Seeded;
@@ -57,6 +64,9 @@ test.beforeAll(async () => {
     tag: await createTag(api, { name: `a11y tag ${token}` }),
     performer: await createPerformer(api, { name: `a11y performer ${token}` }),
     scene: await createScene(api, { title: `a11y scene ${token}`, studioId: studio.id }),
+    // The studio was already created here for the scene to belong to and was not kept. It is kept now
+    // because its own edit form is a surface like any other, and the fixture already pays for it.
+    studio: { id: studio.id, name: `a11y studio ${token}` },
   };
   await api.dispose();
 });
@@ -87,6 +97,46 @@ const KEY_PAGES: Array<{ name: string; path: () => string }> = [
   // defeat that. The board audits as an ADMIN, who outranks VOTE.
   { name: "lint board", path: () => "/curation/lint" },
   { name: "detector registry", path: () => "/curation/lint/definitions" },
+
+  // THE REST OF THE FORMS, and they are here because of what adding ONE of them cost: the scene edit
+  // form was the first form in this sweep, and it alone produced three defects -- a label association
+  // missing at a call site, react-select's light-page colours on a dark palette, and an unlabelled
+  // input nobody had looked at. The sibling forms below are built from the SAME components
+  // (StudioSelect, TagSelect, SearchField, the shared Form layouts), so the same call-site omission is
+  // reachable from every one of them; the scene form's fix was made at ITS call site, which by
+  // construction could not have fixed these. Adding a surface the day it ships is the cheapest audit
+  // available, and these shipped years ago without ever being audited.
+  { name: "performer edit form", path: () => `/performers/${seeded.performer.id}/edit` },
+  { name: "performer merge form", path: () => `/performers/${seeded.performer.id}/merge` },
+  { name: "performer delete form", path: () => `/performers/${seeded.performer.id}/delete` },
+  { name: "studio edit form", path: () => `/studios/${seeded.studio.id}/edit` },
+  { name: "tag edit form", path: () => `/tags/${seeded.tag.id}/edit` },
+  { name: "scene add form", path: () => "/scenes/add" },
+  { name: "performer add form", path: () => "/performers/add" },
+  { name: "studio add form", path: () => "/studios/add" },
+
+  // The LISTS. A data table is where a heading level, a `<th>` scope or a contrast value goes wrong
+  // silently, and none of these had been measured either.
+  { name: "performers list", path: () => "/performers" },
+  { name: "scenes list", path: () => "/scenes" },
+  { name: "studios list", path: () => "/studios" },
+  { name: "tags list", path: () => "/tags" },
+  { name: "edits list", path: () => "/edits" },
+  { name: "drafts list", path: () => "/drafts" },
+
+  // The curation and growth surfaces, including the demand board -- which was built in this line of
+  // work and, like its siblings above, was never in the sweep.
+  { name: "curation matchup", path: () => "/curation/matchup" },
+  { name: "fingerprint demand board", path: () => "/curation/fingerprint-demand" },
+  { name: "leaderboard", path: () => "/leaderboard" },
+  { name: "archive state", path: () => "/archive" },
+  { name: "identification board", path: () => "/identification" },
+
+  // Account and operator surfaces.
+  { name: "users list", path: () => "/users" },
+  { name: "notifications", path: () => "/notifications" },
+  { name: "audits", path: () => "/audits" },
+  { name: "sites", path: () => "/sites" },
 ];
 
 /**

@@ -684,13 +684,22 @@ const PerformerForm: FC<PerformerProps> = ({
 
           <Row>
             <Form.Group controlId="country" className="col-6 mb-3">
-              <Form.Label>Nationality</Form.Label>
+              {/* htmlFor AND inputId, like every other picker in this file. `controlId` on the group
+                  wires the label to a react-bootstrap Control THROUGH context, and a raw react-select
+                  is not one -- so the label stayed a sibling, react-select named its input
+                  `react-select-4-input` (the ordinal differs between the add and edit forms, which is
+                  how the same defect appeared under two ids), and axe reported an unlabelled form
+                  element on both. */}
+              <Form.Label htmlFor="performer-nationality-select">
+                Nationality
+              </Form.Label>
               <Controller
                 control={control}
                 name="country"
                 render={({ field: { onChange, value } }) => (
                   <Select
                     classNamePrefix="react-select"
+                    inputId="performer-nationality-select"
                     onChange={(option) => onChange(option?.value)}
                     options={countryObj}
                     value={
