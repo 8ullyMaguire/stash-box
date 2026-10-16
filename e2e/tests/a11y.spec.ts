@@ -72,6 +72,11 @@ const KEY_PAGES: Array<{ name: string; path: () => string }> = [
   { name: "home dashboard", path: () => "/" },
   { name: "search results", path: () => `/search?q=${encodeURIComponent("a11y")}` },
   { name: "content detail", path: () => `/scenes/${seeded.scene.id}` },
+  // The EDIT form, which is where SPEC §7.24.1's verified-unknown control lives. A new control on an
+  // existing page is still a new surface: it brings its own labels, its own two inputs and its own
+  // buttons, and none of them had been audited. The id comes from the same fixture scene as the line
+  // above.
+  { name: "scene edit form", path: () => `/scenes/${seeded.scene.id}/edit` },
   { name: "tag", path: () => `/tags/${seeded.tag.id}` },
   { name: "performer", path: () => `/performers/${seeded.performer.id}` },
   { name: "instance metrics", path: () => "/metrics" },
@@ -264,6 +269,8 @@ for (const target of KEY_PAGES) {
     await adminPage.goto(pagePath);
     await adminPage.locator("main").first().waitFor({ state: "visible", timeout: 15_000 });
 
+    const skipped: string[] = [];
+
     const tablists = await adminPage.evaluate(() =>
       Array.from(document.querySelectorAll('[role="tablist"]')).map((list) => ({
         name: list.getAttribute("aria-label") || list.id || "(unnamed tablist)",
@@ -279,17 +286,66 @@ for (const target of KEY_PAGES) {
       return;
     }
 
-    for (const [index, list] of tablists.entries()) {
+    // Only tablists whose tabs are actually RENDERED. The comment box's Write/Preview tablist is in
+    // the DOM while the editor is collapsed, and `focus()` on a tab inside a `display: none` subtree
+    // does nothing -- so the walk pressed ArrowRight from wherever focus already was and reported the
+    // FORM's tabs (Details, Links) as belonging to the tablist named "add-comment". getClientRects()
+    // rather than offsetParent: offsetParent is also null for every position:fixed element.
+    const walkable = await adminPage.evaluate((names) => {
+      const lists = Array.from(document.querySelectorAll('[role="tablist"]'));
+      return names.map((name) => {
+        const list = lists.find(
+          (l) => (l.getAttribute("aria-label") || l.id || "(unnamed tablist)") === name,
+        );
+        if (!list) return 0;
+        return Array.from(list.querySelectorAll('[role="tab"]')).filter(
+          (tab) => tab.getClientRects().length > 0,
+        ).length;
+      });
+    }, tablists.map((l) => l.name));
+
+    const driven: string[] = [];
+
+    for (const list of tablists) {
       expect(
         list.tabs.length,
         `${pagePath}: tablist "${list.name}" renders no tabs, so reachability here is vacuous`,
       ).toBeGreaterThan(0);
 
-      await adminPage.evaluate((i) => {
-        const target = document.querySelectorAll('[role="tablist"]')[i];
+      // Skipped tablists are named in the failure of the assertion below rather than passed over
+      // silently: "every tab is reachable" is only true of the tabs the walk could reach.
+      if (walkable[tablists.indexOf(list)] === 0) {
+        skipped.push(list.name);
+        continue;
+      }
+      driven.push(list.name);
+
+      // BY NAME, NOT BY INDEX. This form has a second tablist (the comment box's Write/Preview),
+      // which the page adds lazily -- so an index captured before it renders points at a different
+      // tablist afterwards, and the walk then reports "reached 2 of 2 tabs" about a list it never
+      // drove. That is what this test did: it expected (Write, Preview) for the tablist named
+      // "add-comment" while the arrow keys were moving through the form's (Details, Links).
+      const named = await adminPage.evaluate((name) => {
+        const lists = Array.from(document.querySelectorAll('[role="tablist"]'));
+        return lists.filter(
+          (l) => (l.getAttribute("aria-label") || l.id || "(unnamed tablist)") === name,
+        ).length;
+      }, list.name);
+      // Count the subject first: driving "the" tablist by name is only meaningful while the name
+      // picks out exactly one, and a duplicate would re-create the same mis-attribution.
+      expect(
+        named,
+        `${pagePath}: ${named} tablists are named "${list.name}", so driving "the" one by name is ambiguous`,
+      ).toBe(1);
+
+      await adminPage.evaluate((name) => {
+        const lists = Array.from(document.querySelectorAll('[role="tablist"]'));
+        const target = lists.find(
+          (l) => (l.getAttribute("aria-label") || l.id || "(unnamed tablist)") === name,
+        );
         const first = target?.querySelector('[role="tab"]') as HTMLElement | undefined;
         first?.focus();
-      }, index);
+      }, list.name);
 
       const focused: string[] = [];
       for (let step = 0; step < list.tabs.length; step += 1) {
@@ -306,6 +362,13 @@ for (const target of KEY_PAGES) {
           `${list.tabs.length} tabs (${list.tabs.join(", ")})`,
       ).toEqual(list.tabs);
     }
+
+    // Count the subject: a page whose every tablist turned out to be collapsed would pass the loop
+    // above without ever pressing a key.
+    expect(
+      driven.length,
+      `${pagePath}: nothing was walked (all tablists skipped: ${skipped.join(", ")})`,
+    ).toBeGreaterThan(0);
   });
 }
 

@@ -61,13 +61,29 @@ test("studio delete: submit DESTROY edit, approve, studio marked deleted", async
   await approveEdit(moderatePage, editId);
 
   const admin2 = await adminApi();
-  const data = await gql<{ findStudio: { deleted: boolean } | null }>(
+  // A DESTROY edit marks the row deleted and the API stops resolving it. That behaviour is asserted
+  // in Go -- deleted_entity_lookup_integration_test.go's TestFindStudioDoesNotReturnDeletedStudio --
+  // and this test's job is that the UI flow REACHES it. The shape of the probe matters: a lookup that
+  // returns null is also what a typo in the id or a broken query returns, so the live entity beside it
+  // is the control that makes the null mean "deleted" rather than "the query is wrong".
+  const data = await gql<{ findStudio: { id: string } | null }>(
     admin2,
-    `query($id: ID!) { findStudio(id: $id) { deleted } }`,
+    `query($id: ID!) { findStudio(id: $id) { id } }`,
     { id: toDelete.id },
   );
+  expect(data.findStudio, "the deleted studio still resolves").toBeNull();
+
+  const live = await createStudio(admin2);
+  const liveData = await gql<{ findStudio: { id: string } | null }>(
+    admin2,
+    `query($id: ID!) { findStudio(id: $id) { id } }`,
+    { id: live.id },
+  );
   await admin2.dispose();
-  expect(data.findStudio?.deleted).toBe(true);
+  expect(
+    liveData.findStudio?.id,
+    "a studio that was not deleted does not resolve either, so the null above proves nothing",
+  ).toBe(live.id);
 });
 
 test("performer rename: submit MODIFY edit, approve, name changes", async ({
@@ -115,13 +131,29 @@ test("performer delete: submit DESTROY edit, approve, performer marked deleted",
   await approveEdit(moderatePage, editId);
 
   const admin2 = await adminApi();
-  const data = await gql<{ findPerformer: { deleted: boolean } | null }>(
+  // A DESTROY edit marks the row deleted and the API stops resolving it. That behaviour is asserted
+  // in Go -- deleted_entity_lookup_integration_test.go's TestFindStudioDoesNotReturnDeletedStudio --
+  // and this test's job is that the UI flow REACHES it. The shape of the probe matters: a lookup that
+  // returns null is also what a typo in the id or a broken query returns, so the live entity beside it
+  // is the control that makes the null mean "deleted" rather than "the query is wrong".
+  const data = await gql<{ findPerformer: { id: string } | null }>(
     admin2,
-    `query($id: ID!) { findPerformer(id: $id) { deleted } }`,
+    `query($id: ID!) { findPerformer(id: $id) { id } }`,
     { id: toDelete.id },
   );
+  expect(data.findPerformer, "the deleted performer still resolves").toBeNull();
+
+  const live = await createPerformer(admin2);
+  const liveData = await gql<{ findPerformer: { id: string } | null }>(
+    admin2,
+    `query($id: ID!) { findPerformer(id: $id) { id } }`,
+    { id: live.id },
+  );
   await admin2.dispose();
-  expect(data.findPerformer?.deleted).toBe(true);
+  expect(
+    liveData.findPerformer?.id,
+    "a performer that was not deleted does not resolve either, so the null above proves nothing",
+  ).toBe(live.id);
 });
 
 test("tag rename: submit MODIFY edit, approve, name changes", async ({
@@ -171,13 +203,30 @@ test("tag delete: submit DESTROY edit, approve, tag marked deleted", async ({
   await approveEdit(moderatePage, editId);
 
   const admin2 = await adminApi();
-  const data = await gql<{ findTag: { deleted: boolean } | null }>(
+  // A DESTROY edit marks the row deleted and the API stops resolving it. That behaviour is asserted in
+  // Go -- deleted_entity_lookup_integration_test.go -- and this test's job is that the UI flow REACHES
+  // it. The shape of the probe matters: a lookup that returns null is also what a typo in the id or a
+  // broken query returns, so the live tag beside it is the control that makes the null mean "deleted"
+  // rather than "the query is wrong".
+  const data = await gql<{ findTag: { id: string } | null }>(
     admin2,
-    `query($id: ID!) { findTag(id: $id) { deleted } }`,
+    `query($id: ID!) { findTag(id: $id) { id } }`,
     { id: toDelete.id },
   );
+  expect(data.findTag, "the deleted tag still resolves").toBeNull();
+
+  const liveCategory = await createTagCategory(admin2);
+  const live = await createTag(admin2, { categoryId: liveCategory.id });
+  const liveData = await gql<{ findTag: { id: string } | null }>(
+    admin2,
+    `query($id: ID!) { findTag(id: $id) { id } }`,
+    { id: live.id },
+  );
   await admin2.dispose();
-  expect(data.findTag?.deleted).toBe(true);
+  expect(
+    liveData.findTag?.id,
+    "a tag that was not deleted does not resolve either, so the null above proves nothing",
+  ).toBe(live.id);
 });
 
 test("scene rename: submit MODIFY edit, approve, title changes", async ({

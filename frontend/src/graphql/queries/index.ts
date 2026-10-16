@@ -20,6 +20,7 @@ import {
   FetchSiteFaviconsDocument,
   type FetchSiteFaviconsQuery,
   type FetchSiteFaviconsQueryVariables,
+  FieldVerificationReasonsDocument,
   FingerprintClustersDocument,
   type FingerprintClustersQueryVariables,
   FingerprintDemandDocument,
@@ -517,6 +518,18 @@ export const useLintQuestBoard = (limit?: number) =>
 // at the schema, and the route that mounts it sits inside the curation tree, which is
 // VOTE -- a role that implies READ -- so a caller who reaches the page may read it.
 export const useFingerprintDemand = () => useQuery(FingerprintDemandDocument);
+
+// The verified-unknown reason registry (SPEC §7.24.1), for the edit form's control.
+//
+// The codes come from the server rather than from a list in this file, which is the point of the
+// registry being a table: adding a reason is an INSERT, and a client carrying its own copy would
+// keep offering the old set -- including a code the server no longer accepts.
+//
+// `allows_self_affirming` is NOT in the document and must not be added: whether a user may earn
+// trust for their own assertion is enforced at the funnel every applied edit passes through, and a
+// client that could read the flag would be invited to make that decision itself.
+export const useFieldVerificationReasons = () =>
+  useQuery(FieldVerificationReasonsDocument);
 
 // The detector registry (SPEC §7.24.4) -- the operator's view of the same table.
 //

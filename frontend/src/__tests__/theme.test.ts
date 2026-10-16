@@ -174,6 +174,60 @@ describe("applyTheme", () => {
   });
 });
 
+describe("library colours are replaced, not inherited", () => {
+  const scss = readFileSync(resolvePath("src/styles/theme.scss"), "utf8");
+
+  /**
+   * react-select ships its own text colours -- `hsl(0, 0%, 20%)` for the selected value, `50%` for
+   * the input and placeholder -- written for a light page. On the dark palette the studio picker's
+   * chosen value measured as failing contrast on the scene edit form. The fix is a stylesheet rule,
+   * so nothing about the library will fail if the rule is deleted: this asserts the rule is there.
+   */
+  it("gives react-select its text colour from the theme", () => {
+    // Anchored at a line start, so this finds the RULE and not the class name as it appears in the
+    // comment above it -- which is what the first version of this test matched, and the literal
+    // colour quoted in that comment is what failed its own assertion.
+    const start = scss.search(/^\.react-select__single-value/m);
+    expect(
+      start,
+      "no .react-select__single-value rule at the start of a line",
+    ).toBeGreaterThan(-1);
+    const rule = scss.slice(start);
+    expect(rule, "no .react-select__single-value rule in theme.scss").toContain(
+      ".react-select__single-value",
+    );
+    // The token, not a literal: a hardcoded colour is correct in exactly one palette, which is how
+    // the library's own ended up wrong here.
+    expect(rule.slice(0, rule.indexOf("}"))).toContain("var(--bs-body-color)");
+    expect(rule.slice(0, rule.indexOf("}"))).not.toMatch(
+      /#[0-9a-f]{3,8}\b|hsla?\(/i,
+    );
+  });
+
+  it("gives react-select its surfaces from the theme as well as its text", () => {
+    // The pair is the point. Setting the text alone measured 1.06:1 (near-white on the library's own
+    // white control) on the scene edit form, so this asserts the surfaces are themed too.
+    const start = scss.search(/^\.react-select__control/m);
+    expect(
+      start,
+      "no .react-select__control rule at the start of a line",
+    ).toBeGreaterThan(-1);
+    const block = scss.slice(start, scss.indexOf("}", start));
+    expect(block).toContain("var(--bs-body-bg)");
+    expect(block).toContain(".react-select__menu");
+    expect(block).toContain(".react-select__value-container");
+  });
+
+  it("covers the input and placeholder too, not only the selected value", () => {
+    const start = scss.search(/^\.react-select__single-value/m);
+    const rule = scss.slice(start, scss.indexOf("}", start));
+    // The placeholder is the state the control is in BEFORE anything is chosen, so a fix that only
+    // covered the selected value would leave the empty picker unreadable in the dark palette.
+    expect(rule).toContain(".react-select__input");
+    expect(rule).toContain(".react-select__placeholder");
+  });
+});
+
 describe("token parity between theme.ts and theme.scss", () => {
   it("the JS tokens match the stylesheet", () => {
     // Resolved from process.cwd() rather than import.meta.url: under vitest's transform

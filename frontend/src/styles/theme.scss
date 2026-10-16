@@ -582,6 +582,43 @@ code {
   color: var(--sb-code);
 }
 
+// REACT-SELECT'S OWN TEXT COLOURS. react-select ships its styles as inline defaults, not as
+// inheriting from the page: `.react-select__single-value` is `hsl(0, 0%, 20%)` and the input and
+// placeholder are `hsl(0, 0%, 50%)`. On the light palette those are unremarkable; on the dark one
+// the selected value in the studio, tag and site pickers is 20%-grey on a near-black control, which
+// axe measured as failing contrast (`color-contrast`, serious) on the scene edit form. The library's
+// colours are for a light page, so they have to be replaced by the theme's rather than inherited.
+//
+// THE TEXT AND THE SURFACES GO TOGETHER, WHICH THE FIRST ATTEMPT AT THIS PROVED THE HARD WAY. It set
+// only the text colours, on the reasoning that the control's background was the library's business
+// too -- and wrote that reasoning in this comment, then did it anyway. axe then measured the result:
+// `#f5f8fa` on `#ffffff`, a 1.06:1 ratio, because react-select's control paints its own white
+// background (`hsl(0, 0%, 100%)`) and the dark palette's body colour is near-white. The text was
+// correct against the page and wrong against the surface it actually sits on.
+//
+// So the surfaces are named here as well. `.react-select__control` is the box, `.react-select__menu`
+// the dropdown, and `.react-select__value-container` the area the selected value renders into; the
+// values in each come from the same theme tokens, so the pair cannot drift apart again.
+.react-select__control,
+.react-select__menu,
+.react-select__value-container {
+  background-color: var(--bs-body-bg) !important;
+}
+
+// `!important` IS THE POINT HERE, NOT LAZINESS. react-select v5 styles these with emotion, which
+// injects its rules into <head> at runtime -- after the bundled stylesheet -- and sets some of these
+// properties explicitly rather than inheriting them (the input's colour is hsl(0, 0%, 20%)). At equal
+// specificity the later rule wins, so a plain stylesheet rule is silently ignored for exactly the
+// properties the library sets, which is what made the first attempt look half-applied. Measured, not
+// assumed: with the surfaces themed and this declaration plain, the lint board's search field came
+// back as #333333 on #202b33 -- 1.14:1 -- while the same page passed untouched.
+.react-select__single-value,
+.react-select__input,
+.react-select__placeholder,
+.react-select__option {
+  color: var(--bs-body-color) !important;
+}
+
 // BADGE BACKGROUNDS. `.badge` paints its text white, and the `.bg-*` utilities hand
 // it the palette's mid-tone -- which is chosen for surfaces, not for white type on
 // top of them. White on `$success` (#0f9960) is 3.0:1 and white on `$warning`

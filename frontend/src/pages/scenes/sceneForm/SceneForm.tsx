@@ -46,6 +46,9 @@ import ExistingSceneAlert from "./ExistingSceneAlert";
 import type { SceneMergeConflict } from "./merge";
 import { type SceneFormData, SceneSchema } from "./schema";
 import type { InitialScene } from "./types";
+import VerifiedUnknowns, {
+  type VerifiedUnknownClaim,
+} from "./VerifiedUnknowns";
 
 const CLASS_NAME = "SceneForm";
 const CLASS_NAME_PERFORMER_CHANGE = `${CLASS_NAME}-performer-change`;
@@ -143,6 +146,13 @@ const SceneForm: FC<SceneProps> = ({
 
   const [isChanging, setChange] = useState<number | undefined>();
   const [activeTab, setActiveTab] = useState("details");
+  // SPEC §7.24.1. Component state rather than form fields, like the fingerprints: a claim is a LIST
+  // of (field, reason) pairs rather than one value, and it is not part of the diff the rest of the
+  // form computes. `fieldName` is the in-progress entry's field, cleared after each Add.
+  const [verifiedUnknowns, setVerifiedUnknowns] = useState<
+    VerifiedUnknownClaim[]
+  >([]);
+  const [verifiedUnknownField, setVerifiedUnknownField] = useState("");
   const [file, setFile] = useState<File | undefined>();
 
   const onSubmit = (data: SceneFormData) => {
@@ -154,6 +164,12 @@ const SceneForm: FC<SceneProps> = ({
       director: data.director,
       code: data.code,
       details: data.details,
+      // Omitted ENTIRELY when empty, rather than sent as []. The server reads an absent key as "this
+      // edit does not touch the field", and an explicit [] as a change -- which the conversion drops
+      // (len > 0), so an empty array would be harmless today and misleading tomorrow.
+      ...(verifiedUnknowns.length > 0
+        ? { verified_unknowns: verifiedUnknowns }
+        : {}),
       // `?? null` on the clearable reference fields: see the note in TagForm.
       // An omitted key is indistinguishable from an explicit null once gqlgen
       // flattens the argument map, and the server reads "omitted" as "this
@@ -483,6 +499,13 @@ const SceneForm: FC<SceneProps> = ({
           </Row>
 
           <Row>
+            <VerifiedUnknowns
+              value={verifiedUnknowns}
+              onChange={setVerifiedUnknowns}
+              field={verifiedUnknownField}
+              onFieldChange={setVerifiedUnknownField}
+            />
+
             <Form.Group controlId="details" className="col mb-3">
               <Form.Label>Details</Form.Label>
               <Form.Control
@@ -523,7 +546,10 @@ const SceneForm: FC<SceneProps> = ({
           </Row>
 
           <Form.Group className="mb-3">
-            <Form.Label>Tags</Form.Label>
+            {/* The id is what associates the label with the control. Without it the label is a
+                sibling rather than a name, and axe reports the generated react-select input as an
+                unlabelled form element -- which is what the scene edit form's audit found. */}
+            <Form.Label htmlFor="scene-tags-select">Tags</Form.Label>
             <Controller
               name="tags"
               control={control}
@@ -532,6 +558,7 @@ const SceneForm: FC<SceneProps> = ({
                   tags={value}
                   onChange={onChange}
                   menuPlacement="top"
+                  inputId="scene-tags-select"
                 />
               )}
             />

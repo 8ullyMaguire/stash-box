@@ -71,8 +71,13 @@ test("performer merge UI: pick source, continue, submit, approve, verify", async
     { t: target.id, s: source.id },
   );
   await admin2.dispose();
+  // The survivor is live and reports itself as such; the source was merged away and no longer
+  // resolves at all. Asserting `findSource?.deleted === true` cannot pass: a soft-deleted entity is
+  // not returned by a lookup -- that is asserted in Go, in deleted_entity_lookup_integration_test.go
+  // -- so the old form of this line asserted a state the API never produces. The target's own
+  // resolution is the control: the same query, against an entity that still exists.
   expect(result.findTarget?.deleted).toBe(false);
-  expect(result.findSource?.deleted).toBe(true);
+  expect(result.findSource, "the merged-away source still resolves").toBeNull();
 });
 
 test("tag merge UI: pick source, submit, approve, verify", async ({
@@ -126,6 +131,11 @@ test("tag merge UI: pick source, submit, approve, verify", async ({
     { t: target.id, s: source.id },
   );
   await admin2.dispose();
+  // The survivor is live and reports itself as such; the source was merged away and no longer
+  // resolves at all. Asserting `findSource?.deleted === true` cannot pass: a soft-deleted entity is
+  // not returned by a lookup -- that is asserted in Go, in deleted_entity_lookup_integration_test.go
+  // -- so the old form of this line asserted a state the API never produces. The target's own
+  // resolution is the control: the same query, against an entity that still exists.
   expect(result.findTarget?.deleted).toBe(false);
-  expect(result.findSource?.deleted).toBe(true);
+  expect(result.findSource, "the merged-away source still resolves").toBeNull();
 });

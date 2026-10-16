@@ -1,0 +1,7 @@
+query FieldVerificationReasons {
+  fieldVerificationReasons {
+    code
+    description
+    suppresses_gap
+  }
+}

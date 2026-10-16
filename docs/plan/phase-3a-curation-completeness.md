@@ -366,6 +366,98 @@ THE REMAINING WORK, in dependency order, one link each:
 3. ~~The funnel~~ **DONE** — `recordTrustEvent` asks the question, `assertionEarnsTrustFor` is the one
    ruling (the scene-typed and raw-jsonb entry points both reduce to it), and `previousEditorOf`
    resolves the entity's most recent OTHER edit.
+5. ~~The frontend control~~ **DONE** — `VerifiedUnknowns.tsx` on the scene edit form: a field input,
+   a reason chosen from the server's registry, and each option stating its consequence ("closes the
+   gap" / "leaves the gap open"). It is component state included in the payload like the
+   fingerprints, omitted entirely when empty rather than sent as `[]`, since the server reads an
+   absent key as "does not touch" and an explicit empty array as a change.
+
+   The reason is a DROPDOWN AND NEVER A TEXT BOX, and that is the design rather than a style: "not
+   publicly knowable" and "exists but nobody has looked" are different facts, and a free-text reason
+   collapses them -- which turns an assertion into a way to clear a completion gap. The registry
+   comes from the server so a client cannot keep offering a code that no longer exists.
+   `allows_self_affirming` is deliberately not in the query: whether a user earns trust for their own
+   assertion is enforced at the funnel, and a client that could read the flag would be invited to
+   decide it.
+
+6. **Auditing the surface the day it ships** — the edit form was never in the a11y sweep. Adding one
+   route (`/scenes/<id>/edit`, and the id was already resolved for the line above it) found three
+   things, none of them about the new control:
+
+   a. `label [critical] #react-select-5-input` — the Tags select's call site passed no `inputId`, so
+      react-select generated an id-less input, and `<Form.Label>Tags</Form.Label>` had no `htmlFor`.
+      Both halves were missing, which is why the label was a sibling rather than a name.
+   b. `color-contrast [serious]` on the studio picker's value in the dark palette. react-select v5
+      ships its own colours and they assume a light page (`hsl(0, 0%, 20%)` for the value, `50%` for
+      the input and placeholder), so on the dark palette the chosen studio was 20%-grey on a
+      near-black control.
+   c. the keyboard walk for the new route failed against a TEST defect: it captured the page's
+      tablists once and then drove them BY INDEX, while the page adds its comment box's
+      Write/Preview tablist lazily. The walk therefore pressed ArrowRight from wherever focus already
+      was and reported the FORM's tabs (Details, Links) as belonging to the tablist named
+      "add-comment" -- a mis-attribution, and one the message made visible only because it printed
+      both the count and the names ("reached 2 of 2 tabs (Write, Preview)" while expecting the form's
+      two). It now re-resolves by name, asserts the name is unique before driving it, and skips
+      tablists whose tabs are not rendered -- a collapsed tablist's `focus()` is a no-op, which is
+      how focus ended up in the wrong list. `getClientRects()` rather than `offsetParent`, which is
+      also null for every `position: fixed` element.
+
+   THE FIX FOR (b) TOOK FOUR MEASUREMENTS AND TWO WRONG ANSWERS, and the wrong answers are the part
+   worth keeping. First I themed only the text colours, on the reasoning -- written into the comment
+   -- that the control's background was the library's business too. axe then measured `#f5f8fa` on
+   `#ffffff`: my rule had applied, and the library's own white control surface was still there, so
+   the text was correct against the page and wrong against the surface it sits on. The comment
+   predicted the failure and the code did it anyway. Then, with the surfaces themed and the text
+   plain, the lint board's search field came back `#333333` on `#202b33` -- 1.14:1 -- because
+   react-select's emotion styles are injected at runtime, after the bundle, and set those properties
+   explicitly rather than inheriting them, so at equal specificity the library wins for exactly the
+   properties it sets. A rule that looks half-applied is the signature of that, and `!important` is
+   the fix rather than a shortcut. Both halves were confirmed by stashing the stylesheet and
+   re-measuring: the lint board and detector registry pages pass untouched (a white control on a dark
+   page is ugly, and it passed AA), which is what proved the surface rule was the regression.
+
+   VERIFIED: `pnpm validate` clean; vitest 825 passed / 71 files (was 819/70: +6 for the control, +1
+   theme test now 14); the a11y sweep 42 passed with the new route in both palettes; two mutations on
+   the control each killed their own named test (the field guard, the per-option consequence) and
+   restored green; gofmt clean; unit and integration suites unchanged and green.
+
+   THE PLAYWRIGHT SUITE HAD NEVER BEEN RUN IN THESE SESSIONS, and running it changed how its state
+   should be read. `pnpm test:run` is vitest; the e2e suite is `pnpm test`. Earlier notes reporting
+   "e2e 38/38" were vitest counts, mislabelled. The real suite is 179 tests and is NOT green: 174 pass
+   and 5 fail, none of them reachable from this section's changes.
+
+   Two were fixed here rather than recorded, because they could never pass: the merge tests asserted
+   `findSource?.deleted === true`, and a soft-deleted entity is not returned by a lookup at all (the
+   behaviour is asserted in Go, in deleted_entity_lookup_integration_test.go), so `?.deleted` was
+   always `undefined`. They now assert the real contract with a live-entity control beside it, and
+   they FAIL -- honestly -- reporting `Received: {"deleted": false}`, which is the finding: after a
+   merge the source is still live. The same shape in the three DESTROY tests was fixed and passes,
+   mutation-proved by pointing the control at the deleted id.
+
+   The three left open are unrelated to this section and are named rather than implied:
+   `auth/account.spec.ts` (change own password), `entities/images.spec.ts` (performer image crop via
+   UI) and `first-contribution.spec.ts` (EDIT user logs in, submits an edit, logs out).
+
+   Run the suite serially locally (`--workers=1`): `fullyParallel: true` with one shared database
+   makes state-dependent specs collide, and the failures move between runs. Even then, tests WITHIN a
+   file still parallelise.
+
+   A TRAP PAID FOR HERE, worth more than the code: to date three failing DESTROY tests I stashed my
+   work, checked out a pre-session commit, built, and ran them. They failed identically there too, so
+   I concluded "pre-existing" -- and then restored the tree and did NOT rebuild. Every measurement
+   afterwards ran against the baseline bundle: the demand board's heading was absent because the
+   feature is newer than the pinned commit, the form "failed" a11y in both palettes because the
+   bundle predated the fix, and the fingerprint-move and image-crop specs failed for the same reason.
+   Seven failures, none of them real. The check is one command and belongs before any browser-level
+   conclusion -- grep the built bundle for a string the current source definitely contains; absent
+   means the artefact is stale, and no browser result is about your code until that string is there.
+
+   NOT VERIFIED, named rather than implied: the form-to-row walk is not driven end to end. The
+   server path is (an integration test submits `verified_unknowns` through the resolver and reads the
+   row back), and the payload includes it (tsc + the spread), but nothing drives the control in a
+   browser, clicking Add and submitting, then asserting the row. The a11y sweep renders the form and
+   audits it; it does not submit it.
+
 4. ~~Suppression in the completion score (gate 2)~~ **DONE** — `completion.Service.score` folds the
    entity's suppressing assertions into the field set before scoring, so a gap that can never be
    answered stops holding completion below 100% and leaves the missing list. One place, not six:
