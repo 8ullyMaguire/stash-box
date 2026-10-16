@@ -64,6 +64,16 @@ MUTATIONS = [
         "parenthesised column list now -- an index's name is not evidence about its column",
     ),
     (
+        "M5 the enum IS NULL criterion is accepted and dropped",
+        "internal/service/query/criterion.go",
+        '\t\t\tsq.Expr(field + " IS NOT NULL"),\n\t\t})\n\tcase models.CriterionModifierIsNull:\n\t\treturn query.Where(field + " IS NULL")',
+        '\t\t\tsq.Expr(field + " IS NOT NULL"),\n\t\t})\n\tcase models.CriterionModifierIsNull:\n\t\treturn query // MUTANT: accepted and dropped',
+        [suite("TestPerformerFilterEyeColorIsNull")],
+        "the #829 defect itself: the criterion is parsed, accepted, and never reaches the WHERE clause. "
+        "The test must fail on the performer that HAS an eye_color, because dropping the filter lets it "
+        "through -- which is why the second assertion, not the first, is the one that catches this.",
+    ),
+    (
         "M4 an index is not partial on live rows",
         MIGRATION,
         "CREATE INDEX performers_gender_idx ON performers (gender) WHERE NOT deleted;",

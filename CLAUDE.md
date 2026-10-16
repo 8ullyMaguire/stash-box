@@ -96,11 +96,25 @@ The application uses PostgreSQL extensions, created automatically by migrations 
 - Can override test database via `POSTGRES_DB` environment variable
 - **Warning**: Integration tests drop all tables, never run against production database
 - Test files follow pattern `internal/api/*_integration_test.go` with GraphQL client helper in `graphql_client_test.go`
+- **Run them through `scripts/integration-tests.sh`**, which creates a scratch database, points the suite at it, and drops it afterwards:
+  `INTEGRATION_PG='user:pw@host:port/postgres' ./scripts/integration-tests.sh`
+- Two things that script exists to get right, each measured the hard way:
+  - **`-p 1` is not a performance setting.** The packages share one database and each `TestMain` drops every
+    table, so running them in parallel has them truncate each other mid-test. Without it several packages fail
+    in about a second each, which reads exactly like a broken suite and is not one.
+  - **The database must hold nothing the tests did not create.** Several tests query a table unfiltered and
+    then assert a row they just made is in the results, and the API clamps a page to
+    `query.MaxPerPage = 100`. Run the api suite against a seeded instance and
+    `TestPerformerFilterEyeColorIsNull` fails with exactly 100 ids and a message that names neither the page
+    nor the archive; the same commit passes against a fresh database. `internal/api/authored_quest_integration_test.go`
+    documents the same hazard from an earlier round -- and a query that can page through a shared table is a
+    fixture problem, not an assertion problem.
 - **Test Data Setup**: Tests use the service layer to create test data (see `internal/api/integration_test.go` for user setup example)
 
 ### Frontend Tests
-- `cd frontend && pnpm run validate` - Runs ESLint, stylelint, prettier check, and TypeScript compilation
-- No unit tests currently implemented in frontend
+- `cd frontend && pnpm run validate` - Biome lint, Biome format check, and `tsc --noEmit`
+- `cd frontend && pnpm test:run` - vitest, `src/**/__tests__/**/*.test.{ts,tsx}` (~680 tests)
+- `cd e2e && pnpm test` - Playwright against a running instance (the journeys in `e2e/tests/`)
 
 ## Development Workflow
 

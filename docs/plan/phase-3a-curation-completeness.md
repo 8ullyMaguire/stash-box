@@ -568,3 +568,22 @@ Unchanged and still binding:
   picks it up.
 - **A nullable verification column is the design, not a shortcut.** Making it
   NOT NULL later means backfilling assertions nobody made.
+- **A page size the server clamps is not a page size.** `internal/api`'s performer
+  filter tests wanted the whole result set and set `PerPage: 10000`; the resolver
+  clamps a page to `query.MaxPerPage = 100`, so the number did nothing and the
+  assertions still depended on how much data other tests had left in the shared
+  table. Measured on a fresh database with the whole suite run in order:
+  `TestPerformerFilterEyeColorIsNull` failed with EXACTLY 100 ids and a message
+  that named neither the page nor the archive; the same commit passes when that
+  test runs alone. The queries are now bounded by a per-test fixture marker
+  (`Names: pStr(marker + "-")`), which no archive size can truncate, and the
+  helper REFUSES a query without one rather than quietly doing the wrong thing
+  again. A mitigation that cannot be observed to act is a comment.
+- **Run the integration suite against a database that holds nothing else.**
+  `scripts/integration-tests.sh` creates one, points the suite at it with
+  `-p 1`, and drops it afterwards. Two distinct failures came from getting this
+  wrong: against a seeded instance the parser test above fails for a reason about
+  page size, and `POSTGRES_DB` without the `postgres://` scheme that
+  `internal/database/testutil` prepends parses to *no host at all* -- `pgxpool`
+  accepts it, resolves the empty host to the unix socket, and the error names
+  `/tmp/.s.PGSQL.5432` instead of the missing scheme.

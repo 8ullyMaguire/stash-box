@@ -31,14 +31,24 @@ func (s *testRunner) queryPerformerIDs(t *testing.T, input models.PerformerQuery
 	t.Helper()
 
 	// The integration suite shares one database, so performers created by other
-	// tests are still in the table. Without an explicit page size this uses the
-	// 25-row default and a fixture created moments earlier can fall off the
-	// end -- which is how TestPerformerFilterEyeColorIsNull started failing
-	// once #1007 added a few more performers. A fixed page size still cannot fix
-	// a genuinely unbounded result set, but it makes the filter assertions
-	// depend on the filter rather than on how much other data happens to exist.
-	if input.PerPage == 0 {
-		input.PerPage = 10000
+	// tests are still in the table -- and a fixed page size does NOT rescue an
+	// unbounded result set, which this helper used to claim it did.
+	//
+	// Measured, on a fresh database with the whole suite run in order: a query
+	// with no name criterion came back with EXACTLY 100 ids, and the fixture
+	// created moments earlier was not among them. `input.PerPage = 10000` was
+	// already in this helper and had no effect, because the resolver clamps a
+	// page to query.MaxPerPage = 100. A mitigation the server silently caps is
+	// not a mitigation, and the failure it produced ("performer with no
+	// eye_color should match IS NULL") named neither the page nor the archive.
+	//
+	// So every caller passes Names: a per-test marker shared by that test's two
+	// fixtures and by nothing else, which bounds the result to the rows the
+	// assertion is about. The filter under test is then the only thing that can
+	// move a fixture in or out of the answer.
+	if input.Names == nil {
+		t.Fatalf("queryPerformerIDs: %s", "pass Names (the per-test marker) "+
+			"or the assertion depends on how much other data happens to exist")
 	}
 
 	res, err := s.resolver.Query().QueryPerformers(s.ctx, input)
@@ -59,20 +69,22 @@ func (s *testRunner) queryPerformerIDs(t *testing.T, input models.PerformerQuery
 
 func TestPerformerFilterBreastType(t *testing.T) {
 	pt := createPerformerTestRunner(t)
+	marker := pt.generatePerformerName()
 
 	match, err := pt.createTestPerformer(&models.PerformerCreateInput{
-		Name:       pt.generatePerformerName(),
+		Name:       marker + "-match",
 		BreastType: pEnum(models.BreastTypeEnumNatural),
 	})
 	require.NoError(t, err)
 
 	other, err := pt.createTestPerformer(&models.PerformerCreateInput{
-		Name:       pt.generatePerformerName(),
+		Name:       marker + "-other",
 		BreastType: pEnum(models.BreastTypeEnumFake),
 	})
 	require.NoError(t, err)
 
 	ids := pt.queryPerformerIDs(t, models.PerformerQueryInput{
+		Names: pStr(marker + "-"),
 		BreastType: &models.BreastTypeCriterionInput{
 			Value:    pEnum(models.BreastTypeEnumNatural),
 			Modifier: models.CriterionModifierEquals,
@@ -86,22 +98,24 @@ func TestPerformerFilterBreastType(t *testing.T) {
 
 func TestPerformerFilterEyeColorAndHairColor(t *testing.T) {
 	pt := createPerformerTestRunner(t)
+	marker := pt.generatePerformerName()
 
 	match, err := pt.createTestPerformer(&models.PerformerCreateInput{
-		Name:      pt.generatePerformerName(),
+		Name:      marker + "-match",
 		EyeColor:  pEnum(models.EyeColorEnumBlue),
 		HairColor: pEnum(models.HairColorEnumAuburn),
 	})
 	require.NoError(t, err)
 
 	other, err := pt.createTestPerformer(&models.PerformerCreateInput{
-		Name:      pt.generatePerformerName(),
+		Name:      marker + "-other",
 		EyeColor:  pEnum(models.EyeColorEnumGreen),
 		HairColor: pEnum(models.HairColorEnumBlack),
 	})
 	require.NoError(t, err)
 
 	ids := pt.queryPerformerIDs(t, models.PerformerQueryInput{
+		Names: pStr(marker + "-"),
 		EyeColor: &models.EyeColorCriterionInput{
 			Value:    pEnum(models.EyeColorEnumBlue),
 			Modifier: models.CriterionModifierEquals,
@@ -119,9 +133,10 @@ func TestPerformerFilterEyeColorAndHairColor(t *testing.T) {
 
 func TestPerformerFilterMeasurements(t *testing.T) {
 	pt := createPerformerTestRunner(t)
+	marker := pt.generatePerformerName()
 
 	match, err := pt.createTestPerformer(&models.PerformerCreateInput{
-		Name:      pt.generatePerformerName(),
+		Name:      marker + "-match",
 		Height:    pInt(170),
 		CupSize:   pStr("DD"),
 		BandSize:  pInt(80),
@@ -131,7 +146,7 @@ func TestPerformerFilterMeasurements(t *testing.T) {
 	require.NoError(t, err)
 
 	other, err := pt.createTestPerformer(&models.PerformerCreateInput{
-		Name:      pt.generatePerformerName(),
+		Name:      marker + "-other",
 		Height:    pInt(150),
 		CupSize:   pStr("A"),
 		BandSize:  pInt(60),
@@ -141,6 +156,7 @@ func TestPerformerFilterMeasurements(t *testing.T) {
 	require.NoError(t, err)
 
 	ids := pt.queryPerformerIDs(t, models.PerformerQueryInput{
+		Names: pStr(marker + "-"),
 		Height: &models.IntCriterionInput{
 			Value:    170,
 			Modifier: models.CriterionModifierEquals,
@@ -158,22 +174,24 @@ func TestPerformerFilterMeasurements(t *testing.T) {
 
 func TestPerformerFilterCareerYears(t *testing.T) {
 	pt := createPerformerTestRunner(t)
+	marker := pt.generatePerformerName()
 
 	match, err := pt.createTestPerformer(&models.PerformerCreateInput{
-		Name:            pt.generatePerformerName(),
+		Name:            marker + "-match",
 		CareerStartYear: pInt(2010),
 		CareerEndYear:   pInt(2020),
 	})
 	require.NoError(t, err)
 
 	other, err := pt.createTestPerformer(&models.PerformerCreateInput{
-		Name:            pt.generatePerformerName(),
+		Name:            marker + "-other",
 		CareerStartYear: pInt(1990),
 		CareerEndYear:   pInt(2000),
 	})
 	require.NoError(t, err)
 
 	ids := pt.queryPerformerIDs(t, models.PerformerQueryInput{
+		Names: pStr(marker + "-"),
 		CareerStartYear: &models.IntCriterionInput{
 			Value:    2010,
 			Modifier: models.CriterionModifierEquals,
@@ -189,19 +207,21 @@ func TestPerformerFilterCareerYears(t *testing.T) {
 // that. The column is nullable, so IS NULL is a real question, not a no-op.
 func TestPerformerFilterEyeColorIsNull(t *testing.T) {
 	pt := createPerformerTestRunner(t)
+	marker := pt.generatePerformerName()
 
 	unset, err := pt.createTestPerformer(&models.PerformerCreateInput{
-		Name: pt.generatePerformerName(),
+		Name: marker + "-unset",
 	})
 	require.NoError(t, err)
 
 	set, err := pt.createTestPerformer(&models.PerformerCreateInput{
-		Name:     pt.generatePerformerName(),
+		Name:     marker + "-set",
 		EyeColor: pEnum(models.EyeColorEnumBlue),
 	})
 	require.NoError(t, err)
 
 	ids := pt.queryPerformerIDs(t, models.PerformerQueryInput{
+		Names: pStr(marker + "-"),
 		EyeColor: &models.EyeColorCriterionInput{
 			Modifier: models.CriterionModifierIsNull,
 		},
@@ -213,20 +233,22 @@ func TestPerformerFilterEyeColorIsNull(t *testing.T) {
 
 func TestPerformerFilterTattooLocation(t *testing.T) {
 	pt := createPerformerTestRunner(t)
+	marker := pt.generatePerformerName()
 
 	match, err := pt.createTestPerformer(&models.PerformerCreateInput{
-		Name:    pt.generatePerformerName(),
+		Name:    marker + "-match",
 		Tattoos: []models.BodyModificationInput{{Location: "Left shoulder"}},
 	})
 	require.NoError(t, err)
 
 	other, err := pt.createTestPerformer(&models.PerformerCreateInput{
-		Name:    pt.generatePerformerName(),
+		Name:    marker + "-other",
 		Tattoos: []models.BodyModificationInput{{Location: "Right ankle"}},
 	})
 	require.NoError(t, err)
 
 	ids := pt.queryPerformerIDs(t, models.PerformerQueryInput{
+		Names: pStr(marker + "-"),
 		Tattoos: &models.BodyModificationCriterionInput{
 			Location: pStr("Left shoulder"),
 			Modifier: models.CriterionModifierEquals,
@@ -243,9 +265,10 @@ func TestPerformerFilterTattooLocation(t *testing.T) {
 // match a query asking for both.
 func TestPerformerFilterTattooLocationAndDescriptionMatchSameEntry(t *testing.T) {
 	pt := createPerformerTestRunner(t)
+	marker := pt.generatePerformerName()
 
 	split, err := pt.createTestPerformer(&models.PerformerCreateInput{
-		Name: pt.generatePerformerName(),
+		Name: marker + "-split",
 		Tattoos: []models.BodyModificationInput{
 			{Location: "Left shoulder"},
 			{Location: "Wing", Description: pStr("Falcon")},
@@ -254,7 +277,7 @@ func TestPerformerFilterTattooLocationAndDescriptionMatchSameEntry(t *testing.T)
 	require.NoError(t, err)
 
 	combined, err := pt.createTestPerformer(&models.PerformerCreateInput{
-		Name: pt.generatePerformerName(),
+		Name: marker + "-combined",
 		Tattoos: []models.BodyModificationInput{
 			{Location: "Left shoulder", Description: pStr("Falcon")},
 		},
@@ -262,6 +285,7 @@ func TestPerformerFilterTattooLocationAndDescriptionMatchSameEntry(t *testing.T)
 	require.NoError(t, err)
 
 	ids := pt.queryPerformerIDs(t, models.PerformerQueryInput{
+		Names: pStr(marker + "-"),
 		Tattoos: &models.BodyModificationCriterionInput{
 			Location:    pStr("Left shoulder"),
 			Description: pStr("Falcon"),
