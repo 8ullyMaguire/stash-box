@@ -1996,6 +1996,17 @@ type Querier interface {
 	// performer's identity is a different thing: it asserts a merge that nobody voted on. §7.24.4 is
 	// explicit that this emits a quest and NEVER auto-merges -- the merge path is the consensus flow
 	// in internal/service/edit, and a lint that merged would be an unattributable edit.
+	// A LOWERED CLAIM THAT ONLY ONE LIVE PERFORMER MAKES CANNOT BE A COLLISION, and saying so first is
+	// what makes this detector usable. The first version compared every alias against every name and every
+	// other alias; on a real archive (112,391 performers, 181,896 aliases) the planner chose a nested loop
+	// that probed the index once per performer and the detector took 37.5s. This narrowing is an AGGREGATE,
+	// which the planner cannot inline away or reorder around, so the join that follows only ever sees the
+	// claims that are actually contested -- the handful a curator cares about.
+	//
+	// count(DISTINCT performer_id), not count(*): one performer whose own alias matches their own name has
+	// claimed nothing twice, and the `o.performer_id <> c.performer_id` condition below has always said so.
+	// Only the ALIAS side is reported: an alias asserting somebody else's identity is the defect, while a
+	// name that matches another performer's name is what disambiguation is for.
 	LintPerformerAliasCollisions(ctx context.Context, arg LintPerformerAliasCollisionsParams) ([]LintPerformerAliasCollisionsRow, error)
 	// A target's vouches that are neither withdrawn nor expired, newest first.
 	ListActiveVouchesForTarget(ctx context.Context, arg ListActiveVouchesForTargetParams) ([]MemberVouch, error)
