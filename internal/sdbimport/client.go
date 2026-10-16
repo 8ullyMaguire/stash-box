@@ -131,7 +131,12 @@ func (c *Client) Query(ctx context.Context, query string, vars map[string]any, o
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("graphql returned HTTP %d", resp.StatusCode)
+		// THE BODY, because the status alone cannot be acted on. A GraphQL endpoint answers 422 for a query it
+		// cannot validate, and the answer names the field -- "Cannot query field \"types\" on type \"Image\"" is
+		// the whole diagnosis. Reporting only the number sent a reader to the schema, the credentials and the
+		// endpoint before the actual answer, which was sitting in the discarded body.
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<10))
+		return fmt.Errorf("graphql returned HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
 	var envelope struct {
