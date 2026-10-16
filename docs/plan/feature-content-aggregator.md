@@ -3697,6 +3697,46 @@ malformed claim is refused by name. Two of the walk's own first-run failures wer
 splitting on both separators (it crashed before the first verdict), and a server started with no config
 file, which generated one and defaulted the database — the walk now writes the file it means to run.
 
+### Slice 12e — the mapping: a local tag name becomes a core name, or it does not cross
+
+**The clause this closes.** "Two instances exchange an ontology version and **resolve a local tag against
+a core tag**." 12a–12d built the exchange; this is the resolution, and it is where the phase's "rather
+than silently mis-mapping" lives.
+
+**The rule.** The wire never carries a local tag name. A local name is this instance's operator's word for
+something — stable here, meaningless there, and an invitation to a peer to guess. What crosses is a CORE
+name from an agreed, small vocabulary (`CoreTagVocabularyV1`). A tag that is *already* a core name resolves
+to itself, with no mapping needed: demanding `eye-color -> eye-color` would be asking an operator to write
+down what is already true. Everything else resolves through the operator's declared `tag_mappings`, and
+**there is no code path that invents a core name**:
+
+- a mapping pointing at a name nobody agreed on is refused, because passing it through crosses the
+  boundary *as if it were agreed* and the peer files the tag under a meaning it believes it knows;
+- a mapping pointing at another local tag is a chain, and following it is guessing which end was meant —
+  refused even when the far end is a legal core name, since then the guess is invisible in the result;
+- a self-mapping of a non-core name is refused: "this means itself" is true here and meaningless on the
+  wire, and passing it through is exactly the local-name leak this file exists to prevent;
+- a tag with no mapping is refused **naming the tag**, because an empty row is indistinguishable at the
+  far end from "this instance has no such tag";
+- an empty name, an empty target: refused.
+
+**The table has a caller** (`GET /federation/tags`, beside the answer and outside the rate limiter for the
+same reason it is): the instance id, the core versions, the agreed vocabulary, and every declaration —
+**resolved or refused, with the sentence saying which**. A table listing only the successful mappings
+would be one that quietly dropped the operator's mistake. This is the fourth time in this programme a rule
+was written before it had a caller; the habit that keeps working is to ask, at the moment the rule is
+written, what will read it.
+
+**Verification.** Unit: `internal/service/federation/mapping_test.go` — ten resolution cases, each a way to
+get a core name wrong, plus a sweep asserting nothing that is merely local is ever reported as a core name
+and a case standing on `CoreTagVocabulary(CoreOntologyV2)` returning **nil rather than falling back to
+v1's list** (a fallback would make an instance believe it knows v2 names when what it has is v1's — the
+silent mis-mapping by another door). Integration: the new subtest reads the table over HTTP and asserts
+both the resolved row and the refused one, with the refusal naming the unagreed target. Live: the walk is
+now **12/12**, W7/W8 reading the table from the running process with the config declaring one good and one
+bad mapping. MUTATIONS: `scripts/mutate-mapping-12e.py`, **3 probes, 3 KILLED** — the unagreed name passed
+through, the unmapped tag dropped instead of refused, the chain followed.
+
 ## Phase 13 — API, interoperability, exports
 
 **Placed elsewhere (2026-10-14):** exposing stash-box as an **MCP server** (search scenes and

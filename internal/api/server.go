@@ -224,6 +224,12 @@ func Start(fac service.Factory, ui embed.FS) {
 	// constant the outbound client builds its URL from -- one name, two sides.
 	r.Post(federation.AnswerPath, FederationIdentify(fac))
 
+	// The tag table (phase 12, slice 12e), registered beside the answer because it is the same kind of
+	// surface: a peer-readable statement about what this instance speaks. Outside the rate limiter for the
+	// same reason the answer is -- the limiter is keyed on this instance's credentials and a peer has
+	// none, so putting it inside would charge a peer for somebody else's account.
+	r.Get(federation.TagsPath, FederationTags())
+
 	if !config.GetIsProduction() {
 		r.Handle("/playground", gqlPlayground.Handler("GraphQL playground", "/graphql"))
 	}

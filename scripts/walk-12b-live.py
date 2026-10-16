@@ -118,6 +118,10 @@ def main():
     config_path = os.path.join(SCRATCH, "walk-12b-config.yml")
     with open(config_path, "w") as f:
         f.write(f"host: {HOST}\nport: {PORT}\ndatabase: {DSN}\n")
+        # Two declarations, one of which CANNOT cross: the table is only doing its job if the bad one
+        # comes back refused and named. A config with only the good mapping would let a broken table look
+        # like a working one.
+        f.write("tag_mappings:\n  big-breasts: measurements\n  unknown: chest-large\n")
 
     env = dict(os.environ, STASH_BOX_INSTANCE_ID=INSTANCE)
     log = open(os.path.join(SCRATCH, "walk-12b-server.log"), "w")
@@ -198,6 +202,22 @@ def main():
         status, body = post(question(claim=claim_for([1], "zz" * 32)))
         check("W6 a malformed peer claim is refused by name",
               status == 422 and "claim" in body.get("error", ""), f"{status} {body}")
+
+        # W7/W8 -- the tag table (slice 12e), live. Read over the real router: the mapping is a rule
+        # with a caller or it is a comment, and this is the caller.
+        resp = urllib.request.urlopen(f"http://{HOST}:{PORT}/federation/tags", timeout=10)
+        table = json.loads(resp.read().decode()) if resp.status == 200 else {}
+        rows = {row["Local"]: row for row in table.get("Tags", [])}
+        check("W7 the tag table is served by the running process, vocabulary included",
+              resp.status == 200 and table.get("InstanceID") == INSTANCE
+              and len(table.get("Vocabulary", [])) > 0 and set(rows) == {"big-breasts", "unknown"},
+              f"{resp.status} {json.dumps(rows)}")
+        check("W8 the declaration that cannot cross is refused, and named",
+              rows.get("big-breasts", {}).get("Core") == "measurements"
+              and rows.get("big-breasts", {}).get("Refusal", "x") == ""
+              and rows.get("unknown", {}).get("Core") == ""
+              and "not a core v1 tag" in rows.get("unknown", {}).get("Refusal", ""),
+              json.dumps(rows))
 
     finally:
         proc.send_signal(signal.SIGTERM)

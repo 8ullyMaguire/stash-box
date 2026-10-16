@@ -60,9 +60,15 @@ type config struct {
 	// not name its sender is an answer nobody can attribute. Empty means unset, and the answer endpoint
 	// REFUSES with the key's name rather than inventing an identity -- the same posture `content_delivery`
 	// takes about its own key.
-	InstanceID   string `mapstructure:"instance_id"`
-	Database     string `mapstructure:"database"`
-	ProfilerPort int    `mapstructure:"profiler_port"`
+	InstanceID string `mapstructure:"instance_id"`
+
+	// TagMappings is this instance's declaration of what its LOCAL tag names mean in the agreed core
+	// vocabulary (phase 12, slice 12e): `{"big-breasts": "measurements"}`. It lives in config because it
+	// is the operator's statement about their own vocabulary -- not a property of the data, not
+	// something to infer, and not something this program can discover on its own.
+	TagMappings  map[string]string `mapstructure:"tag_mappings"`
+	Database     string            `mapstructure:"database"`
+	ProfilerPort int               `mapstructure:"profiler_port"`
 
 	HTTPUpgrade  bool `mapstructure:"http_upgrade"`
 	IsProduction bool `mapstructure:"is_production"`
@@ -395,6 +401,15 @@ func GetHost() string {
 // to another.
 func GetInstanceID() string {
 	return C.InstanceID
+}
+
+// GetTagMappings is the local-to-core tag declaration, never nil so that a caller resolving tags on an
+// instance that declared none gets refusals rather than a nil-map panic.
+func GetTagMappings() map[string]string {
+	if C.TagMappings == nil {
+		return map[string]string{}
+	}
+	return C.TagMappings
 }
 
 func GetPort() int {

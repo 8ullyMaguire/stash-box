@@ -181,6 +181,10 @@ type OntologyFieldCrossing struct {
 	Reason string
 }
 
+// TagsPath is where an instance publishes its local-to-core tag table (slice 12e). A GET, and it takes
+// no parameters: the table is a property of the instance, not of the asking peer.
+const TagsPath = "/federation/tags"
+
 // ProtocolVersion is the wire contract version, sent with every request.
 //
 // It exists because the two implementations are separate repos on separate

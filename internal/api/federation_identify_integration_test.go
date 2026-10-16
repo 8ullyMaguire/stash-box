@@ -142,6 +142,54 @@ func TestFederationIdentifyIntegration(t *testing.T) {
 		assert.Equal(t, true, seen["tag"]["Allowed"])
 	})
 
+	t.Run("the tag table publishes the declarations, refusals included", func(t *testing.T) {
+		// Phase 12, slice 12e. The table is a peer-readable vocabulary statement, so this checks what a
+		// peer actually receives -- including the declaration that will NOT cross, because a table
+		// listing only the successful mappings would be one that quietly dropped the operator's mistake.
+		previousID, previousMappings := config.C.InstanceID, config.C.TagMappings
+		t.Cleanup(func() { config.C.InstanceID, config.C.TagMappings = previousID, previousMappings })
+
+		tags := httptest.NewServer(api.FederationTags())
+		t.Cleanup(tags.Close)
+
+		get := func() (int, map[string]any) {
+			resp, err := tags.Client().Get(tags.URL)
+			require.NoError(t, err)
+			defer resp.Body.Close()
+			var decoded map[string]any
+			require.NoError(t, json.NewDecoder(resp.Body).Decode(&decoded))
+			return resp.StatusCode, decoded
+		}
+
+		config.C.InstanceID = ""
+		config.C.TagMappings = map[string]string{"big-breasts": "measurements"}
+		status, body := get()
+		require.Equal(t, http.StatusServiceUnavailable, status)
+		assert.Contains(t, body["error"], "instance_id")
+
+		config.C.InstanceID = wireInstance
+		config.C.TagMappings = map[string]string{"big-breasts": "measurements", "unknown": "chest-large"}
+		status, body = get()
+		require.Equal(t, http.StatusOK, status, "body: %v", body)
+		assert.Equal(t, wireInstance, body["InstanceID"])
+		assert.Equal(t, []any{float64(1), float64(2)}, body["CoreVersions"])
+
+		vocab, ok := body["Vocabulary"].([]any)
+		require.True(t, ok)
+		assert.NotEmpty(t, vocab, "the agreed names must be on the wire: a peer cannot learn them otherwise")
+
+		rows := map[string]map[string]any{}
+		for _, row := range body["Tags"].([]any) {
+			entry := row.(map[string]any)
+			rows[entry["Local"].(string)] = entry
+		}
+		require.Len(t, rows, 2, "every declaration appears, resolved or refused: %v", rows)
+		assert.Equal(t, "measurements", rows["big-breasts"]["Core"])
+		assert.Equal(t, "", rows["big-breasts"]["Refusal"])
+		assert.Equal(t, "", rows["unknown"]["Core"])
+		assert.Contains(t, rows["unknown"]["Refusal"], "not a core v1 tag")
+	})
+
 	t.Run("the protocol version header is required and named", func(t *testing.T) {
 		status, body := postQuestion(t, srv, "", ontologyOnlyQuestion(t))
 		assert.Equal(t, http.StatusBadRequest, status)
