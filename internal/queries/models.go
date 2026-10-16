@@ -998,6 +998,17 @@ type StudioUrl struct {
 	SiteID   uuid.UUID `db:"site_id" json:"site_id"`
 }
 
+// High-water marks for the incremental sync from an external stash-box source (internal/sdbimport). One row per completed entity walk.
+type SyncWatermark struct {
+	// The entity whose walk completed: performers, studios, scenes, tags, sites.
+	Entity string `db:"entity" json:"entity"`
+	// The source host the mark belongs to (e.g. stashdb.org). Part of the key so two sources cannot share a mark.
+	Source string `db:"source" json:"source"`
+	// The `updated` value of the oldest record the last completed walk read. The next walk re-reads a margin behind it on purpose.
+	Watermark pgtype.Timestamptz `db:"watermark" json:"watermark"`
+	UpdatedAt pgtype.Timestamptz `db:"updated_at" json:"updated_at"`
+}
+
 type Tag struct {
 	ID          uuid.UUID     `db:"id" json:"id"`
 	Name        string        `db:"name" json:"name"`

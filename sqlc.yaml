@@ -154,6 +154,9 @@ sql:
       - internal/database/migrations/postgres/139_seed_cohorts.up.sql
       - internal/database/migrations/postgres/140_saved_search_feed.up.sql
       - internal/database/migrations/postgres/141_content_source_appeal.up.sql
+      - internal/database/migrations/postgres/142_performer_filter_indexes.up.sql
+      - internal/database/migrations/postgres/143_sync_watermarks.up.sql
+      - internal/database/migrations/postgres/144_lint_detector_indexes.up.sql
     queries: "internal/queries/sql"
     gen:
       go:
