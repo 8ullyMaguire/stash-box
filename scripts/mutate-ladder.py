@@ -70,7 +70,38 @@ PROBES = [
         "every client revalidates bytes that cannot change, on a store whose whole purpose is to avoid doing "
         "work twice",
     ),
+    (
+        "M6 the content type table says every format is webp",
+        LADDER, API,
+        '\tVariantFormatJPEG: "image/jpeg",',
+        '\tVariantFormatJPEG: "image/webp",',
+        "TestAStoredJPEGVariantIsServedAsJPEG",
+        "a jpeg is served as webp, which the browser renders as a broken image -- and the webp fixtures alone "
+        "would never have shown it",
+    ),
+    (
+        "M7 the format is declared instead of sniffed",
+        LADDER, MEDIAPLANE,
+        "format, ok := SniffVariantFormat(data)",
+        "format, ok := VariantFormatWebP, true",
+        "TestProducingAVariantUsesTheInstancesOwnPipeline",
+        "an upstream answer in an unexpected shape is written into the media directory under an extension it "
+        "does not have, where everything that exists is served",
+    ),
+    (
+        "M8 the sniffer says everything is webp",
+        LADDER, MEDIAPLANE,
+        'if len(data) >= 12 && string(data[0:4]) == "RIFF" && string(data[8:12]) == "WEBP" {',
+        "if len(data) >= 12 {",
+        "TestProducingRefusesBytesThatAreNotAPicture",
+        "an HTML error page or an SVG is stored as a webp and served as one",
+    ),
 ]
+
+# NOT PROBED, and said out loud rather than implied: the atomic write (temp file + rename) is asserted by
+# construction. A probe would have to interrupt the process mid-write, and a test that only checks "the temp
+# file is gone afterwards" passes for a direct write as well -- an absence assertion whose subject never
+# existed.
 
 
 def run(pkg, test=None, repo=REPO):

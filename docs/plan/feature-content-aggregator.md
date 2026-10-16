@@ -5109,8 +5109,14 @@ nothing wrong are the same output.
 `{media_dir}/<first two characters of the id>/<id>_<width>.webp` — the resize cache's own spelling plus one
 directory level, so that an operator who has looked at the cache recognises it and a hundred thousand entries
 stay listable on the spinning disk this is likely to live on. The extension is part of the layout rather than a
-negotiated thing because the ladder's output format is a decision (webp at both widths, measured at a median
-14.9 KB at 320 px and 30.2 KB at 480 px).
+negotiated thing ONCE the format is known -- and this sentence was WRONG when it was first written: slice
+10c-2 is the correction. The first version said the ladder's output format is a decision, webp at both widths,
+measured at a median
+14.9 KB at 320 px and 30.2 KB at 480 px -- and THIS INSTANCE CANNOT ENCODE WEBP AT ALL (its resizer exports
+webp only for a PNG source and JPEG otherwise, through libvips, and there is no webp encoder in the dependency
+tree). The measurement had validated a codec the binary does not have: a decision taken in the context where it
+was MEASURED rather than where it RUNS. The extension now carries the format the instance actually produced,
+sniffed from the bytes rather than declared. A format
 
 **THE DEFECT THIS SLICE FOUND IN ITSELF, because it is the mistake worth repeating in the telling.** The first
 version stored 320 and 480 — the widths the *storage measurement* used — while the image route accepts
@@ -5166,6 +5172,56 @@ including **M1, which re-introduces the 320/480 mistake** and is killed by the i
 **M2, which survived the first run** and found a broken test rather than a missing one: the fall-through arm
 asked for an unstored width with no file present, so the fixture's absence produced the answer the width rule
 was supposed to produce. Writing the file first made the rule the only remaining cause.
+
+### Slice 10c-2 — what the ladder can actually encode, and the format it stops declaring
+
+**THE DEFECT.** Slice 10c-1 documented "webp, one format, not negotiated per request". It came from the storage
+measurement, which used Pillow. Reading the codebase instead: `internal/image/resize_unix.go` exports **webp only
+for a PNG source** (lossless) and **JPEG at `image_jpeg_quality` (default 75) for everything else**, through
+libvips — and there is no webp encoder anywhere in the dependency tree (`golang.org/x/image/webp` DECODES only).
+So the layout described a codec the instance does not have. **Auditing for an existing mechanism before adding a
+second one is the rule this slice re-learned twice in a row**: the width list (320/480 vs the route's 300/600/1280)
+and now the format.
+
+**THE DECISION, and the alternative that was declined.** The ladder does not choose a format: it stores what the
+instance's own resizer produces, by delegating to `image.Resize`. The alternative — adopting a pure-Go webp
+encoder (`github.com/HugoSmits86/nativewebp`, MIT, no cgo, one dependency already present) — was checked and
+**declined**, because it would put a *second* answer to "make a smaller picture" beside the instance's own, and
+the two would disagree in exactly the cases nobody checks. Two encoders, one job.
+
+**THE FORMAT IS SNIFFED, NOT DECLARED.** `SniffVariantFormat` reads the magic bytes (RIFF….WEBP, or FF D8 FF) and
+the store writes the extension it finds; a read tries the two spellings it can have written and returns the
+content type that goes with the extension. This is not tidiness: **an aggregator's fetcher meets upstreams that
+answer 200 with something that is not a picture** — an HTML error page, an SVG, a video — and a declared format
+would put that lie in a directory where *everything that exists is served*. `WriteVariant` refuses those bytes by
+name and **leaves nothing behind**, which is asserted by listing the directory afterwards.
+
+**TWO REFUSALS WITH TWO CAUSES.** The width is refused before the bytes are sniffed, and it wraps
+`ErrVariantWidthNotStored` — the first version wrapped the *format* error, so an operator asking for 1280 px was
+told "these bytes are neither webp nor jpeg" about bytes that were perfectly good webp.
+
+**THE WRITE IS ATOMIC** (temporary file in the same directory, renamed into place), because the serve path's rule
+is "the file exists, so serve it": a torn write that was served would be a corrupt image delivered with a 200 and
+a week-long cache header. *This one is asserted by construction and NOT by a mutation probe, and said so*: a
+probe would have to interrupt the process mid-write, and a test that only checks "the temp file is gone
+afterwards" passes for a direct write too — an absence assertion whose subject never existed.
+
+**A STRUCTURAL INVARIANT INSTEAD OF A GUARD TEST.** `OpenVariant` refuses a file whose extension has no content
+type, but the read side only asks for the spellings `VariantPaths` produces, so that guard can only fire if the
+two lists disagree. Rather than contort a test into reaching it, `TestEverySpellingTheReaderTriesHasAContentType`
+asserts the agreement in both directions — every spelling has a content type, and every content type names a
+format the sniffer can produce.
+
+**Verification.** `produce_test.go`: a real 1200×900 JPEG source through the instance's own libvips pipeline,
+asserting the variant is **JPEG** (the branch libvips takes for a JPEG source, which is what makes the
+documentation and the binary agree), that it is smaller than the source, that it decodes, and that its width is
+bounded; the refused-bytes table (SVG, HTML, a truncated JPEG, an empty body, a GIF claiming to be webp) with the
+directory-listing assertion; the width refusal naming the width; the structural invariant; the sniffer's
+near-misses (a PNG, a RIFF that is a WAV). The api suite gained **a JPEG variant arm**, which exists because the
+handler's first version set `image/webp` from a constant: with webp fixtures alone that constant was right in
+every case the suite exercised. **MUTATIONS: `scripts/mutate-ladder.py` grew to 8 probes, 8/8 killed, every
+restore green** — M6 (the content type table saying every format is webp), M7 (the format declared instead of
+sniffed, which would write an HTML error page into the media directory), M8 (the sniffer accepting any RIFF).
 
 ### Slice 12g — core v2 exists as a reader, and the version number starts meaning something
 

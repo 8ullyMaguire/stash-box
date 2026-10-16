@@ -68,6 +68,36 @@ func TestAStoredVariantIsServedWithoutTouchingTheDatabase(t *testing.T) {
 	assert.Equal(t, want, body)
 }
 
+// A JPEG VARIANT, which is the format the instance's own resizer produces for most sources. This arm exists
+// because the first version of the handler set "image/webp" from a constant: with only webp fixtures in the
+// test suite that constant was right in every case the suite exercised, and a jpeg would have been served
+// under a content type it does not have.
+func TestAStoredJPEGVariantIsServedAsJPEG(t *testing.T) {
+	withSwitches(t, true, true)
+	dir := t.TempDir()
+	withMediaDir(t, dir)
+	id := uuid.Must(uuid.NewV4())
+	want := []byte{0xFF, 0xD8, 0xFF, 0xE0, 'j', 'p', 'e', 'g'}
+
+	path := filepath.Join(dir, id.String()[:2], id.String()+"_300.jpg")
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+	require.NoError(t, os.WriteFile(path, want, 0o644))
+
+	srv := httptest.NewServer(imageRoutes{}.Routes())
+	t.Cleanup(srv.Close)
+
+	resp, err := srv.Client().Get(srv.URL + "/" + id.String() + "?size=300")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, "image/jpeg", resp.Header.Get("Content-Type"),
+		"the content type comes from the file's extension, which came from the BYTES when it was written")
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	assert.Equal(t, want, body)
+}
+
 // POSTURE BEATS THE LADDER, in that order. An instance with images off must refuse a request for a variant it
 // HAS: otherwise "images are off" would be a statement about the configuration rather than about what the
 // instance serves, and storing one file would be enough to change it.

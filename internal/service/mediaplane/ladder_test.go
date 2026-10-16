@@ -20,8 +20,14 @@ func TestVariantPathIsTheDocumentedScheme(t *testing.T) {
 	}
 	id := uuid.FromStringOrNil("3f1c0a52-1111-4222-8333-444455556666")
 
-	got := s.VariantPath(id, 600)
+	got := s.VariantPath(id, 600, VariantFormatWebP)
 	want := filepath.Join(s.Dir(), "3f", "3f1c0a52-1111-4222-8333-444455556666_600.webp")
+	// And the two places a read will look, in order: the producer's output format is a property of the bytes
+	// it produced, so a caller holding an id and a width has to try rather than be told.
+	if paths := s.VariantPaths(id, 600); len(paths) != 2 || paths[0] != want ||
+		paths[1] != filepath.Join(s.Dir(), "3f", "3f1c0a52-1111-4222-8333-444455556666_600.jpg") {
+		t.Errorf("VariantPaths = %v, want the webp then the jpg spelling", paths)
+	}
 	if got != want {
 		t.Fatalf("VariantPath = %q, want %q", got, want)
 	}
@@ -141,7 +147,7 @@ func TestAMountThatChangedIsRefused(t *testing.T) {
 		}
 	}
 	// And it reaches a caller through the read path, not only through Check.
-	if _, err := s.OpenVariant(uuid.Must(uuid.NewV4()), 300); !errors.Is(err, ErrMountChanged) {
+	if _, _, err := s.OpenVariant(uuid.Must(uuid.NewV4()), 300); !errors.Is(err, ErrMountChanged) {
 		t.Errorf("OpenVariant after the mount changed = %v, want ErrMountChanged", err)
 	}
 }
@@ -155,11 +161,11 @@ func TestOpenVariantAnswersWithBytesOrWithNothing(t *testing.T) {
 	}
 	id := uuid.Must(uuid.NewV4())
 
-	if reader, err := s.OpenVariant(id, 300); reader != nil || err != nil {
+	if reader, _, err := s.OpenVariant(id, 300); reader != nil || err != nil {
 		t.Fatalf("OpenVariant with no file = (%v, %v), want (nil, nil)", reader, err)
 	}
 
-	path := s.VariantPath(id, 300)
+	path := s.VariantPath(id, 300, VariantFormatWebP)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -167,11 +173,14 @@ func TestOpenVariantAnswersWithBytesOrWithNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reader, err := s.OpenVariant(id, 300)
+	reader, contentType, err := s.OpenVariant(id, 300)
 	if err != nil || reader == nil {
 		t.Fatalf("OpenVariant with a file = (%v, %v)", reader, err)
 	}
 	defer reader.Close()
+	if contentType != "image/webp" {
+		t.Errorf("content type = %q, want image/webp for a webp variant", contentType)
+	}
 	buf := make([]byte, 32)
 	n, _ := reader.Read(buf)
 	if string(buf[:n]) != "RIFF....WEBP" {
@@ -187,11 +196,11 @@ func TestOpenVariantAnswersWithBytesOrWithNothing(t *testing.T) {
 	// supposed to produce. The same shape as any absence assertion whose subject is not present: it asserts
 	// what the situation happens to be rather than what the code does. With a 1280 file on disk, only the
 	// width rule can produce the fall-through.
-	unscaled := s.VariantPath(id, 1280)
+	unscaled := s.VariantPath(id, 1280, VariantFormatWebP)
 	if err := os.WriteFile(unscaled, []byte("RIFF....WEBPVP8L"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if reader, err := s.OpenVariant(id, 1280); reader != nil || err != nil {
+	if reader, _, err := s.OpenVariant(id, 1280); reader != nil || err != nil {
 		t.Errorf("OpenVariant at an unstored width, with a file present = (%v, %v), want (nil, nil): the width "+
 			"the ladder does not store must fall through even when a file of that name exists", reader, err)
 	}

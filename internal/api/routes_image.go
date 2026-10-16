@@ -106,7 +106,7 @@ func (rs imageRoutes) image(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if store != nil {
-			reader, err := store.OpenVariant(uuid, size)
+			reader, contentType, err := store.OpenVariant(uuid, size)
 			var unusable mediaplane.ErrMediaDirUnusable
 			switch {
 			case err == nil && reader == nil:
@@ -128,7 +128,10 @@ func (rs imageRoutes) image(w http.ResponseWriter, r *http.Request) {
 				return
 			default:
 				defer reader.Close()
-				w.Header().Set("Content-Type", "image/webp")
+				// The content type comes from the file's own extension, which came from the BYTES when the
+				// variant was written -- not from a constant here, which is how a jpeg would end up served as
+				// webp by a handler that only ever saw webp in testing.
+				w.Header().Set("Content-Type", contentType)
 				w.Header().Set("Cache-Control", "max-age=604800000")
 				if _, err := io.Copy(w, reader); err != nil {
 					logger.Debugf("failed to write stored variant: %v", err)

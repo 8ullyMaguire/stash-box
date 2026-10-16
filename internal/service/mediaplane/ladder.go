@@ -193,6 +193,48 @@ func (s *Store) Check() error {
 	return nil
 }
 
+// The formats the ladder stores, and WHY THEY ARE TWO.
+//
+// This is a CORRECTION, not a preference. The slice above first documented "webp at 80, one format, not
+// negotiated per request" -- taken from the storage measurement, which used Pillow. The instance cannot encode
+// webp at all: `internal/image` exports WEBP for PNG sources (lossless) and JPEG at `image_jpeg_quality`
+// (default 75) for everything else, through libvips. The measurement validated a codec the binary does not
+// have, which is the same mistake as the width list two functions up, made in a different dimension: a
+// decision taken in the context where it was MEASURED rather than in the context where it RUNS.
+//
+// So the ladder does not choose a format. It stores what the instance's own resizer produces, and it asks the
+// BYTES what they are rather than trusting a caller's label -- an upstream that answers an HTML error page or
+// an SVG with a 200 is exactly what a fetcher has to survive, and a declaration would put the lie in the
+// directory. Two accepted formats, detected from their magic bytes; anything else is refused by name.
+const (
+	VariantFormatWebP = "webp"
+	VariantFormatJPEG = "jpg"
+)
+
+// VariantContentTypes maps a stored format to the header a served variant carries.
+var VariantContentTypes = map[string]string{
+	VariantFormatWebP: "image/webp",
+	VariantFormatJPEG: "image/jpeg",
+}
+
+// ErrUnknownVariantFormat is returned for bytes that are neither of the two formats the ladder stores.
+var ErrUnknownVariantFormat = errors.New("these bytes are neither webp nor jpeg: the ladder stores what this " +
+	"instance's own resizer produces (webp for a PNG source, jpeg otherwise), so an upstream answer in " +
+	"another shape -- an SVG, an HTML error page, a video -- must not be written into the media directory " +
+	"where everything that exists is served")
+
+// SniffVariantFormat answers what a byte slice IS, from its magic: "RIFF....WEBP" or the JPEG start-of-image
+// marker. The second return value is false when neither matches.
+func SniffVariantFormat(data []byte) (string, bool) {
+	if len(data) >= 12 && string(data[0:4]) == "RIFF" && string(data[8:12]) == "WEBP" {
+		return VariantFormatWebP, true
+	}
+	if len(data) >= 3 && data[0] == 0xFF && data[1] == 0xD8 && data[2] == 0xFF {
+		return VariantFormatJPEG, true
+	}
+	return "", false
+}
+
 // VariantPath is where a stored variant of an image lives.
 //
 // `{id}_{width}.webp` in a two-character subdirectory, which is the resize cache's own spelling extended by
@@ -202,9 +244,67 @@ func (s *Store) Check() error {
 // The extension is part of the path rather than a variable because the ladder's output format is a DECISION
 // (webp at 80 for both widths, measured at a median 14.9 KB at 320 px and 30.2 KB at 480 px). A format
 // negotiated per request would make the layout depend on who asked.
-func (s *Store) VariantPath(id uuid.UUID, width int) string {
+func (s *Store) VariantPath(id uuid.UUID, width int, format string) string {
 	name := id.String()
-	return filepath.Join(s.dir, name[:2], fmt.Sprintf("%s_%d.webp", name, width))
+	return filepath.Join(s.dir, name[:2], fmt.Sprintf("%s_%d.%s", name, width, format))
+}
+
+// VariantPaths is every place a variant of this id and width could be, in the order the ladder's own producer
+// is expected to have written them. A read tries them in order rather than being told which: the format is a
+// property of the bytes that were produced, and a caller holding only an id and a width has no way to know it.
+func (s *Store) VariantPaths(id uuid.UUID, width int) []string {
+	return []string{
+		s.VariantPath(id, width, VariantFormatWebP),
+		s.VariantPath(id, width, VariantFormatJPEG),
+	}
+}
+
+// WriteVariant stores produced bytes as this image's variant at this width, and returns the path it landed at.
+//
+// TWO INVARIANTS, both about the read path trusting existence.
+//
+// The bytes are SNIFFED, not labelled: the extension comes from the magic, so a file in the media directory
+// has an extension that matches its contents by construction, and an upstream answer in an unexpected shape is
+// refused here rather than served later under a content type it does not have.
+//
+// The write is ATOMIC -- a temporary file in the same directory, renamed into place. The serve path's rule is
+// "the file exists, so serve it", which is only safe if a file that exists is complete: a torn write that was
+// served would be a corrupt image delivered with a 200 and a week-long cache header. (The rename is not
+// fsynced: these are re-derivable artifacts, and losing one costs a fetch, not data.)
+func (s *Store) WriteVariant(id uuid.UUID, width int, data []byte) (string, error) {
+	if err := s.Check(); err != nil {
+		return "", err
+	}
+	// The width is refused BEFORE the bytes are sniffed, and it wraps ErrVariantWidthNotStored rather than the
+	// format error: the first version wrapped the other one, so an operator asking for 1280 was told "these
+	// bytes are neither webp nor jpeg" about bytes that were perfectly good webp. Two refusals, two causes.
+	if !IsVariantWidth(width) {
+		return "", fmt.Errorf("%w: %d px (the ladder stores %v)", ErrVariantWidthNotStored, width, VariantWidths)
+	}
+	format, ok := SniffVariantFormat(data)
+	if !ok {
+		return "", ErrUnknownVariantFormat
+	}
+	path := s.VariantPath(id, width, format)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return "", err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp*")
+	if err != nil {
+		return "", err
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return "", err
+	}
+	if err := tmp.Close(); err != nil {
+		return "", err
+	}
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		return "", err
+	}
+	return path, nil
 }
 
 // OpenVariant returns a stored variant, or nil when this instance does not have one.
@@ -212,24 +312,34 @@ func (s *Store) VariantPath(id uuid.UUID, width int) string {
 // nil WITH NO ERROR is the "not produced yet" answer, and it is distinct from an error: an instance that has
 // never fetched this image's bytes is not broken, and the caller falls through to its own path. An error is
 // reserved for the storage being unusable, which is the caller's reason to stop rather than to continue.
-func (s *Store) OpenVariant(id uuid.UUID, width int) (io.ReadCloser, error) {
+func (s *Store) OpenVariant(id uuid.UUID, width int) (io.ReadCloser, string, error) {
 	if s == nil {
-		return nil, nil
+		return nil, "", nil
 	}
 	if err := s.Check(); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if !IsVariantWidth(width) {
-		return nil, nil
+		return nil, "", nil
 	}
-	f, err := os.Open(s.VariantPath(id, width))
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
+	for _, path := range s.VariantPaths(id, width) {
+		f, err := os.Open(path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, "", err
 		}
-		return nil, err
+		// The content type comes from the EXTENSION, which came from the bytes when the file was written.
+		format := strings.TrimPrefix(filepath.Ext(path), ".")
+		contentType, known := VariantContentTypes[format]
+		if !known {
+			f.Close()
+			return nil, "", fmt.Errorf("%w: %s", ErrUnknownVariantFormat, path)
+		}
+		return f, contentType, nil
 	}
-	return f, nil
+	return nil, "", nil
 }
 
 // IsVariantWidth reports whether a requested width is one the ladder stores.
