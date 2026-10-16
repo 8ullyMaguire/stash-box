@@ -887,12 +887,196 @@ def c9_monetization_posture():
         add("C9 monetization posture", "PASS", "; ".join(notes))
 
 
+# ---------------------------------------------------------------------------
+# C10/C11 -- phase 10 (the media plane) and phase 12 (federation) as surfaces
+# ---------------------------------------------------------------------------
+# Written by phase 17's own rule: "phase N's clause is written in phase N's commit, so the predicate is never
+# behind the code". Each clause asserts what EXISTS today and names what does not as UNKNOWN -- never as PASS
+# (this file's first rule) and never as FAIL, because a slice that has not been started is not a regression.
+#
+# Both clauses count their subjects, for C9's reason: "the outbound half has a caller" is worth nothing if the
+# search read no files, and a grep over an empty set looks exactly like a grep that found nothing wrong.
+
+
+def count_in(rel, pattern, exclude_tests=True):
+    """Files under `rel` whose text matches `pattern`, plus the total scanned. Both numbers, always."""
+    hits, scanned = [], 0
+    for p in sorted((REPO / rel).rglob("*.go")):
+        if exclude_tests and p.name.endswith("_test.go"):
+            continue
+        scanned += 1
+        if re.search(pattern, p.read_text(), re.M):
+            hits.append(p.relative_to(REPO).as_posix())
+    return hits, scanned
+
+
+def c10_media_plane_posture():
+    """Phase 10: the posture is enforced by something, and the enforcement has a caller."""
+    cfg = REPO / "internal" / "config" / "config.go"
+    route = REPO / "internal" / "api" / "routes_image.go"
+    plane = REPO / "internal" / "service" / "mediaplane" / "mediaplane.go"
+    for p in (cfg, route, plane):
+        if not p.exists():
+            add("C10 media-plane posture", "FAIL", f"{p.relative_to(REPO)} is missing")
+            return
+
+    cfg_src, route_src, plane_src = cfg.read_text(), route.read_text(), plane.read_text()
+    fails, notes = [], []
+
+    # 1. The shipped defaults. The struct fields carry a type and the defaults carry a colon, so this reads the
+    #    defaults without matching the declarations -- and a `true` anywhere is a FAIL, not a note.
+    for key in ("ContentDelivery", "ImagesEnabled"):
+        if re.search(rf"{key}:\s*true", cfg_src):
+            fails.append(f"{key} defaults to true in the shipped config")
+    defaults = len(re.findall(r"(?:ContentDelivery|ImagesEnabled):\s*false", cfg_src))
+    if defaults != 2:
+        fails.append(f"{defaults} of 2 posture defaults are false in the shipped config")
+    else:
+        notes.append("content_delivery and images_enabled both ship false")
+
+    # 2. The gate is ON THE ROUTE, and BEFORE the routes it guards. Source order is the rule: a gate placed
+    #    after the handlers is a gate the handlers never meet.
+    routes = re.findall(r"^\s*r\.Get\(", route_src, re.M)
+    gate_at = route_src.find("r.Use(requireImageBytes)")
+    first_at = route_src.find("r.Get(")
+    if not routes:
+        fails.append("routes_image.go registers no routes: the scan has no subject")
+    elif gate_at < 0:
+        fails.append("the image router carries no gate")
+    elif not (0 <= gate_at < first_at):
+        fails.append("the image gate is registered after the routes it guards")
+    else:
+        notes.append(f"the gate guards {len(routes)} image route(s), and precedes them")
+
+    # 3. The gate has a CALLER, and the refusal names the keys an operator can act on. This is the clause that
+    #    would have failed before slice 10a-ii: the media plane's switch existed and nothing asked.
+    callers, scanned_route = count_in("internal/api", r"requireImageBytes")
+    if not callers:
+        fails.append("nothing calls the image gate: a switch with no caller is a comment")
+    elif len(callers) != 1:
+        fails.append(f"the image gate is referenced from {len(callers)} files: {', '.join(callers)}")
+    else:
+        notes.append(f"the gate has exactly one caller ({callers[0]}, of {scanned_route} non-test files)")
+
+    for key in ("images_enabled", "content_delivery"):
+        if key not in plane_src:
+            fails.append(f"the refusal does not name {key}, so an operator cannot find the line to change")
+    if len(fails) == 0:
+        notes.append("the refusal names both keys")
+
+    # 4. The instruments exist: a live walk (the real binary, two arms) and a mutation battery.
+    for script, label in (("scripts/walk-images-gate.py", "the live walk"),
+                          ("scripts/mutate-image-gate.py", "the mutation battery")):
+        if not (REPO / script).exists():
+            fails.append(f"{label} ({script}) is missing")
+    if not fails:
+        notes.append("the walk and the battery are in the tree")
+
+    add("C10 media-plane posture", "FAIL" if fails else "PASS",
+        "; ".join(fails) if fails else "; ".join(notes))
+
+    # 5. The slices that have no surface to assert. Named, so that a reader of this output learns what is left
+    #    rather than reading a PASS over a phase three-quarters unbuilt.
+    add("C10b media-plane slices", "UNKNOWN",
+        "10b-10f (hosting, the variant ladder, the media toolchain, the players, the resize cache) are not "
+        "started: there is no surface to assert yet, and this clause will not report PASS for a phase whose "
+        "remaining slices do not exist")
+
+
+def c11_federation_posture():
+    """Phase 12: both ends of the wire are wired, and the rule that decides what crosses has a reader."""
+    server = REPO / "internal" / "api" / "server.go"
+    answer = REPO / "internal" / "service" / "federation" / "answer.go"
+    exchange = REPO / "internal" / "service" / "federation" / "exchange.go"
+    mapping = REPO / "internal" / "service" / "federation" / "mapping.go"
+    for p in (server, answer, exchange, mapping):
+        if not p.exists():
+            add("C11 federation posture", "FAIL", f"{p.relative_to(REPO)} is missing")
+            return
+
+    server_src = server.read_text()
+    fails, notes = [], []
+
+    # 1. Both peer-facing routes are registered. A route that exists as a handler and is not mounted answers
+    #    nothing, which is the shape this programme keeps finding.
+    for const, label in (("federation.AnswerPath", "the answer route"),
+                         ("federation.TagsPath", "the tag table route")):
+        if const not in server_src:
+            fails.append(f"{label} ({const}) is not registered in server.go")
+    if not fails:
+        notes.append("POST /federation/identify and GET /federation/tags are registered")
+
+    # 2. THE OUTBOUND HALF HAS A CALLER. This is the clause that would have failed for the whole of phase 12
+    #    before slice 12f: `Client.Broadcast` was called from tests and from nowhere else, so the wire had one
+    #    end wired and every test still passed.
+    #    Three explicit places, rather than a fuzzy count: an earlier version of this clause searched the tree
+    #    for "Broadcast|ExchangeOntologies" and reported "2 production callers" -- one of which was the
+    #    definition of ExchangeOntologies in its own file. A count that includes a definition overstates by
+    #    exactly the thing it is meant to prove.
+    #    Subject counts on every scan, so "no caller" cannot be the output of reading no files.
+    cron_callers, cron_scanned = count_in("internal/cron", r"federation\.ExchangeOntologies\(")
+    client_makers, _ = count_in("internal/cron", r"federation\.NewClient\(")
+    #    The call site is found by CALL SHAPE, not by the receiver's name: the first version of this line
+    #    matched `c.Broadcast(` and reported "nothing calls it" against a file that calls
+    #    `client.Broadcast(` -- a false FAIL, which is the one direction of error a predicate must not have,
+    #    because it sends the reader to look for work already done. A `func ...) Broadcast(` definition is a
+    #    declaration, so those lines are excluded rather than the variable being guessed.
+    broadcast_callers, fed_scanned = [], 0
+    for p in sorted((REPO / "internal" / "service" / "federation").rglob("*.go")):
+        if p.name.endswith("_test.go"):
+            continue
+        fed_scanned += 1
+        calls = [ln for ln in p.read_text().splitlines() if ".Broadcast(" in ln and not ln.strip().startswith("func ")]
+        if calls:
+            broadcast_callers.append(p.relative_to(REPO).as_posix())
+    if not cron_callers:
+        fails.append("the cron does not exchange ontologies: the outbound half has no production caller")
+    if not client_makers:
+        fails.append("the cron builds no client: the exchange cannot leave the process")
+    if not broadcast_callers:
+        fails.append("nothing calls Client.Broadcast outside the tests: the wire has one end wired")
+    if not fails:
+        notes.append(f"the outbound path has a production caller ({cron_callers[0]}, of {cron_scanned} "
+                     f"cron files; Broadcast is called from {broadcast_callers[0]}, of {fed_scanned} "
+                     f"federation files)")
+
+    # 3. The answering half has its own caller, and the negotiation is field by field rather than a single
+    #    boolean: a rule that answered one bit could not tell a peer which field to stop sending.
+    if "FederationIdentify(" not in server_src:
+        fails.append("the answering half is not mounted")
+    wire = (REPO / "internal" / "service" / "federation" / "wire.go").read_text()
+    if "Crossing []OntologyFieldCrossing" not in wire:
+        fails.append("the answer carries no field-by-field crossing")
+    else:
+        notes.append("the answer carries a per-field crossing")
+
+    # 4. The instruments.
+    for script, label in (("scripts/walk-12b-live.py", "the live walk"),
+                          ("scripts/mutate-answer-12b.py", "the answering battery"),
+                          ("scripts/mutate-mapping-12e.py", "the mapping battery")):
+        if not (REPO / script).exists():
+            fails.append(f"{label} ({script}) is missing")
+    if not fails:
+        notes.append("the walk and both batteries are in the tree")
+
+    add("C11 federation posture", "FAIL" if fails else "PASS",
+        "; ".join(fails) if fails else "; ".join(notes))
+
+    # 5. What phase 12 still owes, named. The identification question is REFUSED BY NAME today (an empty answer
+    #    would be indistinguishable from "nothing to report"), and core v2 is a field name with no document
+    #    behind it -- both are real work, and neither is a regression this clause should fail on.
+    add("C11b federation slices", "UNKNOWN",
+        "the identification half (refused by name rather than answered) and core v2 (the `category` field and "
+        "the v2 vocabulary) are not built: no surface to assert")
+
+
 def main():
     if "--update-baseline" in sys.argv:
         sys.exit(update_baseline())
     for fn in (c1_prs_decided, c2_issues_dispositioned, c3_plan_built,
                c4_narrow_merged, c5_migrations_coherent, c6_suite, c7_build_clean,
-               c8_aggregator_programme, c9_monetization_posture):
+               c8_aggregator_programme, c9_monetization_posture,
+               c10_media_plane_posture, c11_federation_posture):
         try:
             fn()
         except Exception as e:  # a clause that crashes is not a passing clause

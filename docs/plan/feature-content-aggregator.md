@@ -5007,12 +5007,23 @@ limit existing only while its stream is on, and no shipped configuration switchi
 examines, for the reason this file's own rule gives: an assertion over an empty set and an assertion that found
 nothing wrong are the same output.
 
+**C10 and C11, written for phases 10 and 12** (2026-10-16), each asserting what exists and naming what does
+not as UNKNOWN — never PASS over an unbuilt slice, never FAIL for work that has not started. **C10** reads the
+shipped posture defaults, asserts the image gate is ON THE ROUTE and BEFORE the routes it guards, counts the
+gate's callers (one file, of 114 read) and checks the refusal names both keys an operator can act on. **C11**
+asserts both peer routes are mounted, that the OUTBOUND half has a production caller — the clause that would
+have failed for the whole of phase 12 before slice 12f — and that the answer carries a field-by-field crossing
+rather than one bit. Their `*b` companions report the unstarted slices as UNKNOWN: 10b–10f for the media plane,
+and for federation the identification half and core v2.
+
 **Current outstanding, measured 2026-10-16** (`python3 docs/goal-check.py`): **C1** (4 undecided upstream PRs:
-#1282–#1285), **C3** (6 plan documents without a Built status line — five of them other features' plans, which
-is what C3 is for), **C8** (3/17 phases: 10, 12, 17). C6, C6b and C7 all PASS — this paragraph previously
-claimed C7 failed on 5 unformatted files, which stopped being true when they were formatted, and a stale
-"outstanding" list in the predicate's own section is the failure mode this programme keeps finding: a number
-written in a document rather than recomputed.
+#1282–#1285), **C3** (7 plan documents without a Built status line — six of them other features' plans, which
+is what C3 is for), **C8** (3/17 phases: 10, 12, 17), and **C10b/C11b UNKNOWN** (the slices named above).
+C6, C6b, C7, C9, C10 and C11 all PASS — this paragraph previously claimed C7 failed on 5 unformatted files,
+which stopped being true when they were formatted, and a stale "outstanding" list in the predicate's own
+section is the failure mode this programme keeps finding: a number written in a document rather than
+recomputed. It was stale again here (the count read 6 documents and C3 reported 7), which is why the numbers
+above are the ones the run printed.
 
 ## Deviations
 
