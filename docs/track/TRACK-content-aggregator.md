@@ -96,12 +96,21 @@ The same run, and the same command, is what C6b evaluates: `POSTGRES_DB=<dsn> go
 -tags=integration -count=1 -p 1 ./...`, against a database named for the run. Measured
 2026-10-14: **37 packages `ok`, 0 `FAIL`**, `internal/api` 30.9s.
 
-## Outstanding predicate clauses (measured 2026-10-14)
+## Outstanding predicate clauses (measured 2026-10-16, after phase 16's a11y slices)
 
 | Clause | State | Detail |
 |---|---|---|
-| C1 PRs decided | UNKNOWN this session | `gh` is not authenticated here (`gh auth login`), so it could not be evaluated; the last measurement was FAIL, 4/50 undecided: #1282, #1283, #1284, #1285 |
-| C3 spec/plan built | FAIL | 7/11 plan documents not Built. `feature-content-aggregator.md` is one of them, correctly: phases 3 and 5-16 are not built, and marking the plan Built to quiet the clause would be a false claim |
-| C6b integration suite | PASS | 37 packages green with `-tags=integration`, against the docker Postgres — with the three environment variables above. Without them the clause is UNKNOWN, not a pass |
-| C7 build clean | PASS | build, vet and gofmt all clean over the new files |
-| C8 aggregator programme | FAIL | this table, honestly (measured 2026-10-15): phases 1-9 done (8 COMPLETE 2026-10-15: 8a-8e built, 8f removed by the owner's decision), **11 COMPLETE 2026-10-15 (11a-11d built)**, 10 in progress (10a the switch is built, 10b-10f specified and not started), 12-16 not started, 17 in progress. 7 of 17 phases not done -- phase 10 is counted again because the second respec put it back in the plan. |
+| C1 PRs decided | FAIL | 4/50 undecided: #1282, #1283, #1284, #1285 |
+| C2 issues dispositioned | PASS | 177 rows, every one decided (feature-request=138, fixed=22, declined=16, partially-fixed=1); 138 share one reason that cites SPEC.md section 0, so it is uniform application rather than bulk reclassification |
+| C3 spec/plan built | FAIL | 6/11 plan documents not Built — `feature-content-aggregator.md` among them, correctly: phases 10, 12, 15 and 16 are not finished, and marking the plan Built to quiet the clause would be a false claim |
+| C5 migrations coherent | PASS | one migration per number, no two share a statement |
+| C6 suite | PASS | 88 packages accounted for, 30 with no untagged test (baseline 60) |
+| C6b integration suite | PASS | 61 packages green with `-tags=integration`, against the docker Postgres — with the three environment variables above. Without them the clause is UNKNOWN, not a pass |
+| C7 build clean | PASS | build, vet, gofmt and the content-plane refusal all clean |
+| C8 aggregator programme | FAIL | this table, honestly: phases 1-9 done, 11 done, 10 in progress (the switch is built, 10b-10f not started), 12/15 not started, **16 in progress (16a-16e built: the transparency report, the instance metrics, the page over them, the a11y gate and the palette), 17 in progress** — 5 of 17 phases not done |
+
+**A note on the C6 run, because the failure it first reported was mine and not the tree's.** Passing
+`POSTGRES_DB` at a database that does not exist makes three DB-touching packages fail with
+`database "<name>" does not exist` (`internal/config` among them), and C6 reports FAIL for a tree that is green.
+The clause creates its own database for C6b; do not hand it a `POSTGRES_DB` you invented, and never inherit one
+exported for another project. Measured 2026-10-16 with no `POSTGRES_DB` set: C6 PASS, C6b PASS.
