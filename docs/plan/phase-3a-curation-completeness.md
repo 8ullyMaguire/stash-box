@@ -425,7 +425,33 @@ THE REMAINING WORK, in dependency order, one link each:
       a label to a react-bootstrap Control through context, and a raw react-select is not one.
 
    All three are asserted in `theme.test.ts` / covered by the sweep, and the sweep is green at 32 routes
-   in both palettes (134 passed). The count is worth stating plainly: **one route found three defects, and
+   in both palettes (134 passed).   DEPLOYED AND WALKED THE SAME DAY (v0.10.4-7.24.1, githash 08bdfad4). The deploy is the point at which
+   the integration suite stops being evidence, because that suite runs the migrations from the WORKING TREE
+   -- a seed that did not run on THIS database, a schema the binary serves but the tooling never rebuilt,
+   and a role gate that answers differently are all invisible to a green run. `scripts/walk-7.24.1-live.py`
+   covers exactly those, read-only, and all its verdicts passed:
+
+     - the registry ANSWERS on the deployed instance with the three reasons ordered -- and the load-bearing
+       value survived the migration: `not_yet_looked` does NOT suppress, the other two do;
+     - the deployed SCHEMA carries `verified_unknowns` (found by searching the input types for the name, so
+       the verdict names `SceneEditDetailsInput` rather than assuming a path);
+     - `field_verification_states` exists ON THE HOST with **0 rows** -- deployed and unused, which is the
+       honest number and the one a walk that only said "it is live" would have hidden;
+     - a real scene (read out of the host's own database) scores 48, missing `['studio','performers',
+       'tags','image','snapshot_coverage']` -- the surface the suppression acts on, on data that exists.
+
+   The write round-trip is NOT part of the walk, deliberately: it mutates a live scene, and an approved
+   edit cannot be cleanly unwound at end of day. It is covered by the Go integration test against a real
+   Postgres (`TestVerifiedUnknownReachesTheStoreAndSuppressesTheGap`). Stating which instrument covers
+   which claim is the report; a walk that quietly did neither would read the same.
+
+   The deployed binary had been reporting an EMPTY version line -- `stash-box version:  () - ` -- so
+   "which commit is running" was unanswerable from the instance. The ldflags do bind
+   (`internal/api.version` / `.githash` / `.buildstamp`); the earlier build simply had not passed them.
+   It now reports `v0.10.4-7.24.1 (08bdfad4)`, which is the difference between a deploy you can name and
+   one you have to trust.
+
+   The count is worth stating plainly: **one route found three defects, and
    widening from 9 to 32 found three more.** The rule is not "audit the new surface" but "the surfaces
    nobody ever audited are where the defects are".
 
