@@ -185,6 +185,15 @@ func (i *Importer) page(entity, query string, total int, limit int, fn func(rec 
 				return err
 			}
 			if err := fn(rec); err != nil {
+				// A walk that has passed its watermark stops HERE, cleanly.
+				//
+				// The per-record policy above (count the failure, keep going) is for
+				// malformed records; applying it to "we are done" would send the walk
+				// over the rest of the source -- for scenes, a million records -- to
+				// re-learn a decision its caller already made.
+				if errors.Is(err, errStopWalk) {
+					return nil
+				}
 				st.fail(entity, err)
 			}
 		}

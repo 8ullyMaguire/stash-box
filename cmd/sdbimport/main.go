@@ -34,6 +34,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/spf13/viper"
 
 	"github.com/stashapp/stash-box/internal/config"
@@ -59,6 +60,15 @@ func run() error {
 		limitS     = flag.Int("limit-scene", 0, "import at most N scenes (0 = all)")
 		dryRun     = flag.Bool("dry-run", false, "read and validate from the source, write nothing")
 		delay      = flag.Duration("delay", 0, "pause between source pages")
+
+		// The reconcile (docs/plan/feature-sync-service.md, step 3). Same binary, because it shares the client,
+		// the config wiring and the destination factory; a second binary would be a second copy of all three.
+		syncRun    = flag.Bool("sync", false, "reconcile what has changed since the last run instead of importing")
+		syncModes  = flag.String("sync-modes", "", "per-entity sync mode, e.g. performers=upstream-wins (default latest-wins)")
+		syncFull   = flag.Bool("sync-full", false, "ignore the stored watermark and walk the whole source (repair path)")
+		syncMargin = flag.Duration("sync-margin", sdbimport.DefaultSyncMargin, "how far behind the watermark to re-read")
+		lockPath   = flag.String("lock", "", "lock file for a single running sync (default $XDG_RUNTIME_DIR/stash-box-sync.lock)")
+		jsonOut    = flag.String("json", "", "write the run's report as JSON to this path")
 	)
 	flag.Parse()
 
@@ -139,6 +149,10 @@ func run() error {
 		}
 	}
 
+	if *syncRun {
+		return runSync(ctx, db, imp, want, *syncModes, *syncFull, *syncMargin, *lockPath, *jsonOut, *limitP)
+	}
+
 	r := imp.NewResolver()
 	start := time.Now()
 
@@ -166,6 +180,83 @@ func run() error {
 	}
 
 	fmt.Printf("\ntotal elapsed %s\n", time.Since(start).Round(time.Second))
+	return nil
+}
+
+// runSync is the reconcile branch: the walk that adds nothing and only brings what exists up to date.
+//
+// It is a separate function from the import path on purpose. The two share a client, a config and a destination
+// factory, and nothing else: an import creates what is missing and is idempotent by natural key, while a sync
+// diffs what exists and never creates. Mixing them would make "run it again" mean two different things.
+func runSync(
+	ctx context.Context,
+	db *pgxpool.Pool,
+	imp *sdbimport.Importer,
+	want map[string]bool,
+	modesRaw string,
+	full bool,
+	margin time.Duration,
+	lock, jsonOut string,
+	limitPerformer int,
+) error {
+	modes, err := sdbimport.ParseSyncModes(modesRaw)
+	if err != nil {
+		return err
+	}
+
+	// The entity list comes from the sync's own order, filtered by -entities, so a caller cannot ask for an
+	// order the runner does not support.
+	var entities []string
+	for _, e := range sdbimport.SyncEntities {
+		if len(want) == 0 || want[e] {
+			entities = append(entities, e)
+		}
+	}
+
+	if lock == "" {
+		lock = sdbimport.LockPathDefault()
+	}
+	l, err := sdbimport.AcquireLock(lock)
+	if errors.Is(err, sdbimport.ErrSyncLocked) {
+		fmt.Printf("another sync run holds %s; skipping. This is not a failure.\n", lock)
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer l.Release()
+
+	source, err := sdbimport.SourceOf(sourceEndpoint())
+	if err != nil {
+		return err
+	}
+
+	runner, err := sdbimport.NewRunner(imp, db, sdbimport.SyncOptions{
+		Entities:       entities,
+		Modes:          modes,
+		Full:           full,
+		DryRun:         imp.DryRun,
+		LimitPerformer: limitPerformer,
+		Margin:         margin,
+		Source:         source,
+	})
+	if err != nil {
+		return err
+	}
+
+	report, err := runner.Run(ctx)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("\nsync %s -> %s\n%s", report.Source, report.FinishedAt.Format(time.RFC3339), report.Summary())
+	if err := report.WriteJSON(jsonOut); err != nil {
+		return fmt.Errorf("writing the report to %s: %w", jsonOut, err)
+	}
+	if report.Failed() {
+		// A non-zero exit for a run that reported failures: the timer's own success/failure is then readable
+		// by systemd without parsing the report.
+		return errors.New("the sync reported failures; see the report above")
+	}
 	return nil
 }
 
