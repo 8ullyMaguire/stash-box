@@ -1,0 +1,61 @@
+name: Backup drill
+
+# §7.24.11's restore drill: take a backup of a real instance, verify the artifact,
+# restore it into a scratch database, check what came back against the manifest,
+# and run the integration suite against the restored database.
+#
+# The migration step is not decoration. The drill backs up an INSTANCE, and this
+# job has no instance to back up: it has a Postgres container. So it runs the
+# backup package's own integration test with POSTGRES_NODROP=1, which makes the
+# test harness migrate the database and LEAVE THE TABLES STANDING -- the harness
+# drops every table on teardown by default, so without that switch the next step
+# would back up an empty database and the drill's spot check would be comparing
+# zero to zero.
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  drill:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up PostgreSQL
+        uses: ./.github/actions/postgres
+        with:
+          extra-database: stash-box-drill
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: 1.27.x
+
+      - name: Prepare a config
+        run: |
+          mkdir -p /tmp/drill
+          cat >/tmp/drill/config.yml <<'YAML'
+          database: postgres:postgres@127.0.0.1:5432/stash-box-drill?sslmode=disable
+          YAML
+          # The DSN here is a throwaway container's, and the file is written by the
+          # job rather than read from anywhere: `backup -config` reads the database
+          # key and nothing else, which is why a config with one line is enough.
+          chmod 600 /tmp/drill/config.yml
+
+      - name: Migrate the database and leave it standing
+        env:
+          POSTGRES_DB: postgres:postgres@127.0.0.1:5432/stash-box-drill?sslmode=disable
+          POSTGRES_NODROP: "1"
+        run: go test -tags integration -count=1 -run TestSnapshotRestoreDrill ./internal/backup/
+
+      - name: Back up, verify the artifact, restore it, and run the suite against the restore
+        env:
+          BACKUP_DRILL_SUITE: ./internal/service/lint/ ./internal/api/
+        run: ./scripts/backup-drill.sh -config /tmp/drill/config.yml

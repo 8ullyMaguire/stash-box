@@ -4,8 +4,8 @@
 **Written:** 2026-10-01 · **Amended:** 2026-10-05
 Status: **in progress** — §7.24.1's schema, write path and gates are built (see the table below; this line
 said "service and gates outstanding" until 2026-10-16, which its own table had already contradicted), and
-`internal/service/lint` is built as of the same day. Still outstanding: the four frontend surfaces and the
-§7.24.11 `cmd/backup` exception.
+`internal/service/lint` is built as of the same day, the four frontend surfaces are built, and the
+§7.24.11 `cmd/backup` exception is built (2026-10-16).
 
 > **This document is the source of truth for what is NOT built.** `docs/goal-check.py` clause
 > C3 requires every plan document to read `Status: Built`, and it will keep failing until the
@@ -31,7 +31,7 @@ said "service and gates outstanding" until 2026-10-16, which its own table had a
 | frontend: the detector registry (`/curation/lint/definitions`) | **built** | `LintDefinitions.tsx` + `LintQuestDefinitions.tsx`, the `lintQuestDefinitions` query (ADMIN) and an admin nav entry; 7 vitest tests on the three states (running / stranded / retired), 1 Playwright journey (an admin reads it, a curator is refused by NAME rather than by a fault), WCAG 2.1 AA clean in both palettes. `scripts/walk-3a-lint-registry-live.py` walks the state the page exists for: 8/8 verdicts with a planted stranded row -- the registry answers WHILE the board is refused, retiring the row recovers the board, and the retired row stays listed. |
 | §7.24.4 the per-record arm: `lintFindingsFor(entityType, entityId)` | **built** | The same validation pass asked about ONE id -- the surface this plan listed as "the import-validation view", which turned out to be the same query as the record page's panel rather than a second view with no data behind it (an import batch is not a row anywhere in this schema; a record is, so the pass gets a second caller instead of a second rule). 5 Go integration tests: the whole finding and nothing else, an alias claiming this record's name, the refusal of a type no detector implements, the VOTE gate, and an empty answer for a clean record. 6/6 mutations killed -- the type refusal, the zero-count filter, the VOTE directive, each half of the whole-finding SQL, and the filter removed entirely. |
 | frontend: the record findings panel + the candidate action | **built** | `frontend/src/components/recordFindings/` mounted on the performer page, and `?source=<id>` on the merge page. 11 vitest tests (the merge link carries BOTH ids; a finding whose fix is an edit offers no merge, with a second record present so the allow-list is distinguishable from the shape of the answer; a lone finding offers no merge; no record-changing control; truncated answers say so; a clean record says nothing, beside a flagged control; a fault is NAMED; a reader is not served it), 2 Playwright journeys (a flagged record's panel naming the other half and its action landing on a merge form carrying both records; a clean record and a reader beside a flagged control), WCAG 2.1 AA clean on the performer page in both palettes. 4/4 mutations killed on the panel's own rules, plus the merge-page prefill walked live. |
-| §7.24.11 exception: `cmd/backup` | not started | — |
+| §7.24.11 exception: `cmd/backup` | **built** | An artifact with a manifest written last, a point-in-time `pg_dump` (dump, table counts, migration version and image rows all read in ONE exported snapshot), a copied image store whose every file is checked against the md5 the DATABASE records before the manifest is written, a strict `-verify` (missing, altered and unlisted files all fail), and a restore that refuses a non-empty target (exit 2) and then proves the restored migration version and every table's row count. 30 unit tests + 3 integration tests that dump and restore the real database; `scripts/backup-drill.sh` runs 13/13 against a live instance and then the integration suite against the RESTORED database; `scripts/mutate-backup.sh` kills 11 of the 12 mutation-able guards (the twelfth is named in the script). |
 
 ### `internal/service/lint` — what was built, and where it departs from §7.24.4's list
 
@@ -442,6 +442,110 @@ section is untestable until a consistent snapshot can be taken and restored.
 Scope it narrowly and start it early: a `backup` command producing a consistent
 DB + image-store snapshot with checksums, plus a CI job that restores it and runs
 the suite. Nothing else from §7.24.11 is in scope for this phase.
+
+### Built 2026-10-16 — and the two facts that shaped it
+
+**There is one database engine, and that is a fact about the code, not a choice
+made here.** `database.Initialize` calls `pgxpool.ParseConfig("postgres://" +
+path)`, so the configured `database` value is a DSN with its scheme stripped.
+There is no second backend for this binary to detect: no engine switch, no
+sqlite branch, no config key whose other arm is unreachable.
+
+**The connection string never appears on a command line.** `pg_dump` and
+`pg_restore` accept a connection string only as an argument, where it lands in
+`ps` output and in another user's shell history — the same reason `sdbimport`
+refuses the source password as a flag. So the command parses the DSN the way the
+app does (`pgxpool.ParseConfig`, which is the same parser, not a second one) and
+passes the parts as `PGHOST`/`PGPORT`/`PGUSER`/`PGPASSWORD`/`PGDATABASE`/`PGSSLMODE`
+in the child's environment.
+
+**The artifact** — `backup -config <file> -out <dir>`, written in this order:
+
+    <dir>/db.dump           pg_dump -Fc: custom format, compressed, and restorable
+                            with pg_restore. Not a plain .sql, which a failed
+                            restore can half-apply.
+    <dir>/images/           the image store tree, copied verbatim, when image_location
+                            is set and holds files
+    <dir>/README            how to restore, INSIDE the artifact
+    <dir>/CHECKSUMS.sha256  sha256sum -c compatible, over every file above
+    <dir>/MANIFEST.json     written LAST
+
+The order is load-bearing: a run that dies before the manifest leaves a directory
+no reader can mistake for a backup, because both `-verify` and `-restore` refuse
+one that has no manifest.
+
+**"Consistent" is two claims and only one of them is a transaction.** One
+`pg_dump` is one point in time. The image store is not inside that snapshot, so
+the pair is CHECKED instead of asserted — and the first version of that check was
+wrong, in the way this plan keeps having to record.
+
+*The rule was written from a guess about a column, and the guess was measured and
+found false.* The check required a file for every row whose `images.organized` was
+true, on the assumption that the column means "these bytes are on disk". It does
+not: `organized` is a moderator's sign-off on an image's categorization
+(`internal/service/image.SetOrganized`), and the instance this was measured against
+holds **one organized row with no file and fourteen unorganized rows, ten of which
+have files**. Nothing in the schema says a row must have local bytes, so the rule
+as written would have refused every backup of every real instance.
+
+The rule that survived measurement is the intersection: **every file present in the
+store is checked against the checksum of the row that names its path, and a
+MISMATCH fails the backup** — that is corruption, and it is the thing the check
+exists to find. A row with no file is counted, and a file with no row is counted;
+an instance with no `image_location` at all is the same case as one whose store
+directory is missing. The manifest carries all three counts plus a `notes` entry
+that says which numbers they are, so a reader comparing two backups can see which
+number moved instead of inferring it. The column is md5 — that is what
+`internal/service/image.calculateChecksum` computes; the artifact's own checksums
+are sha256 and serve a different purpose.
+
+**Restore is the most destructive thing the command does and it says so.**
+`-restore -dir <dir> [-database <dsn>]` refuses a target database that already
+contains tables unless `-force` is passed (**exit 2**, distinct from a failure's
+exit 1, so a script can tell "refused" from "broken"), never modifies the
+artifact, runs `pg_restore --clean --if-exists` so a re-restore is re-runnable,
+and finally asserts the restored database's migration version equals the
+manifest's.
+
+**The manifest carries what a restore must be checked against**: the tool
+version, the server version, `schema_migrations`' version and dirty flag, the row
+count of EVERY table (read from `information_schema`, so it cannot go stale as
+tables are added), the image count and byte total, and one entry per artifact
+file with its sha256 and size.
+
+**The steps, each with the command that proves it**
+
+| # | step | command | expected |
+| --- | --- | --- | --- |
+| 1 | no manifest means not a backup | `rm <dir>/MANIFEST.json; backup -verify <dir>` | exit 1, names the missing manifest |
+| 2 | a changed byte is caught | `printf x >> <dir>/db.dump; backup -verify <dir>` | exit 1, names db.dump |
+| 3 | a deletion is caught | `rm <dir>/images/<one>; backup -verify <dir>` | exit 1, names that file |
+| 4 | an addition is caught | `touch <dir>/stray; backup -verify <dir>` | exit 1, "not in the manifest" |
+| 5 | a missing or altered image fails the BACKUP | delete/alter one file in a live instance's store, run `backup` | exit 1, names the image, and no manifest was written |
+| 6 | the dump really restores | `backup -restore -dir <dir> -database <fresh>` then `select version, dirty from schema_migrations` | equals the manifest's |
+| 7 | the rows came with it | every table's `count(*)` vs the manifest | equal, all of them |
+| 8 | a destructive restore refuses | `backup -restore -dir <dir>` twice, no `-force` | exit 2 the second time |
+| 9 | the drill, end to end | `scripts/backup-drill.sh -config <file>` | checks 1–8, then the integration suite green against the RESTORED database |
+
+**The drill is the point.** `scripts/backup-drill.sh` backs the instance up,
+verifies the artifact, creates a scratch database, restores into it, checks the
+manifest's claims against what the restore produced, and runs the integration
+suite with `POSTGRES_DB` pointed at the RESTORED database: a suite that passes
+against a restore is the only evidence that the backup contains a working
+instance. `scripts/mutate-backup.sh` kills the guards above, and
+`.github/workflows/backup-drill.yml` runs the same script on every push using the
+existing `.github/actions/postgres` composite action.
+
+### What building the drill found, which reading the plan did not
+
+| found by | defect | fix |
+| --- | --- | --- |
+| the first run against a real instance | the image check required a file for every row with `organized = true`. The column is a moderator's sign-off on categorization, not a statement about the disk: that instance has one organized row with no file and unorganized rows that have one. The rule would have refused every backup of every real instance. | the rule is the intersection: files that are there are checked against the md5 their row records, and a mismatch fails; rows without files and files without rows are COUNTED in the manifest, as is an instance with no `image_location` at all. |
+| the first drill run | the artifact failed its own strict verification: `CHECKSUMS.sha256: present but not in the manifest`. The file list was collected before the checksum file was written, so the tool wrote a manifest that omitted a file it had just created. | the list is collected twice, the second time as the manifest's, and `WriteArtifactTail` exists as a function so this ordering is testable without a database. |
+| running the drill | the `sha256sum -c` check `cd`-ed into the artifact and never came back, so the integration suite ran from the wrong directory (`go: cannot find main module, but found .git/config in /home/alvaro/.hermes`). | the check runs in a subshell and the suite runs from the repository root. |
+| the mutation harness, first run | eleven of thirteen mutations did not compile: the marker was a bare `MUTANT` identifier. The harness reported them as broken rather than as survivors, which is the only reason the mistake was visible. | markers live in comments, every mutation compiles, and the harness counts broken separately from survived. |
+| writing the CI job | §7.24.11's "a CI job that restores it and runs the suite" is not the claim it sounds like: the integration harness DROPS EVERY TABLE and re-runs all migrations before any integration package runs, so a suite passing against a restored database proves the restored database is one this build runs against — not that the restored data is intact. | the data claims are the restore's own migration-version and row-count comparison against the manifest, plus the drill's spot check of a recorded count; the drill's output says which claim it is making, and the CI job migrates with `POSTGRES_NODROP=1` so the database it backs up is not empty. |
+| the live instance | the e2e instance's store holds ten files no row references and its database has fifteen rows with no file, so its image directory and its rows do not describe each other at all. | recorded rather than judged — it is exactly the state the counts exist to make visible, and exactly the state the first rule could not survive. |
 
 ---
 

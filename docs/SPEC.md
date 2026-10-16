@@ -1389,6 +1389,44 @@ specified before the phase starts:
   it and runs the suite. This is the one item in the whole paste that should not
   wait for its phase: preserving the archive starts with preserving the instance,
   and the restore drill is what makes every other preservation claim testable.
+
+  **Built, because this is the item that cannot wait.** `cmd/backup` writes a
+  self-describing artifact: `db.dump` (pg_dump custom format, compressed, and not a
+  plain `.sql` a failed restore can half-apply), the `images/` store copied
+  verbatim, a `CHECKSUMS.sha256`, a `README`, and a `MANIFEST.json` **written
+  last** — so a run that dies early leaves a directory that both `-verify` and
+  `-restore` refuse. The connection string is never a command-line argument: it is
+  parsed with the same parser the server uses (`pgxpool.ParseConfig`) and handed to
+  `pg_dump`/`pg_restore` as `PGHOST`/`PGPORT`/`PGUSER`/`PGPASSWORD`/`PGDATABASE`/
+  `PGSSLMODE`, because an argument lands in `ps` output and in shell history.
+
+  "Consistent" is two claims rather than one word. The database half is
+  point-in-time: one `pg_dump` is one snapshot. The image store is **not** inside
+  that snapshot, so the pair is checked instead of asserted — for every row in
+  `images`, the file `GetImagePath(image_location, id)` names must exist in the
+  artifact with an md5 equal to the `images.checksum` the database records (that
+  column is md5, from `internal/service/image`'s own hasher), and an ALTERED file
+  fails the backup **before** the manifest is written. The check is the
+  intersection and not a requirement per row, because no column records which rows
+  are supposed to have local bytes: `organized` is a moderator's categorization
+  sign-off, not a claim about the disk, and the instance this was measured against
+  has an organized row with no file and unorganized rows that have one. Rows
+  without files, files without rows and instances with no store at all are counted
+  in the manifest rather than judged. The manifest
+  carries the tool and server versions, `schema_migrations`' version and dirty
+  flag, the row count of every table, the image count and byte total, and a sha256
+  per artifact file, so a restore is checked against what the backup claimed rather
+  than against anyone's memory of it. The manifest states this division in its own
+  `notes` field instead of leaving a reader to infer it.
+
+  `-verify` is strict in both directions: a listed file that is missing or altered
+  fails, and so does a file present but not listed. `-restore` refuses a target
+  database that already contains tables unless `-force` is given — **exit 2**,
+  distinct from failure's exit 1, so a script can tell "refused" from "broken" —
+  and then asserts the restored database's migration version equals the manifest's.
+  `scripts/backup-drill.sh` is what makes the claim real: it restores into a
+  scratch database and runs the integration suite against the RESTORED instance,
+  which is the only evidence that the backup contains a working instance.
 - **Nightly signed metadata dump** — self-describing, versioned (JSONL + schema +
   hash list + README). The cold-storage artifact, the first draft of §7.17.4's
   air-gap bundle, and the seed for read-only mirrors.
