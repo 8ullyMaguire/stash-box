@@ -471,9 +471,24 @@ THE REMAINING WORK, in dependency order, one link each:
    suppressed and the failure reads as "the assertion did not work". Migration 96 has no CHECK to
    catch it either. `verifiedUnknownEntityType` is that map, and mutating it to return "" turns the
    gate red — measured, see the mutation record below.
-5. The frontend control with the reason dropdown (gate 1's surface).
-6. Gates 2 and 3 as tests plus mutations, with the XP battery re-aimed at the CALL SITE: 7/7
-   mutants dying against a function nobody calls is the arithmetic this section exists to correct.
+### Still open in this section
+
+This list replaces a stale duplicate that had survived below the maintained one — the same "5." and
+"6." as above, with "6." still describing the frontend control as unbuilt after it shipped. Both
+numbers existed at once, and the older of the two was the one a skimming reader reached first.
+
+1. **The XP battery re-aimed at the CALL SITE** (the old numbering's "6"). The XP rule itself is built
+   and lives in `recordTrustEvent`, so it runs for every edit type rather than only moderator
+   approvals. What has not been done is the measurement that motivated moving it: the battery must be
+   pointed at the call site, because mutants that die against a function nobody calls are the
+   arithmetic this section exists to correct. 7/7 against `assertionEarnsTrustFor` alone would prove
+   nothing about whether the funnel asks it.
+2. **The form-to-row walk**, named in the frontend control's entry above: nothing drives the control
+   in a browser, clicks Add, submits, and asserts the row.
+3. **The merge source is not marked deleted.** After a merge the source still resolves as live
+   (`Received: {"deleted": false}`), which the corrected assertion in `merges.spec.ts` now reports.
+   Either the merge is not deleting its source or the UI flow does not reach it — not yet diagnosed,
+   and it belongs to the merge feature rather than to this section.
 
 ## Why this order
 
