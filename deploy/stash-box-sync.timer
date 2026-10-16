@@ -1,0 +1,21 @@
+[Unit]
+Description=Run the stash-box incremental sync every six hours
+
+[Timer]
+# SIX HOURS, and the number is a judgement rather than a measurement: the source's newest records are typically
+# minutes old (measured: the three newest performers had `updated` values 10:30:54, 10:30:50 and 10:17:08 at
+# 10:53), so a six-hour cadence means this instance trails the source by at most a quarter of a day while the
+# walk itself costs one page plus the margin window -- 13 records over a 15-minute window at the time of
+# writing. Six hours also means four runs a day against a third-party API, which is politeness, not throughput.
+OnCalendar=*-*-* 00,06,12,18:17:00
+
+# Run late rather than never: a laptop-class host that was asleep at 06:17 runs on wake instead of skipping.
+Persistent=true
+
+# Not all four runs at the same second as every other timer on the host.
+RandomizedDelaySec=10min
+
+Unit=stash-box-sync.service
+
+[Install]
+WantedBy=timers.target

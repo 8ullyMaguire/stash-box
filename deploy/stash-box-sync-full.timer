@@ -1,0 +1,14 @@
+[Unit]
+Description=Run the full stash-box sync weekly
+
+[Timer]
+# WEEKLY, on a Sunday morning, because this is the expensive one: it walks every entity at the source, so it is
+# the run that grows the mirror rather than keeping it current. Daily would be four hours of work a day to find
+# what six hours of incremental runs already found.
+OnCalendar=Sun 04:41:00
+Persistent=true
+RandomizedDelaySec=20min
+Unit=stash-box-sync-full.service
+
+[Install]
+WantedBy=timers.target

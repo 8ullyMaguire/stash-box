@@ -1,0 +1,17 @@
+[Unit]
+Description=stash-box incremental sync (reconcile changed records, then add new performers)
+Documentation=file:%h/stash-box-deploy/docs/plan-feature-sync-service.md
+After=network-online.target stash-box.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/stash-box-deploy
+
+# CREDENTIALS FROM A FILE, NOT THE COMMAND LINE. An argument in ExecStart is readable by every user on the host
+# through `ps` and is printed by `systemctl show`; EnvironmentFile is 0600 and names the keys only.
+EnvironmentFile=%h/.sdb_auth.env
+ExecStart=%h/stash-box-deploy/bin/sync-thinkcentre.sh --incremental
+
+# A timer that is already running must not start a second copy. The script's own flock is the real guard (it
+# also covers a manual run); this stops systemd from queueing behind itself.
+TimeoutStartSec=3600

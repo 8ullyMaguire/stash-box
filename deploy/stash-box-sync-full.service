@@ -1,0 +1,17 @@
+[Unit]
+Description=stash-box full sync (every entity, including the million-scene import walk)
+Documentation=file:%h/stash-box-deploy/docs/plan-feature-sync-service.md
+After=network-online.target stash-box.service
+# Never while the incremental run is going: they share the flock, and the full walk is the one that would be
+# wasted. systemd is told rather than relying on the lock alone, because a queued unit reads as a failure.
+Conflicts=stash-box-sync.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/stash-box-deploy
+EnvironmentFile=%h/.sdb_auth.env
+ExecStart=%h/stash-box-deploy/bin/sync-thinkcentre.sh --full
+
+# HOURS, not minutes: 112,733 performers and 1,118,852 scenes at a page per request. Eight hours is the point at
+# which systemd should stop waiting and report, not a target.
+TimeoutStartSec=28800

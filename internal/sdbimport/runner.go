@@ -127,9 +127,11 @@ type EntityReport struct {
 
 	// AliasUpdated counts performers whose alias list was replaced; URLsNotApplied counts field changes this
 	// run deliberately did not write, for the importer's own reason (see applyAliasAndURLs).
-	AliasUpdated   int      `json:"alias_updated"`
-	URLsNotApplied int      `json:"urls_not_applied"`
-	StopReason     string   `json:"stop_reason"`
+	AliasUpdated   int    `json:"alias_updated"`
+	URLsNotApplied int    `json:"urls_not_applied"`
+	StopReason     string `json:"stop_reason"`
+	// WatermarkSaved is whether the durable mark actually moved. A refused backwards write, a dry run and a
+	// run that read nothing all leave it false, and each is a different statement.
 	WatermarkSaved bool     `json:"watermark_saved"`
 	ElapsedMS      int64    `json:"elapsed_ms"`
 	Errors         []string `json:"errors,omitempty"`
@@ -179,9 +181,21 @@ func (r RunReport) Summary() string {
 			fmt.Fprintf(&b, "  %-11s would update %d of %d scanned (%d unchanged, %d field changes, %d aliases); stop: %s\n",
 				e.Entity, e.Updated, e.Scanned, e.Unchanged, e.FieldChanges, e.AliasUpdated, e.StopReason)
 		default:
+			// A mark that was refused is not a mark that moved. `SaveWatermark` refuses a backwards write in
+			// SQL (a stale writer must not send the next walk over records it has already passed), and the
+			// first version of this line printed the refused value as though it had been stored -- a report
+			// describing state the database is not in.
+			after := atTime(e.WatermarkAfter)
+			switch {
+			case e.Dry:
+			case !e.WatermarkSaved && e.WatermarkAfter != nil:
+				after += " (refused: an older mark than the one stored)"
+			case !e.WatermarkSaved:
+				after = "unchanged"
+			}
 			fmt.Fprintf(&b, "  %-11s %s: scanned %d updated %d unchanged %d skipped %d failed %d; watermark %s -> %s (%s)\n",
 				e.Entity, e.Mode, e.Scanned, e.Updated, e.Unchanged, e.Skipped, e.Failed,
-				atTime(e.WatermarkBefore), atTime(e.WatermarkAfter), e.StopReason)
+				atTime(e.WatermarkBefore), after, e.StopReason)
 			// The failure TEXT, not just the count: "failed 8" is not actionable, and the pager keeps one
 			// error per entity exactly so a report can name it.
 			for _, err := range e.Errors {
