@@ -19,7 +19,11 @@ import { describe, expect, it } from "vitest";
 
 const aliceAuth = {
   authenticated: true,
-  user: { id: "u-alice", name: "alice", roles: [RoleEnum.READ, RoleEnum.MODIFY] },
+  user: {
+    id: "u-alice",
+    name: "alice",
+    roles: [RoleEnum.READ, RoleEnum.MODIFY],
+  },
 };
 
 const bobAuth = {
@@ -142,7 +146,9 @@ describe("list page owner gate", () => {
     // ("this list is not published"), so the button would be a guaranteed error.
     render(draftList, true, aliceAuth);
 
-    expect(await screen.findByRole("button", { name: "Publish" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: "Publish" }),
+    ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Make private" })).toBeNull();
     expect(screen.getByText("Private")).toBeInTheDocument();
   });

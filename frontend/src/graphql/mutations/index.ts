@@ -9,36 +9,15 @@ import {
   AddImageDocument,
   type AddImageMutation,
   type AddImageMutationVariables,
+  AddListItemDocument,
+  type AddListItemMutation,
+  type AddListItemMutationVariables,
   AddSceneDocument,
   type AddSceneMutation,
   type AddSceneMutationVariables,
   AddSiteCategoryDocument,
   type AddSiteCategoryMutation,
   type AddSiteCategoryMutationVariables,
-  AddListItemDocument,
-  type AddListItemMutation,
-  type AddListItemMutationVariables,
-  CreateListDocument,
-  type CreateListMutation,
-  type CreateListMutationVariables,
-  DeleteListDocument,
-  type DeleteListMutation,
-  type DeleteListMutationVariables,
-  PublishListDocument,
-  type PublishListMutation,
-  type PublishListMutationVariables,
-  ReorderListItemDocument,
-  type ReorderListItemMutation,
-  type ReorderListItemMutationVariables,
-  RemoveListItemDocument,
-  type RemoveListItemMutation,
-  type RemoveListItemMutationVariables,
-  UnpublishListDocument,
-  type UnpublishListMutation,
-  type UnpublishListMutationVariables,
-  UpdateListDocument,
-  type UpdateListMutation,
-  type UpdateListMutationVariables,
   AddSiteDocument,
   type AddSiteMutation,
   type AddSiteMutationVariables,
@@ -66,6 +45,9 @@ import {
   ConfirmChangeEmailDocument,
   type ConfirmChangeEmailMutation,
   type ConfirmChangeEmailMutationVariables,
+  CreateListDocument,
+  type CreateListMutation,
+  type CreateListMutationVariables,
   DeleteDraftDocument,
   type DeleteDraftMutation,
   type DeleteDraftMutationVariables,
@@ -75,6 +57,9 @@ import {
   DeleteFingerprintSubmissionsDocument,
   type DeleteFingerprintSubmissionsMutation,
   type DeleteFingerprintSubmissionsMutationVariables,
+  DeleteListDocument,
+  type DeleteListMutation,
+  type DeleteListMutationVariables,
   DeleteSceneDocument,
   type DeleteSceneMutation,
   type DeleteSceneMutationVariables,
@@ -129,12 +114,21 @@ import {
   type PerformerEditUpdateMutation,
   type PerformerEditUpdateMutationVariables,
   PostIdentificationQueryDocument,
+  PublishListDocument,
+  type PublishListMutation,
+  type PublishListMutationVariables,
   RecropImageDocument,
   type RecropImageMutation,
   type RecropImageMutationVariables,
   RegenerateApiKeyDocument,
   type RegenerateApiKeyMutation,
   type RegenerateApiKeyMutationVariables,
+  RemoveListItemDocument,
+  type RemoveListItemMutation,
+  type RemoveListItemMutationVariables,
+  ReorderListItemDocument,
+  type ReorderListItemMutation,
+  type ReorderListItemMutationVariables,
   RequestChangeEmailDocument,
   type RequestChangeEmailMutation,
   type RequestChangeEmailMutationVariables,
@@ -178,6 +172,9 @@ import {
   UnmatchFingerprintDocument,
   type UnmatchFingerprintMutation,
   type UnmatchFingerprintMutationVariables,
+  UnpublishListDocument,
+  type UnpublishListMutation,
+  type UnpublishListMutationVariables,
   UpdateEditCommentDocument,
   type UpdateEditCommentMutation,
   type UpdateEditCommentMutationVariables,
@@ -190,6 +187,9 @@ import {
   UpdateImageTypePreferencesDocument,
   type UpdateImageTypePreferencesMutation,
   type UpdateImageTypePreferencesMutationVariables,
+  UpdateListDocument,
+  type UpdateListMutation,
+  type UpdateListMutationVariables,
   UpdateNotificationSubscriptionsDocument,
   type UpdateNotificationSubscriptionsMutation,
   type UpdateNotificationSubscriptionsMutationVariables,
@@ -236,35 +236,59 @@ export const useActivateUser = (
 // the publish state without a round trip. Wrapping them centrally would force the browse
 // page's rule onto every caller.
 export const useCreateList = (
-  options?: useMutation.Options<CreateListMutation, CreateListMutationVariables>,
+  options?: useMutation.Options<
+    CreateListMutation,
+    CreateListMutationVariables
+  >,
 ) => useMutation(CreateListDocument, options);
 
 export const useUpdateList = (
-  options?: useMutation.Options<UpdateListMutation, UpdateListMutationVariables>,
+  options?: useMutation.Options<
+    UpdateListMutation,
+    UpdateListMutationVariables
+  >,
 ) => useMutation(UpdateListDocument, options);
 
 export const usePublishList = (
-  options?: useMutation.Options<PublishListMutation, PublishListMutationVariables>,
+  options?: useMutation.Options<
+    PublishListMutation,
+    PublishListMutationVariables
+  >,
 ) => useMutation(PublishListDocument, options);
 
 export const useUnpublishList = (
-  options?: useMutation.Options<UnpublishListMutation, UnpublishListMutationVariables>,
+  options?: useMutation.Options<
+    UnpublishListMutation,
+    UnpublishListMutationVariables
+  >,
 ) => useMutation(UnpublishListDocument, options);
 
 export const useDeleteList = (
-  options?: useMutation.Options<DeleteListMutation, DeleteListMutationVariables>,
+  options?: useMutation.Options<
+    DeleteListMutation,
+    DeleteListMutationVariables
+  >,
 ) => useMutation(DeleteListDocument, options);
 
 export const useAddListItem = (
-  options?: useMutation.Options<AddListItemMutation, AddListItemMutationVariables>,
+  options?: useMutation.Options<
+    AddListItemMutation,
+    AddListItemMutationVariables
+  >,
 ) => useMutation(AddListItemDocument, options);
 
 export const useRemoveListItem = (
-  options?: useMutation.Options<RemoveListItemMutation, RemoveListItemMutationVariables>,
+  options?: useMutation.Options<
+    RemoveListItemMutation,
+    RemoveListItemMutationVariables
+  >,
 ) => useMutation(RemoveListItemDocument, options);
 
 export const useReorderListItem = (
-  options?: useMutation.Options<ReorderListItemMutation, ReorderListItemMutationVariables>,
+  options?: useMutation.Options<
+    ReorderListItemMutation,
+    ReorderListItemMutationVariables
+  >,
 ) => useMutation(ReorderListItemDocument, options);
 
 export const useAddUser = (
@@ -764,13 +788,27 @@ export const useMarkNotificationsRead = () =>
     },
   });
 
+// `variables` is optional because createMarkNotificationReadInput maps notification
+// KINDS and returns nothing for one it does not know -- including a kind the server
+// starts sending before this client learns it. The hook used to require the argument,
+// so `tsc --noEmit` refused the call site that passes that possibly-undefined value;
+// it was invisible for as long as biome failed first in `pnpm validate` and stopped
+// the chain before the type check ran.
+//
+// No `skip`: Apollo's useMutation has no such option (that is useQuery), and a
+// mutation is not sent until something CALLS it, so an undefined variables object
+// costs nothing while the button is never pressed.
 export const useMarkNotificationRead = (
-  variables: MarkNotificationReadMutationVariables,
+  variables?: MarkNotificationReadMutationVariables,
 ) =>
   useMutation(MarkNotificationReadDocument, {
     variables,
     update(cache, { data }) {
-      if (!data?.markNotificationsRead) return;
+      // `!variables` is for the type checker, not for the runtime: `update` cannot
+      // run when the mutation was skipped, and the mutation is skipped exactly when
+      // variables are undefined. A guard that cannot fire is still the honest way to
+      // say "this branch is about an input that exists".
+      if (!data?.markNotificationsRead || !variables) return;
       const { type, id } = variables.notification;
       const targetTypename = notificationTypenameFromEnum(type);
       const isUrgent = URGENT_NOTIFICATION_TYPES.has(type);

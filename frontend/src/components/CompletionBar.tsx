@@ -143,15 +143,22 @@ const CompletionBar: FC<{
             </span>
           </span>
         </div>
-        // TWO components, and the nesting is the point. `role="progressbar"`
-        takes its name from the author // only -- content does not name it --
-        and react-bootstrap's `ProgressBar` treats an unlabelled bar as // the
-        outer wrapper, so a prop-level `aria-label` landed on a div whose role
-        forbids naming (axe: // `aria-prohibited-attr`) while the bar stayed
-        nameless (axe: `aria-progressbar-name` [serious]). As a // CHILD, the
-        same component renders the bar itself and spreads the rest of the props
-        onto it, which is // where a name belongs. `label=""` keeps the score
-        from being drawn a second time at a smaller size.
+        {/* TWO components, and the nesting is the point. `role="progressbar"`
+            takes its name from the author only -- content does not name it -- and
+            react-bootstrap's `ProgressBar` treats an unlabelled bar as the outer
+            wrapper, so a prop-level `aria-label` landed on a div whose role forbids
+            naming (axe: `aria-prohibited-attr`) while the bar stayed nameless (axe:
+            `aria-progressbar-name` [serious]). As a CHILD, the same component
+            renders the bar itself and spreads the rest of the props onto it, which
+            is where a name belongs. `label=""` keeps the score from being drawn a
+            second time at a smaller size.
+
+            It was written as page TEXT until biome's noCommentText caught it: nine
+            lines of `//`-prefixed prose rendering inside every completion card, on
+            every performer and scene page, in front of the progress bar. A comment
+            that is not a comment is content, and no test was asserting what that
+            card says. */}
+
         <ProgressBar className="mb-2">
           <ProgressBar
             now={completion.score}

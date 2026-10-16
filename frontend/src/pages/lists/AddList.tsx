@@ -43,7 +43,8 @@ const AddList: FC = () => {
     <div>
       <h3>Add new list</h3>
       <p className="text-muted">
-        A new list is always private. You can publish it once it is worth sharing.
+        A new list is always private. You can publish it once it is worth
+        sharing.
       </p>
       <hr />
       <ListForm callback={doInsert} saving={loading} />

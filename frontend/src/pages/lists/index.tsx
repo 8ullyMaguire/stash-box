@@ -30,7 +30,9 @@ const ListLoader: FC = () => {
     // backend's deliberate refusal to distinguish them. Saying "you do not have access"
     // alone would confirm the list exists, which is the leak the backend goes to the
     // trouble of preventing.
-    return <ErrorMessage error="List not found, or you do not have access to it" />;
+    return (
+      <ErrorMessage error="List not found, or you do not have access to it" />
+    );
 
   return (
     <Routes>

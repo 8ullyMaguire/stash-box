@@ -51,7 +51,11 @@ describe("LintDefinitions", () => {
     render(
       <LintDefinitions
         definitions={[
-          def({ slug: "kept_after_rollback", enabled: true, implemented: false }),
+          def({
+            slug: "kept_after_rollback",
+            enabled: true,
+            implemented: false,
+          }),
         ]}
       />,
     );
@@ -84,18 +88,19 @@ describe("LintDefinitions", () => {
     expect(screen.getByText("retired_and_gone")).toBeInTheDocument();
 
     expect(screen.getByText("Retired")).toBeInTheDocument();
-    expect(screen.getByText("Retired, and not in this build")).toBeInTheDocument();
+    expect(
+      screen.getByText("Retired, and not in this build"),
+    ).toBeInTheDocument();
     // A retired row is not a problem state, so there is no danger notice.
-    expect(screen.queryByText(/switched on that this build/i)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/switched on that this build/i),
+    ).not.toBeInTheDocument();
   });
 
   it("has no control on it, and names where the registry is actually edited", () => {
     render(
       <LintDefinitions
-        definitions={[
-          def({ slug: "a" }),
-          def({ slug: "b", enabled: false }),
-        ]}
+        definitions={[def({ slug: "a" }), def({ slug: "b", enabled: false })]}
       />,
     );
 
@@ -132,7 +137,9 @@ describe("describeRegistryError", () => {
   });
 
   it("calls anything else a fault, and quotes the server", () => {
-    const { variant, text } = describeRegistryError("dial tcp: connection refused");
+    const { variant, text } = describeRegistryError(
+      "dial tcp: connection refused",
+    );
     expect(variant).toBe("danger");
     expect(text).toMatch(/This is a fault rather than a permission/);
     expect(text).toMatch(/dial tcp: connection refused/);

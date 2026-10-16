@@ -23,17 +23,17 @@ const App: FC = () => (
           regardless of whether any route renders, including the login page. */}
       <ThemeProvider>
         <ToastProvider>
-        <Routes>
-          <Route
-            path="/*"
-            element={
-              <Main>
-                <Title />
-                <Pages />
-              </Main>
-            }
-          />
-        </Routes>
+          <Routes>
+            <Route
+              path="/*"
+              element={
+                <Main>
+                  <Title />
+                  <Pages />
+                </Main>
+              }
+            />
+          </Routes>
         </ToastProvider>
       </ThemeProvider>
     </BrowserRouter>

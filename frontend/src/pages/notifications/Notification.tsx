@@ -114,9 +114,15 @@ const NotificationHeader = ({
 }: {
   notification: NotificationType;
 }) => {
-  const [markRead, { loading }] = useMarkNotificationRead({
-    notification: createMarkNotificationReadInput(notification),
-  });
+  // A notification whose kind maps to no input (a kind this client has not learned
+  // yet) leaves the mutation SKIPPED rather than sending `{}`: the hook's variables
+  // are optional for exactly this case. Residual gap, stated rather than implied:
+  // the mark-read control still renders for such a kind and does nothing. Hiding it
+  // is a UI decision for the notification hub (Phase 13), not a typing fix.
+  const markReadInput = createMarkNotificationReadInput(notification);
+  const [markRead, { loading }] = useMarkNotificationRead(
+    markReadInput === undefined ? undefined : { notification: markReadInput },
+  );
 
   const headerText = () => {
     if (isCommentNotification(notification)) {

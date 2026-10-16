@@ -1,7 +1,7 @@
-import { screen } from "@testing-library/react";
 import type { MockedResponse } from "@apollo/client/testing";
+import { screen } from "@testing-library/react";
 
-import { ConfigDocument, ListDocument, RoleEnum } from "src/graphql";
+import { ListDocument, RoleEnum } from "src/graphql";
 import { configMock } from "src/test/graphqlMocks";
 import { renderForm } from "src/test/renderForm";
 import { describe, expect, it } from "vitest";

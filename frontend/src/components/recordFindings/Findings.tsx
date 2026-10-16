@@ -41,9 +41,11 @@ const Findings: FC<Props> = ({ entityType, entityId, reports }) => {
     ? ROUTE_PERFORMER_EDIT.replace(":id", entityId)
     : ROUTE_SCENE_EDIT.replace(":id", entityId);
   const mergeOf = (other: string) =>
-    (isPerformer
-      ? ROUTE_PERFORMER_MERGE.replace(":id", entityId)
-      : ROUTE_SCENE_MERGE.replace(":id", entityId)) + `?source=${other}`;
+    `${
+      isPerformer
+        ? ROUTE_PERFORMER_MERGE.replace(":id", entityId)
+        : ROUTE_SCENE_MERGE.replace(":id", entityId)
+    }?source=${other}`;
 
   return (
     <div className="RecordFindings">

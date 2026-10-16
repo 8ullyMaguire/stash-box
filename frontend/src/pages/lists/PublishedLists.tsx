@@ -43,9 +43,7 @@ const PublishedLists: FC = () => {
       </div>
 
       {!lists.length ? (
-        <Alert variant="secondary">
-          Nobody has published a list yet.
-        </Alert>
+        <Alert variant="secondary">Nobody has published a list yet.</Alert>
       ) : (
         <Table striped bordered hover responsive>
           <thead>
@@ -67,7 +65,9 @@ const PublishedLists: FC = () => {
                 </td>
                 <td>
                   {list.owner ? (
-                    <Link to={`/users/${list.owner.id}`}>{list.owner.name}</Link>
+                    <Link to={`/users/${list.owner.id}`}>
+                      {list.owner.name}
+                    </Link>
                   ) : (
                     <span className="text-muted">unknown</span>
                   )}

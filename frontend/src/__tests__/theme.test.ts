@@ -1,14 +1,14 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve as resolvePath } from "node:path";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
-  THEME_STORAGE_KEY,
   applyTheme,
   prefersDark,
   readStoredTheme,
   resolveTheme,
   storeTheme,
+  THEME_STORAGE_KEY,
   themeTokens,
 } from "../theme";
 
@@ -62,7 +62,16 @@ function mockMatchMedia(dark: boolean, hasModernApi = true) {
     configurable: true,
     value: () => mql,
   });
-  return { mql, fire: () => listeners.forEach((cb) => cb()) };
+  // A block body, so the callback returns nothing: the arrow used to hand
+  // forEach's return straight back, which is a value nobody wants and a lint
+  // (useIterableCallbackReturn) that is right about it.
+  return {
+    mql,
+    fire: () =>
+      listeners.forEach((cb) => {
+        cb();
+      }),
+  };
 }
 
 describe("theme resolution", () => {
@@ -288,8 +297,10 @@ describe("token parity between theme.ts and theme.scss", () => {
       // 4.39:1 -- under the threshold, on 27 nodes of one page, while the token passed on white. A token is
       // only as good as the worst surface it can land on, so the worst one is named here.
       const over = (fg: string, bg: string, alpha: number) => {
-        const mix = (a: number, b: number) => Math.round(a * alpha + b * (1 - alpha));
-        const parse = (h: string) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+        const mix = (a: number, b: number) =>
+          Math.round(a * alpha + b * (1 - alpha));
+        const parse = (h: string) =>
+          [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
         const [r1, g1, b1] = parse(fg);
         const [r2, g2, b2] = parse(bg);
         const hex = (v: number) => v.toString(16).padStart(2, "0");

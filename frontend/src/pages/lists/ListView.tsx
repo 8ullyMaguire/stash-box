@@ -80,9 +80,7 @@ const ListItems: FC<{ list: List; isOwner: boolean }> = ({ list, isOwner }) => {
                   <Button
                     variant="outline-danger"
                     size="sm"
-                    onClick={() =>
-                      removeItem({ variables: { id: item.id } })
-                    }
+                    onClick={() => removeItem({ variables: { id: item.id } })}
                   >
                     Remove
                   </Button>
@@ -213,7 +211,9 @@ const ListView: FC<Props> = ({ list, isOwner }) => {
                         survived on purpose -- deleting a user must not erase what they did --
                         so it renders as "a former member" rather than hiding the row. */}
                     {entry.actor ? (
-                      <Link to={`/users/${entry.actor.id}`}>{entry.actor.name}</Link>
+                      <Link to={`/users/${entry.actor.id}`}>
+                        {entry.actor.name}
+                      </Link>
                     ) : (
                       "a former member"
                     )}

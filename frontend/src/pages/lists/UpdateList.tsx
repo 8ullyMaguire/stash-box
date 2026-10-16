@@ -62,7 +62,9 @@ const UpdateListLoader: FC = () => {
   if (!id) return <ErrorMessage error="List ID is required" />;
   if (loading) return <LoadingIndicator message="Loading..." />;
   if (!data?.list)
-    return <ErrorMessage error="List not found, or you do not have access to it" />;
+    return (
+      <ErrorMessage error="List not found, or you do not have access to it" />
+    );
 
   return <UpdateList list={data.list} />;
 };

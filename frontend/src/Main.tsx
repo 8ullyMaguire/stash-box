@@ -1,7 +1,7 @@
 import { faBell as faBellOutlined } from "@fortawesome/free-regular-svg-icons";
 import { faBell, faBook, faUser } from "@fortawesome/free-solid-svg-icons";
 import { type FC, useEffect, useMemo } from "react";
-import { Badge, Button, Nav, Navbar } from "react-bootstrap";
+import { Badge, Nav, Navbar } from "react-bootstrap";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { Icon } from "src/components/fragments";
 import SearchField, { SearchType } from "src/components/searchField";

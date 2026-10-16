@@ -1,4 +1,5 @@
-import React, {
+import type React from "react";
+import {
   createContext,
   useCallback,
   useContext,
@@ -8,12 +9,12 @@ import React, {
 } from "react";
 
 import {
-  ResolvedTheme,
-  ThemeChoice,
   applyTheme,
+  type ResolvedTheme,
   readStoredTheme,
   resolveTheme,
   storeTheme,
+  type ThemeChoice,
 } from "../theme";
 
 /**
@@ -52,12 +53,16 @@ const ThemeContext = createContext<ThemeContextValue>({
 
 const CYCLE: ThemeChoice[] = ["system", "light", "dark"];
 
-export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({
+  children,
+}) => {
   // The stored choice is read LAZILY, once, via the useState initialiser. Reading it on
   // every render would be a localStorage hit per render, and would clobber the user's
   // in-session choice with the persisted one on every keystroke elsewhere in the app.
   const [choice, setChoiceState] = useState<ThemeChoice>(readStoredTheme);
-  const [resolved, setResolved] = useState<ResolvedTheme>(() => resolveTheme(choice));
+  const [resolved, setResolved] = useState<ResolvedTheme>(() =>
+    resolveTheme(choice),
+  );
 
   // Track the OS preference so "system" is live rather than sampled once at startup.
   useEffect(() => {
