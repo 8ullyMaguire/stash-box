@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"os"
 
@@ -43,6 +44,7 @@ func main() {
 	db := database.Initialize(config.GetDatabasePath())
 	fac := service.NewFactory(db, emailMgr)
 	fac.User().CreateSystemUsers(context.Background())
+	initLintRegistry(fac)
 	bootstrapAdminFromEnv(context.Background(), fac)
 	api.Start(*fac, frontend.FS)
 	cron.Init(*fac)
@@ -57,6 +59,34 @@ func main() {
 func blockForever() {
 	c := make(chan struct{})
 	<-c
+}
+
+// initLintRegistry seeds the data-lint detectors this build implements and refuses to start on a
+// registry that names one it does not (SPEC §7.24.4, migration 98's stated contract: "the registry
+// refuses it at startup instead").
+//
+// SEEDING AND VALIDATION ARE ONE FUNCTION ON PURPOSE. Seeding without validating would let an enabled
+// row with no implementation sit there being skipped by the board, which reads exactly like a detector
+// that found nothing -- the failure mode migration 98's comment is about. Validating without seeding
+// would leave the registry empty on a fresh instance, so the board would be empty and every detector
+// would look like it agreed the archive is clean.
+//
+// It FAILS THE BOOT, deliberately: an operator who has just added a row naming a detector this build
+// does not ship needs to hear about it here, not from a board that quietly stopped listing one.
+func initLintRegistry(fac *service.Factory) {
+	ctx := context.Background()
+	inserted, err := fac.Lint().EnsureBuiltins(ctx)
+	if err != nil {
+		fmt.Printf("The data-lint registry could not be seeded: %s\n", err)
+		os.Exit(1)
+	}
+	if err := fac.Lint().Validate(ctx); err != nil {
+		fmt.Printf("The data-lint registry disagrees with this build: %s\n", err)
+		os.Exit(1)
+	}
+	if inserted > 0 {
+		fmt.Printf("Seeded %d data-lint detector(s).\n", inserted)
+	}
 }
 
 // bootstrapAdminFromEnv creates an ADMIN user from STASH_BOX_BOOTSTRAP_ADMIN_*

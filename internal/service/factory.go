@@ -50,6 +50,7 @@ import (
 	"github.com/stashapp/stash-box/internal/service/ingest/extract"
 	"github.com/stashapp/stash-box/internal/service/invite"
 	"github.com/stashapp/stash-box/internal/service/leaderboard"
+	"github.com/stashapp/stash-box/internal/service/lint"
 	listsvc "github.com/stashapp/stash-box/internal/service/list"
 	"github.com/stashapp/stash-box/internal/service/metrics"
 	"github.com/stashapp/stash-box/internal/service/mod_audit"
@@ -176,6 +177,15 @@ func newVectorStore() similar.VectorStore {
 // that knows how to resolve a name for each type.
 func (f *Factory) Quest() *quest.Service {
 	return quest.NewService(f.Completion(), f.resolveEntityName)
+}
+
+// Lint returns the data-lint service (SPEC §7.24.4) -- the detectors behind migration 98's registry.
+//
+// Note the asymmetry with every other accessor here: this package is a READER and never a writer of the
+// archive. A lint finding is re-derived from the tables on every read and nothing it computes is
+// stored, so an accessor that created state would be the one thing the design forbids.
+func (f *Factory) Lint() *lint.Service {
+	return lint.NewService(queries.New(f.db))
 }
 
 // Authored returns an AuthoredService instance.

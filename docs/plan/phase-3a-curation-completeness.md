@@ -3,8 +3,9 @@
 **Spec:** `docs/SPEC.md` §7.24 · **Intake review:** `docs/track/INTAKE-2026-10-01-curation-completeness.md`
 **Written:** 2026-10-01 · **Amended:** 2026-10-05
 Status: **in progress** — §7.24.1's schema, write path and gates are built (see the table below; this line
-said "service and gates outstanding" until 2026-10-16, which its own table had already contradicted). Still
-outstanding: `internal/service/lint`, the four frontend surfaces, and the §7.24.11 `cmd/backup` exception.
+said "service and gates outstanding" until 2026-10-16, which its own table had already contradicted), and
+`internal/service/lint` is built as of the same day. Still outstanding: the four frontend surfaces and the
+§7.24.11 `cmd/backup` exception.
 
 > **This document is the source of truth for what is NOT built.** `docs/goal-check.py` clause
 > C3 requires every plan document to read `Status: Built`, and it will keep failing until the
@@ -25,9 +26,57 @@ outstanding: `internal/service/lint`, the four frontend surfaces, and the §7.24
 | §7.24.8 `101_completion_field_weights` | **built (service)** | `b3676fe2`; `internal/service/completion/delta.go`, 11/11 mutations killed |
 | §7.24.8 `101_completion_field_weights` (migration) | not started | weights are in Go today; see below |
 | `internal/service/completion` | **extended, pre-existing** | `score.go` already existed (§7.7); `delta.go` adds §7.24.8 on top |
-| `internal/service/lint` | not started | — |
+| `internal/service/lint` | **built** | `internal/service/lint/service.go` + `internal/queries/sql/lint.sql` (six named detectors) + `cmd/lintquests`; 12 unit tests, 8 integration tests against a real database, 7/7 mutations killed. See below for the detector set and its two deviations. |
 | frontend (4 surfaces) | not started | — |
 | §7.24.11 exception: `cmd/backup` | not started | — |
+
+### `internal/service/lint` — what was built, and where it departs from §7.24.4's list
+
+Built 2026-10-16. The registry is migration 98's (`slug`, `description`, `enabled`, `bounty_points`,
+`is_builtin`); the SQL is six named queries in `internal/queries/sql/lint.sql`, which is what 98's comment
+requires ("the SQL lives in `internal/queries/` as a named Go function"); `internal/service/lint` is the
+mapping between the two, and **Validate refuses to start the instance** when an enabled row names a detector
+this build does not implement — 98's stated contract, wired into `cmd/stash-box`'s startup beside
+`CreateUserSystemUsers`.
+
+**A candidate is never stored, and nothing is ever fixed.** A finding is re-derived from the tables on every
+read (the same rule `internal/service/quest` states for generated quests, for the same reason: a stored "these
+two scenes share a URL" is false the moment somebody fixes one of them), and §7.24.4's "emits a quest and never
+auto-merges" is enforced by the package having no write path at all — it holds a `queries.Querier` and calls
+only `SELECT`s.
+
+**§7.24.4 names five detector families. Four are built, one is substituted, one is not built:**
+
+| §7.24.4's family | What exists | Why |
+|---|---|---|
+| the duplicate-URL detector | `duplicate_performer_url`, `duplicate_scene_url` | as written, one per entity type: a duplicated performer URL is usually one person entered twice, a duplicated scene URL one scene catalogued twice by two sites, and a curator working one does not want them mixed. |
+| alias collisions | `performer_alias_collision` | as written, **and the direction matters**: an alias claiming another performer's name or alias is the finding, while two performers merely *sharing a name* is legitimate in this schema (disambiguation is how the two are separated). No auto-merge. |
+| covers below a minimum resolution | `low_resolution_performer_image` | as written, on the SHORTER side (a 4000x200 strip is not a usable performer picture) and only for images linked to a performer. |
+| scene-dated-before-studio | **substituted**: `impossible_scene_date` | **the schema has no studio founding date.** `studios` carries `created_at`, which is when THIS INSTANCE recorded the studio — for an imported archive that is the import time, so the detector as named would flag every scene in the database. The family it belongs to ("a date that cannot be true") is expressible, so the detector covers a future date beyond a tunable slack window and a scene dated before one of its performers' birthdates. |
+| conflicting tags | **not built** | migration 111 gives tags IMPLICATIONS (`tag_id` implies `implied_tag_id`), not conflicts: this schema has no way to say two tags cannot both apply. A "conflicting tags" detector would have to invent a conflict relation, and inventing one is a schema change, not a lint. Named here rather than silently dropped. |
+
+**Two discoveries the SQL made, both recorded in the query comments:**
+
+1. **`scenes.date` and `performers.birthdate` are TEXT, and a cast is the wrong instinct.** Migration 42
+   dropped `date_accuracy` and folded the precision into the value, so a scene "sometime in 2015" is the string
+   `'2015'`. Textual comparison is therefore CORRECT here (shorter is earlier in this format) and `s.date::date`
+   is WRONG — it fails at runtime for exactly the partial dates the schema exists to hold. The first version
+   compared a text date to `CURRENT_DATE` and the database answered `operator does not exist: text > date`,
+   which is the recoverable version of that mistake.
+2. **`images.width`/`height` are NOT NULL**, so "an image whose size was never measured" is not a state a row
+   can be in. A comment claiming the detector handled it was deleted, and the test now asserts the CONSTRAINT
+   instead — a detector written against an imaginary state is how a rule silently stops matching the data.
+
+**The caller is `cmd/lintquests`** (board, single detector, `-ensure`, `-validate`, and `-entity`/`-ids` for
+the import pass). The four frontend surfaces are still outstanding; until they land this is what makes the
+detectors runnable against a real archive, and it is the instrument the verification used.
+
+**Verified:** `go test ./...` green; 8 integration tests against a real database (each case builds two rows
+that differ in one property and asserts BOTH the hit and the miss — the miss is what catches a join one
+condition too loose); `scripts/mutate-lint-quests.py` **7/7 killed** with every restore green, after two
+survivors turned out to be the TEST's fault rather than the mutation's (see that script's header: one probe
+edited `.sql` while the compiler reads the generated Go, and one fixture used `DeletePerformer` — a HARD
+delete — so the "deleted rows are not lint" rule had no subject to be wrong about).
 
 ### Two departures from the plan as written, both forced by the existing schema
 

@@ -1716,6 +1716,7 @@ type Querier interface {
 	GetImageTypesByTarget(ctx context.Context, target string) ([]ImageType, error)
 	// Gets current images for target entity and merges with edit's added_images/removed_images
 	GetImagesForEdit(ctx context.Context, id uuid.UUID) ([]Image, error)
+	GetLintQuestDefinition(ctx context.Context, slug string) (LintQuestDefinition, error)
 	// A single item by its own id.
 	//
 	// Needed by reorder and remove, which are addressed by ITEM id and must therefore
@@ -1899,6 +1900,11 @@ type Querier interface {
 	// Whether THIS user already voted, so the UI can render a vote button as a state
 	// rather than as an action that silently does nothing.
 	HasVotedForCandidate(ctx context.Context, arg HasVotedForCandidateParams) (bool, error)
+	// Idempotent, and deliberately DO NOTHING rather than DO UPDATE: a builtin row an operator has
+	// switched OFF or priced differently is an operator decision, and re-seeding it on every start
+	// would quietly undo it. Returns no row when the definition already exists, which the service
+	// reads as "already seeded" rather than as a failure.
+	InsertBuiltinLintQuestDefinition(ctx context.Context, arg InsertBuiltinLintQuestDefinitionParams) (LintQuestDefinition, error)
 	// The pipeline's attach: record that an entity is reachable at a URL.
 	//
 	// ON CONFLICT DO NOTHING against the (entity_type, entity_id, url) constraint, so an
@@ -1932,6 +1938,65 @@ type Querier interface {
 	InviteKeyUsed(ctx context.Context, id uuid.UUID) (*int, error)
 	IsImageUnused(ctx context.Context, id uuid.UUID) (bool, error)
 	LinkContentItemTag(ctx context.Context, arg LinkContentItemTagParams) error
+	// The same, for performers. Kept as its own detector rather than a parameterised one: the two
+	// entity types have different consequences (a duplicated performer URL is usually one person
+	// entered twice, a duplicated scene URL is usually one scene catalogued twice by two sites) and
+	// a curator working one does not want the other mixed into the same quest.
+	LintDuplicatePerformerURLs(ctx context.Context, arg LintDuplicatePerformerURLsParams) ([]LintDuplicatePerformerURLsRow, error)
+	// The same URL recorded on two different scenes. One of them is usually a duplicate record that
+	// belongs merged rather than a scene with a wrong URL, which is why the detail names how many
+	// scenes share it: two is a pair to look at, forty is a studio's whole catalogue pointing at one
+	// aggregator page.
+	LintDuplicateSceneURLs(ctx context.Context, arg LintDuplicateSceneURLsParams) ([]LintDuplicateSceneURLsRow, error)
+	// A scene date that cannot be true: in the future, or before one of its performers was born.
+	//
+	// Risk is allowed to trail reality (a scene dated tomorrow is a scheduled release), so the future
+	// arm is not "any date after today" but "a date that has not happened and is not imminent" -- $2
+	// days of slack, passed by the service rather than written here, because "how far ahead is a
+	// mistake" is a policy an operator may want to tune.
+	//
+	// BOTH DATES ARE TEXT, and it is not an oversight. Migration 42 dropped `date_accuracy` and folded
+	// the precision into the value, so a date is 'YYYY', 'YYYY-MM' or 'YYYY-MM-DD' -- a scene "sometime in
+	// 2015" is the string '2015'. That makes the textual comparison CORRECT (in this format shorter is
+	// earlier, and '2015' < '2015-06-01' < '2016'), and it makes `s.date::date` WRONG: casting '2015'
+	// fails at runtime, on a live database, for exactly the partial dates the schema exists to hold. The
+	// first version of this query compared a text date to CURRENT_DATE and the database answered
+	// `operator does not exist: text > date` -- which is the good version of that mistake, because a
+	// cast would have passed every test whose fixtures happened to use full dates.
+	//
+	// So the future arm compares against a string formatted the same way, and the birth-date arm compares
+	// the two strings to each other. A year-accurate birthdate ('1990') is therefore never "after" any
+	// scene in 1990, so this arm can be wrong in the direction of saying NOTHING, which is the direction
+	// a lint should be wrong in.
+	//
+	// The birth-date arm compares the two DATES as recorded, and its precision is the value's own:
+	// migration 42 DROPPED `birthdate_accuracy` and folded the precision into the date, so '1990' is a
+	// year-accurate birthdate stored as 1990-01-01. That means a scene from later in 1990 does not fire
+	// (it is after January 1st), so this arm can be wrong in the direction of saying NOTHING -- and that
+	// is the direction a lint should be wrong in. (An accuracy COLUMN would have been the natural thing
+	// to write here; it does not exist, and reading a dropped column is a query that fails at runtime
+	// on a live database rather than at review.)
+	LintImpossibleSceneDates(ctx context.Context, arg LintImpossibleSceneDatesParams) ([]LintImpossibleSceneDatesRow, error)
+	// A performer's picture whose SHORTER side is below $2 pixels. The shorter side rather than the
+	// area, because a 4000x200 strip is not a usable performer image and an area threshold calls it
+	// one.
+	//
+	// `images.width`/`height` are NOT NULL in this schema, so "an image whose size was never measured"
+	// is not a state a row can be in: the fixture that tried to build it was refused by the constraint.
+	// The comparison is written without an explicit null guard because SQL already gives the answer a
+	// lint wants -- `least(NULL, 5) < 300` is NULL, and a NULL predicate does not select the row -- and a
+	// guard would be code claiming to handle a case the schema forbids. If that constraint is ever
+	// relaxed, the behaviour is unchanged and this sentence becomes the note whoever relaxes it needs.
+	LintLowResolutionPerformerImages(ctx context.Context, arg LintLowResolutionPerformerImagesParams) ([]LintLowResolutionPerformerImagesRow, error)
+	// An ALIAS that is another performer's name or alias.
+	//
+	// The filter is the load-bearing part: a name colliding with a name is NOT lint, because two
+	// performers may legitimately share a name (disambiguation is how this schema separates them) and
+	// a detector that flagged every "Alex" would bury the real findings. An alias claiming another
+	// performer's identity is a different thing: it asserts a merge that nobody voted on. §7.24.4 is
+	// explicit that this emits a quest and NEVER auto-merges -- the merge path is the consensus flow
+	// in internal/service/edit, and a lint that merged would be an unattributable edit.
+	LintPerformerAliasCollisions(ctx context.Context, arg LintPerformerAliasCollisionsParams) ([]LintPerformerAliasCollisionsRow, error)
 	// A target's vouches that are neither withdrawn nor expired, newest first.
 	ListActiveVouchesForTarget(ctx context.Context, arg ListActiveVouchesForTargetParams) ([]MemberVouch, error)
 	// The frames of a collage, in playback order.
@@ -2000,6 +2065,7 @@ type Querier interface {
 	// The candidate set for a broadcast. Filters `enabled` in SQL rather than in Go
 	// so the broadcast path cannot accidentally read a disabled peer.
 	ListEnabledFederationPeers(ctx context.Context) ([]FederationPeer, error)
+	ListEnabledLintQuestDefinitions(ctx context.Context) ([]LintQuestDefinition, error)
 	// Operator surface, so ordering is by name rather than by id: a list whose
 	// order changes between calls is a list nobody can scan.
 	ListFederationPeers(ctx context.Context) ([]FederationPeer, error)
@@ -2075,6 +2141,43 @@ type Querier interface {
 	// POSITIONS honest -- position 7 of a level-scoped board is the member's real standing
 	// rather than their rank among the members who happen to share their level.
 	ListLeaderboard(ctx context.Context, arg ListLeaderboardParams) ([]ListLeaderboardRow, error)
+	// SPEC §7.24.4: data-lint quests -- the detectors.
+	//
+	// Migration 98 is the REGISTRY and says the SQL lives here: "the SQL lives in internal/queries/ as
+	// a named Go function, and this row says which detectors exist, are enabled, and cost what."
+	// So each detector below is a named query, and internal/service/lint maps a registry slug onto it
+	// by name. A slug in the registry that names no query here is refused by the service at startup,
+	// which is the only thing that keeps the two halves from disagreeing.
+	//
+	// THE SAME SQL DOUBLES AS AN IMPORT VALIDATION PASS, which §7.24.4 calls "the more valuable half
+	// of this item": every detector takes the entity as its own column so a caller can ask "did THIS
+	// import introduce a problem", not only "what is wrong with the archive".
+	//
+	// THREE RULES EVERY DETECTOR FOLLOWS, and each is a claim about what lint means:
+	//
+	//   ONE, a SOFT-DELETED ENTITY IS NOT LINT. `deleted` is how this schema retires things, and a
+	//   quest asking a curator to fix a performer nobody can read is a wasted work item. Every arm
+	//   filters it. (Redirects are not lint either -- an entity that was merged away has a redirect
+	//   row and no name collision to fix.)
+	//
+	//   TWO, ONE ROW PER ENTITY TO FIX, with the detail that says WHY. A detector that returned two
+	//   rows for one performer would double that quest's apparent size, and `LIMIT 5` would ask for
+	//   five performers and get three.
+	//
+	//   THREE, EVERY DETECTOR TAKES AN OPTIONAL ENTITY FILTER, which is what makes the import validation
+	//   pass exact rather than lucky. Filtering in Go after a bounded query would answer "what is wrong
+	//   with the archive, among the first N findings" -- an archive large enough to fill the limit would
+	//   silently stop reporting the import that was just made. `sqlc.narg(entity_ids)` is NULL for a
+	//   board run and a list of ids for a validation pass.
+	//
+	//   FOUR, THE LIMIT IS THE CALLER'S. Every query takes `$1` as its row cap, so a board that shows
+	//   five and a sweep that walks fifty thousand ask the same SQL the same question. A hard-coded
+	//   LIMIT inside a detector is how a lint silently stops finding things as the archive grows.
+	//
+	// A detector's TRUE POSITIVE RATE is not knowable from here, and that is why the descriptions in
+	// internal/service/lint are written as what is WRONG with the record rather than what the query
+	// does: a curator decides whether to work a quest from the description, not from the SQL.
+	ListLintQuestDefinitions(ctx context.Context) ([]LintQuestDefinition, error)
 	// The history, newest first, WITHOUT the snapshots: a list is not the place to ship every
 	// version's whole document, and the caller that wants one asks for it by number.
 	ListOntologyVersions(ctx context.Context, limit int32) ([]ListOntologyVersionsRow, error)
