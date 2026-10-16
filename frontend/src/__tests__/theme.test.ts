@@ -292,6 +292,29 @@ describe("token parity between theme.ts and theme.scss", () => {
         contrast(t["--sb-link"], t["--sb-surface"]),
         `${theme}: link text on a card surface must reach 4.5:1`,
       ).toBeGreaterThanOrEqual(4.5);
+      // And on a card FOOTER, which is the surface that caught this a third time: the light palette's link
+      // passed on the page and on white, and measured 3.37:1 on the footer grey that a comment's author link
+      // sits on. Same footer value the danger token is asserted against, for the same reason.
+      expect(
+        contrast(t["--sb-link"], theme === "dark" ? "#26333e" : "#b7b9ba"),
+        `${theme}: link text on a card footer must reach 4.5:1`,
+      ).toBeGreaterThanOrEqual(4.5);
+      // `.btn-outline-danger` is `$danger` used as text, and the surface that decides is a card FOOTER, not
+      // a card: axe measured #db3737 at 2.31:1 on the light footer (#b7b9ba) and 2.83:1 on the dark one
+      // (#26333e). Those two values are Bootstrap's derived `--bs-card-cap-bg`, so the gate that measures the
+      // real footer stays the browser sweep; the pair is pinned here because a token is only as good as the
+      // worst surface it can land on, and this IS the worst one.
+      for (const bg of ["--sb-bg", "--sb-surface"] as const) {
+        expect(
+          contrast(t["--sb-danger-text"], t[bg]),
+          `${theme}: danger button text on ${bg} must reach 4.5:1`,
+        ).toBeGreaterThanOrEqual(4.5);
+      }
+      const cardFooter = theme === "dark" ? "#26333e" : "#b7b9ba";
+      expect(
+        contrast(t["--sb-danger-text"], cardFooter),
+        `${theme}: danger button text on the card footer (${cardFooter}) must reach 4.5:1`,
+      ).toBeGreaterThanOrEqual(4.5);
       // And against the GREY surface, which is the one that broke this twice: the drag-list strip and a
       // text input are `--sb-textfield-bg` over the page, and a muted description on that strip measured
       // 4.39:1 -- under the threshold, on 27 nodes of one page, while the token passed on white. A token is

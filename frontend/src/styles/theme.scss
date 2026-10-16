@@ -125,6 +125,12 @@ $textfield-bg: rgba(16 22 26 / 30%);
   // whose cells ARE code. Asserted against both backgrounds in theme.test.ts, like
   // every other token that is text.
   --sb-code: #f0a6c8;
+  // `$danger` (#db3737) is a FILL colour used as text by `.btn-outline-danger`. The sweep measured it at
+  // 2.83:1 on the card footer a comment's Edit/Delete buttons sit on (#26333e) -- 10 nodes on /edits, and the
+  // same button in the light palette measured 2.31:1 on ITS footer (#b7b9ba), which is why the token is
+  // per-palette: a red dark enough for #b7b9ba measures 1.43:1 on #26333e and a red light enough for #26333e
+  // measures 1.15:1 on #b7b9ba. No single value passes both, and asserting one would be asserting half a rule.
+  --sb-danger-text: #ff9e9e;
   --sb-border: #394b59;
   --sb-textfield-bg: #{$textfield-bg};
 
@@ -148,15 +154,22 @@ $textfield-bg: rgba(16 22 26 / 30%);
 
   --sb-bg: #f5f8fa;
   --sb-surface: #ffffff;
-  // Blueprint's blue2. The dark palette's #48aff0 measures 2.27:1 here -- the tab links on five pages were
-  // unreadable in light mode.
-  --sb-link: #0f628f;
+  // Blueprint's blue2, darkened once more. The dark palette's #48aff0 measures 2.27:1 here -- the tab links
+  // on five pages were unreadable in light mode -- and #0f628f, the value that replaced it, measures 3.37:1
+  // on a card FOOTER (#b7b9ba), which is where a comment's author link sits: 8 nodes on /edits, found by the
+  // sweep once the outline-danger button beside it stopped being the first node of the same rule. This
+  // palette's link only ever lands on light surfaces, so darkening is the one direction that cannot make
+  // another surface worse.
+  --sb-link: #0b4a6b;
   --sb-text: #182026;
   --sb-text-muted: #566877;
   // Bootstrap's #d63384 measures 4.3:1 on white -- under AA for body text, and this
   // value is a deliberate darkening of it (6.9:1) rather than the same colour kept
   // for familiarity.
   --sb-code: #a3236b;
+  // Blueprint's red1, in the same relationship to $danger that --sb-link has to $primary: the palette's own
+  // hue, re-picked for a surface it was not chosen against. 5.34:1 on the worst card footer, 9.36:1 on white.
+  --sb-danger-text: #7d1616;
   --sb-border: #d3dde4;
   --sb-textfield-bg: rgba(24 32 38 / 8%);
 
@@ -517,11 +530,29 @@ a,
   border-color: var(--sb-border);
 }
 
+// Bootstrap's `.bg-*` utilities set a background and nothing else, so a link inside one keeps the palette's
+// link token -- which is chosen against the page and card surfaces. On /edits a link inside `.bg-danger`
+// measured 2.34:1 (#6cc4f2 on #db3737). $danger does not follow the palette either, so neither can a link on
+// top of it: white measures 4.55:1 there in BOTH palettes, and the fill itself is the same both times. This
+// is `.alert-secondary`'s rule read backwards -- a surface that does not follow the palette cannot hold a
+// colour that does, whichever direction the mismatch points.
+.bg-danger a:not(.btn) {
+  color: #ffffff;
+}
+
 // WCAG 1.4.1: a link inside a block of text has to be distinguishable by something other than colour.
 // axe's `link-in-text-block` found the "Create one" link in the empty-lists alert at 2.44:1 against its text.
 .alert a,
 p a:not(.btn) {
   text-decoration: underline;
+}
+
+// `.btn-outline-danger` reads as text and a border, so BOTH carry the token. The border is WCAG 1.4.11
+// non-text contrast (3:1), which axe's tag set does not cover and the sweep measures by hand; the text is
+// 4.5:1. A dark red that satisfies the text on a light footer satisfies the border on it too.
+.btn-outline-danger {
+  color: var(--sb-danger-text);
+  border-color: var(--sb-danger-text);
 }
 
 .btn-outline-primary {

@@ -39,6 +39,7 @@ export const themeTokens: Record<ResolvedTheme, Record<string, string>> = {
     "--sb-code": "#f0a6c8",
     "--sb-border": "#394b59",
     "--sb-link": "#6cc4f2",
+    "--sb-danger-text": "#ff9e9e",
   },
   light: {
     // Not derived from the dark palette by inversion. Inverting #202b33 gives a
@@ -51,7 +52,8 @@ export const themeTokens: Record<ResolvedTheme, Record<string, string>> = {
     "--sb-text-muted": "#566877",
     "--sb-code": "#a3236b",
     "--sb-border": "#d3dde4",
-    "--sb-link": "#0f628f",
+    "--sb-link": "#0b4a6b",
+    "--sb-danger-text": "#7d1616",
   },
 };
 
