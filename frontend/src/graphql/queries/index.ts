@@ -30,6 +30,7 @@ import {
   ImageTypeGroupsDocument,
   type ImageTypeGroupsQueryVariables,
   InstanceMetricsDocument,
+  LintQuestBoardDocument,
   ListDocument,
   type ListQueryVariables,
   MeDocument,
@@ -488,6 +489,19 @@ export const useCurationDashboard = (
 // passing skip; skip stops the request, it does not stop the render.
 export const useUserStreak = (skip = false) =>
   useQuery(UserStreakDocument, { skip });
+
+// The data-lint quest board (SPEC §7.24.4).
+//
+// `limit` is per detector and optional on purpose. The server has a default and clamps whatever it is
+// given, so a caller that does not know how much room it has can send nothing and get a sane page rather
+// than guessing -- and the two numbers cannot drift apart, because only one of them (the server's) is a
+// rule.
+//
+// There is no `skip`: unlike `userStreak`, this query has no wrong-subject case to guard. It is gated on
+// VOTE at the schema, so a caller without the role gets an error, and the route that mounts it is behind
+// the same gate.
+export const useLintQuestBoard = (limit?: number) =>
+  useQuery(LintQuestBoardDocument, { variables: { limit } });
 
 export const useEloMatchup = (entityType: EloEntityType, skip = false) =>
   useQuery(EloMatchupDocument, {

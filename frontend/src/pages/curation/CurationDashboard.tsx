@@ -3,6 +3,7 @@ import { Button, Card, Col, Row } from "react-bootstrap";
 import { Link } from "react-router-dom";
 import { ErrorMessage, LoadingIndicator } from "src/components/fragments";
 import {
+  ROUTE_CURATION_LINT,
   ROUTE_CURATION_MATCHUP,
   ROUTE_PERFORMERS,
   ROUTE_SCENES,
@@ -99,6 +100,23 @@ const CurationDashboard: FC = () => {
       </Card>
 
       <StreakCard streak={streakData?.userStreak} loading={streakLoading} />
+
+      <Card>
+        <Card.Header>
+          <h4 className="mb-0">What the archive is getting wrong</h4>
+        </Card.Header>
+        <Card.Body>
+          <p className="text-muted mb-3">
+            Duplicate URLs, aliases claiming somebody else's identity, dates
+            that cannot be true. Each finding links to the record it is about,
+            and fixing one is the ordinary edit — nothing is merged
+            automatically.
+          </p>
+          <Link to={ROUTE_CURATION_LINT}>
+            <Button variant="primary">Open the lint board</Button>
+          </Link>
+        </Card.Body>
+      </Card>
 
       <Card>
         <Card.Header>

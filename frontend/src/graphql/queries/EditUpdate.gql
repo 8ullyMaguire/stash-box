@@ -29,6 +29,11 @@ query EditUpdate($id: ID!) {
       ... on Scene {
         id
       }
+      # merge_sources is the same union as `target`: a content-item source has an id like any other,
+      # and the frontend never asked for it. See the note in EditFragment.gql.
+      ... on ContentItem {
+        id
+      }
     }
     options {
       set_modify_aliases
@@ -51,6 +56,11 @@ query EditUpdate($id: ID!) {
       }
       ... on Scene {
         ...SceneFragment
+      }
+      # ContentItem is a member of this union: see the note in EditFragment.gql. The generated type
+      # for a content-item target carried nothing but its __typename until this arm existed.
+      ... on ContentItem {
+        id
       }
     }
     details {

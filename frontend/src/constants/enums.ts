@@ -95,6 +95,11 @@ export const EditTargetTypes: EnumDictionary<TargetTypeEnum, string> = {
   [TargetTypeEnum.PERFORMER]: "Performer",
   [TargetTypeEnum.SCENE]: "Scene",
   [TargetTypeEnum.STUDIO]: "Studio",
+  // The content plane added this member to TargetTypeEnum, and this dictionary is typed as covering
+  // every member -- so a missing key was a compile error rather than a silent gap. It was invisible
+  // until the generated GraphQL types were regenerated: types.ts had gone 1,841 lines stale, so the
+  // client's copy of the enum did not have CONTENT_ITEM in it either.
+  [TargetTypeEnum.CONTENT_ITEM]: "Content item",
 };
 
 export const EditStatusTypes: EnumDictionary<VoteStatusEnum, string> = {

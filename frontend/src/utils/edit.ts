@@ -52,6 +52,14 @@ export const isStudioEdit = <T extends TypeName>(
 ): details is T & { __typename: "StudioEdit" } =>
   details?.__typename === "StudioEdit";
 
+// ContentItem edits carry a `title` where the other detail shapes carry a `name`, so they need their
+// own guard: reading `.name` off the union is what made the fallback at the bottom of
+// getEditDetailsName a type error once the generated types were regenerated.
+export const isContentItemEdit = <T extends TypeName>(
+  details?: T | null,
+): details is T & { __typename: "ContentItemEdit" } =>
+  details?.__typename === "ContentItemEdit";
+
 export const isSceneEdit = <T extends TypeName>(
   details?: T | null,
 ): details is T & { __typename: "SceneEdit" } =>
@@ -116,6 +124,13 @@ export const getEditTargetEntity = <T extends TypeName>(target: T) => {
 
 export const getEditDetailsName = (details: Details | null): string => {
   if (isSceneEdit(details)) {
+    return details.title ?? "-";
+  }
+
+  // A content item is titled, not named. Before this branch existed, the fallback below read `.name`
+  // off a ContentItemEdit -- which the compiler only noticed once the generated types were
+  // regenerated, because the stale union had no ContentItemEdit member at all.
+  if (isContentItemEdit(details)) {
     return details.title ?? "-";
   }
 

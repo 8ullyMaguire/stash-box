@@ -1,0 +1,22 @@
+# The data-lint quest board (SPEC §7.24.4, plan phase 3a).
+#
+# `limit` is per detector, not per page: the board is a list of detectors, and each
+# one answers with as many candidates as the caller has room for. Omitted means the
+# service's own default; a truncated answer carries `limitNotice`, which the board
+# renders rather than hiding -- a detector showing exactly 25 of 4,000 findings
+# reads as an archive in good shape.
+query LintQuestBoard($limit: Int) {
+  lintQuestBoard(limit: $limit) {
+    slug
+    description
+    entityType
+    bountyPoints
+    count
+    limitNotice
+    candidates {
+      entityId
+      entityName
+      detail
+    }
+  }
+}

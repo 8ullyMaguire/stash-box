@@ -27,7 +27,7 @@ said "service and gates outstanding" until 2026-10-16, which its own table had a
 | §7.24.8 `101_completion_field_weights` (migration) | not started | weights are in Go today; see below |
 | `internal/service/completion` | **extended, pre-existing** | `score.go` already existed (§7.7); `delta.go` adds §7.24.8 on top |
 | `internal/service/lint` | **built** | `internal/service/lint/service.go` + `internal/queries/sql/lint.sql` (six named detectors) + `cmd/lintquests`; 12 unit tests, 8 integration tests against a real database, 7/7 mutations killed. See below for the detector set and its two deviations. |
-| frontend (4 surfaces) | not started | — |
+| frontend: the lint board (`/curation/lint`) | **built** | `frontend/src/pages/curation/LintBoard.tsx` + `LintQuestBoard.tsx` + the `LintQuestBoard` query and hook; 7 vitest tests on the page's design constraints, 2 Playwright journeys (the board with a real finding; the VOTE gate), 5 Go integration tests on the resolver. The other three surfaces are still not started. |
 | §7.24.11 exception: `cmd/backup` | not started | — |
 
 ### `internal/service/lint` — what was built, and where it departs from §7.24.4's list
@@ -255,6 +255,18 @@ PGPASSWORD=… python3 docs/verify-724-schema.py sb_check
 Both take `PGPASSWORD` from the environment and refuse to run without it. Each previously
 carried its own default, which is how the parent and child scripts ended up disagreeing about
 the same credential.
+
+### What walking the board found, which building it did not
+
+Four defects and one of them was already shipped. Written down because each was
+found by a different instrument, and none of them by looking at the new code:
+
+| What | Found by | Why it mattered |
+| --- | --- | --- |
+| **`/curation/matchup` has never rendered its page.** The nested routes under `/curation/*` were declared with the ABSOLUTE route constants (`/curation/matchup`, and the new `/curation/lint`), which do not match inside a splat parent -- every `/curation/<anything>` URL fell through to the `/*` child and rendered the dashboard. | the new page did not appear when asked for it | a shipped page nobody could reach, and no test visited it, so nothing reported it. Fixed to React Router's relative form (the house convention three quarters of this frontend already uses: `path="/"`, `path="/:id/*"`). A `Link` takes the absolute constant and a `Route` takes the relative one -- the asymmetry between them is what hid this. |
+| **23 TypeScript errors that were invisible.** `src/graphql/types.ts` was stale, and a stale union member makes `tsc` reason about a shape that does not exist. Regenerating the client (`pnpm generate`) surfaced them, all in the edit-detail union: `ContentItemEdit` was never a member the frontend handled, so `getEditDetailsName` read `.name` off a shape that has a `title`. | regenerating the client, for the new query | CI could not have caught it: the checked-in generated file was consistent with itself. The lesson is that a generated artefact which is never regenerated is a place errors go to hide. |
+| **The empty board said the archive was clean.** With no detectors at all, `total === 0` is true, so the page said "no findings right now -- every detector below ran", which is the opposite of the truth and exactly what the service's own registry validation exists to prevent. | the vitest case that renders an EMPTY list | the component had two states where the domain has three (clean, findings, no-registry). Restoring a three-way branch is not something a reviewer sees; rendering an empty array is. |
+| **The e2e `createSite` helper could not work.** `SiteCreateInput.highlighted` is `Boolean!`, the helper never sent it, and GraphQL refused the variable ("must be defined"). | the first e2e run of the new spec | every test that used the helper would have failed for a reason that names a fixture rather than a feature. The UI was never broken -- its form defaults `highlighted` to true and sends it. |
 
 ## Why this order
 

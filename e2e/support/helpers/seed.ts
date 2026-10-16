@@ -233,6 +233,13 @@ export async function createSite(
     name?: string;
     url?: string;
     validTypes?: ("SCENE" | "PERFORMER" | "STUDIO")[];
+    // `highlighted` is `Boolean!` in SiteCreateInput, so a client that omits it
+    // gets a variable-coercion 422 rather than a default -- "must be defined",
+    // which is what this helper did until a run of the lint-board spec hit it.
+    // The default matches the UI's own form default (SiteForm's yup schema:
+    // `highlighted: yup.boolean().default(true)`), so a fixture site looks like a
+    // site a person would create here.
+    highlighted?: boolean;
   } = {},
 ): Promise<{ id: string; name: string }> {
   const data = await gql<{ siteCreate: { id: string; name: string } }>(
@@ -245,6 +252,7 @@ export async function createSite(
         name: opts.name ?? uniq("site"),
         url: opts.url ?? "https://example.com",
         valid_types: opts.validTypes ?? ["SCENE", "PERFORMER", "STUDIO"],
+        highlighted: opts.highlighted ?? true,
       },
     },
   );

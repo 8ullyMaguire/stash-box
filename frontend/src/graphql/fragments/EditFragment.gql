@@ -50,8 +50,27 @@ fragment EditFragment on Edit {
     ... on Scene {
       ...SceneFragment
     }
+    # ContentItem has been a member of the edit target union since the content
+    # plane landed, and this fragment never selected anything for it. The
+    # generated type for a content-item target was therefore
+    # `{ __typename: "ContentItem" }` -- no id, no title -- so every consumer
+    # that read `.id` off a target was reading a field the frontend had never
+    # asked for. Nothing reported it, because types.ts had gone 1,841 lines
+    # stale: the schema grew and the generated types were never regenerated, so
+    # the union in the client still had four members and the compiler was
+    # satisfied. Found by regenerating, which is `make generate-ui`.
+    ... on ContentItem {
+      id
+    }
   }
   details {
+    # ContentItemEdit is a member of the details union, and it has a `title` rather than a `name` --
+    # which is exactly what utils/edit.ts's fallback was reading off it. Same root as the target arms
+    # above: a union the frontend never finished, invisible while the generated types were stale.
+    ... on ContentItemEdit {
+      edit_id
+      title
+    }
     ... on TagEdit {
       name
       description
@@ -283,6 +302,12 @@ fragment EditFragment on Edit {
     }
     ... on Scene {
       ...SceneFragment
+    }
+    # merge_sources is the same union as `target` above, and it kept the last of these errors alive:
+    # PerformerEditUpdate and friends read `s.id` off a merge source, and the generated type for a
+    # content-item source carried nothing at all.
+    ... on ContentItem {
+      id
     }
   }
   options {
