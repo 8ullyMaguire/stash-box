@@ -94,6 +94,15 @@ type Answer struct {
 	// learns nothing about what the peer can read, and the compatibility decision has to be made blind.
 	Ontology OntologyClaim
 
+	// SharedCoreVersions is every core version BOTH instances implement, ascending. Empty means the two
+	// cannot speak at all, which the peer can see without guessing from the crossing list.
+	SharedCoreVersions []int
+
+	// Crossing is every field of the ontology document, decided, with its reason. The CLOSED list rather
+	// than only the refused ones: a peer that received one refusal could not tell whether the other
+	// fields were allowed or simply not discussed.
+	Crossing []OntologyFieldCrossing
+
 	// Candidates are the peer's suggestions.
 	Candidates []RemoteCandidate
 }
@@ -147,6 +156,30 @@ func (c OntologyClaim) Declared() bool {
 // different repository. A slice 12b route registers it and a walk curls it, so it is named once and
 // read on both sides.
 const AnswerPath = answerPath
+
+// OntologyFieldCrossing is one field of the ontology document, and whether it may cross to the ASKER
+// (slice 12c).
+//
+// The answer carries the DECISION and the REASON, not only our claim, so a peer learns what it can send
+// before it sends it. Without this the exchange is an announcement: two instances would each describe
+// themselves and neither would know what the other can read, which leaves the compatibility rule
+// computed on one side only -- and the side that computes nothing is the side that gets it wrong.
+type OntologyFieldCrossing struct {
+	// Name is the document key: "tag", "implies", "category".
+	Name string
+
+	// Since is the core ontology version that introduced the field.
+	Since int
+
+	// Allowed is whether the field may cross to this peer. A bool, and the one kind this payload gained
+	// for it: a decision is a decision, and a two-string encoding ("allowed"/"refused") is a decision
+	// that two implementations spell differently.
+	Allowed bool
+
+	// Reason is the sentence the peer's operator reads, naming the version the field needs and which
+	// side lacks it. It is the half of a refusal that makes it actionable.
+	Reason string
+}
 
 // ProtocolVersion is the wire contract version, sent with every request.
 //

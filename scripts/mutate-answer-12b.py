@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Mutation battery for the federation answering half (phase 12, slice 12b).
+"""Mutation battery for the federation answering half (phase 12, slices 12b and 12c).
 
 Four probes. The rules worth having here are all REFUSALS, and a refusal is the easiest thing in a
 codebase to delete without any test noticing -- so each probe targets the condition, not the message,
@@ -93,6 +93,36 @@ MUTATIONS = [
         [UNIT + ["-run", "TestValidateAllowsAQuestionThatOnlyDeclaresAnOntology"]],
         "the arm slice 12b narrowed: a question that names nothing is a question that asks nothing, and "
         "the refusal is the only thing that says so",
+    ),
+    (
+        "M6 the crossing is decided against OUR versions instead of the peer's",
+        ANSWER,
+        "compat := Compatibility(local.CoreVersions, q.Ontology.CoreVersions)",
+        "compat := Compatibility(local.CoreVersions, local.CoreVersions)",
+        [UNIT + ["-run", "TestAnswerDecidesWhatMayCrossBackToTheAsker"],
+         INTEGRATION + ["-run", "TestFederationIdentifyIntegration"]],
+        "the peer's SIDE of the comparison is the whole point of a negotiation: against our own versions "
+        "every instance is told it can send everything, which is the silent mis-mapping by another route",
+    ),
+    (
+        "M7 the answer lists only the fields that may cross",
+        ANSWER,
+        "for _, f := range c.Fields {",
+        "for _, f := range c.Fields {\n\t\tif !f.Allowed {\n\t\t\tcontinue\n\t\t}",
+        [UNIT + ["-run", "TestAnswerDecidesWhatMayCrossBackToTheAsker"],
+         INTEGRATION + ["-run", "TestFederationIdentifyIntegration"]],
+        "a peer that receives only the allowed fields cannot tell whether the others were allowed or "
+        "never discussed -- the closed list is the difference between a decision and a filter",
+    ),
+    (
+        "M8 every field is reported as allowed",
+        ANSWER,
+        'Allowed: f.Allowed,',
+        'Allowed: true,',
+        [UNIT + ["-run", "TestAnswerDecidesWhatMayCrossBackToTheAsker"],
+         INTEGRATION + ["-run", "TestFederationIdentifyIntegration"]],
+        "the answer tells the peer it can send a field this instance cannot read, which is the failure "
+        "the field-by-field decision exists to prevent",
     ),
 ]
 

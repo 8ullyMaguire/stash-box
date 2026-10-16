@@ -3632,6 +3632,42 @@ ontology-only question.
   walk against a live instance (`scripts/walk-12b-live.py`) is the missing instrument and is named here
   rather than implied by the word "endpoint".
 
+### Slice 12c — the answer negotiates, instead of announcing
+
+**The rule.** Slice 12b made this instance answerable, and the answer was an ANNOUNCEMENT: two instances
+would each describe themselves and neither would say what the other could read. The compatibility rule
+was then computed on one side only, and the side that computes nothing is the side that sends a field
+the other cannot use — which is the silent mis-mapping the phase is against, reached by a different road.
+So the answer carries the decision: `SharedCoreVersions` and `Crossing`, where `Crossing` is every field
+of the ontology document with `allowed` and the REASON, computed from the claim the asker sent.
+
+**Every field, allowed or not.** A peer that received only the refusals could not tell whether the other
+fields were allowed or simply not discussed; a peer that received only the ALLOWED ones is worse off
+still — it cannot tell a decision from a filter. The reason travels with the decision, so the far-end
+operator reads the same sentence this instance's operator would.
+
+**An empty claim is a legal question, not an error.** A peer that has not built this half sends nothing,
+and `Compatibility` renders that as "no version" and refuses every field with a reason saying so — which
+is a true answer to "what can I send you", not a failure of the request. That is also why the crossing is
+computed even when the asking claim is empty: the useful answer to a silent peer is *"nothing, because
+you have not told me what you speak"*, not silence.
+
+**Two vocabulary widenings, both written down** in `wire_test.go`'s closed sets: `bool` (a decision is a
+decision; the alternative was spelling it "allowed"/"refused", which is two implementations agreeing on a
+spelling rather than on a type) and `OntologyFieldCrossing` as a slice element (four scalars, nothing a
+name, path or blob can be written into). The guard's value is that every widening is a decision someone
+had to make out loud — so both carry their reason at the definition.
+
+**Verification.** `go test ./internal/service/federation/` — 11 tests, no database: the three arms of the
+crossing (a core 1 peer refused the v2-only field BY NAME with the reason naming it; a peer at both
+versions allowed everything, which is the control; a silent peer refused everything with "no version"
+rather than an empty list). `go test -tags integration -run TestFederationIdentifyIntegration ./internal/api/`
+— **7 subtests** now, the new one asserting over the wire that `SharedCoreVersions` is the shared set and
+that `category` arrives refused with its reason while `tag` arrives allowed. MUTATIONS:
+`scripts/mutate-answer-12b.py`, now **8 probes over slices 12b and 12c, 8 KILLED** — the three new ones
+being the crossing computed against our own versions instead of the peer's, the answer listing only the
+allowed fields, and every field reported as allowed.
+
 ## Phase 13 — API, interoperability, exports
 
 **Placed elsewhere (2026-10-14):** exposing stash-box as an **MCP server** (search scenes and

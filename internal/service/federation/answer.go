@@ -79,9 +79,21 @@ func AnswerQuestion(
 		return Answer{}, err
 	}
 
+	// THE NEGOTIATION (slice 12c). The answer carries what may cross back to the asker, decided here
+	// from the claim the asker sent. Computing it on one side only was the state this slice fixes: an
+	// exchange in which each instance describes itself and neither says what it can READ is an
+	// announcement, and the side that computes nothing is the side that sends a field the other cannot
+	// use -- which is precisely the silent mis-mapping the phase is against.
+	//
+	// The peer's side of the comparison is its OWN claim, and an empty one is not an error: it means "no
+	// version declared", which Compatibility renders as a refusal of every field with a reason saying so.
+	compat := Compatibility(local.CoreVersions, q.Ontology.CoreVersions)
+
 	return Answer{
-		PeerInstanceID: selfInstanceID,
-		Ontology:       claimFrom(local),
+		PeerInstanceID:     selfInstanceID,
+		Ontology:           claimFrom(local),
+		SharedCoreVersions: compat.Shared,
+		Crossing:           crossingsFrom(compat),
 		// Candidates stays nil, and that is the whole of F2 on this path: this instance invents no
 		// evidence. The field will be filled by the identification slice, from the local store, under
 		// the same rules a local suggestion takes.
@@ -111,6 +123,23 @@ func claimFrom(d models.OntologyDeclaration) OntologyClaim {
 		NamedTags:    d.NamedTags,
 		Implications: d.Implications,
 	}
+}
+
+// crossingsFrom renders a compatibility decision for the wire.
+//
+// Every field is rendered, allowed or not, and the REASON travels with it: the peer's operator reads the
+// same sentence this instance's operator would, which is what makes a refusal fixable at the far end.
+func crossingsFrom(c models.OntologyCompatibility) []OntologyFieldCrossing {
+	out := make([]OntologyFieldCrossing, 0, len(c.Fields))
+	for _, f := range c.Fields {
+		out = append(out, OntologyFieldCrossing{
+			Name:    f.Name,
+			Since:   f.Since,
+			Allowed: f.Allowed,
+			Reason:  f.Reason,
+		})
+	}
+	return out
 }
 
 // ClaimOf is the exported reading of a local declaration, for the client that puts its own claim on a

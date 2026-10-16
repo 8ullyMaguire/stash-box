@@ -30,6 +30,10 @@ var allowedFieldKinds = map[reflect.Kind]string{
 	reflect.Struct: "struct",
 	reflect.Int:    "int",
 	reflect.Array:  "array",
+	// bool, added by slice 12c for OntologyFieldCrossing.Allowed. A decision is a decision: the
+	// alternative was to spell it "allowed"/"refused" in a string, which is two implementations agreeing
+	// on a spelling rather than on a type. A bool cannot carry content -- it carries one bit.
+	reflect.Bool: "bool",
 }
 
 // allowedConcreteTypes are the specific named types permitted regardless of
@@ -53,6 +57,9 @@ var allowedSliceElemTypes = map[reflect.Type]bool{
 	reflect.TypeOf(""):                true,
 	reflect.TypeOf(uuid.UUID{}):       true,
 	reflect.TypeOf(RemoteCandidate{}): true,
+	// OntologyFieldCrossing, added by slice 12c: a list of per-field decisions, four scalars each and no
+	// field a name, path or blob could be written into.
+	reflect.TypeOf(OntologyFieldCrossing{}): true,
 	// int, added by slice 12b for OntologyClaim.CoreVersions. A core ontology version is an ordinal
 	// number, not content: it cannot carry a path, a URL or a name, and the set of versions is what the
 	// compatibility rule decides over. Widening this vocabulary is a decision, so it is written down
@@ -77,6 +84,7 @@ func TestWireFieldTypesAreClosed(t *testing.T) {
 		{"Answer", reflect.TypeOf(Answer{})},
 		{"RemoteCandidate", reflect.TypeOf(RemoteCandidate{})},
 		{"OntologyClaim", reflect.TypeOf(OntologyClaim{})},
+		{"OntologyFieldCrossing", reflect.TypeOf(OntologyFieldCrossing{})},
 	}
 
 	for _, c := range cases {

@@ -42,6 +42,68 @@ func TestAnswerCarriesOurOntologyAndWhoWeAre(t *testing.T) {
 	assert.Equal(t, []int{CoreOntologyV1, CoreOntologyV2}, answer.Ontology.CoreVersions)
 }
 
+// peerClaim builds a complete, valid claim for a peer that implements the given core versions. The
+// digest is fabricated: this test is about the DECISION, and a claim without a digest is refused
+// before the decision is reached (which its own case below asserts).
+func peerClaim(versions ...int) OntologyClaim {
+	return OntologyClaim{
+		CoreVersions: versions,
+		LocalVersion: 1,
+		Digest:       strings.Repeat("cd", 32),
+		NamedTags:    1,
+		Implications: 1,
+	}
+}
+
+func crossing(t *testing.T, a Answer, name string) OntologyFieldCrossing {
+	t.Helper()
+	for _, c := range a.Crossing {
+		if c.Name == name {
+			return c
+		}
+	}
+	t.Fatalf("the answer decided nothing about %q among %d fields", name, len(a.Crossing))
+	return OntologyFieldCrossing{}
+}
+
+func TestAnswerDecidesWhatMayCrossBackToTheAsker(t *testing.T) {
+	// A peer that speaks only core 1. It asks; the answer tells it that the v2-only field will not cross
+	// and WHY -- which is the negotiation slice 12c exists for. Before this, the exchange was two
+	// instances describing themselves and neither saying what the other could read.
+	answer, err := ask(Question{Ontology: peerClaim(CoreOntologyV1)})
+	require.NoError(t, err)
+
+	assert.Equal(t, []int{CoreOntologyV1}, answer.SharedCoreVersions)
+	assert.True(t, crossing(t, answer, "tag").Allowed)
+	assert.True(t, crossing(t, answer, "implies").Allowed)
+
+	category := crossing(t, answer, "category")
+	assert.False(t, category.Allowed)
+	assert.Equal(t, CoreOntologyV2, category.Since)
+	assert.Contains(t, category.Reason, "peer declares core 1",
+		"the reason travels with the decision, so the far-end operator can act on it")
+
+	// The control: a peer that implements both is allowed everything. Without it, the refusal above
+	// could be a rule that refuses unconditionally.
+	both, err := ask(Question{Ontology: peerClaim(CoreOntologyV1, CoreOntologyV2)})
+	require.NoError(t, err)
+	assert.Equal(t, []int{CoreOntologyV1, CoreOntologyV2}, both.SharedCoreVersions)
+	for _, c := range both.Crossing {
+		assert.True(t, c.Allowed, "%s, with the peer at both versions", c.Name)
+	}
+
+	// And a peer that declared NOTHING gets every field refused with a reason that says so, rather than
+	// an empty crossing list -- silence would read as "no fields to discuss".
+	silent, err := ask(Question{})
+	require.NoError(t, err)
+	assert.Empty(t, silent.SharedCoreVersions)
+	require.Len(t, silent.Crossing, len(ontologyFields))
+	for _, c := range silent.Crossing {
+		assert.False(t, c.Allowed)
+		assert.Contains(t, c.Reason, "no version")
+	}
+}
+
 func TestAnswerInventsNoEvidence(t *testing.T) {
 	// F2 on the answering path: this instance is a SOURCE of the ontology claim and of nothing else.
 	// The identification half needs the local candidate store and F2's evidence rules; until it exists,

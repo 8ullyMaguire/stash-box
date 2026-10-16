@@ -116,6 +116,32 @@ func TestFederationIdentifyIntegration(t *testing.T) {
 		assert.Nil(t, body["Candidates"])
 	})
 
+	t.Run("the answer negotiates what may cross back to the asker", func(t *testing.T) {
+		// The fixture already declares core 1, so the v2-only field must come back refused with its
+		// reason -- over the wire, from the server, which is where a peer actually reads it.
+		status, body := postQuestion(t, srv, version, ontologyOnlyQuestion(t))
+		require.Equal(t, http.StatusOK, status, "body: %v", body)
+
+		shared, ok := body["SharedCoreVersions"].([]any)
+		require.True(t, ok, "the answer must name the versions the two instances share: %v", body)
+		assert.Equal(t, []any{float64(federation.CoreOntologyV1)}, shared)
+
+		crossing, ok := body["Crossing"].([]any)
+		require.True(t, ok, "the answer must decide every field: %v", body)
+
+		seen := map[string]map[string]any{}
+		for _, c := range crossing {
+			entry, ok := c.(map[string]any)
+			require.True(t, ok)
+			name, _ := entry["Name"].(string)
+			seen[name] = entry
+		}
+		require.Contains(t, seen, "category", "the v2-only field must be decided, not omitted")
+		assert.Equal(t, false, seen["category"]["Allowed"])
+		assert.Contains(t, seen["category"]["Reason"], "peer declares core 1")
+		assert.Equal(t, true, seen["tag"]["Allowed"])
+	})
+
 	t.Run("the protocol version header is required and named", func(t *testing.T) {
 		status, body := postQuestion(t, srv, "", ontologyOnlyQuestion(t))
 		assert.Equal(t, http.StatusBadRequest, status)
