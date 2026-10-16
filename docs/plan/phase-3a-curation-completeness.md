@@ -67,6 +67,26 @@ only `SELECT`s.
    can be in. A comment claiming the detector handled it was deleted, and the test now asserts the CONSTRAINT
    instead — a detector written against an imaginary state is how a rule silently stops matching the data.
 
+**Measured on the live archive, and the measurement changed the code twice.** The first board run
+against thinkcentre's real data (112,391 performers, 181,896 aliases, 1,104,375 scenes) was unusable:
+
+| detector | first run | after | what was wrong |
+|---|---|---|---|
+| `duplicate_performer_url` | 1.85s | 1.79s | fine |
+| `duplicate_scene_url` | 0.67s | 0.09s | fine |
+| `low_resolution_performer_image` | 0.08s | 0.06s | fine |
+| `impossible_scene_date` | **9.28s** | **0.06s** | one `WHERE` asking `future OR before-a-birthdate` across a LEFT JOIN gave the planner a nested loop probing `scene_performers` once per scene — 1.1M probes. Split into a UNION of the two arms; each now gets the access path its own predicate deserves. |
+| `performer_alias_collision` | **37.54s** | **1.05s** | the detector compared every alias against every name and every other alias on `lower()` of both sides. Migration 144 added the two expression indexes — the planner *did* use them and it was still 37.5s, because the plan probed the index once per performer. Rewritten to say what the rule is: narrow to the claims more than one live performer makes (`GROUP BY lower(claim) HAVING count(DISTINCT performer_id) > 1`, an aggregate the planner cannot reorder around), then join. The indexes stay; they are what makes the aggregate cheap. |
+
+**Two lessons the archive taught that tests could not.** A planner's choice is not a property of the query
+text: the first fix (indexes) was correct and insufficient, and only re-measuring said so. And an index
+turns a probe cheap without changing the NUMBER of probes — when a detector is slow, ask how many times it
+asks, not how expensive each answer is.
+
+**A finding about the data, seen while measuring and not this feature's to fix:** the live archive has
+1,104,375 scenes and an EMPTY `scene_performers`. The scene-side detectors' birthdate arm cannot fire until
+the import that brings scenes also brings who is in them.
+
 **The caller is `cmd/lintquests`** (board, single detector, `-ensure`, `-validate`, and `-entity`/`-ids` for
 the import pass). The four frontend surfaces are still outstanding; until they land this is what makes the
 detectors runnable against a real archive, and it is the instrument the verification used.
