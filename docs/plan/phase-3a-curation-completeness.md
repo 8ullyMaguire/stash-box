@@ -374,6 +374,24 @@ aspirational.
 Pages under `frontend/src/pages/`, following the 18-page-dir convention already in
 the tree.
 
+**Where this list stands, measured 2026-10-16 by grepping for each surface's
+identifier rather than by reading the plan's own table:**
+
+| surface | state |
+| --- | --- |
+| Lint quest board (`pages/curation/LintQuestBoard.tsx`) + the definitions registry (`LintQuestDefinitions.tsx`) | built |
+| A record's own findings (`components/recordFindings/`) | built |
+| Verification control on the edit form (§7.24.1) | **not built** — no `verificationReason`/`notPubliclyKnowable` field exists on the write path's input, in the frontend or in the schema |
+| Completion panel with the §7.24.8 delta preview (§7.24.8) | **not built** — `components/CompletionBar.tsx` shows the score; nothing shows the marginal-gain ranking or a before/after delta |
+| Bounty authoring surface (§7.24.3) | **not built** — `bounty_points` is read (the registry displays it); nothing writes an authored bounty price |
+| Fingerprint demand board (§7.24.5) | **not built** — migration 99's corroboration view exists on the storage side, but no query exposes a hash+count board |
+| Review-queue aging view (§7.24.10) | **not built** — `pages/edits/Edits.tsx` lists edits; nothing sorts or displays the queue by how long an item has waited |
+
+The plan stays `in progress` because of this table: C3 in `docs/goal-check.py`
+requires `Status: Built`, and five of the six frontend surfaces this plan calls
+for do not exist yet. Marking it Built would make the clause report a door that
+is not there.
+
 - **Verification control** on the edit form: per-field "known unknown" with a
   reason-code dropdown. Not free text — §7.24.1's rule.
 - **Completion panel**: score, the missing-field list ranked by marginal gain, and
