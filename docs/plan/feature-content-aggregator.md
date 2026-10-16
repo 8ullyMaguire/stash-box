@@ -4670,11 +4670,19 @@ A clause that cannot be evaluated reports `UNKNOWN`, never `PASS` — the file's
 rule. Phase N's clause is written in Phase N's commit, so the predicate is never
 behind the code.
 
-**Current outstanding, measured this session:** C1 (4 undecided PRs), C3 (6 plans
-not Built), C6b (integration suite — now runnable, so this becomes PASS or FAIL),
-C7 (5 files unformatted, one of them the last committed test file). C7 is a
-one-command fix and it blocks a clause that otherwise says nothing about the new
-programme.
+**Clauses added since this section was written:** C6b (the integration suite, `-tags=integration`
+over every package — PASS) and **C9** (the monetization posture of phase 15: §18.2's capabilities in code, the
+gate consulting them before the price list, the served schema carrying no paywall directive, the second API
+limit existing only while its stream is on, and no shipped configuration switching it on). C9 counts what it
+examines, for the reason this file's own rule gives: an assertion over an empty set and an assertion that found
+nothing wrong are the same output.
+
+**Current outstanding, measured 2026-10-16** (`python3 docs/goal-check.py`): **C1** (4 undecided upstream PRs:
+#1282–#1285), **C3** (6 plan documents without a Built status line — five of them other features' plans, which
+is what C3 is for), **C8** (3/17 phases: 10, 12, 17). C6, C6b and C7 all PASS — this paragraph previously
+claimed C7 failed on 5 unformatted files, which stopped being true when they were formatted, and a stale
+"outstanding" list in the predicate's own section is the failure mode this programme keeps finding: a number
+written in a document rather than recomputed.
 
 ## Deviations
 
