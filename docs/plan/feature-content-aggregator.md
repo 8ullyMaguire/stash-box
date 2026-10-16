@@ -4984,8 +4984,29 @@ means anything. It has no rule for WCAG 1.4.11 non-text contrast (the `.btn-outl
 case, measured at 2.36:1 and not covered by any rule this gate runs). It cannot judge whether a tab order is
 sensible. This is a floor, not a certificate.
 
-**Verification:** `cd e2e && STASH_BOX_DATABASE=... npx playwright test tests/a11y.spec.ts` -- 25 tests, 12 of
-them the same six pages in both palettes. Expected: all pass. Proven able to fail on the committed tree:
+**The four defects the sweep was still reporting, fixed 2026-10-16 (commit b067506e).** `--sb-danger-text` is a
+new per-palette token, because `.btn-outline-danger` used `$danger` (#db3737) as TEXT: 2.31:1 on the light card
+footer (#b7b9ba) and 2.83:1 on the dark one (#26333e). No single value serves both palettes -- #7d1616 measures
+1.43:1 on the dark footer and #ff9e9e 1.15:1 on the light one, so each palette's fix fails the other's surface.
+The light palette's `--sb-link` went #0f628f -> #0b4a6b (3.37:1 on that same footer, where a comment's author
+link sits), and links inside `.bg-danger` now follow the FILL (white, 4.55:1) because Bootstrap's `.bg-*`
+utilities set a background and nothing else -- `.alert-secondary`'s rule read backwards. The audit row's
+expand/collapse chevron was an icon-only button with no accessible name at all (`button-name`, five nodes, one
+per row): it now carries a constant `aria-label` plus `aria-expanded`/`aria-controls`.
+
+**The summary line hid half of them, and that is worth remembering when reading this gate.** axe reports a rule
+with the FIRST node's selector and a count, so `color-contrast x17` named one button while seventeen nodes were
+dirty; fixing the button re-ran the rule against eight author links beside it. `/edits` went x17 -> x8 in light
+and x10 -> x1 in dark across one fix, and only "routes have violations" reaching zero is the gate being green.
+
+**Verification:** `cd e2e && STASH_BOX_DATABASE=... pnpm test a11y.spec.ts --workers=2` -- 38 tests, 20 routes in
+both palettes plus the keyboard walks and the hand-measured non-text contrast. Expected: all pass, zero
+violations in each palette (first fully green run on this fork, 2026-10-16). `scripts/mutate-danger-contrast.py`
+reverts the token to #db3737 and requires BOTH instruments to fail: `theme.test.ts` red in ~1s and the sweep red
+at "1 of 20 routes" in each palette -- it REBUILDS the frontend and the binary first, because the build is
+embedded at compile time and a mutation without a rebuild is tested against the previous artefact. At the
+default six workers four tests fail with `waiting for locator('main')` after 15s (contention, not a defect: they
+pass alone, 18/18, and the whole file passes at two workers) -- recorded rather than papered over. Proven able to fail on the committed tree:
 `aria-label` removed from `FavoriteStar` -> the performer page reddens with `button-name` [critical] in both
 palettes -> restored -> green. The gate was proven able to fail before it was
 believed: every fix above was made because a named rule and a named element reddened first, and the counts in
