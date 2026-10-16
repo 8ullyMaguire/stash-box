@@ -102,12 +102,12 @@ The same run, and the same command, is what C6b evaluates: `POSTGRES_DB=<dsn> go
 |---|---|---|
 | C1 PRs decided | FAIL | 4/50 undecided: #1282, #1283, #1284, #1285 |
 | C2 issues dispositioned | PASS | 177 rows, every one decided (feature-request=138, fixed=22, declined=16, partially-fixed=1); 138 share one reason that cites SPEC.md section 0, so it is uniform application rather than bulk reclassification |
-| C3 spec/plan built | FAIL | 6/11 plan documents not Built — `feature-content-aggregator.md` among them, correctly: phases 10, 12, 15 and 16 are not finished, and marking the plan Built to quiet the clause would be a false claim |
+| C3 spec/plan built | FAIL | 6/11 plan documents not Built: contribution-quality-phases.md, feature-content-aggregator.md, feature-scene-recall-index.md, feature-streak-placement.md, growth-items-19-20-21-24-28-29.md, growth-tiers-1-2.md — `feature-content-aggregator.md` among them, correctly: phases 10, 12, 15 and 17 are not finished, and marking the plan Built to quiet the clause would be a false claim |
 | C5 migrations coherent | PASS | one migration per number, no two share a statement |
 | C6 suite | PASS | 88 packages accounted for, 30 with no untagged test (baseline 60) |
 | C6b integration suite | PASS | 61 packages green with `-tags=integration`, against the docker Postgres — with the three environment variables above. Without them the clause is UNKNOWN, not a pass |
 | C7 build clean | PASS | build, vet, gofmt and the content-plane refusal all clean |
-| C8 aggregator programme | FAIL | this table, honestly: phases 1-9 done, 11 done, 10 in progress (the switch is built, 10b-10f not started), 12/15 not started, **16 in progress (16a-16e built: the transparency report, the instance metrics, the page over them, the a11y gate and the palette), 17 in progress** — 5 of 17 phases not done |
+| C8 aggregator programme | FAIL | measured 2026-10-16 after slice 16f: **4/17 phases not done — 10 (the switch is built, 10b-10f not started), 12, 15, 17.** Phases 1-9, 11 and **16 (all six slices: the transparency report, the instance metrics, the page over them, the a11y gate, the palette, the route sweep + non-text contrast + forced-colors)** are done |
 
 **A note on the C6 run, because the failure it first reported was mine and not the tree's.** Passing
 `POSTGRES_DB` at a database that does not exist makes three DB-touching packages fail with
