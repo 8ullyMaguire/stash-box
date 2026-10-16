@@ -114,7 +114,13 @@ func (s *Performer) buildPerformerQuery(psql sq.StatementBuilderType, input mode
 	if input.URL != nil && *input.URL != "" {
 		query = query.
 			Join("performer_urls ON performers.id = performer_urls.performer_id").
-			Where(sq.Eq{"performer_urls.url": *input.URL})
+			// Case-insensitive, because a URL is a spelling of an address and not a
+			// name: upstream PR #1284 (ported 2026-10-16) exists because a
+			// performer stored with a mixed-case path could not be found by the
+			// lower-case form of the same address. The comparison is
+			// index-backed here: `performer_urls_url_lower_idx` (migration 49)
+			// is on LOWER(url), which a plain `url = ?` could not use for this.
+			Where(sq.Expr("LOWER(performer_urls.url) = LOWER(?)", *input.URL))
 	}
 
 	// Filter by name only
