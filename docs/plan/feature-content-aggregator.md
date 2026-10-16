@@ -3626,11 +3626,8 @@ ontology-only question.
 - **The outbound path has NO CALLER.** `Client.Broadcast` is called by nothing in this tree — the
   identification service never broadcasts — so the client's half of this exchange (putting its own claim
   on a question) is exercised only by its tests. A wire with one end wired is an interface, not a mesh.
-- **The route is verified at the HANDLER, not with a live instance.** The integration test builds an
-  `httptest` server around `api.FederationIdentify` — the same handler `server.go` registers, with the
-  same decisions — but it does not go through the chi router's middleware chain or a running process. A
-  walk against a live instance (`scripts/walk-12b-live.py`) is the missing instrument and is named here
-  rather than implied by the word "endpoint".
+- ~~The route is verified at the HANDLER, not with a live instance.~~ **CLOSED by slice 12d below**:
+  the walk exists and passes 10/10 against the real router, middleware chain and process.
 
 ### Slice 12c — the answer negotiates, instead of announcing
 
@@ -3667,6 +3664,38 @@ that `category` arrives refused with its reason while `tag` arrives allowed. MUT
 `scripts/mutate-answer-12b.py`, now **8 probes over slices 12b and 12c, 8 KILLED** — the three new ones
 being the crossing computed against our own versions instead of the peer's, the answer listing only the
 allowed fields, and every field reported as allowed.
+
+### Slice 12d — the live walk, and the environment variable that silently reached nobody
+
+**The rule.** The handler was covered by an integration test; the ROUTE was not covered by anything. A
+walk against a running process is the only instrument that sees the chi middleware chain, the config
+loader and the process boundary, and writing it found a defect the tests could not.
+
+**The defect.** `instance_id` was documented as settable in the config — and it is, via the file. Set it
+through `STASH_BOX_INSTANCE_ID`, which is what `viper.SetEnvPrefix("stash_box")` + `AutomaticEnv()` imply
+and what an operator will reach for first, and **`viper.Unmarshal(&C)` never sees it**: Unmarshal does not
+consult AutomaticEnv for a key that was never bound or defaulted. The symptom is a federation endpoint
+answering **503 "set `instance_id` in the config"** to an operator who has just set exactly that. One line
+in `cmd/stash-box/init.go` (`viper.BindEnv("instance_id")`) fixes it, and the walk is what proves the line
+matters: its config file deliberately OMITS the key and the environment carries it, so the endpoint answers
+only if the binding works. This is the third time in this programme that a rule was unreachable until
+something tried to use it — the MCP typo, the compatibility field that took one version where the rule took
+a set, and now a config key.
+
+**The walk** (`scripts/walk-12b-live.py`) builds the binary, writes a minimal config, starts it, and asks
+it six questions over HTTP — then recomputes the digest it published **in Python, independently, from the
+document the database holds**. The recomputation is written out rather than imported from the Go code: a
+walk that calls the code under test to check the code under test checks nothing.
+
+**Verification, 10/10 green:** the process starts and answers (which is itself the `instance_id` binding
+verdict); a question with no protocol version is refused by name ("none sent"); an identification question
+is refused naming the unbuilt half; an ontology-only question is answered, **with the published digest
+equal to the independently computed one** and the counts matching the document; a core-1 peer is told the
+v2-only field will not cross, with the reason naming it as the side that has to move; the same peer is told
+the core-1 fields do cross; a peer speaking both versions is allowed every field (the control); and a
+malformed claim is refused by name. Two of the walk's own first-run failures were its own: a DSN parsed by
+splitting on both separators (it crashed before the first verdict), and a server started with no config
+file, which generated one and defaulted the database — the walk now writes the file it means to run.
 
 ## Phase 13 — API, interoperability, exports
 

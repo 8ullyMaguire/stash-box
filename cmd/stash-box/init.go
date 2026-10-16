@@ -102,4 +102,15 @@ func initEnvs() {
 	_ = viper.BindEnv("host")
 	_ = viper.BindEnv("port")
 	_ = viper.BindEnv("database")
+	// instance_id, bound because SETTING IT VIA THE ENVIRONMENT OTHERWISE SILENTLY DOES NOT WORK.
+	//
+	// `AutomaticEnv` + `SetEnvPrefix` above make `viper.GetString("instance_id")` read
+	// STASH_BOX_INSTANCE_ID, which is why the first version of this seemed fine -- and it is not:
+	// `viper.Unmarshal(&C)` does NOT consult AutomaticEnv for a key that was never bound or defaulted,
+	// so the value reached nobody. The symptom is a federation endpoint that answers 503 "set
+	// `instance_id` in the config" to an operator who has just set exactly that. Found by writing the
+	// live walk (scripts/walk-12b-live.py), which starts this binary with the variable in its
+	// environment -- the third time in this programme that a rule turned out to be unreachable until
+	// something tried to use it.
+	_ = viper.BindEnv("instance_id")
 }
