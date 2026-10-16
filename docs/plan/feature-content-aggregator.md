@@ -5103,6 +5103,57 @@ limit existing only while its stream is on, and no shipped configuration switchi
 examines, for the reason this file's own rule gives: an assertion over an empty set and an assertion that found
 nothing wrong are the same output.
 
+### Slice 12g — core v2 exists as a reader, and the version number starts meaning something
+
+**What was there.** `core ontology v2` was a constant with a comment saying "NOT BUILT", and a field table that
+declared `category` as `since: CoreOntologyV2`. The compatibility rule could therefore REFUSE the field by name
+to a peer that declared core 1 only — and nothing could parse a document that carried one:
+`json.Unmarshal` into a struct with two fields drops the third **silently**, which is the exact failure the
+phase's clause names (*"an instance that declares core v1 is refused a v2-only field rather than silently
+mis-mapping"*).
+
+**What v2 is.** Core v1 is the implication graph as migrations 111/112 store it: `{tag, implies}`. Core v2 is
+the document that stops being only the implications — an edge gains **`category`**, the membership migration
+112's own note excludes ("this is the implication graph only — tag renames and category changes are not in
+it"). The VOCABULARY does not change, which is the part that had to be decided rather than assumed:
+`CoreTagVocabulary(CoreOntologyV2)` returned nil, i.e. a v2 peer was told this instance has **no vocabulary at
+all** — reading as "nothing crosses", a claim about the mesh, rather than as "not implemented", a claim about
+this instance. It now answers with v1's names, and says why in the code.
+
+**The reader, and the three refusals that make the version real.** `parseCanonicalAt(snapshot, version)`:
+at core 1 an edge carrying `category` is **refused by name** (`ErrFieldNotInVersion`, naming the field, the
+edge, and both versions); at core 2 an edge **without** a non-empty category is refused too (a peer that
+declares v2 and sends v1 edges is claiming a version it does not speak, and accepting it would make v2
+undetectable in exactly the case the version exists for); and two edges for the same `{tag, implies}` are
+refused, because two categories for one implication are two answers to one question and the winner would be
+decided by sort order. The category is read as a **pointer** so that absent and empty are different facts —
+they are two different fixes for an operator.
+
+**The digest claim, which is where a field addition usually goes wrong.** `Category` is `omitempty`, and that
+is load-bearing rather than tidiness: a v1 edge must marshal to the same bytes it did before the field existed,
+or **every digest this instance has ever computed changes when a field is ADDED** and two instances that agree
+report a disagreement — the false negative that sends an operator looking for a difference that is not there.
+`TestTheCanonicalDigestOfAV1DocumentDidNotChangeWhenCategoryWasAdded` pins the **recorded SHA-256**
+(`428b05a6…`) of a canonical v1 document, and the mutation that removes `omitempty` reddens exactly that test
+(M5). The digest IS version-dependent, deliberately: a v2 document with categories is a different document from
+the same implications without them, and two instances holding different documents should not agree.
+
+**What is NOT built, named rather than implied.** The **writer**: this instance SPEAKS v2 and WRITES v1, because
+the ontology tables hold `{tag, implies}` rows with no categories to emit. Emitting them is a slice of its own
+(categories live in `tag_categories`, and a v2 snapshot has to say which category an implication belongs to
+rather than which category a tag has). The identification half is also still outstanding, and
+`goal-check` carries both as UNKNOWN (`C11d`, `C11b`) rather than rounding them up.
+
+**Verification.** Seven tests in `ontology_v2_test.go`: the recorded digest; the v1 refusal naming the field
+and both versions; the control (a v2 document parses at core 2 and the categories travel WITH their edges
+rather than in order); a v2 document with no categories refused; an empty category refused as its own case; two
+categories for one implication refused; and the vocabulary compared name by name with a subject count (plus
+that the accessor hands out a copy rather than its own backing array). `mapping_test.go` carried
+`assert.Nil(CoreTagVocabulary(CoreOntologyV2))` — the not-built state written down — and it now asserts the
+contract that replaced it, with the old assertion and its reason left in the comment. **MUTATIONS:
+`scripts/mutate-ontology-v2.py`, 6 probes, 6 KILLED, every restore green** — including M5, which is the
+`omitempty` mutation, and M6, which is the vocabulary falling back to a nil list.
+
 **C10 and C11, written for phases 10 and 12** (2026-10-16), each asserting what exists and naming what does
 not as UNKNOWN — never PASS over an unbuilt slice, never FAIL for work that has not started. **C10** reads the
 shipped posture defaults, asserts the image gate is ON THE ROUTE and BEFORE the routes it guards, counts the

@@ -120,10 +120,17 @@ func TestCoreTagVocabularySaysWhatItDoesNotHave(t *testing.T) {
 	assert.Equal(t, CoreTagVocabularyV1, v1, "v1's list is the published one")
 	assert.NotSame(t, &CoreTagVocabularyV1[0], &v1[0], "a caller must not be able to edit the vocabulary in place")
 
-	// v2 is not published, and asking for it must say so rather than fall back to v1: a fallback would
-	// make an instance believe it knows v2 names when what it has is v1's, which is the silent
-	// mis-mapping by another door.
-	assert.Nil(t, CoreTagVocabulary(CoreOntologyV2))
+	// THIS LINE USED TO ASSERT Nil FOR CORE V2, and that assertion was the not-built state written down:
+	// v2 adds category membership to an EDGE, not names to the vocabulary, so "what may a v2 peer resolve
+	// against" has always been v1's list. Answering nil told a v2 peer that this instance has no
+	// vocabulary at all -- which reads as "nothing crosses", a claim about the mesh, rather than as "not
+	// implemented", a claim about this instance.
+	assert.Equal(t, CoreTagVocabularyV1, CoreTagVocabulary(CoreOntologyV2),
+		"v2 changes the edge, not the names a peer resolves against")
+
+	// An UNIMPLEMENTED version still says so rather than falling back: a fallback would make an instance
+	// believe it knows the names of a version it has never read, which is the silent mis-mapping by
+	// another door.
 	assert.Nil(t, CoreTagVocabulary(99))
 }
 

@@ -50,7 +50,13 @@ var CoreTagVocabularyV1 = []string{
 // guessed at, which is why this returns a list per version instead of one union.
 func CoreTagVocabulary(coreVersion int) []string {
 	switch coreVersion {
-	case CoreOntologyV1:
+	case CoreOntologyV1, CoreOntologyV2:
+		// V2 IS THE SAME VOCABULARY, and that is the point of listing it explicitly rather than leaving it
+		// to a default. Core v2 adds category membership to an EDGE -- the agreed NAMES a peer resolves
+		// against are unchanged -- so returning nil for it (which this did) told a v2 peer that this
+		// instance has no vocabulary at all. A nil list is the worst available answer to "what can you
+		// resolve": it reads as "nothing crosses", which is a claim about the mesh, rather than as "not
+		// implemented", which is a claim about this instance.
 		out := make([]string, len(CoreTagVocabularyV1))
 		copy(out, CoreTagVocabularyV1)
 		return out

@@ -63,6 +63,18 @@ const (
 // that is not a document".
 var ErrOntologyUnreadable = errors.New("the ontology document is unreadable")
 
+// ErrFieldNotInVersion is returned when a document carries a field the version it is being read at does
+// not have, or claims a version whose fields it does not carry.
+//
+// THIS IS THE WHOLE OF CORE V2's VALUE, and the reason the error is a sentinel rather than a string. The
+// phase's own clause is "an instance that declares core v1 is refused a v2-only field rather than
+// silently mis-mapping", and the alternative -- json.Unmarshal into a struct, which drops what the struct
+// does not name -- is precisely the silent version: the tag arrives, in the wrong branch, with nothing
+// saying so. A refusal that a caller can TEST for (errors.Is) rather than read for is what lets the
+// answering half of the protocol tell "your document is older than the field you sent me" from "your
+// document is not readable at all".
+var ErrFieldNotInVersion = errors.New("the document carries a field this core version does not have")
+
 // ontologyField is one key of the document, with the core version that introduced it.
 type ontologyField struct {
 	name  string
@@ -93,6 +105,19 @@ var supportedCore = []int{CoreOntologyV1, CoreOntologyV2}
 type canonicalEdge struct {
 	Tag     string `json:"tag"`
 	Implies string `json:"implies"`
+
+	// Category is core v2's addition: the category membership of the edge, i.e. the thing migration 112's
+	// own comment says v1's document leaves out ("this is the implication graph only -- tag renames and
+	// category changes are not in it").
+	//
+	// `omitempty` IS LOAD-BEARING AND IS NOT TIDINESS. A v1 document has no categories, so an edge that
+	// carries an empty one has to marshal to the same bytes it did before this field existed -- otherwise
+	// every digest this instance has ever computed would change when a field was ADDED, which would make
+	// two instances that agree report a disagreement. There is a test with a recorded SHA-256 for exactly
+	// that. The empty case never arises for a legitimate v2 document, because parsing one requires the
+	// category to be PRESENT and NON-EMPTY (see parseCanonicalAt): a v2 document whose edges omit it is a
+	// peer claiming a version it does not speak, and that is refused rather than normalised.
+	Category string `json:"category,omitempty"`
 }
 
 // OntologySource is the narrowest thing LocalDeclaration needs: the version in force and the document
@@ -142,7 +167,17 @@ func LocalDeclaration(ctx context.Context, src OntologySource) (models.OntologyD
 // rather than a database. It is the same function LocalDeclaration uses, so a peer can compute its
 // own digest and the two are comparable.
 func CanonicalDigest(snapshot string) (string, error) {
-	edges, err := parseCanonical(snapshot)
+	return CanonicalDigestAt(snapshot, CoreOntologyV1)
+}
+
+// CanonicalDigestAt is the same digest over a document read at a chosen version.
+//
+// VERSION-DEPENDENT, and that is correct rather than a side effect: a v2 document carrying categories IS
+// a different document from one carrying the same implications without them, and two instances that hold
+// different documents should not agree. What must NOT happen is the digest changing for a document that
+// did not change, which is why the field is `omitempty` and why there is a recorded digest in the tests.
+func CanonicalDigestAt(snapshot string, version int) (string, error) {
+	edges, err := parseCanonicalAt(snapshot, version)
 	if err != nil {
 		return "", err
 	}
@@ -158,24 +193,88 @@ func CanonicalDigest(snapshot string) (string, error) {
 // and two instances holding the SAME ontology would then disagree -- the false negative that would
 // send an operator looking for a difference that is not there.
 func parseCanonical(snapshot string) ([]canonicalEdge, error) {
+	return parseCanonicalAt(snapshot, CoreOntologyV1)
+}
+
+// rawEdge is an edge as it arrived, with the category as a POINTER so that "absent" and "empty" are
+// different facts. That distinction is the whole of the version rule below: absent means the document was
+// written before core v2, empty means the writer had the field and left it blank, and a struct with a
+// plain string cannot tell them apart.
+type rawEdge struct {
+	Tag      string  `json:"tag"`
+	Implies  string  `json:"implies"`
+	Category *string `json:"category"`
+}
+
+// parseCanonicalAt reads a document as an ontology AT A VERSION, and refuses what that version does not
+// have.
+//
+// CORE V2 IS A READER'S PROBLEM BEFORE IT IS A WRITER'S. Nothing in this tree writes a category yet --
+// the ontology tables hold v1-shaped {tag, implies} rows, and the writer is named as outstanding rather
+// than assumed. What v2 needs first is the ability to READ a document that has one, which is what makes
+// the version number mean anything: a v2 instance sending categories to a v1 instance has to produce a
+// refusal naming the FIELD, in both directions, because the two failures look identical from outside --
+// a document that arrives with part of itself dropped on the floor.
+//
+// The rules, each with the failure it prevents:
+//
+//   - at core 1, an edge carrying `category` is REFUSED, naming the field and the version that introduced
+//     it. The alternative is json.Unmarshal quietly dropping it, which is the "silently mis-mapping" the
+//     phase's clause names: the tag arrives, in the wrong branch, with nothing saying so;
+//   - at core 2, an edge that does NOT carry a non-empty category is refused as well. A peer that declares
+//     v2 and sends v1 edges is claiming a version it does not speak, and accepting it would make v2
+//     undetectable in exactly the case the version exists for;
+//   - the same {tag, implies} appearing twice is refused, because two edges that differ only in their
+//     category are two answers to one question -- which category this implication belongs to -- and
+//     picking one of them would be a decision made by sort order.
+func parseCanonicalAt(snapshot string, version int) ([]canonicalEdge, error) {
 	// `null` and `[]` are different bytes and the same ontology: an instance whose graph is empty
 	// must not digest differently from one whose graph was never written. Both become the empty list.
 	if strings.TrimSpace(snapshot) == "" || strings.TrimSpace(snapshot) == "null" {
 		return []canonicalEdge{}, nil
 	}
 
-	var edges []canonicalEdge
-	if err := json.Unmarshal([]byte(snapshot), &edges); err != nil {
+	var raw []rawEdge
+	if err := json.Unmarshal([]byte(snapshot), &raw); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrOntologyUnreadable, err)
 	}
 
-	// An edge missing one of its two names is refused, not kept as an empty string. It would digest
-	// as `{"tag":"a","implies":""}` -- a value no honest document produces -- and two peers would
-	// then agree on a digest that describes an edge nobody can resolve.
-	for i, e := range edges {
-		if strings.TrimSpace(e.Tag) == "" || strings.TrimSpace(e.Implies) == "" {
+	edges := make([]canonicalEdge, 0, len(raw))
+	seen := make(map[string]struct{}, len(raw))
+	for i, r := range raw {
+		// An edge missing one of its two names is refused, not kept as an empty string. It would digest
+		// as `{"tag":"a","implies":""}` -- a value no honest document produces -- and two peers would
+		// then agree on a digest that describes an edge nobody can resolve.
+		if strings.TrimSpace(r.Tag) == "" || strings.TrimSpace(r.Implies) == "" {
 			return nil, fmt.Errorf("%w: edge %d has no tag or no implied tag", ErrOntologyUnreadable, i)
 		}
+
+		category := ""
+		switch {
+		case r.Category != nil && version < CoreOntologyV2:
+			return nil, fmt.Errorf("%w: edge %d (%s implies %s) carries `category`, which was introduced "+
+				"in core %d; this document is being read at core %d", ErrFieldNotInVersion, i, r.Tag,
+				r.Implies, CoreOntologyV2, version)
+		case r.Category != nil:
+			category = strings.TrimSpace(*r.Category)
+			if category == "" {
+				return nil, fmt.Errorf("%w: edge %d (%s implies %s) declares core %d and carries an empty "+
+					"`category`", ErrFieldNotInVersion, i, r.Tag, r.Implies, version)
+			}
+		case version >= CoreOntologyV2:
+			return nil, fmt.Errorf("%w: edge %d (%s implies %s) carries no `category`, but the document is "+
+				"being read at core %d, where every edge has one", ErrFieldNotInVersion, i, r.Tag,
+				r.Implies, version)
+		}
+
+		pair := r.Tag + "\x00" + r.Implies
+		if _, dup := seen[pair]; dup {
+			return nil, fmt.Errorf("%w: two edges for %s implies %s, which may only belong to one category",
+				ErrOntologyUnreadable, r.Tag, r.Implies)
+		}
+		seen[pair] = struct{}{}
+
+		edges = append(edges, canonicalEdge{Tag: r.Tag, Implies: r.Implies, Category: category})
 	}
 
 	sort.Slice(edges, func(i, j int) bool {

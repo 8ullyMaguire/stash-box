@@ -1145,8 +1145,54 @@ def c11_federation_posture():
     #    would be indistinguishable from "nothing to report"), and core v2 is a field name with no document
     #    behind it -- both are real work, and neither is a regression this clause should fail on.
     add("C11b federation slices", "UNKNOWN",
-        "the identification half (refused by name rather than answered) and core v2 (the `category` field and "
-        "the v2 vocabulary) are not built: no surface to assert")
+        "the identification half (refused by name rather than answered) is not built: no surface to assert. "
+        "Core v2's READER is built and asserted by C11c; its writer is named by C11d")
+
+
+def c11c_core_v2():
+    """Phase 12, slice 12g: core v2 exists as a READER -- a version number that means something. Nothing in
+    the tree writes a category yet, and this clause says so rather than letting the version look finished."""
+    path = REPO / "internal" / "service" / "federation" / "ontology.go"
+    mapping = REPO / "internal" / "service" / "federation" / "mapping.go"
+    test_path = REPO / "internal" / "service" / "federation" / "ontology_v2_test.go"
+    for p in (path, mapping, test_path):
+        if not p.exists():
+            add("C11c core v2", "FAIL", f"{p.relative_to(REPO)} is missing")
+            return
+    src, map_src, tests = path.read_text(), mapping.read_text(), test_path.read_text()
+    fails, notes = [], []
+
+    if "func parseCanonicalAt(snapshot string, version int)" not in src:
+        fails.append("no reader takes a version: a document is parsed as whatever the code assumes")
+    if "ErrFieldNotInVersion" not in src:
+        fails.append("a field a version does not have is not refused by name")
+    if "version < CoreOntologyV2" not in src or "version >= CoreOntologyV2" not in src:
+        fails.append("the version rule is one-sided: both directions have to refuse, or a peer claiming v2 "
+                     "while sending v1 edges is undetectable")
+    # The digest-stability invariant, as a checked artefact: the field must be omitempty AND a recorded
+    # digest must exist in the tests, since the claim is about bytes written before the field existed.
+    if 'Category string `json:"category,omitempty"`' not in src:
+        fails.append("the category field is not omitempty: adding it changes the canonical bytes of every "
+                     "v1 document, so two instances that agree would report a disagreement")
+    elif "428b05a671d8dc251663952622f556ae8250b3c838e6b43158e9db780396663a" not in tests:
+        fails.append("no recorded digest pins the v1 canonical form")
+    else:
+        notes.append("the v1 digest is pinned by a recorded value, so the field cannot move it")
+    if "func CanonicalDigestAt(" not in src:
+        fails.append("the digest cannot be computed at a chosen version")
+    if "case CoreOntologyV1, CoreOntologyV2:" not in map_src:
+        fails.append("core v2 reports no vocabulary, which reads as 'nothing crosses' rather than as "
+                     "'not implemented'")
+    else:
+        notes.append("core v2 resolves against v1's names, because v2 changes the edge and not the names")
+    add("C11c core v2", "FAIL" if fails else "PASS",
+        "; ".join(fails) if fails else "; ".join(notes))
+
+    add("C11d core v2 writer", "UNKNOWN",
+        "this instance SPEAKS v2 (it parses, validates, digests and refuses by name) and WRITES v1: the "
+        "ontology tables hold {tag, implies} rows with no categories, so a v2 document cannot be emitted "
+        "from them yet. Named rather than implied, because a version whose reader exists and whose writer "
+        "does not is exactly the state a status line would otherwise round up")
 
 
 def main():
@@ -1156,7 +1202,7 @@ def main():
                c4_narrow_merged, c5_migrations_coherent, c6_suite, c7_build_clean,
                c8_aggregator_programme, c9_monetization_posture,
                c10_media_plane_posture, c10c_media_directory, c10d_export_invariant,
-               c11_federation_posture):
+               c11_federation_posture, c11c_core_v2):
         try:
             fn()
         except Exception as e:  # a clause that crashes is not a passing clause
