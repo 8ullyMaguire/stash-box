@@ -50,6 +50,17 @@ this file. See
 issues combined, and Phase 4 is a protocol design that cannot be correct before
 Elo produces stable taste vectors — taste is a peering input.
 
+That sentence describes the seven plan FILES above, and only those. The separate
+aggregator programme in `docs/plan/feature-content-aggregator.md` has since built
+overlapping work (its phases 1–7 and 9 are DONE there), so read that file for live status
+rather than treating this index as a completion record.
+
+**`feature-05`'s recommendation step has its own spec:** programme phase 7b in
+`docs/plan/feature-content-aggregator.md` → `docs/spec/feature-recommendation-eval.md`.
+The discovery phase shipped `forYou`, `similarScenes` and `similarPerformers` with no
+held-out score; 7b puts the evaluation harness first, and Step 1 of `feature-05` carries
+the status note (there is no `recommendations` table).
+
 ## Read the generator before trusting a plan
 
 The issue plans are **derived from the fixing commit's own diff**, not written by
