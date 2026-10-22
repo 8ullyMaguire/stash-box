@@ -1,9 +1,14 @@
 # Phase 5 — mobile app, annual awards, advanced recommendation engine, mesh-wide curation campaigns
 
-**Status: not started. Depends on Phases 1–4.**
+**Status: not started as a phase. The recommendation step's discovery half shipped in
+programme phase 7 (`forYou`, `similarScenes`, `similarPerformers`) and its evaluation half
+is specified in phase 7b (`docs/spec/feature-recommendation-eval.md`); annual awards,
+mesh-wide campaigns and the mobile app remain. Depends on Phases 1–4.**
 
 The last phase. Each of the four deliverables depends on data that only exists
-after the earlier phases, which is why none of it can be pulled forward.
+after the earlier phases. The recommendation step is the exception that proved the
+rule: phase 7 built the discovery data it needed, so its discovery half shipped there
+and its evaluation half is phase 7b; the remaining three deliverables stay here.
 
 ---
 
