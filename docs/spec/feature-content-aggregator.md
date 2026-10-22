@@ -347,6 +347,12 @@ behaviour. "New" = nothing to extend. Phase numbers are §Phases in
 | §22 | 6-phase roadmap | — | this plan |
 | §23 | 17 metrics with targets | completion/archive measured; no product metrics | 16 |
 
+**Phase 7b is not a parity row.** `docs/spec/feature-recommendation-eval.md` measures
+rows §8.1–8.9 rather than adding a mode: it evaluates the ranking surfaces phase 7 built
+against held-out votes and engagement, and it disposes of the 100-idea recommendation
+list against what this archive actually stores. The crosswalk's "7" column stays the
+implementation phase; 7b is its verification.
+
 ---
 
 ## 4. Reversals this spec makes, and what each costs

@@ -722,6 +722,23 @@ reads on arrival.
 | §8.7 follow notifications | phase 11 (growth owns notifications about people) |
 | §8.9 multiple saved session bookmarks | phase 16 (UI) |
 
+### 12.1 What this phase does not measure
+
+Phase 7 shipped ranking surfaces and no evaluator. `elo_votes` is an append-only stream
+of human pairwise labels, and nothing reads it as evidence; `forYou`, `similarScenes` and
+`similarPerformers` have no held-out score and no baseline. That is not a gap in this
+spec — it is the next phase's starting point, and it is specified separately in
+`docs/spec/feature-recommendation-eval.md` (programme phase 7b):
+
+- pairwise replay (E1) over `elo_votes`, with a Glicko replay rather than the stored
+  rating, because the stored row already contains the test answer;
+- held-out engagement (E2) over fingerprints, list items and published reviews;
+- ranking duels (E3) for scene ranking, which the performer-only matchup cannot label.
+
+The discovery-adjacent ideas that fit this archive — tag relations, co-engagement,
+scoped matchups, a tag profile — are the adopted workstreams there. The deferrals in the
+table above are unchanged; this subsection adds a reader, not a promise.
+
 ## 13. Verification, per slice
 
 - **Slice 1** — `internal/service/search/query_language_test.go`: a table of (text, expected

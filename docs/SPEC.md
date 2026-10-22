@@ -721,6 +721,12 @@ the archive.
 || 4 | Federation protocol + taste-based peering + preservation replication + cross-instance discovery |
 || 5 | Mobile app + annual awards + advanced recommendation engine + mesh-wide curation campaigns |
 
+**The recommendation engine in phase 5 is specified separately now:**
+`docs/spec/feature-recommendation-eval.md` (programme phase 7b) puts the evaluation loop
+before the rankers, because the discovery work already shipped `forYou`, `similarScenes`
+and `similarPerformers` with no held-out score. The five phases above are the original
+vision; the live programme and its order are `docs/plan/feature-content-aggregator.md`.
+
 ### 7.17 Mesh architecture — roles, attestations, and peering (amended 2026-09-29)
 
 Added from the owner's rewritten specification. §7.1–§7.16 are the earlier

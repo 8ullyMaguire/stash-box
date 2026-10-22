@@ -1,6 +1,6 @@
 # PLAN — the content aggregator programme (NexusXXX parity)
 
-Status: **in progress** — phases 1, 2, 3, 4, 5, 6, 7 and 9 are DONE and phase 17 has landed; phases 8 and 10–17 remain. Phase 6 (trust decay, vouching, heatmap, leaderboard, seasonal events) closed on 2026-10-15: seven slices, each done, verified and probe-killed, each with a vault note. Phase 8 is in progress: 8a is done and 8b is recorded with the phase's own verification attached. The one known gap inside a done phase: SweepDecay has no scheduler calling it, recorded in its own slice rather than left to be rediscovered. This line states the condition of the WHOLE programme, so it changes only when the last phase does.
+Status: **in progress** — phases 1, 2, 3, 4, 5, 6, 7 and 9 are DONE and phase 17 has landed; phases 8 and 10–17 remain, and phase 7b (recommendation evaluation, `docs/spec/feature-recommendation-eval.md`) is specified and not started. Phase 6 (trust decay, vouching, heatmap, leaderboard, seasonal events) closed on 2026-10-15: seven slices, each done, verified and probe-killed, each with a vault note. Phase 8 is in progress: 8a is done and 8b is recorded with the phase's own verification attached. The one known gap inside a done phase: SweepDecay has no scheduler calling it, recorded in its own slice rather than left to be rediscovered. This line states the condition of the WHOLE programme, so it changes only when the last phase does.
 five non-video content kinds) closed on 2026-10-14 with slice 3g: they are stored, scoped,
 scored, tagged, reviewed, rated, listed, and now creatable through the edit system, which is
 the repository’s one route for shared metadata. This doc is deliberately NOT marked Built
@@ -79,6 +79,11 @@ finished model instead of being retrofitted onto a changing one.
 Why the algorithm half (7.5 onwards) rather than a separate phase: it consumes the
 same tag graph and the same search surface, and a similarity feature that cannot be
 reached from a query is a feature nobody finds.
+
+**Phase 7b follows 7 immediately** (`docs/spec/feature-recommendation-eval.md`): it is
+the measurement of what 7 built, and it gates every later ranker, including phase 5's
+recommendation step. It is not a NexusXXX parity phase, so it takes a letter rather than
+renumbering the phases the parity table and `goal-check.py` already reference.
 
 ### 3. Breadth and durability, in parallel with the end of discovery
 
@@ -2133,6 +2138,81 @@ part of the commit message.
    **Not here, deliberately:** no follow notifications (phase 11), no visibility-editor UI (phase
    16), no TTL on a session cursor (an expiry would silently forget a position someone came back
    for), and no ranking input on the feed at all.
+
+## Phase 7b — recommendation evaluation, and the surfaces it unlocks
+
+**Goal:** turn the recommendations the phase 7 machinery already serves into a measured
+loop, then add only the surfaces the measurements can defend. **Spec:**
+`docs/spec/feature-recommendation-eval.md` (the evaluation triad, the 100-idea
+disposition, the decisions and the refusals). **Status: specified 2026-10-22, not
+started.**
+
+Why this is its own phase and not more slices of 7: phase 7 built the machinery and
+measured nothing. The tree has an append-only stream of human pairwise labels
+(`elo_votes`), an engagement stream (fingerprints, list items, reviews) and no evaluator
+at all — `grep -rni 'ndcg\|recall@\|AUC' --include='*.go'` finds only `CAUCASIAN` in
+generated enums. Every ranking idea that follows is therefore unfalsifiable until this
+phase lands.
+
+**Eight slices, in order. Each is one or more commits with a verification command whose
+output belongs in the commit message.**
+
+1. **W0 — the evaluation harness. Specified, not started.** `internal/eval/`
+   (`replay.go` — Glicko replay from the vote log; `pairwise.go` — E1; `engagement.go` —
+   E2; `rankers.go` — the baselines; `metrics.go` — accuracy/AUC/Recall@K/NDCG@K/MRR/
+   coverage/diversity and the cluster bootstrap), `cmd/sbx-eval/main.go`, migration
+   **145 `eval_runs`**, `scripts/eval-scratch.sh`.
+   **Verification:** `go test ./internal/eval/ -count=1` (oracle 1.0, reversed 0.0,
+   random 0.35–0.65, abstention coverage 0, leakage test) and two real runs
+   (`--suite pairwise`, `--suite engagement`) whose tables carry `n`, coverage and
+   intervals for `random`, `always-left` and `popularity` beside every candidate.
+   **Mutation-checked** by `scripts/mutate-eval.py` (constant AUC, reversed tie-break,
+   abstention counted correct, one leaked held-out row, vote-level bootstrap).
+2. **W1 — surfaces over what exists. Specified, not started.** The Similar tab on
+   `frontend/src/pages/scenes/Scene.tsx` (`similarScenes`), the similar panel on
+   `Performer.tsx`, the related-tags panel on `Tag.tsx` (empty until W3), the
+   leaderboard kind selector + deviation badge, `eloMatchup` scope args and the
+   `elo_matchup.sql` scope filters, and the batch matchup mode.
+   **Verification:** `go test ./internal/api/ -run 'EloLeaderboard|MatchupScope'`;
+   vitest render assertions per panel; `node node_modules/vite/bin/vite.js build`;
+   `/leaderboard` and `/curation/matchup` added to `e2e/tests/a11y.spec.ts`.
+3. **W2 — ranking duels. Specified, not started.** Migration **146 `ranking_duels`**,
+   `internal/service/rankingduel/`, the `rankingDuel`/`voteRankingDuel` operations, the
+   route at `frontend/src/pages/curation/RankingDuel.tsx`, and `--suite duels` in the
+   evaluator. A duel writes no Elo row; a test asserts it.
+   **Verification:** offer sides differ and are scoped; one answer persists, a second
+   is a no-op; another user's duel is refused; `elo_votes`/`elo_ratings` unchanged.
+4. **W3 — tag discovery. Specified, not started.** `Tag.relatedTags` (co-occurrence,
+   Jaccard, quality-weighted, implication kinds), `trendingTags`, `Tag.trend`, and the
+   tag profile page. Derived at read time.
+   **Verification:** the fixture where A/B co-occur 3×, A implies C, D co-occurs once;
+   counts equal `queryScenes` under `IncludesAll`; self and deleted tags absent.
+5. **W4 — performer similarity v2. Specified, not started.**
+   `Performer.relatedPerformers` — co-occurrence + tag cosine + co-favorite, each as a
+   reason. `similarPerformers` is untouched (its `minShared` contract is about shared
+   scenes).
+   **Verification:** two performers sharing no scene but many tags appear in the new
+   field and not the old one; the score reconstructs from its reasons; E1 records the
+   content ranker's delta.
+6. **W5 — scene co-engagement. Specified, not started.**
+   `Scene.coEngagedScenes` — three bounded arms merged in Go (the phase 7 §10.2
+   pattern), support = distinct users, signal kinds as evidence.
+   **Verification:** the U1/U2/U3 fixture; support floor; self-exclusion; viewer's own
+   engagements excluded; mutation-check the distinct count and the floor.
+7. **W6 — the ranker lab. Specified, not started.** Recent-window affinity, IDF, MMR,
+   RRF, item-item CF, shrunk Glicko, Bradley–Terry vs Glicko — each a flag, each
+   promoted only when the paired bootstrap interval excludes zero. **No default
+   changes in this slice.**
+8. **W7 — the dashboard. Specified, not started.** `evalRuns` (admin) and the Ranking
+   quality section over `eval_runs`.
+   **Verification:** two runs newest-first; admin gate; a vitest render test; the a11y
+   sweep includes the route.
+
+**Two things the phase deliberately does not do.** It does not add an impressions
+table, so interleaving and bandits stay deferred with their precondition named (spec
+§2.4). And it does not make the arena entity-generic: the matchup query joins
+`performers` and the GraphQL pair is typed `Performer`, so a scene arena is a product
+decision before it is a query.
 
 ## Phase 8 — social — **DONE** (slices 8a–8e built; 8f forums REMOVED by the 2026-10-15 respec)
 

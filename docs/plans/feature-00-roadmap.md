@@ -41,6 +41,13 @@ than the issues. They are specced here rather than in `docs/PLAN.md` because
 | 4. Federation protocol, taste-based peering, preservation replication, cross-instance discovery | [phase-4-federation-preservation.md](phase-4-federation-preservation.md) | Phase 1–3 |
 | 5. Mobile app, awards, advanced recommendations, mesh-wide curation campaigns | [phase-5-mobile-awards-recommendations.md](phase-5-mobile-awards-recommendations.md) | Phase 1–4 |
 
+**Phase 5's recommendation step has its own spec now, because phase 7 changed its
+premise.** The discovery work shipped `forYou`, `similarScenes` and `similarPerformers`
+and left no evaluator; `docs/spec/feature-recommendation-eval.md` (programme phase 7b)
+puts the evaluation loop first and disposes of the 100-idea recommendation list against
+what this archive actually stores. Step 1 of the Phase 5 file is annotated with what is
+superseded and what remains (the awards and campaign steps are unchanged).
+
 ## Sizing, honestly
 
 Phases 1 and 2 are each larger than all 26 issues combined. Phase 4 is the largest

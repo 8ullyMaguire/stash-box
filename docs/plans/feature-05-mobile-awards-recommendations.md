@@ -9,12 +9,42 @@ after the earlier phases, which is why none of it can be pulled forward.
 
 ## Step 1 — the recommendation engine
 
-Vision §4 and §14. This is the flywheel made concrete, and it is the component
-that makes the whole thing worth returning to.
+**Status: superseded in part, 2026-10-22.** The discovery phase (programme phase 7)
+shipped `forYou` (tag affinity derived from fingerprints, lists and reviews, with
+serendipity), `similarScenes` (evidence-based), `similarPerformers` (co-occurrence), the
+search language, saved searches and the freshness views. This step was written before
+that, so its storage decision is now wrong and its three stages are already half built.
+The live specification is `docs/spec/feature-recommendation-eval.md` (programme phase
+7b). Read that before writing code here.
 
-Start with the simplest thing that can be shown to work, and **measure it before
-adding sophistication**. A recommendation system whose quality is asserted rather
-than measured is the usual failure.
+What phase 7b decides, in place of the text below:
+
+- **The evaluation harness comes first** (W0): pairwise replay over `elo_votes` and
+  held-out engagement over fingerprints/lists/reviews, with random, always-left and
+  popularity baselines printed beside every candidate.
+- **The two taste models compete; no third is invented.** `taste_vectors` (item-based,
+  stored, migration 77) and `forYou` affinity (tag-based, derived, phase 7 §9) are
+  rankers in the harness. Neither is exposed as "the" profile until one wins.
+- **There is no `recommendations` table.** The table below stores a score per entity per
+  algorithm; that is a second answer able to drift from the signals it came from, which
+  is exactly what phase 7 §9 refused. The equivalent is `eval_runs`
+  (migration 145): one row per *run*, carrying the config, seed, cutoff, git sha and
+  metrics — a snapshot of the experiment, not a cached ranking.
+- **The three families survive as candidates, not as columns.** Most-elo-rated among
+  co-voted entities is the `glicko-replay`/`cf` baseline; item-item CF is a W6 ranker;
+  the taste blend is the `affinity` ranker and RRF fusion. Each is promoted only when
+  its paired bootstrap interval excludes zero.
+- **"Store all three and switch by config" becomes "record all three and switch after
+  the evidence."** A config switch with no measured delta is a preference, not an
+  algorithm decision.
+
+What remains true from the original step, unchanged: the popularity baseline must be
+beaten before anything sophisticated ships; ranking must be deterministic for the same
+inputs (a map-iteration leak is caught only by exact-order tests); a user with no
+signals gets the baseline rather than an empty list; an entity with no signal does not
+appear; and a blended score must lie between its components.
+
+### For the record — the superseded text
 
 | Stage | Algorithm | Why |
 |---|---|---|
@@ -23,36 +53,19 @@ than measured is the usual failure.
 | 3 | Blend with taste-profile similarity | Uses the federation work from Phase 4. |
 
 ```sql
-CREATE TABLE recommendations (
+CREATE TABLE recommendations (          -- NOT built; see the status note above.
     entity_type TEXT NOT NULL,
     entity_id UUID NOT NULL,
-    -- 'popular' | 'cf' | 'blended'
-    algorithm TEXT NOT NULL,
+    algorithm TEXT NOT NULL,            -- 'popular' | 'cf' | 'blended'
     score REAL NOT NULL,
     generated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (entity_type, entity_id, algorithm)
 );
 ```
 
-**Store all three algorithms and switch between them by config.** That is what
-makes the quality comparison possible; storing only the current one destroys the
-evidence for every future tuning decision.
-
-**Ranking must be deterministic for the same inputs.** Go map iteration order
-leaks into sorted output constantly. Any sort over a map needs an explicit
-tie-break, and a test that asserts exact ordering on a fixed input is the only
-thing that catches it.
-
-```bash
-go test ./internal/recommend/ -count=1 -v
-```
-
-Required: identical inputs produce identical ordering across 100 runs (this is
-the test that catches map-order leakage, and it must run the loop); a user with
-no votes gets the popularity baseline rather than an empty list; an entity with
-no votes does not appear; the blended score is between its components.
-
-The last one is the guard against a blend formula that is not actually a blend.
+The two verification sentences that still apply are in phase 7b's completion bar: a
+ranker that cannot beat `always-left` or `popularity` has not been evaluated, and every
+new surface must be named by at least one recorded run.
 
 ## Step 2 — annual awards
 
