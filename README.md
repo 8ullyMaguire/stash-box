@@ -336,6 +336,28 @@ You can access the GraphQL playground at `host:port/playground`, and the GraphQL
 1. Run `make generate` to create generated files if they have been changed.
 2. Run `make ui build` to build the executable for your current platform.
 
+# Stack and language policy
+
+What this repo is: Go (module `github.com/stashapp/stash-box`) with gqlgen for
+the GraphQL surface, sqlx for storage, PostgreSQL, and a TypeScript front end
+built with pnpm — `go.mod`, `Makefile` and `frontend/package.json` are the
+source of truth for versions.
+
+The estate default for new work is an axum + Postgres core, a SvelteKit front
+end, the shared design tokens for anything that draws a UI, and contracts
+between services — work-manifest v1, OpenAPI, RSS/ActivityPub — instead of a
+shared database. Services read each other's published contracts; they do not
+read each other's tables.
+
+**This repo is an exception, deliberately: upstream-shaped: its Go idioms are
+the point, and it must stay close to the upstream project it interoperates
+with.** Restating this fork in the estate's default stack would cost more than
+it returns, because the value here is that upstream patches and upstream
+schema reasoning keep applying.
+
+The rules that apply to every repo in the estate are in
+`10-Projects/estate-master-prompt.md` in the secondbrain vault.
+
 # FAQ
 
 > I have a question that needs to be answered here.
