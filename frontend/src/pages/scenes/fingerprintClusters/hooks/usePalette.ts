@@ -1,22 +1,12 @@
 import { useCallback, useMemo } from "react";
 
-const PALETTE = [
-  "#4e79a7",
-  "#f28e2b",
-  "#e15759",
-  "#76b7b2",
-  "#59a14f",
-  "#edc948",
-  "#b07aa1",
-  "#ff9da7",
-  "#9c755f",
-  "#bab0ac",
-];
+import { CLUSTER_PALETTE } from "../../../../theme/palette";
+
 
 const sceneColor = (sceneId: string, palette: Map<string, string>) => {
   const existing = palette.get(sceneId);
   if (existing) return existing;
-  const c = PALETTE[palette.size % PALETTE.length];
+  const c = CLUSTER_PALETTE[palette.size % CLUSTER_PALETTE.length];
   palette.set(sceneId, c);
   return c;
 };

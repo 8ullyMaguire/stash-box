@@ -22,41 +22,11 @@ export type ResolvedTheme = "light" | "dark";
 export const THEME_STORAGE_KEY = "stashbox.theme";
 
 /**
- * The token values, declared here as the single source of truth for the fallback.
- *
- * These DUPLICATE the `:root` block in theme.scss on purpose. A CSS custom property is
- * the mechanism the stylesheets consume, but the resolver needs the same values in JS to
- * resolve "system" without reading computed style -- and reading `getComputedStyle` to
- * learn the answer would force a style recalculation on every theme change and on every
- * mount. A duplicate that is asserted equal in a test beats a live read that can fail.
+ * The palette values moved to `src/theme/palette.ts`, which declares itself the one auditable place for
+ * colour literals. This module keeps the MACHINERY -- resolving "system", applying the attribute, storing
+ * the choice -- and re-exports the values so existing importers are untouched.
  */
-export const themeTokens: Record<ResolvedTheme, Record<string, string>> = {
-  dark: {
-    "--sb-bg": "#202b33",
-    "--sb-surface": "#30404d",
-    "--sb-text": "#f5f8fa",
-    "--sb-text-muted": "#bfccd6",
-    "--sb-code": "#f0a6c8",
-    "--sb-border": "#394b59",
-    "--sb-link": "#6cc4f2",
-    "--sb-danger-text": "#ff9e9e",
-  },
-  light: {
-    // Not derived from the dark palette by inversion. Inverting #202b33 gives a
-    // brownish grey, and every hardcoded text colour would have to be inverted too --
-    // which is how you end up with unreadable contrast. These are picked values, chosen
-    // against the same `$primary` accents the dark palette already uses.
-    "--sb-bg": "#f5f8fa",
-    "--sb-surface": "#ffffff",
-    "--sb-text": "#182026",
-    "--sb-text-muted": "#566877",
-    "--sb-code": "#a3236b",
-    "--sb-border": "#d3dde4",
-    "--sb-link": "#0b4a6b",
-    "--sb-danger-text": "#7d1616",
-  },
-};
-
+export { themeTokens } from "./theme/palette";
 /** Reads the stored choice, defaulting to "system" when absent or unreadable. */
 export function readStoredTheme(): ThemeChoice {
   try {
