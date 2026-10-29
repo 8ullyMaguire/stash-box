@@ -2,6 +2,7 @@ package api
 
 import (
 	"embed"
+	"encoding/json"
 	"html/template"
 	"io/fs"
 	"net/http"
@@ -91,8 +92,38 @@ func (rr rootRoutes) assets(w http.ResponseWriter, r *http.Request) {
 }
 
 func (rr rootRoutes) app(w http.ResponseWriter, r *http.Request) {
+	// An API-shaped path that no route claimed answers like an API, not like a page.
+	//
+	// `/*` is the last registration on this router, so it is what handles every path chi did not
+	// match — including `/api/...` and `/graphql/...`. Serving the SPA shell there gave a GraphQL
+	// or JSON client `200 text/html`, which it reports as a parse error while every status-code
+	// monitor calls the endpoint healthy. Measured on the live instance before this change:
+	// `GET /api/__probe_no_such_route__` returned 200 text/html and 1,131 bytes of index.html.
+	if isAPIPath(r.URL.Path) {
+		body, _ := json.Marshal(map[string]string{
+			"error":  "not_found",
+			"detail": "no API route for " + r.URL.Path,
+		})
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write(body)
+		return
+	}
 	writeAppHeaders(w)
 	_, _ = w.Write(rr.index)
+}
+
+// isAPIPath reports whether a path belongs to a machine surface rather than the SPA.
+//
+// `/graphql` is included beside `/api` because this server's other public client is a GraphQL API:
+// an unrouted `/graphql/...` path is the same mistake with a different name.
+func isAPIPath(path string) bool {
+	for _, prefix := range []string{"/api", "/graphql"} {
+		if path == prefix || strings.HasPrefix(path, prefix+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 // writeAppHeaders sets the security headers used when serving an SPA index.
