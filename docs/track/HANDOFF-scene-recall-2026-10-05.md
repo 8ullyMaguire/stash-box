@@ -138,7 +138,7 @@ A `postgres://` scheme makes pgx parse it as `user=alvaro` and the suite dies in
 build and is not. `docs/track/HANDOFF-R074.md` records this at length.
 
 **Port 55434, and only one suite at a time.** `stashbox-pg-r074` (5436) is
-exited and abandoned; `lh-pg-test` (55433) is lorehaven's. Two suites on one
+exited and abandoned; `lh-pg-test` (55433) is darkhold's. Two suites on one
 database deadlock each other. `make it` already passes `-p 1` for this reason
 (`Makefile:114`).
 
