@@ -45,6 +45,12 @@ moves metadata, rankings, reviews, snapshots and questions. It never moves conte
   unless configured otherwise, and trust is what unlocks access.
 - Local-first: an instance works fully on its own; the mesh adds reach, not
   required function.
+- Every surface past the kernel is an **extension**, and a fresh instance ships the
+  extensions that serve the four priorities — quality cataloguing, recommendations on
+  every surface, rediscovery of obscure work, user-driven with minimal operator
+  oversight. The kernel is only the claim write path, entity identity, the extension
+  host and the migration runner; a reader who disagrees with a default turns it off
+  instead of forking (`docs/EXTENSIONS.md`).
 
 **Honest state.** Built, tested and pushed: the metadata core, the tag ontology, the
 identification board and its peer federation, the discovery layer (query language,

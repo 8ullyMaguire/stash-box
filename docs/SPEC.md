@@ -2166,3 +2166,31 @@ The owner's 2026-10-16 request is specified per site in `docs/ROADMAP-guest-trus
 `secondbrain/10-Projects/2026-10-16-guest-access-trust-and-self-governance.md` (items GS-1…GS-5, each configurable). This repo's deltas, firewalls and order of work are
 in that file; it is the place to start, not this pointer.
 
+## Rediscovery intake and the extension architecture (adopted 2026-10-31)
+
+The owner pasted a 600-feature external spec ("Rediscovery", a metadata-only collaborative cataloguing
+and recommendation platform) and asked for three things: keep it in the repo, take every feature that
+fits, and reframe the product so **each instance admin chooses their own experience — everything an
+extension, with defaults set by four priorities** (quality content worth reading, recommendations on
+every surface, rediscovery of obscure work, user-driven with minimal operator oversight).
+
+| document | what it holds |
+|---|---|
+| `docs/spec/rediscovery-2026-10-31.md` | the spec verbatim, 600 numbered features |
+| `docs/spec/rediscovery-adoption.md` | one verdict per feature — `present` (with the type that implements it), `conflict` (with the commitment it breaks), `fit` |
+| `docs/EXTENSIONS.md` | kernel vs extension, the manifest and capability contract, the fourteen seams, the taste-first default profile |
+| `docs/ROADMAP-extensions.md` | P0–P3: build the host first, then turn the priorities into seams |
+
+Measured from the spec's own numbering: **220 of 600 are already present in this fork**, 18 conflict with
+a premise commitment or the stack, and 362 fit and were filed as `discussion` rows on the Concord
+project (`stash-box`). The concentration matters more than the totals — sections A, B, C, F and G are
+mostly `present`, which makes them a list of tuning knobs rather than a build list; section **O, the
+extension system, is the genuinely missing structure** and is the one thing the owner asked for that
+this fork does not have.
+
+Two intake positions were overridden on the owner's instruction, and both are recorded rather than
+quietly edited: the spec's §539 ("ship no plugins enabled by default") is inverted — defaults tuned to
+the stated priorities are the point — and the seven off-by-default extensions keep their reasons next
+to the switch, so an operator turning one on knows what changes about the product.
+
+
