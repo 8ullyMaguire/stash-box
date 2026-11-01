@@ -2188,6 +2188,34 @@ mostly `present`, which makes them a list of tuning knobs rather than a build li
 extension system, is the genuinely missing structure** and is the one thing the owner asked for that
 this fork does not have.
 
+### The same treatment for suki, twice
+
+Suki (`~/code/rust/suki`, an image board for fan art) is the closest sibling this fork has, so it was
+taken through the same process in two passes:
+
+| pass | source | filed | outcome |
+|---|---|---|---|
+| capabilities | suki `docs/FEATURES.csv` (173 rows) | 76 | 95 already present here, 2 conflict (`openapi`, and suki's own `schema only` defect note) |
+| ideas | suki `docs/brainstorm/` + Concord project `suki` (471 candidates) | 290 | 13 duplicates, 87 prose fragments, 77 unrouted (listed, not deleted), 1 conflict (`API v2 and OpenAPI document`) |
+
+Documents: `docs/spec/suki-capability-adoption.md` and `docs/spec/suki-ideas-addendum.md`, with the
+dropped items kept in `docs/spec/suki-ideas-dropped.tsv`. Project total across all three intakes:
+**729 features**, 728 `discussion` + 1 pre-existing `draft`.
+
+The finding that changes work order rather than scope: suki's catalogue, community, moderation and API are
+mostly already built here, while its **ingest** half (import-run records, per-source yield, backfill
+cursors, refusal backoff, source confidence) is absent — the same seam the extension architecture already
+names. Its brainstorms then contribute an ordering discipline the roadmap now carries as S1–S6:
+**instruments before surfaces** — a rollup and a decay-weighted count before any trending page, a dated
+score before any ranking, evidence before any preservation claim.
+
+Several suki ADRs are adopted as spec rules rather than re-derived, because they answer questions this
+fork has open: a manifest is a claim about a moment (0104), coverage is a weighted share (0103), an
+assignment is a row and an exposure is a denominator (0105), a ranking that ages must carry its clock
+(0109), an editorial slot must say whose voice it is (0108), an invite is an edge or it is a rumour (0087),
+and affinity accelerates privilege but never imposes punishment (0088).
+
+
 Two intake positions were overridden on the owner's instruction, and both are recorded rather than
 quietly edited: the spec's §539 ("ship no plugins enabled by default") is inverted — defaults tuned to
 the stated priorities are the point — and the seven off-by-default extensions keep their reasons next

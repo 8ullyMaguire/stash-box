@@ -101,6 +101,10 @@ priorities:
 | `ux-density` — Dense reading UI | quality | Density is a taste decision that favours browsing; the reader should need one screen per decision. |
 | `i18n-a11y` — Internationalisation and accessibility | quality | An archive that cannot be read by a screen reader has quietly excluded a share of its curators. |
 | `docs-kit` — Documentation and onboarding | minimal-operator | Every question answered by docs is a question the operator does not answer twice. |
+| `ingest` — Ingest and source adapters | quality | An archive grows by ingesting other archives, so every ranking downstream is only as good as what arrived. |
+| `moderation` — Moderation queue and versioned edits | minimal-operator | The one queue that must not depend on the operator being awake; versioned edits are what make a revert possible. |
+| `preservation` — Preservation and mirroring | minimal-operator | The premise promises preservation by default, and a mirror nobody checks is a claim rather than a copy. |
+| `api-surface` — Query surface | integration | Every client reads one contract; a second surface is how contracts start to disagree. |
 
 And these ship **disabled**, each with the reason recorded, so an operator turning one on knows what
 they are buying:

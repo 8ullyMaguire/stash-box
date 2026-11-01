@@ -1,0 +1,183 @@
+Character pages	same batch: cohort pages
+Tag of the week	Best of the week
+Ask for a recommendation	same batch: explain a recommendation
+Series completion	already in this batch
+Per-key rate limiting	API rate limiting
+Search hints under the box	already in this batch
+Character pages	same batch: cohort pages
+Best of the week	Best of the week
+Collection slideshow and position	same batch: collection reading position
+Rejected-scene memory	already in this batch
+A weekly digest	same batch: weekly taste digest
+Retention	same batch: cohort retention
+Performer concentration	same batch: performer introduction
+--- excluded ---
+Batch tagging from the grid	no topic matched
+Per-post history: image_event	no topic matched
+Implication suggestions from co-occurrence	no topic matched
+Visual near-duplicate detection from perceptual hash	no topic matched
+Instance directory and network map	no topic matched
+TOTP two-factor and session review	no topic matched
+Offline-first PWA	no topic matched
+Localisation of the templates	no topic matched
+Scene federation: signed snapshot exchange	no topic matched
+Shimmie2: replace the file, keep the post	no topic matched
+Shimmie2: trash and tombstones	no topic matched
+Shimmie2: named permissions and role grants	no topic matched
+--approve-pending --min-taste	prose fragment, not a feature
+Known-author auto-approve	no topic matched
+More shapes in the audit sweep	no topic matched
+Scene of the day	no topic matched
+Per-performer diminishing returns	no topic matched
+'Surprise me' (alpha = 1)	prose fragment, not a feature
+Interleaved results, both labelled	no topic matched
+Convergence bonus	no topic matched
+'You might not have seen'	prose fragment, not a feature
+Performer introduction	no topic matched
+'Why you'll like this'	prose fragment, not a feature
+End-of-session digest	no topic matched
+'Curated only' search filter	prose fragment, not a feature
+'See what the curator found for this query'	prose fragment, not a feature
+A leaving page that helps	no topic matched
+Series completion	no topic matched
+Same performer, other work	no topic matched
+Series pages as objects	no topic matched
+Start here	no topic matched
+The mechanical rules	no topic matched
+Three ways in	no topic matched
+One tip per surface, once	no topic matched
+Why is this here?	no topic matched
+Where your picks came from	no topic matched
+Teach the negative	no topic matched
+An anniversary read	no topic matched
+Themed weeks	no topic matched
+Behind the pin	no topic matched
+Reader suggestions	no topic matched
+Pick up where you left off	no topic matched
+Saved views	no topic matched
+A digest a person can shape	no topic matched
+Quiet hours	no topic matched
+Your archive	no topic matched
+On this day	no topic matched
+A watch with a cadence	no topic matched
+Return-visit diff	no topic matched
+An editable profile	no topic matched
+Not this again	no topic matched
+File a complaint from the site	no topic matched
+Preference history	no topic matched
+Ask the profile	no topic matched
+The funnel	no topic matched
+Keep it weird	no topic matched
+One performer per page	no topic matched
+What didn't work here	no topic matched
+The anti-gaming clamp	no topic matched
+Named sessions	no topic matched
+Suspicious-login alert	no topic matched
+Why this scored	no topic matched
+Per-rating profiles	no topic matched
+Diminishing returns per performer	no topic matched
+Keyed cursors everywhere	no topic matched
+Series pages	no topic matched
+Calendar view	no topic matched
+Timeline view	no topic matched
+Compare two scenes	no topic matched
+Notification preference matrix	no topic matched
+Related links	no topic matched
+Duplicate candidates by perceptual hash	no topic matched
+Stale scene review	no topic matched
+Note sync refresh	no topic matched
+Browser extension	suki-implementation specific
+Discord slash commands	no topic matched
+Generated OpenAPI	suki-implementation specific
+Mention rate limit	no topic matched
+What the map says is not built	no topic matched
+dHash backfill, in the column that is already there	prose fragment, not a feature
+'Find this image elsewhere', four outbound links	prose fragment, not a feature
+Whole-catalogue cheap wins the hash unlocks	no topic matched
+Assisted-tagging copy, written before the feature	no topic matched
+tag_suggestion: a table, and a tagger that runs off the server	prose fragment, not a feature
+Specification, schema and migrations	no topic matched
+SvelteKit SPA front end	no topic matched
+the front-end band, part one	prose fragment, not a feature
+the front-end band, part two, and the seven API endpoints	prose fragment, not a feature
+publication dates and artist pages	prose fragment, not a feature
+popularity	prose fragment, not a feature
+query-path safety	prose fragment, not a feature
+the "Planned" band	prose fragment, not a feature
+the deploy layer	prose fragment, not a feature
+the "Later" band, 38 items	prose fragment, not a feature
+preservation: what survives this disk	prose fragment, not a feature
+the arena: one picture against another	prose fragment, not a feature
+pull by query: gravity and discovery	prose fragment, not a feature
+the wiki, written down	prose fragment, not a feature
+the tag index	prose fragment, not a feature
+settings hub	prose fragment, not a feature
+ratings in words	prose fragment, not a feature
+the booru catalogue	prose fragment, not a feature
+a taste profile from favourites	prose fragment, not a feature
+the landing page is safe	prose fragment, not a feature
+the person's copy of the site	prose fragment, not a feature
+multi-layer storage: 20 GiB kept, 80 GiB held	prose fragment, not a feature
+taste gravity: one profile, one order, every surface	prose fragment, not a feature
+pools: pictures in an order	prose fragment, not a feature
+parent and child: the family a picture belongs to	prose fragment, not a feature
+notes: rectangles of commentary	prose fragment, not a feature
+at least as featureful as the booru it replaces, in suki's own shape	prose fragment, not a feature
+an open door and a way out	prose fragment, not a feature
+the knobs are the product	prose fragment, not a feature
+the sitemap was offering what the front page would not show	prose fragment, not a feature
+the review queue had no surface, and a switch that lasted one import	prose fragment, not a feature
+the grid was showing the same picture twice	prose fragment, not a feature
+an account could not write, ever	prose fragment, not a feature
+one accented title cost a source its whole crawl	prose fragment, not a feature
+the forum stays shut until there is a conversation	prose fragment, not a feature
+the mirrors keep themselves	prose fragment, not a feature
+the notes the source already made	prose fragment, not a feature
+a pool the source already arranged	prose fragment, not a feature
+the parent link the sources were already publishing	prose fragment, not a feature
+watched searches: the same row, from the other page	prose fragment, not a feature
+artist commentary: surfacing, not a second field	prose fragment, not a feature
+DMail: the private one	no topic matched
+watched tags: the one click that was missing	prose fragment, not a feature
+Password reset without a working mailer	no topic matched
+the things M62 left out, and the account somebody can always get back into	prose fragment, not a feature
+leaderboard with streaks, and /stats retired	prose fragment, not a feature
+what changed on a picture, and put it back	prose fragment, not a feature
+merging a copy into its keeper	prose fragment, not a feature
+`invite_use(invite_code, user_id, used_at, ip_hash)`	prose fragment, not a feature
+`app_user.invited_by`	prose fragment, not a feature
+Uses and expiry already exist	prose fragment, not a feature
+Revocation	prose fragment, not a feature
+A note on every edge	prose fragment, not a feature
+A count of logs the operator chose not to publish	prose fragment, not a feature
+Never a log without a reader test	prose fragment, not a feature
+#3 + #4, now	prose fragment, not a feature
+#36 + #39 + #40	prose fragment, not a feature
+#21 + #23	prose fragment, not a feature
+#38 is the fork, not the destination	prose fragment, not a feature
+`link` and `link_health` tables mirroring `mirror` + `mirror_health_check`	prose fragment, not a feature
+`link_check` on a timer	prose fragment, not a feature
+Show who added a link, and how many links from that person are still alive	prose fragment, not a feature
+`nofollow` and a visible "leaves this site" marker	prose fragment, not a feature
+Never a directory of suki's own pages	prose fragment, not a feature
+#1 + #2 + #5	prose fragment, not a feature
+#3 + #6 + #7	prose fragment, not a feature
+#10 + #11	prose fragment, not a feature
+#12 waits on accounts	prose fragment, not a feature
+Two structures do carry time	measurement note, not a feature
+`tag_daily(tag_id, day, pictures, sources)`	prose fragment, not a feature
+`artist_daily(author, day, pictures)`	prose fragment, not a feature
+`tag_momentum` as a stored column	prose fragment, not a feature
+`import_run` as the batch unit	prose fragment, not a feature
+"I came" trend	prose fragment, not a feature
+Show the two counts, never a bare arrow	prose fragment, not a feature
+#1 + #3 + #4	prose fragment, not a feature
+#25 + #27	prose fragment, not a feature
+#9	prose fragment, not a feature
+#12 + #7	prose fragment, not a feature
+#30	prose fragment, not a feature
+"Preserved by N instances"	prose fragment, not a feature
+"What's missing" prompt after save	prose fragment, not a feature
+A user whose taste mismatches the corpus is better served elsewhere	prose fragment, not a feature
+--- conflicts ---
+API v2 and OpenAPI document	GraphQL is the contract here; a second REST surface with an OpenAPI document is the surface already rejected as core.

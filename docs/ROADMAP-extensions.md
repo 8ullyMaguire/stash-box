@@ -23,6 +23,8 @@ makes later work honest outranks a feature that makes it bigger, and defects out
 7. `governance.threshold`: quorum, trust rungs and window as extension config, not constants.
 8. `moderation.triage`: spam heuristics and report pre-sort, so the operator's queue shrinks without the
    operator.
+9. `ingest`: source adapters as extensions (tag map per source, refusal backoff, backfill cursor, import-run
+   records), so adding an archive is installing an extension rather than editing a fetcher.
 
 ## P2 — the intake's genuinely new ground
 
@@ -30,13 +32,35 @@ makes later work honest outranks a feature that makes it bigger, and defects out
 10. Taste profiles (multiple per account) and `identity` privacy levels — the mechanism that lets one
     person curate two tastes without poisoning either vector.
 11. `search.rank` extension + typo tolerance + per-user saved-search feeds.
-12. `ingest.adapter` as an extension surface, replacing the hardcoded source list.
+12. `preservation`: mirror health, dead-link probing, and a restore drill that is scheduled rather than
+    promised. The archive's claim is that a work survives, and an unchecked mirror does not support it.
 
 ## P3 — off-by-default extensions, built only when an instance asks
 
 13. `forums`, `games`, `editorial`, `rest-facade`, `sqlite-backend`, `ssr-frontend` — each is a real
     project, and each conflicts with something in the premise or the stack. Build on request, never by
     default, and never as a silent toggle that changes the product's character.
+
+## S1–S6 — suki-derived work, in dependency order
+
+The suki intake (`docs/spec/suki-ideas-addendum.md`, 290 rows) adds one block that is not a new product
+idea but an ordering discipline: instruments before surfaces.
+
+- **S1 · ranking instruments.** Daily rollup per tag and per performer, a decay-weighted count rather than
+  a bare window, a stated minimum support, and two counts rendered side by side. Every trend surface is an
+  opinion with a chart on it until this exists.
+- **S2 · per-surface blend.** Search, similar, tag pages and the home rail want different rankers, and a
+  stored score carries the time it was computed (suki ADR 0109).
+- **S3 · preservation as evidence.** Signed, dated manifests; existence proofs; "preserved by N" rendered
+  from attestations; drift alerts that pause pulls and never delete what was mirrored.
+- **S4 · invites as an edge.** `invite_use(invite_code, user_id, used_at)` before any invite tree, plus a
+  public modlog and interest-coded invites.
+- **S5 · clusters and weighted coverage.** A vocabulary between "one tag" and "the ontology", plus the
+  instrument that says whether the corpus is drifting from the profile.
+- **S6 · power-user surface.** TUI/CLI/keyboard, last, because it multiplies whatever already exists.
+
+Two rules from that intake bind this roadmap: an extension is code behind a switch (already the contract in
+`docs/EXTENSIONS.md` §2), and affinity may accelerate privilege but never impose punishment.
 
 ## Deliberately not ordered
 
