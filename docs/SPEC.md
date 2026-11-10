@@ -548,6 +548,15 @@ lens. Users may join multiple instances and carry a portable taste fingerprint.
 Trust and reputation can be attested across instances while each operator keeps
 local permissions.
 
+**What gravity is, estate-wide (2026-11-10).** The instance field is this instance's taste, folded from
+its declared sources — the operator and, where declared, a high-trust subset at explicit weights, never
+hard-coded. The reader field is the reader's own learned taste. Every surface ranks
+`(1 − g(u)) · local + g(u) · instance`, where `g(u)` rises with the reader's accumulated signals to a
+ceiling below 1.0; the "gravity slider" and the per-surface slider are that `g` exposed as a brake the
+reader owns. Cross-mesh ranking adds a third, federated term — peer similarity — which is an instance
+field over instances, not over items, and must not be confused with the reader's own. Definition and
+invariants: `10-Projects/gravity-model.md`.
+
 ### 7.3 Preservation by default
 
 Every content object — scene, snapshot set, collage, metadata record — has a
